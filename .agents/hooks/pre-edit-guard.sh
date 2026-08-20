@@ -1,0 +1,99 @@
+#!/bin/bash
+# Hook: refuse a write to a generated file, at the moment the write is attempted.
+#
+# One script, two callers. `.claude/settings.json` registers it for Claude Code's Edit/Write/
+# MultiEdit; `.codex/hooks.json` registers it for Codex's Edit/Write/apply_patch. Both send JSON on
+# stdin and both accept the same `hookSpecificOutput` deny shape, so the only thing that differs is
+# where the path hides: Claude Code sends `tool_input.file_path`, Codex's apply_patch sends the
+# whole patch as `tool_input.command` with the paths inside it.
+#
+# Why a hook and not a rule in prose. "CLAUDE.md is a generated file and must not be edited
+# directly" is stated twice in CLAUDE.md itself, and until now nothing enforced it. The gate used to
+# catch the drift afterwards; since the gate learned to refresh generated artifacts itself, a manual
+# edit is simply overwritten on the next run — the work disappears without a word. A refusal at the
+# call site is the only place the agent still learns anything.
+#
+# The list is not repeated here. `make print-generated-paths` owns it, the pre-commit hook reads the
+# same target, and the copy that used to live in that hook had already drifted once: it named six of
+# the eight outputs, so a regenerated file went unstaged and the commit passed with the output left
+# behind.
+#
+# Paths are compared as absolute. Edit, Write and MultiEdit document `file_path` as "The absolute
+# path to the file to modify", so comparing against the repo-relative spellings `make` prints would
+# have matched nothing, ever — and the hook would have looked installed while denying nothing.
+
+set -uo pipefail
+
+payload=$(cat)
+
+# **LOGIC_STEP**: jq when it is there, python3 when it is not. Neither is guaranteed on a fresh
+# machine, and a hook that dies on a missing parser would block every edit in the repository, so a
+# failure to read the payload falls through to "allow" rather than to "deny".
+read_targets() {
+    if command -v python3 >/dev/null 2>&1; then
+        printf '%s' "$payload" | python3 -c '
+import json, re, sys
+
+try:
+    tool_input = json.load(sys.stdin).get("tool_input", {})
+except Exception:
+    raise SystemExit(0)
+
+direct = tool_input.get("file_path")
+if direct:
+    print(direct)
+
+# apply_patch carries every touched path inside the patch body itself.
+command = tool_input.get("command") or ""
+if isinstance(command, list):
+    command = " ".join(str(part) for part in command)
+for line in re.findall(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", command, re.M):
+    print(line.strip())
+' 2>/dev/null
+    elif command -v jq >/dev/null 2>&1; then
+        printf '%s' "$payload" | jq -r '.tool_input.file_path // empty' 2>/dev/null
+    fi
+}
+
+targets=$(read_targets)
+[ -n "$targets" ] || exit 0
+
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+generated=$(make -s -C "$repo_root" print-generated-paths 2>/dev/null) || exit 0
+[ -n "$generated" ] || exit 0
+
+deny() {
+    printf '%s' "{
+  \"hookSpecificOutput\": {
+    \"hookEventName\": \"PreToolUse\",
+    \"permissionDecision\": \"deny\",
+    \"permissionDecisionReason\": \"$1\"
+  }
+}"
+    exit 0
+}
+
+while IFS= read -r target; do
+    [ -n "$target" ] || continue
+    # **LOGIC_STEP**: A patch names its files relative to the repository root; Edit and Write send
+    # absolute paths. Resolving the relative form here means one comparison below serves both.
+    case "$target" in
+        /*) ;;
+        *) target="$repo_root/$target" ;;
+    esac
+    for relative in $generated; do
+    absolute="$repo_root/$relative"
+    # **LOGIC_STEP**: Equality covers the generated files themselves; the prefix test covers a
+    # generated directory, so every file inside one is protected without listing them all.
+    if [ "$target" = "$absolute" ] || [ "${target#"$absolute"/}" != "$target" ]; then
+        deny "$relative is generated — this edit would be silently overwritten the next time \
+quality-gates runs. Edit its source instead, then regenerate. The file's own header names the \
+source; \`make refresh-generated-docs\` regenerates every surface, and \
+\`uv run python scripts/query_ai_context.py before-edit file $relative\` names the narrow target."
+    fi
+    done
+done <<EOF
+$targets
+EOF
+
+exit 0

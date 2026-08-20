@@ -1,0 +1,168 @@
+# Node
+node_modules/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+setup.py
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+.ruff_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Application logs (local dev)
+logs/
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+#   We DO ship `.python-version` so that uv selects Python 3.13 in fresh
+#   worktrees automatically — pydantic-core 2.33.0 + PyO3 0.24.0 cannot
+#   build under Python 3.14, and uv's default selection picks 3.14 without
+#   the pin. CI overrides this via `actions/setup-python: python-version`.
+#.python-version
+
+# pipenv
+#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock
+#   in version control. But in case of collaboration, if having platform-specific
+#   dependencies is a concern, you may want to ignore it.
+#Pipfile.lock
+
+# PEP 582; __pypackages__ directory
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv/
+.env.local_dev
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Pyright type checker
+.pyright/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*~
+
+# Claude Code — track settings, ignore transient/user-specific data
+.claude/worktrees/
+.claude/projects/
+
+# Misc
+.DS_Store
+
+# Author-local caches and notes. These were a recurring source of project_map.md drift: git must
+# exclude them from `git ls-files --others --exclude-standard` so scripts/structure_builder.py's
+# git-index-driven enumeration never sees them.
+.tiktoken_cache/
+docs/research/
+
+
+# Local list of words this checkout must not contain. Never committed: the list itself
+# would publish exactly what it exists to keep out. See tests/application/test_template_neutrality.py.
+.neutrality-terms

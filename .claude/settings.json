@@ -1,0 +1,57 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".agents/hooks/pre-edit-guard.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(make ai-autofix)",
+      "Bash(make quality-gates)",
+      "Bash(make doctor)",
+      "Bash(make doctor-json)",
+      "Bash(make diff-coverage)",
+      "Bash(make security-scan)",
+      "Bash(make audit-deps)",
+      "Bash(make ci-local)",
+      "Bash(make test)",
+      "Bash(make test-all)",
+      "Bash(make test-e2e)",
+      "Bash(make refresh-ai-context)",
+      "Bash(make refresh-agent-docs)",
+      "Bash(make refresh-project-map)",
+      "Bash(make refresh-generated-docs)",
+      "Bash(make run-local)",
+      "Bash(make migrate)",
+      "Bash(make smoke)",
+      "Bash(make logs)",
+      "Bash(make logs-raw)",
+      "Bash(make format-trace *)",
+      "Bash(make autogenerate-migration *)",
+      "Bash(uv run python scripts/query_ai_context.py *)",
+      "Bash(uv run python scripts/validate_*.py*)",
+      "Bash(uv run python scripts/generate_ai_context.py *)",
+      "Bash(uv run python scripts/sync_agent_docs.py *)",
+      "Bash(uv run python scripts/structure_builder.py*)",
+      "Bash(uv run python scripts/run_all_tests.py *)",
+      "Bash(uv run python scripts/doctor_ai_context.py*)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run --with ruff ruff *)",
+      "Bash(uv run --with mypy mypy *)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git branch*)",
+      "Bash(git show*)"
+    ],
+    "deny": []
+  }
+}

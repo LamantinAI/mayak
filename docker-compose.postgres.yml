@@ -1,0 +1,42 @@
+# PostgreSQL overlay. Layered onto docker-compose.yml with a second -f, which merges the two
+# service maps: `app` gains its database dependency and connection environment, and the `db`
+# service plus its volume appear. Kept separate rather than behind a compose profile because a
+# profile cannot add a depends_on edge to an already-declared service.
+services:
+  app:
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Host and port are both overridden; user, password and database reach the container through
+      # env_file. There is deliberately no DATABASE_URL here — nothing in the application reads one,
+      # so it would be a knob that looks like the connection string and changes nothing.
+      POSTGRES_HOST: db
+      # POSTGRES_PORT carries two meanings and only one of them belongs here. In .env it is the
+      # HOST port the db service publishes on — a developer whose 5432 is already taken sets it to
+      # something else, which is exactly what `make smoke` does by defaulting it to 15432. Inside
+      # the network the container always listens on 5432, so letting the .env value through
+      # env_file made the app dial db:<host port> and die with "connection refused" during the
+      # entrypoint's alembic run. Measured: a project with POSTGRES_PORT=15433 in .env could not
+      # bring up its own stack at all.
+      POSTGRES_PORT: 5432
+
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres_data:

@@ -1,0 +1,10 @@
+# Runner dependencies for the functional stage of the Docker image. Versions are kept in step with
+# the dev group in pyproject.toml: the suites used to run under pytest 8 here and pytest 9 in CI,
+# a major apart on both pytest and pytest-asyncio, so the same test could behave differently
+# depending on which loop invoked it. psycopg is here because the functional tests talk to the
+# real database directly; backoff drives the wait-for-service helpers.
+pytest==9.1.1
+pytest-asyncio==1.4.0
+httpx==0.28.1
+backoff==2.2.1
+psycopg[binary]==3.3.4

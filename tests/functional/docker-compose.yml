@@ -1,0 +1,91 @@
+services:
+  test-db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # No host port mapping for stronger test isolation.
+    volumes:
+      - test_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - test_network
+
+  test-app:
+    build:
+      context: ../../.
+      target: app
+    image: test-app-image
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      test-db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # Override DB host to the isolated test database container. No DATABASE_URL: the application
+      # reads POSTGRES_* directly and never looks for a single connection string.
+      POSTGRES_HOST: test-db
+      # Keep server port explicit for predictable container-to-container access.
+      SERVER_PORT: 8000
+    entrypoint: /app/entrypoint.sh
+    stop_grace_period: 45s
+    # Expose internal port only inside the test network.
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+    networks:
+      - test_network
+
+  tests:
+    build:
+      context: ../../.
+      target: functional-tests
+    image: test-runner-image
+    working_dir: /app
+    entrypoint: >
+      sh -c "cd /app/tests/functional/
+      && python3 utils/wait_for_postgres.py
+      && python3 utils/wait_for_api.py
+      && pytest -c pytest.ini"
+    env_file:
+      - .env
+    environment:
+      # Connection settings for isolated test services.
+      POSTGRES_HOST: test-db
+      POSTGRES_PORT: 5432
+      SERVER_HOST: test-app
+      SERVER_PORT: 8000
+      # The image is built with `uv sync --no-install-project`, so the project package is present
+      # on disk at /app but not on sys.path. pytest.ini's `pythonpath` covers the test run; the two
+      # wait_for_* scripts run before pytest as plain `python3`, and they import the same helpers.
+      # Without this the runner dies with ModuleNotFoundError before a single test is collected.
+      # /app/tests/functional is the suite's own import root — the same one pytest.ini's
+      # `pythonpath = .` sets — so `utils.helpers` and `settings` mean the same module to the
+      # scripts, to pytest and to mypy. The scripts used to say `from helpers import ...`, which
+      # resolved only because a script's own directory leads sys.path.
+      PYTHONPATH: /app:/app/tests/functional
+    depends_on:
+      test-app:
+        condition: service_healthy
+    networks:
+      - test_network
+
+networks:
+  test_network:
+    driver: bridge
+
+volumes:
+  test_postgres_data:
+    driver: local

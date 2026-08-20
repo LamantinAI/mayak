@@ -1,0 +1,77 @@
+# Shared Agent Wrapper Source
+
+This file is the shared source used to generate `CLAUDE.md` and `AGENTS.md`, which are the same
+operational contract under the two names the agents look for — Claude Code reads the first, Codex
+the second, and neither reads the other's. There is no second document to read first: `ARCHITECTURE.md` was folded in here on
+2026-08-11 after a rule stated in the always-loaded wrapper was proposed for reversal anyway —
+a pointer to a second file was never going to do better than the file that is already loaded.
+
+Start here:
+- Copy the `reference_task` vertical. It is the one worked example and it exists to be copied — eleven files plus three wiring edits; `.agents/skills/add-vertical` carries the order and the removal list for when your own vertical replaces it. A project that has replaced it edits this line and nothing else: the wrapper's Quick Start is generated from these bullets.
+- If `.env` is missing: `make init-project`. Nothing else creates it, and the app does not start without it. Idempotent — it never overwrites an existing `.env`.
+- `make quality-gates` before committing. When the diff touched persistence, endpoints or wiring, `make test-e2e` too — the gates run none of your queries.
+- Reach for `uv run python scripts/query_ai_context.py bootstrap` when you need the wiring map, and `workset diff` when you already have local edits — not as a ritual.
+
+Source of truth order:
+1. Runnable validators and `make quality-gates`
+2. `docs/architecture_rules.json`
+3. `scripts/query_ai_context.py`
+4. `docs/ai_context_map.json` and `docs/ai_change_map.json`
+5. `docs/agent_rules.md`, `docs/project_map.md`, ADRs
+
+Task process:
+- When one command fails three times running, stop editing. Re-read the failing rule's playbook, write down the assumption you now doubt, and change one thing. Three identical failures mean the hypothesis is wrong, not that the fix was too small.
+- A failing validator is repaired narrowly: rerun the smallest failing command, ask `query_ai_context.py failure rule <rule_id>` for its playbook and its `stop_widening_condition`, read only the files the rule names, make the smallest corrective change, rerun the same command before widening.
+- Never claim task completion without fresh `make quality-gates` evidence.
+- Use a fresh subagent for independent verification of complex changes — do not self-verify.
+- A finished task ends as an open pull request, never as a merge: branch `task/<ID>` → commit → `git push -u origin task/<ID>` → `gh pr create --base main`. Merging is the human's decision, and the template ships no deploy job — "done" means open and green, not live.
+
+Working notes:
+- Use focused queries before broad scans: `workset`, `before-edit`, `failure`.
+- `PROJECT.md` describes what the project does (business domain); this file describes how the kernel works. Keep them separate.
+- `docs/project_context.json` is hand-maintained (not generated). It holds machine-readable domain context: verticals, business rules, glossary. Validated by `scripts/validate_project_context.py`.
+- For detailed domain context, read `PROJECT.md` and `docs/project_context.json` directly.
+- Generated maps are navigation aids only; confirm the real wiring files before editing.
+- If `.env` is missing, run `make init-project` before anything that starts the service. Nothing else creates `.env`, and `make run-local` fails with a raw driver error without it.
+- `make run-local` and `make migrate` need a reachable PostgreSQL unless the project set `POSTGRES_ENABLED=false`. Bring one up with `docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d db`, or declare the project needs no relational store.
+- Project initialization must stay idempotent: do not overwrite an existing `.env`.
+- Prefer versioned repo skills in `.agents/skills/` for repeatable workflows instead of growing the root wrapper.
+- Prefer the narrow refresh target first: `make refresh-ai-context`, `make refresh-agent-docs`, or `make refresh-project-map`.
+- When validation fails unexpectedly, run `make doctor` first to identify the blocking layer before attempting manual fixes.
+- `make quality-gates` is the loop you run while working; it runs the doctor itself when it fails, and it refreshes generated artifacts before checking them, so a stale map prints a notice rather than turning the gate red. `make ci-local` sets `STRICT_GENERATED=1` and fails on one instead. Measured: everything except the test suite costs 3 seconds, the suite 12 more. The narrow and middle loops that used to sit below it were removed — one never ran mypy, the other was slower than this target.
+- **It runs none of your queries, so it cannot see a defect in SQL.** Measured on 2026-08-12: reversing `ORDER BY created_at DESC` to `ASC` in the shipped repository left every gate green, and `make test-e2e` failed. The same held for a one-word change to a `WHERE` clause carrying a business rule. A diff touching `project/infrastructure/persistence/`, `project/infrastructure/api/endpoints/`, or the wiring files is finished by `make test-e2e`, not by `make quality-gates`.
+- One gate does open a connection: `scripts/validate_migrations.py` runs `alembic upgrade head` and `alembic check` against a real database. With none reachable it downgrades itself to an informational skip and the gate stays green, so a missing or broken revision passes locally and fails in CI — `database_skip_is_allowed()` returns False when `CI` is `1`, `true` or `yes`, and the CI job provisions Postgres for exactly that reason. Run it against a database before trusting a green migration gate.
+- A unit test that compares the executed query against the same module constant proves nothing about that constant — both sides move together. Assert the parts: `assert _CLOSE.split(" WHERE ", 1)[1] == "id = %s AND status = %s"`. That tautology is how the SQL defect above passed a suite that looked like it covered the query. `scripts/validate_test_quality.py` enforces it as `test.sql_constant_round_trip`: a module that hands a query constant to the assertion checking the query, and pins no clause of it as literal text, is a red gate.
+- A write to a generated path is refused by `.agents/hooks/pre-edit-guard.sh` before it happens; the refusal names the file, because since the gate started refreshing those artifacts itself a hand edit is overwritten on the next run with nothing said. The list comes from `make print-generated-paths`, which is also what the pre-commit hook reads, so there is no second copy to drift. One script serves both agents — `.claude/settings.json` registers it for Edit/Write/MultiEdit and `.codex/hooks.json` for Edit/Write/apply_patch — and Codex asks once to trust it before it runs.
+- Finish with `make quality-gates`, and with `make test-e2e` as well when the diff touched persistence, endpoints, or wiring.
+- Use `make format-trace ARGS="<logfile>"` to render NDJSON logs as a compact LLM-friendly text tree. Accepts `--trace <ID>` to filter by trace. Trace summaries are prepended to the log file on application shutdown when deep trace is enabled.
+- To read a running container instead of a file, use `make logs` (rendered tree) or `make logs-raw` (raw NDJSON written under `logs/`, for grepping). `LINES=N` limits how far back to read; `ARGS="--trace <ID>"` narrows to one request.
+- Filter real failures with `"outcome":"server_error"` in `request.summary`. `client_error` is 4xx and routine; `ok` is 2xx/3xx. Narrow to HTTP traffic with `"span_name":"http_request"` — those summaries carry `status_code`; the one emitted for `application_lifecycle` at shutdown has no HTTP result and so reports `ok` whatever happened during the run. Read its `error_count` instead.
+- `before-edit file <path>` returns the FILE_POLICY entry from `ai_context/file_policy.py:FILE_POLICY_INDEX` plus a `derived: bool` flag. `derived: false` = explicit entry, `derived: true` = synthesized fallback from `EDIT_ZONES` patterns. A `KeyError: Unknown or unindexed file policy path` means the file slipped past the zone net entirely — add an explicit entry for it. `scripts/validate_file_policy.py` enforces the entry schema; adding one means running `make refresh-ai-context`.
+
+How the kernel is shaped:
+- Dependency direction is `domain -> application -> infrastructure`, and shared orchestration enters only through the composition root. `scripts/validate_architecture.py` enforces this, and the two halves work differently by layer: the domain is an allowlist — the standard library and `project.domain`, nothing else, so a library released tomorrow is rejected without an edit there — while application and infrastructure are blacklists of forbidden prefixes. `docs/architecture_rules.json` records which layer carries which.
+- Four files carry every wiring edit: `project/core/composition_root.py` (shared services and `app.state.services`), `project/core/service_registration.py` (vertical services), `project/infrastructure/api/router_registration.py` (router inclusion), `project/infrastructure/api/dependencies.py` (typed getters and aliases). `bootstrap` returns the same list as `core_wiring_files`.
+- The kernel ships exactly one vertical, `reference_task`, and it exists to be copied — domain model, port, repository, service, DTOs, endpoint, unit tests, functional tests, plus three wiring edits. One rather than a catalogue on purpose: a second example would be either a duplicate or a guess about your domain.
+- The kernel ships no business pipeline: no orchestration graph, no streaming endpoint, no feature package. LLM access is `project/infrastructure/agents/llm_service.py`; a vertical that needs a graph library adds one. `bind_tools` returns a bound copy and leaves the shared service alone — keep the return value, `service.bind_tools(tools)` on its own binds nothing. In mock mode a bound tool means the next answer is a tool call, and a message list ending in tool results means the next answer is the final summary, so an agent loop runs in CI without a key. See ADR-003. Prompts live in `project/prompts/` and the kernel only checks at startup that the directory and the named file exist — loading them is the vertical's job.
+- A rule in `docs/architecture_rules.json` carries one of three enforcement levels: `runtime_enforced` (a validator blocks it today), `guidance_only` (intended architecture, no hard gate), `not_enforced_in_validator` (the machine contract names the dependency set, but no whitelist check runs for that layer — true of application and infrastructure, not of the domain). Do not read a documented rule as an enforced one without checking which it is.
+- Heavy async resources open in the FastAPI lifespan and close through `cleanup_services()`; `scripts/validate_runtime_ownership.py` guards shared-resource ownership, `app.state.services` writes, and direct env access.
+- `/health/ready` treats services and LLM readiness as critical. The database is critical only when the project uses one — `POSTGRES_ENABLED=false` reports it `disabled` and leaves it out of the verdict. See ADR-006.
+- The Python version policy is ADR-002; the numbers live in `pyproject.toml` and `.python-version`, never in prose.
+
+Where a fact goes — one fact, one place:
+- Ask when the fact will be needed, and write it there once.
+- Needed while editing this file → the code, as a comment, in full. Both what the code does and why it is shaped this way: the problem, what was tried, why not the obvious option. This is the channel that measurably reaches an agent: in an A/B run of the same task, both arms learned the load-bearing rule from a `# **LOGIC_STEP**` comment and neither from any generated map, and three independent reviewers later rejected a proposed regression by citing the comment above the decision it would have undone.
+- Needed while editing any of several files under one convention → `docs/adr/`, one dated decision per document, not repeated in every file it governs.
+- Never two of them. Two copies of one fact drift, and nothing notices: on 2026-08-04 one measurement was written in two places and they disagreed the same day. No validator checks whether a sentence is true.
+- When a decision rests on dated, bulky evidence, keep the conclusion and the number that supports it, and say how to reproduce the measurement rather than pasting the table.
+- Documentation costs nothing against the size budget: `scripts/validate_module_sizes.py` charges for executable lines, so comments, docstrings, and blank lines are free. Deleting documentation never brings anything under a limit.
+- Free of the size budget is not free of the token budget. `# INPUT:` / `# OUTPUT:` are written only when the line states something the signature cannot — a condition, a default, a side effect, a link to another symbol. A gloss that renames the parameter is deleted on sight; the signature is two lines below. See ADR-001.
+- The size budget has two independent axes, one per module and one per function: a module under its own limit can still hold one function nobody can hold in their head, so both are checked. The two limits live only in `scripts/validate_module_sizes.py`, and its failure message names the one you hit.
+- The template ships no integration with an external memory system. One lived here until 2026-08-11 — `# MEM:` tags, a committed snapshot, anchors, eight rule ids — and earned two tags in the whole kernel, while a tag points into a store a fresh checkout has no access to and turns its first ordinary edit red. If a particular project wants one, it belongs in that project, not in the kernel every project inherits.
+
+Validator authoring conventions:
+- New `validate_*.py` scripts that ship `--json` and want to be unit-testable should expose `def main(argv: Sequence[str] | None = None) -> int` and parse with the safe pattern: `args = parser.parse_args([] if argv is None else argv)`. This prevents pytest's own argv from leaking into argparse when a test calls `main()` without arguments.
+- Validators that do not need a programmatic entry can keep `def main() -> int` with no `argv` parameter and a bare `parser.parse_args()` — this is also footgun-immune.
+- Tests for validators with the safe pattern can call `main()` directly without monkeypatching `sys.argv`. Only keep the monkeypatch idiom for validators that have no `argv` parameter.
+- Each new validator must (1) define stable `RULE_ID` constants, (2) include a `severity: str = "error"` field on its Issue dataclass (use `"info"` for non-blocking observations), (3) provide `get_<X>_rule_playbook(rule_id)` returning a copy or `None`, and (4) be added to the `failure_playbook` chain in `ai_query/common.py`.

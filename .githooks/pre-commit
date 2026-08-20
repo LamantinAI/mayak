@@ -1,0 +1,44 @@
+#!/bin/sh
+set -e
+# Git pre-commit hook to refresh generated AI-facing artifacts and enforce the canonical quality gates.
+
+# Ensure uv is discoverable in non-interactive shells (CI, agent sandboxes).
+for candidate in /opt/homebrew/bin /usr/local/bin "$HOME/.local/bin" "$HOME/.cargo/bin"; do
+  [ -d "$candidate" ] && export PATH="$candidate:$PATH"
+done
+
+if ! command -v uv >/dev/null 2>&1; then
+  echo "ERROR: uv not found in PATH. Install: https://docs.astral.sh/uv/getting-started/installation/"
+  exit 1
+fi
+
+# Refresh generated onboarding and machine-readable artifacts
+echo "--- Pre-commit: refreshing generated docs ---"
+make refresh-generated-docs
+
+# Run the shared golden-path verification.
+# This used to call a `quality-gates-no-regen` twin, on the grounds that refresh-generated-docs
+# above had just written fresh outputs and re-checking them was wasted work. Those five `--check`
+# invocations were measured at 0.4 s together — not worth a hand-maintained second copy of a
+# twenty-step recipe, and the copy had already drifted from the original it claimed to mirror.
+echo "--- Pre-commit: running quality gates ---"
+make quality-gates
+
+# Auto-stage refreshed generated files.
+# The list used to be repeated here and had drifted, missing two outputs — so editing a skill
+# produced a regenerated file that was never staged, and the no-regen gate below cannot see it,
+# because it checks the freshly written file on disk, not the index. The commit went through
+# green with the generated output left behind.
+#
+# Hand-written files are deliberately absent from this list. Listing one staged whatever the
+# author happened to have open, silently, into an unrelated commit. A generated-file hook must
+# stage generated files only.
+# Read from the Makefile instead of repeating it, which is also where
+# `.agents/hooks/pre-edit-guard.sh` reads it, so the three can never disagree.
+GENERATED_FILES=$(make -s print-generated-paths)
+changed=$(git diff --name-only -- $GENERATED_FILES)
+if [ -n "$changed" ]; then
+  echo "--- Pre-commit: auto-staging refreshed docs ---"
+  echo "$changed" | sed 's/^/  /'
+fi
+git add $GENERATED_FILES 2>/dev/null || true

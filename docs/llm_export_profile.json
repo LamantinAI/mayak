@@ -1,0 +1,14 @@
+{
+  "profile": "llm-clean-export",
+  "description": "Exclude local-only noise from AI-facing maps and exports.",
+  "ignore_globs": [
+    ".ruff_cache/",
+    ".pytest_cache/",
+    ".mypy_cache/",
+    ".venv/",
+    "tests/functional/.env",
+    "*.log",
+    "*.tmp",
+    "*.swp"
+  ]
+}

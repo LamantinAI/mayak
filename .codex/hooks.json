@@ -1,0 +1,18 @@
+{
+  "description": "Refuse a write to a generated file. Same guard Claude Code runs; see .agents/hooks/pre-edit-guard.sh.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Edit|Write|apply_patch)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.agents/hooks/pre-edit-guard.sh\"",
+            "statusMessage": "Checking whether the target is generated",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,839 @@
+{
+  "canonical_examples": {
+    "router_registration": "project/infrastructure/api/router_registration.py",
+    "shared_service_wiring": "project/core/composition_root.py",
+    "thin_endpoint": "project/infrastructure/api/endpoints/health.py",
+    "typed_dependency_aliases": "project/infrastructure/api/dependencies.py"
+  },
+  "cold_paths": [
+    "tests/functional/",
+    "docs/project_map.md",
+    "project/core/logging/",
+    "alembic/versions/"
+  ],
+  "core_entrypoints": [
+    "CLAUDE.md",
+    "docs/architecture_rules.json",
+    "scripts/query_ai_context.py",
+    "project/core/composition_root.py",
+    "project/core/service_registration.py",
+    "project/infrastructure/api/router_registration.py",
+    "project/infrastructure/api/dependencies.py"
+  ],
+  "dependency_registry": {
+    "aliases": {
+      "ReferenceTaskServiceDep": {
+        "confidence": "high",
+        "getter": "get_reference_task_service",
+        "resolution_status": "resolved",
+        "service_key": "reference_task_service",
+        "service_module": "project.application.reference_task_service.ReferenceTaskService",
+        "service_type": "ReferenceTaskService",
+        "source": "ast_exact"
+      }
+    },
+    "getters": {
+      "get_reference_task_service": {
+        "confidence": "high",
+        "resolution_status": "resolved",
+        "service_key": "reference_task_service",
+        "service_module": "project.application.reference_task_service.ReferenceTaskService",
+        "service_type": "ReferenceTaskService",
+        "source": "ast_exact"
+      }
+    }
+  },
+  "env_prefixes": {
+    "AgentSettings": "AGENT_",
+    "LLMSettings": "OPENAI_COMPATIBLE_",
+    "PostgresSettings": "POSTGRES_",
+    "ProjectSettings": "APP_",
+    "ServerSettings": "SERVER_"
+  },
+  "file_policy_index": {
+    "project/core/composition_root.py": {
+      "classification_reason": "Composition-root wiring is a reusable template surface and the canonical entrypoint for shared dependency assembly.",
+      "common_tasks": [
+        "add_shared_service",
+        "replace_dependency",
+        "debug_runtime"
+      ],
+      "do_not_edit_directly": false,
+      "edit_zone": "expert",
+      "generated_artifacts": [
+        "docs/ai_context_map.json",
+        "docs/ai_change_map.json",
+        "docs/architecture_rules.json"
+      ],
+      "kernel_or_reference": "template_kernel",
+      "layer": "core",
+      "likely_failure_rules": [
+        "drift.integrity.error",
+        "runtime_ownership.app_state_services_write_restricted",
+        "runtime_ownership.shared_resource_creation_restricted"
+      ],
+      "recommended_diff_style": "minimal-diff",
+      "regenerate_if_changed": [
+        "make refresh-ai-context"
+      ],
+      "risk": "high",
+      "role": "Shared composition root for service construction and FastAPI app assembly.",
+      "source_of_truth": "docs/architecture_rules.json:file_policy_index",
+      "validators_if_changed": [
+        "uv run python scripts/validate_architecture.py",
+        "uv run python scripts/validate_endpoint_wiring.py",
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/generate_ai_context.py --check"
+      ],
+      "why_it_exists": "Keeps shared runtime wiring in one canonical place so services are created once and exposed through app.state.services."
+    },
+    "project/core/lifecycle.py": {
+      "classification_reason": "Lifecycle wiring is reusable kernel infrastructure \u2014 verticals consume it without modifying it.",
+      "common_tasks": [
+        "add_shared_service",
+        "debug_runtime"
+      ],
+      "do_not_edit_directly": false,
+      "edit_zone": "expert",
+      "generated_artifacts": [
+        "docs/ai_context_map.json",
+        "docs/ai_change_map.json",
+        "docs/architecture_rules.json"
+      ],
+      "kernel_or_reference": "template_kernel",
+      "layer": "core",
+      "likely_failure_rules": [
+        "runtime_ownership.shared_resource_creation_restricted",
+        "drift.integrity.error"
+      ],
+      "recommended_diff_style": "minimal-diff",
+      "regenerate_if_changed": [
+        "make refresh-ai-context"
+      ],
+      "risk": "high",
+      "role": "FastAPI lifespan controller that opens shared async resources at startup and closes them at shutdown.",
+      "source_of_truth": "docs/architecture_rules.json:file_policy_index",
+      "validators_if_changed": [
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/generate_ai_context.py --check"
+      ],
+      "why_it_exists": "Centralizes ordering of pool and LLM startup and teardown so heavy resources are created once and released cleanly when the application stops."
+    },
+    "project/core/service_registration.py": {
+      "classification_reason": "Vertical registration is reusable template infrastructure that every derived Mayak project follows.",
+      "common_tasks": [
+        "replace_dependency",
+        "add_shared_service"
+      ],
+      "do_not_edit_directly": false,
+      "edit_zone": "caution",
+      "generated_artifacts": [
+        "docs/ai_context_map.json",
+        "docs/ai_change_map.json",
+        "docs/architecture_rules.json"
+      ],
+      "kernel_or_reference": "template_kernel",
+      "layer": "core",
+      "likely_failure_rules": [
+        "drift.integrity.error",
+        "endpoint.alias_chain_invalid"
+      ],
+      "recommended_diff_style": "minimal-diff",
+      "regenerate_if_changed": [
+        "make refresh-ai-context"
+      ],
+      "risk": "medium",
+      "role": "Vertical-service wiring registry layered on top of the shared composition root.",
+      "source_of_truth": "docs/architecture_rules.json:file_policy_index",
+      "validators_if_changed": [
+        "uv run python scripts/validate_architecture.py",
+        "uv run python scripts/validate_endpoint_wiring.py",
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/generate_ai_context.py --check"
+      ],
+      "why_it_exists": "Keeps feature-specific service construction out of the shared composition root while preserving one canonical registration flow."
+    },
+    "project/infrastructure/agents/llm_service.py": {
+      "classification_reason": "Shared LLM facade is reusable kernel infrastructure consumed by verticals through the composition root.",
+      "common_tasks": [
+        "introduce_new_external_client",
+        "modify_existing_service",
+        "debug_runtime"
+      ],
+      "do_not_edit_directly": false,
+      "edit_zone": "caution",
+      "generated_artifacts": [
+        "docs/ai_context_map.json",
+        "docs/ai_change_map.json",
+        "docs/architecture_rules.json"
+      ],
+      "kernel_or_reference": "template_kernel",
+      "layer": "infrastructure",
+      "likely_failure_rules": [
+        "runtime_ownership.shared_resource_creation_restricted",
+        "drift.integrity.error"
+      ],
+      "recommended_diff_style": "minimal-diff",
+      "regenerate_if_changed": [
+        "make refresh-ai-context"
+      ],
+      "risk": "medium",
+      "role": "LLM service facade composing live-provider, mock-mode, and readiness mixins.",
+      "source_of_truth": "docs/architecture_rules.json:file_policy_index",
+      "validators_if_changed": [
+        "uv run python scripts/validate_architecture.py",
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/generate_ai_context.py --check"
+      ],
+      "why_it_exists": "Provides one canonical entry point for LLM calls so verticals depend on a stable facade and the live/mock split stays consistent."
+    },
+    "project/infrastructure/api/dependencies.py": {
+      "classification_reason": "Endpoint dependency aliases are reusable wiring infrastructure and are enforced by runtime validators.",
+      "common_tasks": [
+        "add_endpoint",
+        "replace_dependency"
+      ],
+      "do_not_edit_directly": false,
+      "edit_zone": "caution",
+      "generated_artifacts": [
+        "docs/ai_context_map.json",
+        "docs/ai_change_map.json",
+        "docs/architecture_rules.json"
+      ],
+      "kernel_or_reference": "template_kernel",
+      "layer": "infrastructure",
+      "likely_failure_rules": [
+        "endpoint.no_depends_without_alias",
+        "endpoint.alias_chain_invalid",
+        "drift.integrity.error"
+      ],
+      "recommended_diff_style": "minimal-diff",
+      "regenerate_if_changed": [
+        "make refresh-ai-context"
+      ],
+      "risk": "medium",
+      "role": "Typed FastAPI dependency alias registry for endpoint-facing service access.",
+      "source_of_truth": "docs/architecture_rules.json:file_policy_index",
+      "validators_if_changed": [
+        "uv run python scripts/validate_endpoint_wiring.py",
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/generate_ai_context.py --check"
+      ],
+      "why_it_exists": "Provides the single canonical alias -> getter -> service_key surface that endpoints must use instead of importing or constructing services directly."
+    },
+    "project/infrastructure/api/endpoints/health.py": {
+      "classification_reason": "Canonical thin-endpoint reference shipped in the kernel; consumed by the add_endpoint task and surfaced via CANONICAL_EXAMPLES.thin_endpoint.",
+      "common_tasks": [
+        "add_endpoint",
+        "change_api_contract"
+      ],
+      "do_not_edit_directly": false,
+      "edit_zone": "safe",
+      "generated_artifacts": [
+        "docs/ai_context_map.json",
+        "docs/ai_change_map.json",
+        "docs/architecture_rules.json"
+      ],
+      "kernel_or_reference": "template_kernel",
+      "layer": "infrastructure",
+      "likely_failure_rules": [
+        "endpoint.no_depends_without_alias",
+        "endpoint.alias_chain_invalid",
+        "drift.integrity.error"
+      ],
+      "recommended_diff_style": "content-local-diff",
+      "regenerate_if_changed": [
+        "make refresh-ai-context"
+      ],
+      "risk": "low",
+      "role": "Sample readiness/liveness endpoint and canonical thin-endpoint reference.",
+      "source_of_truth": "docs/architecture_rules.json:file_policy_index",
+      "validators_if_changed": [
+        "uv run python scripts/validate_endpoint_wiring.py",
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/generate_ai_context.py --check"
+      ],
+      "why_it_exists": "Demonstrates the readiness contract (services + LLM + db connectivity) and ships as the kernel's canonical reference for the add_endpoint task."
+    },
+    "project/infrastructure/api/exception_handlers.py": {
+      "classification_reason": "Shared exception mapping is reusable kernel infrastructure consumed by every endpoint.",
+      "common_tasks": [
+        "modify_existing_service",
+        "add_endpoint"
+      ],
+      "do_not_edit_directly": false,
+      "edit_zone": "caution",
+      "generated_artifacts": [
+        "docs/ai_context_map.json",
+        "docs/ai_change_map.json",
+        "docs/architecture_rules.json"
+      ],
+      "kernel_or_reference": "template_kernel",
+      "layer": "infrastructure",
+      "likely_failure_rules": [
+        "drift.integrity.error"
+      ],
+      "recommended_diff_style": "minimal-diff",
+      "regenerate_if_changed": [
+        "make refresh-ai-context"
+      ],
+      "risk": "medium",
+      "role": "Centralized FastAPI exception handlers mapping domain errors to typed HTTP responses.",
+      "source_of_truth": "docs/architecture_rules.json:file_policy_index",
+      "validators_if_changed": [
+        "uv run python scripts/validate_architecture.py",
+        "uv run python scripts/generate_ai_context.py --check"
+      ],
+      "why_it_exists": "Keeps error\u2192status mapping in one place so endpoints stay thin and the failure surface stays uniform across verticals."
+    },
+    "project/infrastructure/api/middleware.py": {
+      "classification_reason": "Shared HTTP middleware is reusable kernel infrastructure that runs for every request \u2014 wiring touches affect every endpoint.",
+      "common_tasks": [
+        "debug_runtime",
+        "modify_existing_service"
+      ],
+      "do_not_edit_directly": false,
+      "edit_zone": "caution",
+      "generated_artifacts": [
+        "docs/ai_context_map.json",
+        "docs/ai_change_map.json",
+        "docs/architecture_rules.json"
+      ],
+      "kernel_or_reference": "template_kernel",
+      "layer": "infrastructure",
+      "likely_failure_rules": [
+        "drift.integrity.error"
+      ],
+      "recommended_diff_style": "minimal-diff",
+      "regenerate_if_changed": [
+        "make refresh-ai-context"
+      ],
+      "risk": "medium",
+      "role": "AI-optimized HTTP middleware that opens semantic-logging spans and propagates trace context.",
+      "source_of_truth": "docs/architecture_rules.json:file_policy_index",
+      "validators_if_changed": [
+        "uv run python scripts/validate_architecture.py",
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/generate_ai_context.py --check"
+      ],
+      "why_it_exists": "Hooks every request into the semantic logger so spans, request IDs, and business-context headers are captured uniformly across verticals."
+    },
+    "project/infrastructure/api/router_registration.py": {
+      "classification_reason": "Router registration is part of the reusable wiring kernel rather than sample business behavior.",
+      "common_tasks": [
+        "add_endpoint",
+        "change_api_contract"
+      ],
+      "do_not_edit_directly": false,
+      "edit_zone": "caution",
+      "generated_artifacts": [
+        "docs/ai_context_map.json",
+        "docs/ai_change_map.json",
+        "docs/architecture_rules.json"
+      ],
+      "kernel_or_reference": "template_kernel",
+      "layer": "infrastructure",
+      "likely_failure_rules": [
+        "drift.integrity.error",
+        "endpoint.alias_chain_invalid"
+      ],
+      "recommended_diff_style": "minimal-diff",
+      "regenerate_if_changed": [
+        "make refresh-ai-context"
+      ],
+      "risk": "medium",
+      "role": "Canonical router inclusion surface for FastAPI endpoint modules.",
+      "source_of_truth": "docs/architecture_rules.json:file_policy_index",
+      "validators_if_changed": [
+        "uv run python scripts/validate_endpoint_wiring.py",
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/generate_ai_context.py --check"
+      ],
+      "why_it_exists": "Centralizes router ownership so new routes are registered predictably and can be discovered by validators and AI context generation."
+    },
+    "pyproject.toml": {
+      "classification_reason": "Defines reproducible build/dev environment for every Mayak project. Changes ripple to lockfile, mypy gate, ruff gate, and coverage tooling.",
+      "common_tasks": [],
+      "do_not_edit_directly": false,
+      "edit_zone": "expert",
+      "generated_artifacts": [
+        "uv.lock"
+      ],
+      "kernel_or_reference": "template_kernel",
+      "layer": "tooling",
+      "likely_failure_rules": [
+        "drift.integrity.error"
+      ],
+      "recommended_diff_style": "minimal-diff",
+      "regenerate_if_changed": [
+        "make update-deps"
+      ],
+      "risk": "high",
+      "role": "Project-wide Python packaging, dependency, and tool configuration.",
+      "source_of_truth": "docs/architecture_rules.json:file_policy_index",
+      "validators_if_changed": [
+        "uv lock --check",
+        "uv run python scripts/run_all_tests.py --skip-functional"
+      ],
+      "why_it_exists": "Single source for runtime/dev dependencies, build backend, and tooling configs (ruff, mypy, coverage, pytest). Drives uv.lock and CI reproducibility."
+    },
+    "scripts/doctor_ai_context.py": {
+      "classification_reason": "Doctor wires together every validator and is invoked by quality-gates on failure. Edits ripple into the entire failure-recovery loop.",
+      "common_tasks": [],
+      "do_not_edit_directly": false,
+      "edit_zone": "expert",
+      "generated_artifacts": [
+        "docs/ai_context_map.json",
+        "docs/ai_change_map.json",
+        "docs/architecture_rules.json"
+      ],
+      "kernel_or_reference": "template_kernel",
+      "layer": "tooling",
+      "likely_failure_rules": [
+        "drift.integrity.error"
+      ],
+      "recommended_diff_style": "minimal-diff",
+      "regenerate_if_changed": [
+        "make refresh-ai-context"
+      ],
+      "risk": "high",
+      "role": "Diagnostic backbone that pinpoints the first blocking layer when quality-gates fails.",
+      "source_of_truth": "docs/architecture_rules.json:file_policy_index",
+      "validators_if_changed": [
+        "uv run pytest tests/application/test_doctor_ai_context.py",
+        "uv run python scripts/doctor_ai_context.py",
+        "make quality-gates"
+      ],
+      "why_it_exists": "Provides actionable error narratives instead of raw validator output, extending coverage to all gates run by quality-gates and routing agents to the smallest fix recipe via failure_playbook."
+    },
+    "scripts/generate_ai_context.py": {
+      "classification_reason": "This generator defines the reusable machine contract consumed by validators and query tooling.",
+      "common_tasks": [
+        "debug_runtime",
+        "replace_dependency",
+        "refactor_large_module"
+      ],
+      "do_not_edit_directly": false,
+      "edit_zone": "expert",
+      "generated_artifacts": [
+        "docs/ai_context_map.json",
+        "docs/ai_change_map.json",
+        "docs/architecture_rules.json"
+      ],
+      "kernel_or_reference": "template_kernel",
+      "layer": "tooling",
+      "likely_failure_rules": [
+        "drift.integrity.error",
+        "drift.generated.outdated"
+      ],
+      "recommended_diff_style": "minimal-diff",
+      "regenerate_if_changed": [
+        "make refresh-ai-context"
+      ],
+      "risk": "high",
+      "role": "Generator for machine-readable repository context and architecture contracts.",
+      "source_of_truth": "docs/architecture_rules.json:file_policy_index",
+      "validators_if_changed": [
+        "uv run pytest tests/application/test_generate_ai_context.py -q",
+        "uv run python scripts/generate_ai_context.py --check"
+      ],
+      "why_it_exists": "Builds the JSON artifacts that back onboarding, query routing, and drift checks without introducing a separate documentation stack."
+    },
+    "scripts/query_ai_context.py": {
+      "classification_reason": "The query CLI defines the reusable operating interface for the repository itself.",
+      "common_tasks": [
+        "debug_runtime",
+        "refactor_large_module",
+        "replace_dependency"
+      ],
+      "do_not_edit_directly": false,
+      "edit_zone": "expert",
+      "generated_artifacts": [
+        "docs/ai_context_map.json",
+        "docs/ai_change_map.json",
+        "docs/architecture_rules.json"
+      ],
+      "kernel_or_reference": "template_kernel",
+      "layer": "tooling",
+      "likely_failure_rules": [
+        "drift.generated.outdated",
+        "drift.agent_docs.outdated"
+      ],
+      "recommended_diff_style": "minimal-diff",
+      "regenerate_if_changed": [
+        "make refresh-ai-context"
+      ],
+      "risk": "high",
+      "role": "Repo operating API for AI agents and narrow navigation workflows.",
+      "source_of_truth": "docs/architecture_rules.json:file_policy_index",
+      "validators_if_changed": [
+        "uv run pytest tests/application/test_query_ai_context.py -q",
+        "uv run python scripts/generate_ai_context.py --check"
+      ],
+      "why_it_exists": "Exposes stable query commands so agents can inspect wiring, policy, failure remediation, and minimal context without broad repository scans."
+    },
+    "scripts/validate_architecture.py": {
+      "classification_reason": "Architecture validation is part of the reusable enforcement kernel for derived repos.",
+      "common_tasks": [
+        "refactor_large_module",
+        "modify_existing_service",
+        "introduce_new_external_client"
+      ],
+      "do_not_edit_directly": false,
+      "edit_zone": "expert",
+      "generated_artifacts": [],
+      "kernel_or_reference": "template_kernel",
+      "layer": "tooling",
+      "likely_failure_rules": [
+        "arch.application.no_forbidden_import"
+      ],
+      "recommended_diff_style": "minimal-diff",
+      "regenerate_if_changed": [],
+      "risk": "high",
+      "role": "Runtime validator for forbidden layer imports and architecture rule enforcement.",
+      "source_of_truth": "docs/architecture_rules.json:file_policy_index",
+      "validators_if_changed": [
+        "uv run pytest tests/application/test_validate_architecture.py -q",
+        "uv run python scripts/validate_architecture.py"
+      ],
+      "why_it_exists": "Turns the most important layer boundaries into executable checks rather than leaving them as narrative guidance only."
+    },
+    "scripts/validate_endpoint_wiring.py": {
+      "classification_reason": "Endpoint wiring validation is reusable enforcement infrastructure, not sample code.",
+      "common_tasks": [
+        "add_endpoint",
+        "change_api_contract",
+        "replace_dependency"
+      ],
+      "do_not_edit_directly": false,
+      "edit_zone": "expert",
+      "generated_artifacts": [],
+      "kernel_or_reference": "template_kernel",
+      "layer": "tooling",
+      "likely_failure_rules": [
+        "endpoint.no_depends_without_alias",
+        "endpoint.alias_chain_invalid"
+      ],
+      "recommended_diff_style": "minimal-diff",
+      "regenerate_if_changed": [],
+      "risk": "high",
+      "role": "Runtime validator for endpoint dependency-alias and wiring contracts.",
+      "source_of_truth": "docs/architecture_rules.json:file_policy_index",
+      "validators_if_changed": [
+        "uv run pytest tests/application/test_validate_endpoint_wiring.py -q",
+        "uv run python scripts/validate_endpoint_wiring.py"
+      ],
+      "why_it_exists": "Guards the thin-endpoint pattern so routes stay on typed aliases instead of importing or constructing services directly."
+    },
+    "scripts/validate_runtime_ownership.py": {
+      "classification_reason": "Runtime ownership validation is reusable enforcement infrastructure for the template.",
+      "common_tasks": [
+        "add_endpoint",
+        "replace_dependency",
+        "add_config_setting",
+        "debug_runtime"
+      ],
+      "do_not_edit_directly": false,
+      "edit_zone": "expert",
+      "generated_artifacts": [],
+      "kernel_or_reference": "template_kernel",
+      "layer": "tooling",
+      "likely_failure_rules": [
+        "runtime_ownership.env_access_restricted",
+        "runtime_ownership.shared_resource_creation_restricted"
+      ],
+      "recommended_diff_style": "minimal-diff",
+      "regenerate_if_changed": [],
+      "risk": "high",
+      "role": "Runtime validator for shared-resource, environment access, and app.state ownership.",
+      "source_of_truth": "docs/architecture_rules.json:file_policy_index",
+      "validators_if_changed": [
+        "uv run pytest tests/application/test_validate_runtime_ownership.py -q",
+        "uv run python scripts/validate_runtime_ownership.py"
+      ],
+      "why_it_exists": "Turns resource ownership rules into executable checks so LLM edits cannot drift shared runtime wiring into endpoints or business logic."
+    }
+  },
+  "generated_maps": [
+    "docs/ai_context_map.json",
+    "docs/ai_change_map.json",
+    "docs/architecture_rules.json"
+  ],
+  "integrity": {
+    "checked_rules": [
+      "router modules imported into router_registration must exist in route_inventory",
+      "dependency aliases must reference existing getters",
+      "dependency getters must reference known service keys",
+      "route dependencies must reference known service keys"
+    ],
+    "errors": [],
+    "issues": [],
+    "status": "ok"
+  },
+  "quality_gates": [
+    "make quality-gates"
+  ],
+  "quality_gates_by_concern": {
+    "architecture": [
+      "uv run python scripts/validate_architecture.py"
+    ],
+    "autofix": [
+      "make ai-autofix"
+    ],
+    "cbm": [
+      "uv run python scripts/validate_cbm.py"
+    ],
+    "drift": [
+      "uv run python scripts/generate_ai_context.py --check",
+      "uv run python scripts/sync_agent_docs.py --check"
+    ],
+    "endpoint_wiring": [
+      "uv run python scripts/validate_endpoint_wiring.py"
+    ],
+    "full": [
+      "make quality-gates"
+    ],
+    "generated_refresh": [
+      "make refresh-ai-context",
+      "make refresh-agent-docs",
+      "make refresh-project-map",
+      "make refresh-generated-docs"
+    ],
+    "lint": [
+      "make gate-lint"
+    ],
+    "migrations": [
+      "uv run python scripts/validate_migrations.py"
+    ],
+    "module_size": [
+      "uv run python scripts/validate_module_sizes.py"
+    ],
+    "runtime_ownership": [
+      "uv run python scripts/validate_runtime_ownership.py"
+    ],
+    "tests": [
+      "uv run python scripts/run_all_tests.py --skip-functional"
+    ],
+    "types": [
+      "make gate-types"
+    ]
+  },
+  "query_cli": {
+    "path": "scripts/query_ai_context.py",
+    "shortcuts": [
+      "workset",
+      "before-edit",
+      "failure"
+    ],
+    "supported_queries": [
+      "bootstrap",
+      "overview",
+      "workset diff",
+      "before-edit file project/infrastructure/api/dependencies.py",
+      "failure rule endpoint.no_depends_without_alias",
+      "failure rule runtime_ownership.env_access_restricted",
+      "failure rule drift.agent_docs.outdated"
+    ]
+  },
+  "read_last_paths": [
+    "CLAUDE.md",
+    "docs/agent_rules.md",
+    "docs/adr/"
+  ],
+  "reference_implementation_paths": [
+    "project/prompts/"
+  ],
+  "resolution_model": {
+    "confidence_levels": [
+      "high",
+      "medium",
+      "low"
+    ],
+    "guidance": "Low-confidence or heuristic entries are navigation aids only and must be confirmed in the real wiring modules before editing.",
+    "sources": [
+      "declared",
+      "ast_exact",
+      "ast_heuristic",
+      "inferred"
+    ]
+  },
+  "route_inventory": {
+    "health": {
+      "confidence": "high",
+      "endpoints": [
+        {
+          "confidence": "high",
+          "dependencies": [],
+          "full_path": "/health/",
+          "handler": "health_check",
+          "method": "GET",
+          "path": "/",
+          "resolution_status": "resolved",
+          "source": "ast_exact"
+        },
+        {
+          "confidence": "high",
+          "dependencies": [],
+          "full_path": "/health/ready",
+          "handler": "readiness_check",
+          "method": "GET",
+          "path": "/ready",
+          "resolution_status": "resolved",
+          "source": "ast_exact"
+        }
+      ],
+      "file": "project/infrastructure/api/endpoints/health.py",
+      "prefix": "/health",
+      "resolution_status": "resolved",
+      "router": "health_router",
+      "source": "ast_exact",
+      "tags": [
+        "health"
+      ]
+    },
+    "reference_tasks": {
+      "confidence": "high",
+      "endpoints": [
+        {
+          "confidence": "high",
+          "dependencies": [
+            {
+              "alias": "ReferenceTaskServiceDep",
+              "confidence": "high",
+              "getter": "get_reference_task_service",
+              "parameter": "service",
+              "resolution_status": "resolved",
+              "service_key": "reference_task_service",
+              "source": "ast_exact"
+            }
+          ],
+          "full_path": "/reference-tasks/",
+          "handler": "create_reference_task",
+          "method": "POST",
+          "path": "",
+          "resolution_status": "resolved",
+          "source": "ast_exact"
+        },
+        {
+          "confidence": "high",
+          "dependencies": [
+            {
+              "alias": "ReferenceTaskServiceDep",
+              "confidence": "high",
+              "getter": "get_reference_task_service",
+              "parameter": "service",
+              "resolution_status": "resolved",
+              "service_key": "reference_task_service",
+              "source": "ast_exact"
+            }
+          ],
+          "full_path": "/reference-tasks/{task_id}",
+          "handler": "get_reference_task",
+          "method": "GET",
+          "path": "/{task_id}",
+          "resolution_status": "resolved",
+          "source": "ast_exact"
+        },
+        {
+          "confidence": "high",
+          "dependencies": [
+            {
+              "alias": "ReferenceTaskServiceDep",
+              "confidence": "high",
+              "getter": "get_reference_task_service",
+              "parameter": "service",
+              "resolution_status": "resolved",
+              "service_key": "reference_task_service",
+              "source": "ast_exact"
+            }
+          ],
+          "full_path": "/reference-tasks/",
+          "handler": "list_reference_tasks",
+          "method": "GET",
+          "path": "",
+          "resolution_status": "resolved",
+          "source": "ast_exact"
+        }
+      ],
+      "file": "project/infrastructure/api/endpoints/reference_tasks.py",
+      "prefix": "/reference-tasks",
+      "resolution_status": "resolved",
+      "router": "reference_tasks_router",
+      "source": "ast_exact",
+      "tags": [
+        "reference-tasks"
+      ]
+    }
+  },
+  "router_modules": [
+    "health",
+    "reference_tasks"
+  ],
+  "schema_version": 7,
+  "service_keys": {
+    "shared": [
+      "db_pool",
+      "llm_service"
+    ],
+    "vertical": [
+      "reference_task_service"
+    ]
+  },
+  "service_registry": {
+    "db_pool": {
+      "category": "shared",
+      "class": "AsyncConnectionPool",
+      "confidence": "high",
+      "construction_kind": "bound_variable",
+      "constructor_dependencies": [],
+      "factory_variable": "db_pool",
+      "module": "psycopg_pool.AsyncConnectionPool",
+      "resolution_status": "resolved",
+      "source": "ast_exact",
+      "source_file": "project/core/composition_root.py"
+    },
+    "llm_service": {
+      "category": "shared",
+      "class": "LLMService",
+      "confidence": "high",
+      "construction_kind": "bound_variable",
+      "constructor_dependencies": [],
+      "factory_variable": "llm_service",
+      "module": "project.infrastructure.agents.llm_service.LLMService",
+      "resolution_status": "resolved",
+      "source": "ast_exact",
+      "source_file": "project/core/composition_root.py"
+    },
+    "reference_task_service": {
+      "category": "vertical",
+      "class": "ReferenceTaskService",
+      "confidence": "high",
+      "construction_kind": "bound_variable",
+      "constructor_dependencies": [],
+      "factory_variable": "reference_task_service",
+      "module": "project.application.reference_task_service.ReferenceTaskService",
+      "resolution_status": "resolved",
+      "source": "ast_exact",
+      "source_file": "project/core/service_registration.py"
+    }
+  },
+  "template_kernel_paths": [
+    "scripts/query_ai_context.py",
+    "scripts/generate_ai_context.py",
+    "scripts/doctor_ai_context.py",
+    "scripts/sync_agent_docs.py",
+    "scripts/structure_builder.py",
+    "scripts/validate_architecture.py",
+    "scripts/validate_endpoint_wiring.py",
+    "scripts/validate_runtime_ownership.py",
+    "scripts/validate_cbm.py",
+    "scripts/validate_migrations.py",
+    "scripts/validate_module_sizes.py",
+    "ai_context/",
+    "ai_query/",
+    "project/core/",
+    "project/infrastructure/api/dependencies.py",
+    "project/infrastructure/api/router_registration.py",
+    "project/infrastructure/api/exception_handlers.py"
+  ]
+}

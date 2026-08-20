@@ -1,0 +1,336 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+# Cancel in-progress runs on the same branch when a new push lands. The latest
+# commit's run is the one whose result we care about; older runs only consume
+# concurrency slots.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gates:
+    runs-on: ubuntu-latest
+    # Postgres is provisioned here because validate_migrations.py otherwise downgrades itself
+    # to an informational skip: a second alembic head or a dangling down_revision would then
+    # reach main behind a green pipeline. With CI=true the skip is a hard failure.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scaffold_ci
+          POSTGRES_PASSWORD: scaffold_ci
+          POSTGRES_DB: scaffold_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scaffold_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_USER: scaffold_ci
+      POSTGRES_PASSWORD: scaffold_ci
+      POSTGRES_DB: scaffold_ci
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      # Locally `make quality-gates` regenerates a stale artifact and prints a notice, because the
+      # fix is always the same command. Here it must be a failure instead: no later step will
+      # rerun the generator, so a green pipeline over a stale map would publish the drift. This is
+      # the flag `make ci-local` sets on the same two lanes.
+      STRICT_GENERATED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Run canonical quality gates
+        run: make quality-gates
+
+  # Second leg: the same gates for a project that declares no relational store. Without it the
+  # POSTGRES_ENABLED=false path is exercised by nobody and rots within a release — the whole
+  # point of the flag is that a project can rely on it.
+  quality-gates-without-postgres:
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_ENABLED: "false"
+      # Same reason as the lane above: here a stale generated artifact is a failure, not a fix.
+      STRICT_GENERATED: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Run canonical quality gates without a database
+        run: make quality-gates
+
+  # The only job that opens a real database connection. `make quality-gates` runs
+  # run_all_tests.py --skip-functional, so nothing inside it ever reaches a driver: a broken
+  # ORDER BY, a column too narrow for its DTO, or a migration that was never written all stay
+  # green there. Measured, not assumed — reversing the sort in the reference repository left
+  # 593 tests passing while `make test-e2e` failed. Until this job existed the difference was
+  # covered by a sentence in the operational contract asking the agent to remember.
+  #
+  # It is slower than every other job because it builds the application image and starts a
+  # PostgreSQL container. That cost buys the one thing the rest of the pipeline cannot check.
+  functional-tests:
+    runs-on: ubuntu-latest
+    # A hung `docker compose up` would otherwise hold a runner until the account-wide limit.
+    # The suite takes about a minute once the image is built; twenty is a generous ceiling.
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # The runner needs uv only to execute scripts/run_all_tests.py itself — the suite runs
+      # inside containers built from the repository's own Dockerfile, so the host's virtualenv
+      # plays no part in what is tested.
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      # run_all_tests.py copies tests/functional/.env from .env.sample when it is missing, which
+      # it always is on a fresh checkout: the file is gitignored. No secrets are involved — the
+      # functional stack talks to its own throwaway database container.
+      - name: Run functional suite against a real database
+        run: make test-e2e
+
+      - name: Tear down the functional stack
+        if: always()
+        working-directory: tests/functional
+        run: docker compose down -v --remove-orphans
+
+  # Runs on its own so a credential-shaped literal is reported even when another gate fails first.
+  # The scanner is offline and pattern-based; a dedicated tool such as gitleaks is the upgrade path
+  # if this repository ever needs history scanning as well as working-tree scanning.
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Scan tracked files for credentials
+        run: uv run python scripts/validate_secrets.py
+
+  type-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      # Through the make target, not a second spelling. This line used to be
+      # `uv run --with mypy mypy project scripts ai_context ai_query`, which had already drifted
+      # from the Makefile in two ways: it omitted tests/functional (in MYPY_TARGETS on purpose —
+      # that suite is checked nowhere else) and it installed mypy ephemerally instead of the
+      # pinned dev dependency. A copy of a gate step is a gate step that can go stale silently.
+      - name: Mypy full-project type-check
+        run: make gate-types
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Bandit security scan
+        run: uv run --with bandit bandit -q -r project -ll
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: pip-audit (informational — non-strict)
+        # Strict mode is intentionally OFF: legacy pinned versions of langchain/fastapi/etc.
+        # carry known CVEs that need per-CVE triage before becoming a hard gate. The audit
+        # surfaces the list in the job log on every run so a maintainer notices regressions.
+        run: make audit-deps
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      # --cov-fail-under=0: pytest.ini sets a 60% floor for the WHOLE project, and this job runs
+      # one directory. The floor belongs to the full suite (quality-gates) and to diff-coverage;
+      # applying it to a subset makes the job fail on arithmetic rather than on a real problem.
+      - name: Run unit tests
+        run: uv run python -m pytest tests/application -q --cov-fail-under=0
+
+  infrastructure-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      # Same reason as the unit-tests job: a five-test directory cannot carry a project-wide floor.
+      # This job had been red on main since before 2026-08-05 for exactly that arithmetic.
+      - name: Run infrastructure tests
+        run: uv run python -m pytest tests/infrastructure -q --cov-fail-under=0
+
+  diff-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for diff base)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Diff coverage gate (changed lines vs origin/main, threshold 80%)
+        # Both halves — the coverage run and the diff-cover call — live in the Makefile target, so
+        # the documented local mirror (`make diff-coverage`) cannot drift from what CI enforces.
+        # They used to be copied here line for line, and a change to the threshold or the test
+        # paths in one place left the other silently behind.
+        run: make diff-coverage
+
+# ---------------------------------------------------------------------------
+# Deployment intentionally stops here.
+#
+# This repository is a template: every project built from it ships somewhere
+# different — a registry and a stand, a serverless target, an internal cluster.
+# A deploy job here would either be wrong for most consumers or a green no-op
+# that reads like coverage while doing nothing.
+#
+# A project adds its own job below this line. It should depend on the gates
+# above and run only on the default branch, e.g.:
+#
+#   deploy:
+#     needs: [quality-gates, unit-tests]
+#     if: github.ref == 'refs/heads/main'
+#     runs-on: ubuntu-latest
+#     steps: ...
+#
+# Until that job exists, "done" for an agent means the pull request is open and
+# green — never that the change is live.
+# ---------------------------------------------------------------------------

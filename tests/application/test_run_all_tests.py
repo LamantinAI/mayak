@@ -1,0 +1,125 @@
+# FILE: tests/application/test_run_all_tests.py
+# SUMMARY: Unit tests for the canonical all-tests runner script used by AI agents and developers.
+
+from pathlib import Path
+
+import pytest
+
+from scripts.run_all_tests import (
+    FUNCTIONAL_ENV_FILE,
+    FUNCTIONAL_ENV_SAMPLE,
+    ROOT_DIR,
+    _build_test_steps,
+    _ensure_functional_env,
+    _parse_args,
+)
+
+
+# CLASS: tests.application.test_run_all_tests.TestRunAllTests
+# SUMMARY: Verify CLI parsing, step planning, and functional env bootstrap behavior for the canonical test runner.
+class TestRunAllTests:
+    # FUNCTION: test_parse_args_defaults_to_full_suite
+    # SUMMARY: Ensure the runner defaults to local plus functional suites.
+    # OUTPUT: (None): None.
+    def test_parse_args_defaults_to_full_suite(self) -> None:
+        args = _parse_args([])
+
+        assert args.skip_functional is False
+        assert args.functional_only is False
+
+    # FUNCTION: test_parse_args_supports_skip_functional
+    # SUMMARY: Ensure the runner can skip functional tests for quick local loops.
+    # OUTPUT: (None): None.
+    def test_parse_args_supports_skip_functional(self) -> None:
+        args = _parse_args(["--skip-functional"])
+
+        assert args.skip_functional is True
+        assert args.functional_only is False
+
+    # FUNCTION: test_parse_args_supports_functional_only
+    # SUMMARY: Ensure the runner can execute only the functional Docker-based suite.
+    # OUTPUT: (None): None.
+    def test_parse_args_supports_functional_only(self) -> None:
+        args = _parse_args(["--functional-only"])
+
+        assert args.skip_functional is False
+        assert args.functional_only is True
+
+    # FUNCTION: test_build_test_steps_defaults_to_local_and_functional
+    # SUMMARY: Ensure the default plan includes both local and functional suites in order.
+    # OUTPUT: (None): None.
+    def test_build_test_steps_defaults_to_local_and_functional(self) -> None:
+        steps = _build_test_steps(skip_functional=False, functional_only=False)
+
+        assert [step.name for step in steps] == [
+            "local-suites",
+            "functional",
+        ]
+        assert steps[0].cwd == ROOT_DIR
+        assert steps[1].cwd == ROOT_DIR / "tests" / "functional"
+
+    # FUNCTION: test_build_test_steps_can_skip_functional
+    # SUMMARY: Ensure quick local mode omits the Docker-based functional suite.
+    # OUTPUT: (None): None.
+    def test_build_test_steps_can_skip_functional(self) -> None:
+        steps = _build_test_steps(skip_functional=True, functional_only=False)
+
+        assert [step.name for step in steps] == ["local-suites"]
+
+    # FUNCTION: test_local_step_runs_every_non_functional_suite
+    # SUMMARY: A new suite directory under tests/ must reach the local step, not be silently skipped.
+    # OUTPUT: (None): None.
+    def test_local_step_runs_every_non_functional_suite(self) -> None:
+        # **LOGIC_STEP**: tests/integration shipped for months without being listed here, so no
+        # local gate ever ran it. Discovering the directories instead of repeating the list is
+        # what makes the next added suite fail loudly rather than sit unexecuted.
+        steps = _build_test_steps(skip_functional=True, functional_only=False)
+        argv = steps[0].command
+
+        suites = sorted(
+            path.name
+            for path in (ROOT_DIR / "tests").iterdir()
+            if path.is_dir() and path.name != "functional" and any(path.glob("test_*.py"))
+        )
+
+        assert suites, "no suite directories found under tests/ — this discovery is broken"
+        for suite in suites:
+            assert f"tests/{suite}" in argv, f"tests/{suite} is never run by the local step"
+
+    # FUNCTION: test_build_test_steps_can_run_only_functional
+    # SUMMARY: Ensure functional-only mode omits the local unit and integration suite.
+    # OUTPUT: (None): None.
+    def test_build_test_steps_can_run_only_functional(self) -> None:
+        steps = _build_test_steps(skip_functional=False, functional_only=True)
+
+        assert [step.name for step in steps] == ["functional"]
+
+    # FUNCTION: test_ensure_functional_env_copies_missing_env_file
+    # SUMMARY: Ensure the runner bootstraps the functional env file from the sample when needed.
+    # INPUT: monkeypatch (pytest.MonkeyPatch): Fixture used to redirect module-level paths to a temp directory.
+    # INPUT: tmp_path (Path): Temporary directory used as an isolated functional test folder.
+    # OUTPUT: (None): None.
+    def test_ensure_functional_env_copies_missing_env_file(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        functional_dir = tmp_path / "functional"
+        functional_dir.mkdir()
+        sample = functional_dir / ".env.sample"
+        sample.write_text("AGENT_LLM_MODE=mock\n", encoding="utf-8")
+        env_file = functional_dir / ".env"
+
+        monkeypatch.setattr("scripts.run_all_tests.FUNCTIONAL_ENV_SAMPLE", sample)
+        monkeypatch.setattr("scripts.run_all_tests.FUNCTIONAL_ENV_FILE", env_file)
+
+        _ensure_functional_env()
+
+        assert env_file.read_text(encoding="utf-8") == sample.read_text(encoding="utf-8")
+
+    # FUNCTION: test_functional_env_paths_point_to_repository_suite
+    # SUMMARY: Ensure exported path constants target the repository functional suite by default.
+    # OUTPUT: (None): None.
+    def test_functional_env_paths_point_to_repository_suite(self) -> None:
+        assert FUNCTIONAL_ENV_SAMPLE == ROOT_DIR / "tests" / "functional" / ".env.sample"
+        assert FUNCTIONAL_ENV_FILE == ROOT_DIR / "tests" / "functional" / ".env"

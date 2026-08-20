@@ -1,0 +1,51 @@
+# Base stack: the application alone. PostgreSQL lives in docker-compose.postgres.yml and is
+# layered on with a second -f, so a project that set POSTGRES_ENABLED=false brings up a working
+# stack without a database container it will never open. `make smoke` picks the right file set from
+# POSTGRES_ENABLED; a bare `docker compose up` here starts the app without a database, and adding
+# `-f docker-compose.postgres.yml` brings the database with it.
+services:
+  app:
+    build: .
+    env_file:
+      - .env
+    environment:
+      # env_file is the only channel .env has into the container, so a shell that exports
+      # POSTGRES_ENABLED=false reached the Makefile — which correctly dropped the postgres
+      # overlay — but never reached entrypoint.sh, which read `true` from .env, ran alembic
+      # against a database that was not started, and exited 1. `POSTGRES_ENABLED=false make
+      # smoke` therefore failed on a configuration that works, and the only way to try the
+      # mode was to edit .env by hand. Compose interpolation resolves this from the shell
+      # first and from .env second — the same precedence load_dotenv gives
+      # scripts/validate_migrations.py::postgres_is_enabled, so host and container agree.
+      POSTGRES_ENABLED: ${POSTGRES_ENABLED:-true}
+    entrypoint: /app/entrypoint.sh
+    stop_grace_period: 45s
+    # Deep-trace NDJSON is written inside the container under APP_LOG_DIR. Without this mount the
+    # only way to read it was `docker exec`, and it vanished with the container — so the one channel
+    # the agent has for diagnosing a running service did not survive a restart. `make logs` reads
+    # from the host side of this volume.
+    volumes:
+      - app_logs:/app/logs
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # SERVER_PORT is the port uvicorn binds inside the container, so both the published mapping and
+    # the healthcheck have to follow it. They used to be the literal 8000: changing SERVER_PORT in
+    # .env moved the listener and left compose probing a closed port, so the container went
+    # unhealthy on a configuration that works. APP_PORT stays separate — it is the host side, and
+    # two checkouts of the same project need different host ports with the same SERVER_PORT.
+    ports:
+      - "${APP_PORT:-8000}:${SERVER_PORT:-8000}"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:${SERVER_PORT:-8000}/health/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # **LOGIC_STEP**: No restart policy on purpose. During development a crash loop should stay
+    # crashed and visible in `docker compose ps`, not be hidden behind an automatic retry. A
+    # deployment that wants one adds `restart: unless-stopped` in its own overlay, next to
+    # whatever else that environment overrides.
+
+volumes:
+  app_logs:

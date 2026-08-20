@@ -1,0 +1,6 @@
+# Code owners for review routing. The template ships a placeholder on purpose: a real handle here
+# would make every project cloned from Mayak request review from the template's author.
+#
+# Replace the placeholder with your own team or user before the first pull request, or delete this
+# file if the project does not use owner-based review.
+* @your-team

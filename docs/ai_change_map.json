@@ -1,0 +1,503 @@
+{
+  "golden_path": "make quality-gates",
+  "schema_version": 7,
+  "tasks": {
+    "add_config_setting": {
+      "expected_artifacts": [
+        "typed settings field",
+        "documented env behavior",
+        "configuration tests"
+      ],
+      "files": [
+        "project/core/config*.py",
+        "tests/application/test_config.py",
+        "README.md"
+      ],
+      "minimal_checks": [
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/run_all_tests.py --skip-functional"
+      ],
+      "minimal_context": {
+        "focus_queries": [
+          "workset diff"
+        ],
+        "read_first": [
+          "CLAUDE.md",
+          "uv run python scripts/query_ai_context.py overview"
+        ],
+        "source_files": [
+          "project/core/config.py",
+          "README.md"
+        ]
+      },
+      "tests_to_run": [
+        "tests/application/test_config.py"
+      ],
+      "verify": [
+        "make quality-gates"
+      ]
+    },
+    "add_endpoint": {
+      "common_mistakes": [
+        "service instantiated directly in endpoint",
+        "Depends used without typed alias",
+        "endpoint importing application service directly"
+      ],
+      "expected_artifacts": [
+        "DTO updates",
+        "application orchestration",
+        "typed dependency usage",
+        "endpoint tests"
+      ],
+      "files": [
+        "project/application/",
+        "project/infrastructure/api/endpoints/",
+        "project/infrastructure/api/dependencies.py",
+        "tests/application/"
+      ],
+      "forbidden_shortcuts": [
+        "Do not bypass project/infrastructure/api/dependencies.py aliases."
+      ],
+      "minimal_checks": [
+        "uv run python scripts/validate_endpoint_wiring.py",
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/run_all_tests.py --skip-functional"
+      ],
+      "minimal_context": {
+        "focus_queries": [
+          "before-edit file project/infrastructure/api/dependencies.py",
+          "failure rule endpoint.no_depends_without_alias"
+        ],
+        "read_first": [
+          "CLAUDE.md",
+          "uv run python scripts/query_ai_context.py overview"
+        ],
+        "source_files": [
+          "project/application/dtos.py",
+          "project/infrastructure/api/endpoints/health.py",
+          "project/infrastructure/api/dependencies.py",
+          "project/infrastructure/api/router_registration.py"
+        ]
+      },
+      "tests_to_run": [
+        "tests/application/test_<feature>_endpoints.py"
+      ],
+      "verify": [
+        "make quality-gates"
+      ]
+    },
+    "add_migration": {
+      "entrypoint": "make autogenerate-migration MSG=\"description\"",
+      "expected_artifacts": [
+        "new Alembic revision",
+        "schema-aware adapter update",
+        "migration validation coverage"
+      ],
+      "files": [
+        "alembic/versions/",
+        "project/infrastructure/persistence/"
+      ],
+      "minimal_checks": [
+        "uv run python scripts/validate_migrations.py"
+      ],
+      "minimal_context": {
+        "focus_queries": [
+          "workset diff"
+        ],
+        "read_first": [
+          "CLAUDE.md",
+          "uv run python scripts/query_ai_context.py overview"
+        ],
+        "source_files": [
+          "alembic/versions/",
+          "project/infrastructure/persistence/orm_models.py"
+        ]
+      },
+      "steps": [
+        "make autogenerate-migration MSG=\"description\"",
+        "update schema-aware persistence code if needed",
+        "add or update migration-focused tests",
+        "make quality-gates"
+      ],
+      "tests_to_run": [
+        "tests/application/test_validate_migrations.py"
+      ],
+      "verify": [
+        "make quality-gates"
+      ]
+    },
+    "add_persistence_model": {
+      "expected_artifacts": [
+        "domain contract update",
+        "persistence adapter update",
+        "repository or service tests"
+      ],
+      "files": [
+        "project/domain/",
+        "project/infrastructure/persistence/",
+        "tests/application/"
+      ],
+      "minimal_checks": [
+        "uv run python scripts/validate_architecture.py",
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/run_all_tests.py --skip-functional"
+      ],
+      "minimal_context": {
+        "focus_queries": [
+          "workset diff"
+        ],
+        "read_first": [
+          "CLAUDE.md",
+          "uv run python scripts/query_ai_context.py overview"
+        ],
+        "source_files": [
+          "project/domain/exceptions.py",
+          "project/infrastructure/persistence/orm_models.py"
+        ]
+      },
+      "tests_to_run": [
+        "tests/application/test_validate_migrations.py"
+      ],
+      "verify": [
+        "make quality-gates"
+      ]
+    },
+    "add_shared_service": {
+      "common_mistakes": [
+        "adding a new shared service without aligning typed dependency getters",
+        "changing service wiring without refreshing generated AI context artifacts"
+      ],
+      "expected_artifacts": [
+        "typed dependency getter",
+        "app.state.services registration"
+      ],
+      "files": [
+        "project/core/composition_root.py",
+        "project/infrastructure/api/dependencies.py",
+        "project/infrastructure/api/router_registration.py"
+      ],
+      "forbidden_shortcuts": [
+        "Do not instantiate shared services directly inside endpoints."
+      ],
+      "minimal_checks": [
+        "uv run python scripts/validate_architecture.py",
+        "uv run python scripts/validate_endpoint_wiring.py",
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/generate_ai_context.py --check"
+      ],
+      "minimal_context": {
+        "focus_queries": [
+          "workset diff"
+        ],
+        "read_first": [
+          "CLAUDE.md",
+          "uv run python scripts/query_ai_context.py overview"
+        ],
+        "source_files": [
+          "project/core/composition_root.py",
+          "project/infrastructure/api/dependencies.py",
+          "project/infrastructure/api/router_registration.py"
+        ]
+      },
+      "tests_to_run": [
+        "tests/application/test_generate_ai_context.py"
+      ],
+      "verify": [
+        "make quality-gates"
+      ]
+    },
+    "change_api_contract": {
+      "expected_artifacts": [
+        "DTO update",
+        "endpoint behavior update",
+        "API contract tests"
+      ],
+      "files": [
+        "project/application/",
+        "project/infrastructure/api/endpoints/",
+        "tests/application/"
+      ],
+      "minimal_checks": [
+        "uv run python scripts/validate_endpoint_wiring.py",
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/run_all_tests.py --skip-functional"
+      ],
+      "minimal_context": {
+        "focus_queries": [
+          "workset diff"
+        ],
+        "read_first": [
+          "CLAUDE.md",
+          "uv run python scripts/query_ai_context.py overview"
+        ],
+        "source_files": [
+          "project/application/dtos.py",
+          "project/infrastructure/api/endpoints/health.py"
+        ]
+      },
+      "tests_to_run": [
+        "tests/application/test_<feature>_endpoints.py",
+        "tests/application/test_<feature>_dtos.py"
+      ],
+      "verify": [
+        "make quality-gates"
+      ]
+    },
+    "change_logging_behavior": {
+      "expected_artifacts": [
+        "sanitized logging update",
+        "span output preserved",
+        "logging tests updated"
+      ],
+      "files": [
+        "project/core/logging/",
+        "project/application/",
+        "tests/application/test_logging_*.py"
+      ],
+      "minimal_checks": [
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/run_all_tests.py --skip-functional"
+      ],
+      "minimal_context": {
+        "focus_queries": [
+          "workset diff"
+        ],
+        "read_first": [
+          "CLAUDE.md",
+          "uv run python scripts/query_ai_context.py overview"
+        ],
+        "source_files": [
+          "project/core/logging/logger.py",
+          "project/application/dtos.py"
+        ]
+      },
+      "tests_to_run": [
+        "tests/application/test_logging_api.py",
+        "tests/application/test_logging_redaction.py"
+      ],
+      "verify": [
+        "make quality-gates"
+      ]
+    },
+    "debug_runtime": {
+      "common_mistakes": [
+        "debugging broad runtime behavior before checking generated wiring context",
+        "skipping semantic log inspection after a reproducible failure"
+      ],
+      "expected_artifacts": [
+        "reproduced failure path",
+        "validated fix",
+        "relevant log inspection"
+      ],
+      "files": [
+        "docs/ai_context_map.json",
+        "project/core/composition_root.py",
+        "project/infrastructure/api/"
+      ],
+      "minimal_checks": [
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/run_all_tests.py --skip-functional",
+        "uv run python scripts/generate_ai_context.py --check"
+      ],
+      "minimal_context": {
+        "focus_queries": [
+          "workset diff"
+        ],
+        "read_first": [
+          "CLAUDE.md",
+          "uv run python scripts/query_ai_context.py overview"
+        ],
+        "source_files": [
+          "project/core/composition_root.py"
+        ]
+      },
+      "steps": [
+        "uv run python scripts/run_all_tests.py --skip-functional",
+        "inspect semantic logs",
+        "read docs/ai_context_map.json",
+        "make quality-gates"
+      ],
+      "tests_to_run": [
+        "tests/application/test_generate_ai_context.py"
+      ],
+      "verify": [
+        "make quality-gates"
+      ]
+    },
+    "introduce_new_external_client": {
+      "expected_artifacts": [
+        "new port or adapter contract",
+        "composition-root wiring",
+        "integration-safe tests"
+      ],
+      "files": [
+        "project/domain/ports.py",
+        "project/infrastructure/",
+        "project/core/composition_root.py"
+      ],
+      "minimal_checks": [
+        "uv run python scripts/validate_architecture.py",
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/run_all_tests.py --skip-functional"
+      ],
+      "minimal_context": {
+        "focus_queries": [
+          "workset diff"
+        ],
+        "read_first": [
+          "CLAUDE.md",
+          "uv run python scripts/query_ai_context.py overview"
+        ],
+        "source_files": [
+          "project/infrastructure/api/dependencies.py",
+          "project/core/composition_root.py"
+        ]
+      },
+      "verify": [
+        "make quality-gates"
+      ]
+    },
+    "modify_existing_service": {
+      "expected_artifacts": [
+        "service behavior update",
+        "preserved dependency wiring",
+        "updated unit tests"
+      ],
+      "files": [
+        "project/application/",
+        "project/domain/",
+        "tests/application/"
+      ],
+      "minimal_checks": [
+        "uv run python scripts/validate_architecture.py",
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/run_all_tests.py --skip-functional"
+      ],
+      "minimal_context": {
+        "focus_queries": [
+          "workset diff"
+        ],
+        "read_first": [
+          "CLAUDE.md",
+          "uv run python scripts/query_ai_context.py overview"
+        ],
+        "source_files": [
+          "project/application/dtos.py",
+          "project/domain/exceptions.py"
+        ]
+      },
+      "tests_to_run": [
+        "tests/application/test_<service>.py"
+      ],
+      "verify": [
+        "make quality-gates"
+      ]
+    },
+    "refactor_large_module": {
+      "expected_artifacts": [
+        "smaller module boundaries",
+        "preserved public imports",
+        "module-size compliant tests"
+      ],
+      "files": [
+        "project/",
+        "tests/application/",
+        "docs/architecture_rules.json"
+      ],
+      "minimal_checks": [
+        "uv run python scripts/validate_module_sizes.py",
+        "uv run python scripts/validate_architecture.py",
+        "uv run python scripts/validate_runtime_ownership.py"
+      ],
+      "minimal_context": {
+        "focus_queries": [
+          "workset diff"
+        ],
+        "read_first": [
+          "CLAUDE.md",
+          "uv run python scripts/query_ai_context.py overview"
+        ],
+        "source_files": [
+          "project/core/composition_root.py",
+          "docs/architecture_rules.json"
+        ]
+      },
+      "verify": [
+        "make quality-gates"
+      ]
+    },
+    "replace_dependency": {
+      "common_mistakes": [
+        "changing composition-root wiring without matching dependency alias updates",
+        "breaking generated context integrity while services still build locally"
+      ],
+      "expected_artifacts": [
+        "updated dependency construction",
+        "typed dependency getter or alias alignment",
+        "runtime wiring verification"
+      ],
+      "files": [
+        "project/core/composition_root.py",
+        "project/core/service_registration.py",
+        "project/infrastructure/api/dependencies.py"
+      ],
+      "minimal_checks": [
+        "uv run python scripts/validate_architecture.py",
+        "uv run python scripts/validate_endpoint_wiring.py",
+        "uv run python scripts/validate_runtime_ownership.py",
+        "uv run python scripts/generate_ai_context.py --check"
+      ],
+      "minimal_context": {
+        "focus_queries": [
+          "before-edit file project/core/composition_root.py",
+          "failure rule endpoint.alias_chain_invalid"
+        ],
+        "read_first": [
+          "CLAUDE.md",
+          "uv run python scripts/query_ai_context.py overview"
+        ],
+        "source_files": [
+          "project/core/composition_root.py",
+          "project/core/service_registration.py",
+          "project/infrastructure/api/dependencies.py",
+          "project/infrastructure/api/router_registration.py"
+        ]
+      },
+      "tests_to_run": [
+        "tests/application/test_generate_ai_context.py"
+      ],
+      "verify": [
+        "make quality-gates"
+      ]
+    },
+    "update_project_context": {
+      "expected_artifacts": [
+        "updated domain context",
+        "schema-valid project_context.json"
+      ],
+      "files": [
+        "PROJECT.md",
+        "docs/project_context.json"
+      ],
+      "minimal_checks": [
+        "uv run python scripts/validate_project_context.py"
+      ],
+      "minimal_context": {
+        "focus_queries": [
+          "workset diff"
+        ],
+        "read_first": [
+          "CLAUDE.md",
+          "uv run python scripts/query_ai_context.py overview"
+        ],
+        "source_files": []
+      },
+      "tests_to_run": [
+        "tests/application/test_validate_project_context.py"
+      ],
+      "verify": [
+        "make quality-gates"
+      ]
+    }
+  }
+}
