@@ -67,6 +67,15 @@ class CompositionRoot:
                         open=False,
                         max_size=settings.postgres.pool_size,
                         kwargs={
+                            # **LOGIC_STEP**: autocommit=True is deliberate, not a default left in
+                            # place — a method with one execute() needs nothing further; a method
+                            # that must land two or more statements together (aggregate + outbox
+                            # row, order + line items) wraps them in
+                            # "async with connection.transaction():" inside the connection block
+                            # it already opens, or a crash between the two leaves a partial write
+                            # nothing here catches. Full rationale, the code shape, and how to
+                            # prove it with a functional test:
+                            # docs/adr/ADR-007-autocommit-and-explicit-transactions.md.
                             "autocommit": True,
                             "connect_timeout": 5,
                             "prepare_threshold": None,

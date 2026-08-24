@@ -281,6 +281,40 @@ class TestSettings:
                 settings.validate_runtime()
             assert "SERVER_CORS_ORIGINS" in str(exc_info.value)
 
+    # FUNCTION: test_runtime_validation_rejects_wildcard_mixed_with_real_origins
+    # SUMMARY: Verify a wildcard mixed into a list of real origins is caught, not only ["*"] alone.
+    # NOTE: Pins the membership check (`"*" in self.server.cors_origins`) in
+    # Settings.validate_runtime (project/core/config_runtime.py) so a future "simplification" back
+    # to the old `== ["*"]` equality check fails here first. Why membership and not equality, the
+    # Starlette mechanism it guards against, and the reproduction with its date all live in that
+    # comment — not repeated here.
+    @pytest.mark.unit
+    def test_runtime_validation_rejects_wildcard_mixed_with_real_origins(self) -> None:
+        with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
+            settings = Settings()
+            settings.project.debug = False
+            settings.server.cors_origins = ["https://app.example.com", "*"]
+            with pytest.raises(ValueError) as exc_info:
+                settings.validate_runtime()
+            assert "SERVER_CORS_ORIGINS" in str(exc_info.value)
+
+    # FUNCTION: test_runtime_validation_allows_wildcard_cors_in_debug_mode
+    # SUMMARY: Verify a wildcard origin still passes when APP_DEBUG=true, mixed-in or alone.
+    # no-assert-ok: the assertion is that validate_runtime() does not raise; it returns None.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "cors_origins", [["*"], ["https://app.example.com", "*"]], ids=["alone", "mixed"]
+    )
+    def test_runtime_validation_allows_wildcard_cors_in_debug_mode(
+        self, cors_origins: list[str]
+    ) -> None:
+        with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
+            settings = Settings()
+            settings.project.debug = True
+            settings.server.cors_origins = cors_origins
+
+            settings.validate_runtime()
+
     # FUNCTION: test_runtime_validation_requires_api_key_in_live_mode
     # SUMMARY: Verify live LLM mode rejects missing provider credentials.
     @pytest.mark.unit

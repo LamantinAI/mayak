@@ -144,9 +144,31 @@ class Settings:
         # **LOGIC_STEP**: Trim the API key once so later checks can reason about actual availability.
         api_key = self.llm.api_key.get_secret_value().strip()
 
-        # **LOGIC_STEP**: Reject wildcard CORS in non-debug mode because credentials are enabled.
-        if not self.project.debug and self.server.cors_origins == ["*"]:
-            raise ValueError("SERVER_CORS_ORIGINS must not be ['*'] when APP_DEBUG=false")
+        # **LOGIC_STEP**: Reject wildcard CORS in non-debug mode with a membership test, not
+        # equality. This guard used to read `self.server.cors_origins == ["*"]`, which only ever
+        # caught the single-element list. Starlette's CORSMiddleware decides allow-all with
+        # `allow_all_origins = "*" in allow_origins` (a membership test over the whole list) and
+        # composition_root.py passes `allow_credentials=True` as a hardcoded literal — so
+        # SERVER_CORS_ORIGINS=["https://app.example.com", "*"] walked straight past the old check.
+        # Reproduced 2026-08-24: with that two-element list and APP_DEBUG=false, a request carrying
+        # `Origin: https://evil.attacker.test` came back with
+        # `access-control-allow-origin: https://evil.attacker.test` and
+        # `access-control-allow-credentials: true` — Starlette echoed the attacker's origin and
+        # sent credentials with it, the textbook credentialed-wildcard hole: any site can make
+        # authenticated cross-origin requests as a logged-in user. `not self.project.debug` stays
+        # exactly as it was — a wildcard under APP_DEBUG=true is intentional for local development
+        # and must keep working. The `allow_credentials=True` literal in composition_root.py is a
+        # known, deliberate carry-over, not an oversight missed by this fix — turning it into a
+        # setting is a separate change outside this guard's scope, and this comment is where the
+        # next reader who considers hardening it should start.
+        if not self.project.debug and "*" in self.server.cors_origins:
+            raise ValueError(
+                "SERVER_CORS_ORIGINS must not contain '*' when APP_DEBUG=false. Starlette's "
+                "CORSMiddleware treats a wildcard anywhere in the list as allow-all — not only a "
+                "single-element ['*'] — and this app sends allow_credentials=True, so a wildcard "
+                "mixed in with real origins echoes back any requesting Origin with credentials "
+                "allowed. List the exact origins this deployment serves instead."
+            )
 
         # **LOGIC_STEP**: Collect what `.env.sample` offers as placeholders, so the checks below
         # reject the sample's own values and not just one hardcoded word.

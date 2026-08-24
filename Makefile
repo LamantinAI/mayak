@@ -221,15 +221,22 @@ quality-gates-steps:
 update-deps:
 	$(UV) lock
 
-# Run the dependency CVE audit. Reports CVEs in pinned dependencies but does NOT fail on them:
-# known CVEs from legacy pinned versions are present today and need per-CVE triage before they
-# can become a hard gate. Promote to a hard gate once the list is empty.
+# Run the dependency CVE audit. Hard gate as of 2026-08-24: any pip-audit finding fails the
+# build. It was informational from introduction until then, because legacy pinned versions of
+# langchain/fastapi/etc. carried known CVEs that needed per-CVE triage before they could fail a
+# build outright. That list is empty now — verified with `make audit-deps`, which prints
+# "No known vulnerabilities found" and exits 0 — and this target's own note above said to promote
+# it the day the list emptied, so this is that promotion, not a change of policy.
+# If a new CVE lands that cannot be fixed the same day, the exception belongs here, pinned with a
+# date and a link to the advisory and the tracking issue — never by lowering this back to
+# informational, which is how a real CVE and an unreachable tool look identical again.
 #
 # `--with pip-audit` matters. The recipe used to call `$(UV) run pip-audit`, and pip-audit is
 # declared nowhere — so it never started, the trailing `|| true` swallowed the spawn error, and
-# both this target and the CI job that calls it were green while auditing nothing. Which exit
-# code is tolerated matters just as much: 1 means "CVEs found" and is informational on purpose,
-# anything above that means the tool itself did not run and must be loud.
+# both this target and the CI job that calls it were green while auditing nothing. Any non-zero
+# exit is now fatal for the same reason: pip-audit exits 1 when it finds a CVE and above 1 when
+# the tool itself failed to run, and a build that tolerated either shape of failure is a build
+# that cannot tell "vulnerable" from "did not check."
 #
 # The requirements file goes to a `mktemp` path, not a fixed /tmp name. The fixed name carried
 # the template's own name into every project built from it, and two checkouts auditing at the
@@ -241,8 +248,8 @@ audit-deps:
 	$(UV) run --with pip-audit pip-audit --disable-pip --requirement "$$requirements"; \
 	audit_status=$$?; \
 	rm -f "$$requirements"; \
-	if [ $$audit_status -gt 1 ]; then \
-		echo "audit-deps: pip-audit exited $$audit_status — the audit did not run"; \
+	if [ $$audit_status -ne 0 ]; then \
+		echo "audit-deps: pip-audit exited $$audit_status"; \
 		exit $$audit_status; \
 	fi
 

@@ -65,9 +65,55 @@ class AgentSettings(BaseSettings):
 
     # ATTRIBUTE: llm_readiness_check_mode (Literal["probe", "init"])
     # SUMMARY: Strategy for readiness checks against the configured LLM service.
+    # NOTE: Default changed from "probe" to "init" on 2026-08-24. In "probe" mode (non-mock),
+    # every /health/ready round-trips to the real provider — llm_service_readiness.py's
+    # _run_readiness_probe calls async_client.create(...) or llm.ainvoke(...). "init" checks only
+    # that the client was constructed at startup, at zero ongoing provider cost, which is why it
+    # stays the default: it never depends on a third party being reachable to answer "is this pod
+    # up", and that dependency is exactly what "probe" trades in.
+    #
+    # 2026-08-24, second pass: the first pass above closed the default but was incomplete on two
+    # counts, found by a completeness review of the same fix.
+    #   1. check_readiness() now caches a live probe result for 30s
+    #      (_PROBE_CACHE_TTL_SECONDS in llm_service_readiness.py — read that comment for the
+    #      call-rate arithmetic and the success/failure caching trade-off). This bounds "probe"'s
+    #      provider-call cost; it does not touch the second problem.
+    #   2. health.py's _build_readiness_response still puts checks["llm"]["status"] into
+    #      critical_statuses unconditionally (health.py line ~202-205), unlike the database check,
+    #      which is added conditionally and only when the project actually uses one (line ~206-207).
+    #      That file is out of scope for this change. So today, in "probe" mode, a provider outage
+    #      — a 429, a timeout, an expired key — still turns /health/ready unhealthy, still returns
+    #      503, and Kubernetes still evicts the pod, now at most once per 30s instead of once per
+    #      poll but with the exact same outcome once it happens. Every replica of a service shares
+    #      the same provider and the same rate limit, so they go together. The cache changes how
+    #      often the question gets asked; it does not change what happens when the answer is no.
+    #
+    # "probe" is still the right choice when reaching the model really is the readiness question —
+    # e.g. validating a freshly rotated API key before routing traffic to a replica — but it is a
+    # recommendation with conditions attached now, not a bare one:
+    #   - raise the Kubernetes readiness `periodSeconds` and `failureThreshold` so the effective
+    #     failure window is comfortably wider than the 30s cache TTL above — otherwise the cache
+    #     and the k8s failure count fight over the same window instead of the operator choosing one;
+    #   - accept, explicitly, that readiness is now coupled to a third party's availability, because
+    #     item 2 above means that coupling is real and this file cannot fix it alone.
+    # A project that decides the unconditional-criticality behavior itself should change is making
+    # a call this settings file does not get to make silently — that edit belongs in health.py,
+    # as a deliberate, reviewed change, not as a side effect of picking a Literal value here.
     llm_readiness_check_mode: Literal["probe", "init"] = Field(
-        default="probe",
-        description="Readiness check mode for LLM service",
+        default="init",
+        # The description states what each mode does and the one consequence a reader who never
+        # sees this file still has to know. The derivation behind it — the cache TTL, the call
+        # arithmetic, the criticality chain in health.py — is in the NOTE above and is not
+        # repeated here: a schema string and a code comment that both carry the same reasoning
+        # are two copies that drift, and only one of them is anywhere near the code that would
+        # change.
+        description=(
+            "Readiness check mode for the LLM service: 'init' (default) verifies only that the "
+            "provider client was constructed at startup, at zero ongoing cost; 'probe' calls the "
+            "provider, which couples this service's readiness to that provider's availability. "
+            "Choose 'probe' only with a readiness-probe interval and failureThreshold raised to "
+            "match; see the note above the field for why"
+        ),
     )
 
     # ATTRIBUTE: llm_readiness_timeout_seconds (float)

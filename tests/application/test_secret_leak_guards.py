@@ -192,6 +192,30 @@ class TestRedactionCoversRealCredentialShapes:
             "glpat-abcdefghijklmnopqrst",  # allow-secret: fixture for the scrubber
             "xoxb-1234567890-abcdefghij",  # allow-secret: fixture for the scrubber
             "AKIAIOSFODNN7EXAMPLE",  # allow-secret: fixture for the scrubber
+            # **LOGIC_STEP**: measured 2026-08-24 — delete the one line in redaction.py this
+            # fixture exists to prove, `re.compile(r"sk-[A-Za-z0-9]{20,}")`, and rerun the two
+            # dedicated secret-guard files with `--no-cov`:
+            # `uv run python -m pytest tests/application/test_secret_leak_guards.py
+            # tests/application/test_logging_redaction.py -q --no-cov`
+            # Only this one parametrize case fails. Every other test in both files, every other
+            # test under tests/application, and scripts/validate_secrets.py stay green — nothing
+            # else in the suite covers this pattern. Restore the deleted line afterwards with
+            # `git checkout -- project/core/logging/redaction.py`. The module-level `_FAKE_KEY`
+            # fixtures above never exercised this pattern: every use embeds it as
+            # `api_key={_FAKE_KEY}`, an assignment shape the separate
+            # `(api[_-]?key|token|secret|password|authorization)\s*[=:]\s*...` pattern catches on
+            # its own, so those tests stayed green for the wrong reason. A bare key with no
+            # `key=` prefix is also the shape most likely to actually leak here — it is what an
+            # `openai.AuthenticationError` message carries, and this template's default provider
+            # is OpenAI-compatible. Thirty-two characters after the prefix, not GitHub push
+            # protection's forty-eight (see BLOCKED_SHAPES below): still clears the `{20,}` in
+            # `redaction.py` while staying pushable.
+            # NOTE: this comment used to state "the rest of the suite" as an absolute test
+            # count. It drifted twice in one session (760 -> 737 -> 741) as unrelated concurrent
+            # work added tests elsewhere under tests/application, and no gate rereads a comment
+            # to catch a stale one — so the count is gone; the claim above needs only the shape
+            # of the result, which stays true at any suite size.
+            "sk-" + "a" * 32,  # allow-secret: fixture for the scrubber
             # **LOGIC_STEP**: `sk_test_` with sixteen characters, not `sk_live_` with twenty-four.
             # The longer live shape is what GitHub push protection matches, and it refused the
             # first push of this repository over this very line — a template whose first push is

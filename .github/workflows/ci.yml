@@ -231,10 +231,11 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen
 
-      - name: pip-audit (informational — non-strict)
-        # Strict mode is intentionally OFF: legacy pinned versions of langchain/fastapi/etc.
-        # carry known CVEs that need per-CVE triage before becoming a hard gate. The audit
-        # surfaces the list in the job log on every run so a maintainer notices regressions.
+      - name: pip-audit
+        # A hard gate since 2026-08-24: the target exits non-zero on any finding and this job
+        # fails with it. Why it was informational before, what emptied the CVE list, and where a
+        # CVE that cannot be fixed the same day gets pinned instead — all of that is written once,
+        # above the `audit-deps` target in the Makefile, and deliberately not repeated here.
         run: make audit-deps
 
   unit-tests:

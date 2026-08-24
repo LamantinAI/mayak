@@ -202,6 +202,11 @@ that uses a comfortable middle value — `"a title"` — cannot see the boundary
   without a database — and fails in the functional lane, where
   `tests/functional/src/test_migrations_match_models.py` runs `alembic upgrade head` and
   `alembic check` against the real one. Run `make test-e2e` before calling a vertical done.
+- The shared pool in `composition_root.py` opens with `autocommit=True`. A method with one
+  statement needs nothing further; a method with two or more that must land together wraps them in
+  `async with connection.transaction():` inside the connection block it already opens, and is
+  proved with a functional test, not a unit test — see
+  `docs/adr/ADR-007-autocommit-and-explicit-transactions.md` for why and for the code shape.
 
 ## A vertical whose adapter is a language model
 
