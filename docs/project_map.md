@@ -68,6 +68,7 @@ Project Map: Mayak
 │   │   ├── ADR-005-agent-workflow-lifecycle.md
 │   │   ├── ADR-006-optional-postgres.md
 │   │   ├── ADR-007-autocommit-and-explicit-transactions.md
+│   │   ├── ADR-008-readiness-criticality.md
 │   │   └── README.md
 │   ├── agent_rules.md
 │   ├── ai_change_map.json

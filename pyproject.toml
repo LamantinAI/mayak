@@ -76,9 +76,15 @@ select = [
     # quality-gates and bandit. These four codes catch three of them and report
     # zero findings on the current kernel, so nothing existing needs fixing.
     #
-    # Named one by one rather than selecting the whole ASYNC family on purpose: ASYNC240 fires on
-    # project/infrastructure/api/middleware.py, where a microsecond Path().stat() would have to
-    # become anyio.Path to satisfy it.
+    # Named one by one rather than selecting the whole ASYNC family, so that adding a code is a
+    # decision someone made rather than a family that grew. ASYNC240 was excluded until 2026-08-24
+    # for a concrete reason that no longer exists: it fired on
+    # project/infrastructure/api/middleware.py, where a microsecond Path().stat() sized a
+    # FileResponse and would have had to become anyio.Path to satisfy the rule. That middleware is
+    # pure ASGI now and reads Content-Length off the response headers instead, so there is no
+    # filesystem call on the request path at all and the rule reports nothing. It is selected below
+    # rather than merely un-excluded, which is what stops the stat coming back.
+    # Reproduce: `uv run ruff check --select ASYNC240 project tests ai_context ai_query scripts`.
     #
     # A synchronous httpx client in async code takes two of these plus a validator, because no
     # single rule sees both call shapes. Measured with a probe file:
@@ -90,6 +96,7 @@ select = [
     "ASYNC210", # blocking HTTP call inside an async function
     "ASYNC212", # blocking method on a synchronous HTTP client inside an async function
     "ASYNC221", # blocking subprocess call inside an async function
+    "ASYNC240", # blocking pathlib call inside an async function
     "ASYNC251", # time.sleep inside an async function
 ]
 ignore = [

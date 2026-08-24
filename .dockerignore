@@ -66,3 +66,36 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 .tiktoken_cache/
+
+# Development surface with no reader in any Docker stage
+# 2026-08-24: verified none of these are imported by project/ or alembic/, and no COPY in the
+# Dockerfile (any stage, including functional-tests) names them — the exact command is on the
+# `runtime-base` copy list in the Dockerfile, next to the files that DO need to survive
+# (.env.sample, pyproject.toml). Excluding a path here removes it from the build CONTEXT, so it is
+# gone for every stage at once, not just `app` — that is why tests/ is deliberately NOT listed
+# below even though it is equally a development artifact. tests/ has a reader: the
+# functional-tests stage. It is kept out of the image the same way the rest of this section is —
+# by never landing in `app` — but through a selective COPY in the Dockerfile instead of an
+# .dockerignore line, because functional-tests still needs it from the builder. See the Dockerfile
+# comment on that COPY before adding tests/ here.
+#
+# scripts/ and ai_context/ are missing from the list below for the same reason as tests/ and by the
+# same route: the functional suite imports them, so they have to reach the build context, and they
+# are kept out of `app` by the selective COPY instead. Which test imports what, and what breaks the
+# day someone adds them here, is written once beside that COPY in the Dockerfile. ai_query/ has no
+# reader in tests/ and so does stay listed.
+.agents/
+.claude/
+.codex/
+.github/
+.githooks/
+ai_query/
+docs/
+README.md
+PROJECT.md
+CODEOWNERS
+LICENSE
+Makefile
+pytest.ini
+dev_setup.sh
+docker-compose.postgres.yml

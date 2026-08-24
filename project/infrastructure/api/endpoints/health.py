@@ -149,7 +149,10 @@ async def _check_llm_service(request: Request) -> dict[str, Any]:
 
 
 # FUNCTION: _build_readiness_response
-# SUMMARY: Build aggregated readiness status from critical and optional dependency checks.
+# SUMMARY: Build aggregated readiness status from critical and optional dependency checks. Every
+# check always runs and its status is always reported in the returned dict; a per-check "critical"
+# flag, not presence in the dict, decides whether that status can flip the overall verdict — see
+# ADR-008.
 async def _build_readiness_response(
     request: Request,
 ) -> tuple[Literal["healthy", "unhealthy"], dict[str, dict[str, Any]]]:
@@ -162,6 +165,7 @@ async def _build_readiness_response(
                 "services": {
                     "status": "unhealthy",
                     "message": "Application services are not initialized",
+                    "critical": True,
                 }
             },
         )
@@ -170,39 +174,54 @@ async def _build_readiness_response(
         "services": {
             "status": "healthy",
             "message": "Application services are initialized",
+            "critical": True,
         }
     }
 
+    # **LOGIC_STEP**: Read both conditional-criticality settings up front, off the same
+    # request.app.state.settings object, with the same defensive getattr chain — a project
+    # running with no settings object attached (or an older one missing the field) degrades to
+    # each check's own historical default rather than raising. See ADR-008 for why the LLM check
+    # gets the same "does this deployment actually depend on it" treatment ADR-006 already gave
+    # the database.
+    settings = getattr(request.app.state, "settings", None)
+    llm_critical = getattr(getattr(settings, "agent", None), "llm_readiness_critical", False)
+    database_enabled = getattr(getattr(settings, "postgres", None), "enabled", True)
+
     llm_check = await _check_llm_service(request)
+    # **LOGIC_STEP**: The check ran and its real status is reported either way; "critical" only
+    # marks whether that status can flip the overall verdict below. Default
+    # AGENT_LLM_READINESS_CRITICAL=false keeps a shared third-party provider's bad minute from
+    # evicting every replica at once — see ADR-008.
+    llm_check["critical"] = llm_critical
     checks["llm"] = llm_check
 
     # **LOGIC_STEP**: A project that declared POSTGRES_ENABLED=false has no pool by design.
     # Reporting that as unhealthy would make readiness permanently false for a service that is
     # working exactly as configured, so the check reports "disabled" and leaves the critical
     # set. A missing pool while the database IS enabled stays unhealthy — that is a real fault.
-    settings = getattr(request.app.state, "settings", None)
-    database_enabled = getattr(getattr(settings, "postgres", None), "enabled", True)
-
     db_pool = services.get("db_pool")
     if not database_enabled:
         checks["database"] = {
             "status": "disabled",
             "message": "Database not used by this project (POSTGRES_ENABLED=false)",
+            "critical": False,
         }
     elif not isinstance(db_pool, AsyncConnectionPool):
         checks["database"] = {
             "status": "unhealthy",
             "message": "Database pool is not configured",
+            "critical": True,
         }
     else:
         checks["database"] = await _check_database(db_pool)
         if checks["database"].get("status") == "unhealthy":
             checks["database"]["message"] = _DATABASE_HEALTH_FAILURE_MESSAGE
+        checks["database"]["critical"] = True
 
-    critical_statuses = {
-        checks["services"]["status"],
-        checks["llm"]["status"],
-    }
+    critical_statuses = {checks["services"]["status"]}
+    if llm_critical:
+        critical_statuses.add(checks["llm"]["status"])
     if database_enabled:
         critical_statuses.add(checks["database"]["status"])
     if "unhealthy" in critical_statuses:

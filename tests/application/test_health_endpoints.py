@@ -116,7 +116,10 @@ class TestHealthEndpoints:
         assert "db.internal" not in response.text
 
     # FUNCTION: test_readiness_uses_llm_probe_result
-    # SUMMARY: Verify readiness surfaces real LLM probe failures as unhealthy.
+    # SUMMARY: Verify readiness surfaces real LLM probe failures as unhealthy. Since ADR-008 this
+    # also requires llm_readiness_critical=true — the check surfacing "unhealthy" and that status
+    # reaching the HTTP code are two different things now; see
+    # test_readiness_llm_unhealthy_not_critical_by_default for the default-false half.
     @pytest.mark.unit
     async def test_readiness_uses_llm_probe_result(
         self,
@@ -125,7 +128,9 @@ class TestHealthEndpoints:
         test_settings: FixtureSettings,
     ) -> None:
         original_mode = test_settings.agent.llm_readiness_check_mode
+        original_critical = test_settings.agent.llm_readiness_critical
         test_settings.agent.llm_readiness_check_mode = "probe"
+        test_settings.agent.llm_readiness_critical = True
 
         llm_service = fastapi_app.state.services["llm_service"]
         original_check_readiness = llm_service.check_readiness
@@ -151,6 +156,7 @@ class TestHealthEndpoints:
                 response = await async_client.get("/health/ready")
         finally:
             test_settings.agent.llm_readiness_check_mode = original_mode
+            test_settings.agent.llm_readiness_critical = original_critical
             llm_service.check_readiness = original_check_readiness
 
         assert response.status_code == 503
@@ -159,7 +165,9 @@ class TestHealthEndpoints:
         assert data["checks"]["llm"]["provider_reachable"] is False
 
     # FUNCTION: test_readiness_llm_failure_message_hides_internal_details
-    # SUMMARY: Verify LLM readiness payloads stay stable when the underlying failure contains secrets.
+    # SUMMARY: Verify LLM readiness payloads stay stable when the underlying failure contains
+    # secrets. Sets llm_readiness_critical=true (since ADR-008, default false) so the failure
+    # still reaches the HTTP status this test asserts on, alongside the message.
     @pytest.mark.unit
     async def test_readiness_llm_failure_message_hides_internal_details(
         self,
@@ -167,6 +175,9 @@ class TestHealthEndpoints:
         fastapi_app: FastAPI,
         test_settings: FixtureSettings,
     ) -> None:
+        original_critical = test_settings.agent.llm_readiness_critical
+        test_settings.agent.llm_readiness_critical = True
+
         llm_service = fastapi_app.state.services["llm_service"]
         original_check_readiness = llm_service.check_readiness
         llm_service.check_readiness = AsyncMock(
@@ -190,10 +201,159 @@ class TestHealthEndpoints:
             ):
                 response = await async_client.get("/health/ready")
         finally:
+            test_settings.agent.llm_readiness_critical = original_critical
             llm_service.check_readiness = original_check_readiness
 
         assert response.status_code == 503
         assert "secret-token" not in response.text
+
+    # FUNCTION: test_readiness_llm_unhealthy_not_critical_by_default
+    # SUMMARY: ADR-008 regression guard: with AGENT_LLM_READINESS_CRITICAL at its default of
+    # false, an unreachable LLM provider must not evict a replica — the check still runs and its
+    # unhealthy status is still visible in checks.llm, it just does not vote on the verdict.
+    @pytest.mark.unit
+    async def test_readiness_llm_unhealthy_not_critical_by_default(
+        self,
+        async_client: AsyncClient,
+        fastapi_app: FastAPI,
+        test_settings: FixtureSettings,
+    ) -> None:
+        llm_service = fastapi_app.state.services["llm_service"]
+        original_check_readiness = llm_service.check_readiness
+        llm_service.check_readiness = AsyncMock(
+            return_value={
+                "status": "unhealthy",
+                "message": "LLM provider probe failed",
+                "mode": "probe",
+                "provider_reachable": False,
+            }
+        )
+
+        try:
+            with patch(
+                "project.infrastructure.api.endpoints.health._check_database",
+                return_value={
+                    "status": "healthy",
+                    "message": "Database connection successful",
+                    "response_time_ms": 1.23,
+                },
+            ):
+                response = await async_client.get("/health/ready")
+        finally:
+            llm_service.check_readiness = original_check_readiness
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "healthy"
+        assert data["checks"]["llm"]["status"] == "unhealthy"
+        assert data["checks"]["llm"]["critical"] is False
+
+    # FUNCTION: test_readiness_llm_unhealthy_critical_when_configured
+    # SUMMARY: ADR-008 regression guard: AGENT_LLM_READINESS_CRITICAL=true restores the old
+    # behavior on demand — an unhealthy LLM check flips the overall verdict to 503.
+    @pytest.mark.unit
+    async def test_readiness_llm_unhealthy_critical_when_configured(
+        self,
+        async_client: AsyncClient,
+        fastapi_app: FastAPI,
+        test_settings: FixtureSettings,
+    ) -> None:
+        original_critical = test_settings.agent.llm_readiness_critical
+        test_settings.agent.llm_readiness_critical = True
+
+        llm_service = fastapi_app.state.services["llm_service"]
+        original_check_readiness = llm_service.check_readiness
+        llm_service.check_readiness = AsyncMock(
+            return_value={
+                "status": "unhealthy",
+                "message": "LLM provider probe failed",
+                "mode": "probe",
+                "provider_reachable": False,
+            }
+        )
+
+        try:
+            with patch(
+                "project.infrastructure.api.endpoints.health._check_database",
+                return_value={
+                    "status": "healthy",
+                    "message": "Database connection successful",
+                    "response_time_ms": 1.23,
+                },
+            ):
+                response = await async_client.get("/health/ready")
+        finally:
+            test_settings.agent.llm_readiness_critical = original_critical
+            llm_service.check_readiness = original_check_readiness
+
+        assert response.status_code == 503
+        data = response.json()
+        assert data["status"] == "unhealthy"
+        assert data["checks"]["llm"]["status"] == "unhealthy"
+        assert data["checks"]["llm"]["critical"] is True
+
+    # FUNCTION: test_readiness_llm_healthy_returns_200_when_critical
+    # SUMMARY: Verify llm_readiness_critical=true does not itself cause a 503 — only an actually
+    # unhealthy LLM check does; a healthy one still returns 200 with the flag visible in the body.
+    @pytest.mark.unit
+    async def test_readiness_llm_healthy_returns_200_when_critical(
+        self,
+        async_client: AsyncClient,
+        test_settings: FixtureSettings,
+    ) -> None:
+        original_critical = test_settings.agent.llm_readiness_critical
+        test_settings.agent.llm_readiness_critical = True
+
+        try:
+            with patch(
+                "project.infrastructure.api.endpoints.health._check_database",
+                return_value={
+                    "status": "healthy",
+                    "message": "Database connection successful",
+                    "response_time_ms": 1.23,
+                },
+            ):
+                response = await async_client.get("/health/ready")
+        finally:
+            test_settings.agent.llm_readiness_critical = original_critical
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "healthy"
+        assert data["checks"]["llm"]["status"] == "healthy"
+        assert data["checks"]["llm"]["critical"] is True
+
+    # FUNCTION: test_readiness_database_unhealthy_still_503_regardless_of_llm_criticality
+    # SUMMARY: Regression guard for the critical_statuses refactor: the database's own conditional
+    # criticality (ADR-006) is untouched by the new, independent llm_readiness_critical flag — a
+    # healthy LLM plus llm_readiness_critical=true must not mask a real database fault.
+    @pytest.mark.unit
+    async def test_readiness_database_unhealthy_still_503_regardless_of_llm_criticality(
+        self,
+        async_client: AsyncClient,
+        test_settings: FixtureSettings,
+    ) -> None:
+        original_critical = test_settings.agent.llm_readiness_critical
+        test_settings.agent.llm_readiness_critical = True
+
+        try:
+            with patch(
+                "project.infrastructure.api.endpoints.health._check_database",
+                return_value={
+                    "status": "unhealthy",
+                    "message": "Database connection failed",
+                    "response_time_ms": None,
+                },
+            ):
+                response = await async_client.get("/health/ready")
+        finally:
+            test_settings.agent.llm_readiness_critical = original_critical
+
+        assert response.status_code == 503
+        data = response.json()
+        assert data["status"] == "unhealthy"
+        assert data["checks"]["database"]["status"] == "unhealthy"
+        assert data["checks"]["database"]["critical"] is True
 
     # FUNCTION: test_check_database_exercises_real_probe_under_budget
     # SUMMARY: Cover the real _run_db_probe body by mocking only the connection pool, not the probe itself. Ensures pool.connection() is awaited as an async context manager and both probe queries run.

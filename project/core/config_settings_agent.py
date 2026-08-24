@@ -78,27 +78,20 @@ class AgentSettings(BaseSettings):
     #      (_PROBE_CACHE_TTL_SECONDS in llm_service_readiness.py — read that comment for the
     #      call-rate arithmetic and the success/failure caching trade-off). This bounds "probe"'s
     #      provider-call cost; it does not touch the second problem.
-    #   2. health.py's _build_readiness_response still puts checks["llm"]["status"] into
-    #      critical_statuses unconditionally (health.py line ~202-205), unlike the database check,
-    #      which is added conditionally and only when the project actually uses one (line ~206-207).
-    #      That file is out of scope for this change. So today, in "probe" mode, a provider outage
-    #      — a 429, a timeout, an expired key — still turns /health/ready unhealthy, still returns
-    #      503, and Kubernetes still evicts the pod, now at most once per 30s instead of once per
-    #      poll but with the exact same outcome once it happens. Every replica of a service shares
-    #      the same provider and the same rate limit, so they go together. The cache changes how
-    #      often the question gets asked; it does not change what happens when the answer is no.
+    #   2. health.py's _build_readiness_response put checks["llm"]["status"] into
+    #      critical_statuses unconditionally, unlike the database check, which was conditional on
+    #      the project actually using one. Closed below, same day.
     #
-    # "probe" is still the right choice when reaching the model really is the readiness question —
-    # e.g. validating a freshly rotated API key before routing traffic to a replica — but it is a
-    # recommendation with conditions attached now, not a bare one:
-    #   - raise the Kubernetes readiness `periodSeconds` and `failureThreshold` so the effective
-    #     failure window is comfortably wider than the 30s cache TTL above — otherwise the cache
-    #     and the k8s failure count fight over the same window instead of the operator choosing one;
-    #   - accept, explicitly, that readiness is now coupled to a third party's availability, because
-    #     item 2 above means that coupling is real and this file cannot fix it alone.
-    # A project that decides the unconditional-criticality behavior itself should change is making
-    # a call this settings file does not get to make silently — that edit belongs in health.py,
-    # as a deliberate, reviewed change, not as a side effect of picking a Literal value here.
+    # 2026-08-24, third pass: item 2 is now `llm_readiness_critical` below
+    # (AGENT_LLM_READINESS_CRITICAL, default false). See ADR-008 for the general principle — which
+    # dependencies get a vote in readiness, and why the default there is false — rather than
+    # repeating it here. What is specific to *this* field, not to that principle: "probe" mode
+    # still round-trips the provider on every poll (bounded by the 30s cache above) even with
+    # `llm_readiness_critical=false`; that cost does not go away, only the eviction consequence
+    # does. A project that sets `llm_readiness_critical=true` together with "probe" should also
+    # raise the Kubernetes readiness `periodSeconds` and `failureThreshold` to comfortably exceed
+    # the 30s cache TTL — otherwise the cache and the k8s failure count fight over the same window
+    # instead of the operator choosing one.
     llm_readiness_check_mode: Literal["probe", "init"] = Field(
         default="init",
         # The description states what each mode does and the one consequence a reader who never
@@ -110,9 +103,8 @@ class AgentSettings(BaseSettings):
         description=(
             "Readiness check mode for the LLM service: 'init' (default) verifies only that the "
             "provider client was constructed at startup, at zero ongoing cost; 'probe' calls the "
-            "provider, which couples this service's readiness to that provider's availability. "
-            "Choose 'probe' only with a readiness-probe interval and failureThreshold raised to "
-            "match; see the note above the field for why"
+            "provider on every poll. Whether that call can fail the overall verdict is a separate "
+            "setting, llm_readiness_critical (default false) — see the note above the field for why"
         ),
     )
 
@@ -122,6 +114,26 @@ class AgentSettings(BaseSettings):
         default=5.0,
         gt=0.0,
         description="Timeout in seconds for LLM readiness probe calls",
+    )
+
+    # ATTRIBUTE: llm_readiness_critical (bool)
+    # SUMMARY: Whether an unhealthy LLM check can flip the overall /health/ready verdict.
+    # NOTE: Default false. Full reasoning in ADR-008 — this is a pointer, not a second copy of it.
+    # The short version: the shipped reference vertical is storage-only and never calls the model,
+    # and every replica of a deployment shares the same third-party provider, so an unconditional
+    # vote turns one provider's bad minute into every replica failing readiness at once, with
+    # nowhere for Kubernetes to evict to. The check still runs and `checks.llm` in the response
+    # body still reports its real status either way (see health.py's `critical` flag per check) —
+    # this setting only decides whether that status joins the critical set. Set true when this
+    # deployment's own endpoints genuinely cannot answer without the model.
+    llm_readiness_critical: bool = Field(
+        default=False,
+        description=(
+            "Whether the LLM readiness check counts toward the overall /health/ready verdict. "
+            "The check always runs and is always reported in checks.llm; this only controls "
+            "whether an unhealthy result returns HTTP 503. See ADR-008 for the reasoning behind "
+            "the default of false."
+        ),
     )
 
     # ATTRIBUTE: system_prompt_name (str)

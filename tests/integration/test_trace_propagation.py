@@ -44,3 +44,23 @@ class TestTracePropagation:
         response = await async_client.get("/__trace_w3c", headers={"traceparent": traceparent})
         assert response.status_code == 200
         assert response.headers["X-Request-ID"] == "0af7651916cd43dd8448eb211c80319c"
+
+    # FUNCTION: test_request_id_reaches_a_handled_error_response_too
+    # SUMMARY: The header is stamped on the ASGI response the middleware's own `send` sees — which
+    # covers a success and a *handled* error alike, since both are ordinary ASGI messages flowing
+    # back up through this middleware. Only a truly unhandled exception skips it: it unwinds past
+    # this middleware as a raised exception and ServerErrorMiddleware (above CORS, above this
+    # middleware — see project/core/composition_root.py's add_middleware order) builds the 500
+    # response on the original `send` this middleware never wrapped. See
+    # project/infrastructure/api/middleware.py's AILoggingMiddleware.__call__ for where the header
+    # is added.
+    @pytest.mark.integration
+    async def test_request_id_reaches_a_handled_error_response_too(
+        self, async_client: AsyncClient
+    ) -> None:
+        trace_id = "abcdef12-3456-7890-abcd-ef1234567890"
+        response = await async_client.get(
+            "/__no_such_route_at_all", headers={"X-Request-ID": trace_id}
+        )
+        assert response.status_code == 404
+        assert response.headers["X-Request-ID"] == trace_id

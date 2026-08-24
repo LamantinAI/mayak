@@ -151,7 +151,11 @@ class CompositionRoot:
                 app.add_middleware(
                     CORSMiddleware,
                     allow_origins=settings.server.cors_origins,
-                    allow_credentials=True,
+                    # **LOGIC_STEP**: Read from settings rather than hardcoding True. Used to be a
+                    # literal with no supported way to turn it off; project/core/config_runtime.py
+                    # (Settings.validate_runtime) owns why this combined with a wildcard origin is
+                    # the actual vulnerability and refuses that combination outside debug mode.
+                    allow_credentials=settings.server.cors_allow_credentials,
                     allow_methods=["*"],
                     allow_headers=["*"],
                 )
