@@ -67,6 +67,15 @@ class CompositionRoot:
                         open=False,
                         max_size=settings.postgres.pool_size,
                         kwargs={
+                            # **LOGIC_STEP**: autocommit=True is deliberate, not a default left in
+                            # place — a method with one execute() needs nothing further; a method
+                            # that must land two or more statements together (aggregate + outbox
+                            # row, order + line items) wraps them in
+                            # "async with connection.transaction():" inside the connection block
+                            # it already opens, or a crash between the two leaves a partial write
+                            # nothing here catches. Full rationale, the code shape, and how to
+                            # prove it with a functional test:
+                            # docs/adr/ADR-007-autocommit-and-explicit-transactions.md.
                             "autocommit": True,
                             "connect_timeout": 5,
                             "prepare_threshold": None,
@@ -142,7 +151,11 @@ class CompositionRoot:
                 app.add_middleware(
                     CORSMiddleware,
                     allow_origins=settings.server.cors_origins,
-                    allow_credentials=True,
+                    # **LOGIC_STEP**: Read from settings rather than hardcoding True. Used to be a
+                    # literal with no supported way to turn it off; project/core/config_runtime.py
+                    # (Settings.validate_runtime) owns why this combined with a wildcard origin is
+                    # the actual vulnerability and refuses that combination outside debug mode.
+                    allow_credentials=settings.server.cors_allow_credentials,
                     allow_methods=["*"],
                     allow_headers=["*"],
                 )

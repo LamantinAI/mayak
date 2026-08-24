@@ -144,9 +144,42 @@ class Settings:
         # **LOGIC_STEP**: Trim the API key once so later checks can reason about actual availability.
         api_key = self.llm.api_key.get_secret_value().strip()
 
-        # **LOGIC_STEP**: Reject wildcard CORS in non-debug mode because credentials are enabled.
-        if not self.project.debug and self.server.cors_origins == ["*"]:
-            raise ValueError("SERVER_CORS_ORIGINS must not be ['*'] when APP_DEBUG=false")
+        # **LOGIC_STEP**: Reject wildcard CORS in non-debug mode with a membership test, not
+        # equality. This guard used to read `self.server.cors_origins == ["*"]`, which only ever
+        # caught the single-element list. Starlette's CORSMiddleware decides allow-all with
+        # `allow_all_origins = "*" in allow_origins` (a membership test over the whole list), so
+        # SERVER_CORS_ORIGINS=["https://app.example.com", "*"] walked straight past the old check.
+        # Reproduced 2026-08-24: with that two-element list, APP_DEBUG=false and credentials on, a
+        # request carrying `Origin: https://evil.attacker.test` came back with
+        # `access-control-allow-origin: https://evil.attacker.test` and
+        # `access-control-allow-credentials: true` — Starlette echoed the attacker's origin and
+        # sent credentials with it, the textbook credentialed-wildcard hole: any site can make
+        # authenticated cross-origin requests as a logged-in user.
+        #
+        # `allow_credentials` used to be a hardcoded True in composition_root.py, which is what
+        # made a wildcard dangerous unconditionally. It is now SERVER_CORS_ALLOW_CREDENTIALS
+        # (ServerSettings.cors_allow_credentials, default true) and the guard below was narrowed to
+        # match Starlette's own condition for the dangerous branch —
+        # `if self.allow_all_origins and self.allow_credentials: self.allow_explicit_origin(...)`
+        # in CORSMiddleware — refusing the wildcard only when credentials are actually enabled. A
+        # wildcard WITHOUT credentials is the ordinary, safe public-API shape: no credential ever
+        # rides on the response, so echoing the origin back is harmless. `not self.project.debug`
+        # stays exactly as it was — a wildcard under APP_DEBUG=true is intentional for local
+        # development and must keep working regardless of the credentials flag.
+        if (
+            not self.project.debug
+            and self.server.cors_allow_credentials
+            and "*" in self.server.cors_origins
+        ):
+            raise ValueError(
+                "SERVER_CORS_ORIGINS must not contain '*' while SERVER_CORS_ALLOW_CREDENTIALS=true "
+                "and APP_DEBUG=false. Starlette's CORSMiddleware treats a wildcard anywhere in the "
+                "list as allow-all — not only a single-element ['*'] — and echoes back any "
+                "requesting Origin with credentials allowed, letting any site make authenticated "
+                "cross-origin requests as a logged-in user. Either list the exact origins this "
+                "deployment serves, or set SERVER_CORS_ALLOW_CREDENTIALS=false if this API is "
+                "meant to be public and never sends credentials."
+            )
 
         # **LOGIC_STEP**: Collect what `.env.sample` offers as placeholders, so the checks below
         # reject the sample's own values and not just one hardcoded word.

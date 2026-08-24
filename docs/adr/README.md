@@ -9,6 +9,8 @@ Current ADRs:
 - `ADR-004-module-size-limit.md`
 - `ADR-005-agent-workflow-lifecycle.md`
 - `ADR-006-optional-postgres.md`
+- `ADR-007-autocommit-and-explicit-transactions.md`
+- `ADR-008-readiness-criticality.md`
 
 Guidelines:
 - Add a short ADR when a durable architectural or workflow decision changes.

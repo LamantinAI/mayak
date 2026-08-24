@@ -76,9 +76,15 @@ select = [
     # quality-gates and bandit. These four codes catch three of them and report
     # zero findings on the current kernel, so nothing existing needs fixing.
     #
-    # Named one by one rather than selecting the whole ASYNC family on purpose: ASYNC240 fires on
-    # project/infrastructure/api/middleware.py, where a microsecond Path().stat() would have to
-    # become anyio.Path to satisfy it.
+    # Named one by one rather than selecting the whole ASYNC family, so that adding a code is a
+    # decision someone made rather than a family that grew. ASYNC240 was excluded until 2026-08-24
+    # for a concrete reason that no longer exists: it fired on
+    # project/infrastructure/api/middleware.py, where a microsecond Path().stat() sized a
+    # FileResponse and would have had to become anyio.Path to satisfy the rule. That middleware is
+    # pure ASGI now and reads Content-Length off the response headers instead, so there is no
+    # filesystem call on the request path at all and the rule reports nothing. It is selected below
+    # rather than merely un-excluded, which is what stops the stat coming back.
+    # Reproduce: `uv run ruff check --select ASYNC240 project tests ai_context ai_query scripts`.
     #
     # A synchronous httpx client in async code takes two of these plus a validator, because no
     # single rule sees both call shapes. Measured with a probe file:
@@ -90,6 +96,7 @@ select = [
     "ASYNC210", # blocking HTTP call inside an async function
     "ASYNC212", # blocking method on a synchronous HTTP client inside an async function
     "ASYNC221", # blocking subprocess call inside an async function
+    "ASYNC240", # blocking pathlib call inside an async function
     "ASYNC251", # time.sleep inside an async function
 ]
 ignore = [
@@ -118,14 +125,34 @@ mypy_path = "tests/functional"
 explicit_package_bases = true
 namespace_packages = true
 
-# TODO: ratchet — measured by the mypy-scope-extension task, 2026-05-20
+# TODO: ratchet — measured by the mypy-scope-extension task, 2026-05-20; remeasured 2026-08-24.
 # Known debt: scripts/, ai_context/, and ai_query/ use dict[str, object] schemas
-# extensively (architecture_rules, file_policy_index, change_map, etc.). Strict
-# mypy surfaces ~193 errors across these modules, dominated by attr-defined,
-# index, arg-type, str, call-overload. Tightening requires migrating the schemas
-# to TypedDict — a multi-week effort. Until then, suppress only the systematic
-# codes here; new-style violations (name-defined, import errors, unreachable,
-# etc.) remain enforced, so this gate still catches regressions on those.
+# extensively (architecture_rules, file_policy_index, change_map, etc.). Strict mypy surfaced
+# ~193 errors across these modules on 2026-05-20; removing this override block and running
+# `uv run mypy scripts ai_context ai_query` on 2026-08-24 gives "Found 161 errors in 19 files
+# (checked 45 source files)" — reproduce it yourself before trusting either number, the codebase
+# moves. Tightening requires migrating the schemas to TypedDict — a multi-week effort. Until then,
+# suppress only the systematic codes here; new-style violations (name-defined, import errors,
+# unreachable, etc.) remain enforced, so this gate still catches regressions on those.
+#
+# The type gate is materially weaker here than over the application kernel. Compare
+# `find scripts ai_context ai_query -name '*.py' | xargs wc -l`, all of it running under these
+# eleven suppressions, against `find project -name '*.py' | xargs wc -l` under full strict mypy
+# with none: measured 2026-08-24, the suppressed half is roughly twice the size of the checked
+# half. Twice the code, a hole in the check.
+#
+# No line counts are written here, and that is deliberate. This sentence carried "~6,600" for the
+# kernel until 2026-08-24, when the real figure was 6,855 — off by the wrong hundred because it had
+# been rounded by hand instead of pasted from the command beside it. It was then corrected to 6,855
+# and was wrong again within the hour, at 6,859, because the very edit that corrected it added four
+# comment lines under project/. A count of anything a contributor routinely adds to is stale before
+# the commit that writes it lands, and no gate rereads a comment. The ratio is what the reader needs
+# and the ratio survives; run the two commands for today's numbers.
+#
+# Ratchet order, mechanical first: no-untyped-def and var-annotated need only annotations, no
+# schema change — drop those two from the list first and fix what mypy then reports. attr-defined,
+# index and call-overload are the ones that actually need the TypedDict migration; do those last,
+# together, since splitting a dict[str, object] into a TypedDict tends to move all three at once.
 [[tool.mypy.overrides]]
 module = ["scripts.*", "ai_context.*", "ai_query.*"]
 disable_error_code = [

@@ -71,6 +71,14 @@ Clone it instead if you only mean to read it. Either way it has to be a git chec
 downloaded ZIP: several gates ask git which files are tracked, so without `.git` they fail on a
 repository that is otherwise perfectly healthy.
 
+A related trap on Windows: `.claude/skills/` ships as two symlinks into `.agents/skills/`
+(`git ls-files -s .claude/skills` shows mode `120000`). Without `core.symlinks` enabled — the
+default for a non-admin user — git checks those out as plain text files holding the target path
+instead of the skills themselves, and the agent finds no skill there and says nothing about it.
+`make init-project` now warns when it detects this; the fix is
+`git config core.symlinks true && git checkout -- .claude/skills`, which on Windows needs
+Developer Mode or an elevated shell.
+
 ```bash
 make init-project
 ```
@@ -97,8 +105,10 @@ The database lives in the `docker-compose.postgres.yml` overlay, so it is attach
 app without a database, and `entrypoint.sh` exits 1 rather than serving a half-working service.
 
 Once it is up: `http://localhost:8000/docs` for Swagger, `GET /health/` for liveness, and
-`GET /health/ready` for readiness — which checks services, the LLM client, and the database when the
-project uses one.
+`GET /health/ready` for readiness — which always runs and reports the services, LLM and database
+checks, but only services are always critical to the verdict; the LLM check is critical only when
+`AGENT_LLM_READINESS_CRITICAL=true`, and the database only when the project uses one. See
+`docs/adr/ADR-008-readiness-criticality.md`.
 
 `make smoke` does the whole round trip for you: picks the compose files, waits for a healthy
 container, calls both probes, and tears the stack down afterwards.
@@ -163,9 +173,15 @@ rather than a wall of output.
 
 Two things it cannot do, worth knowing before you trust a green run:
 
-- **It runs none of your SQL.** Reversing an `ORDER BY` in the shipped repository leaves every gate
-  green and fails `make test-e2e`. A change under `project/infrastructure/persistence/`,
-  `project/infrastructure/api/endpoints/`, or the wiring files is finished by the functional suite.
+- **It runs none of your SQL, so catching a bad query depends on a test pinning the clause as
+  literal text.** Reversing an `ORDER BY` in the shipped repository was green everywhere but
+  `make test-e2e` on 2026-08-12; remeasured 2026-08-24, the same reversal now fails
+  `make quality-gates` in seconds, on the literal-text assertion in
+  `test_reference_task_repository.py` — not on the `test.sql_constant_round_trip` validator, which
+  still exits 0, because it only checks that some clause is pinned, not that the pinned text is
+  right. A change under `project/infrastructure/persistence/`,
+  `project/infrastructure/api/endpoints/`, or the wiring files is still finished by the functional
+  suite.
 - **The migration check downgrades itself** to an informational skip when no database is reachable,
   so run it against one before trusting a green migration gate. In CI the skip is a hard failure.
 
@@ -234,8 +250,10 @@ either removed after measuring that it earned nothing, or never added for the sa
 | `AGENT_LLM_MODE` | `mock` for dev, CI and tests; `live` to call a provider | `mock` |
 | `AGENT_DEFAULT_LLM_TEMPERATURE` | LLM temperature (0.0-2.0) | `0.2` |
 | `AGENT_MAX_TOKENS` | maximum output tokens | `4096` |
-| `AGENT_LLM_READINESS_CHECK_MODE` | `probe` (network call) or `init` (client construction) | `probe` |
-| `SERVER_CORS_ORIGINS` | allowed CORS origins; a wildcard is rejected at startup | `["*"]` |
+| `AGENT_LLM_READINESS_CHECK_MODE` | `init` checks only that the provider client was constructed at startup, at zero ongoing cost; `probe` performs a real provider call on every `/health/ready` check | `init` |
+| `AGENT_LLM_READINESS_CRITICAL` | whether an unhealthy LLM check makes `/health/ready` report unready | `false` |
+| `SERVER_CORS_ORIGINS` | allowed CORS origins; a wildcard is rejected at startup under the conditions below | `["*"]` |
+| `SERVER_CORS_ALLOW_CREDENTIALS` | whether the app sends `Access-Control-Allow-Credentials`; `false` makes a wildcard origin list safe | `true` |
 | `APP_DEBUG` | `DEBUG` log level, single worker, Starlette's own error page | `false` |
 
 Notes worth knowing:
@@ -244,8 +262,11 @@ Notes worth knowing:
   inside the network. Without the second `-f`, the container looks for the database inside itself.
 - `POSTGRES_ENABLED=false` removes the connection pool, the migrations and the database's vote in
   `/health/ready`. See `docs/adr/ADR-006-optional-postgres.md`.
-- A wildcard CORS origin is refused at startup when `APP_DEBUG=false`, together with the default
-  database password — the guard exists so a placeholder cannot reach a deployment.
+- A wildcard CORS origin is refused at startup only when `APP_DEBUG=false` **and**
+  `SERVER_CORS_ALLOW_CREDENTIALS=true` (the default) — that combination is what lets any site make
+  authenticated cross-origin requests. Either list the exact origins this deployment serves, or set
+  `SERVER_CORS_ALLOW_CREDENTIALS=false` if the API is public or token-authenticated and never relies
+  on cookies.
 - `.env.sample` is the documentation for every variable; a test compares its values against the
   defaults declared in code, so the two cannot drift.
 

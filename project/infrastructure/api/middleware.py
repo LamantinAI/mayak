@@ -3,13 +3,11 @@
 
 import re
 import uuid
-from pathlib import Path
-from typing import Dict
+from typing import Any, Dict
 
-from fastapi import Request, Response
-from fastapi.responses import FileResponse, StreamingResponse
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.types import ASGIApp
+from starlette.datastructures import Headers
+from starlette.requests import Request
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from project.common.sampling import should_sample_health_check
 from project.core.logging import (
@@ -43,6 +41,10 @@ _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]{16,64}$")
 # Per spec: 2 hex chars (version) - 32 hex chars (trace_id) - 16 hex chars (span_id) - 2 hex chars (flags).
 _TRACEPARENT_PATTERN = re.compile(r"^[0-9a-f]{2}-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}$")
 
+# ATTRIBUTE: _UNKNOWN_CONTENT_TYPE (str)
+# SUMMARY: Recorded when a response never carried a readable content-type header.
+_UNKNOWN_CONTENT_TYPE = "unknown"
+
 
 # FUNCTION: _extract_or_generate_request_id
 # SUMMARY: Resolve a request id from inbound trace headers, falling back to a fresh UUID.
@@ -73,22 +75,190 @@ def _sanitize_params(params: Dict[str, str]) -> Dict[str, str]:
     return {k: "***" if _SENSITIVE_PARAM_PATTERN.search(k) else v for k, v in params.items()}
 
 
-# CLASS: project.infrastructure.api.middleware.AILoggingMiddleware
-# SUMMARY: Middleware that intercepts HTTP requests and provides AI-optimized semantic logging with request tracing.
-# EXTENDS: BaseHTTPMiddleware
-class AILoggingMiddleware(BaseHTTPMiddleware):
-    # FUNCTION: __init__
-    # SUMMARY: Initialize the AI logging middleware.
-    def __init__(self, app: ASGIApp) -> None:
-        # **LOGIC_STEP**: Initialize the base middleware with the ASGI app.
-        super().__init__(app)
+# FUNCTION: _parse_content_length
+# SUMMARY: Parse a Content-Length header value, tolerating absence or garbage.
+# OUTPUT: (int | None): The parsed length, or None when absent or not an integer.
+def _parse_content_length(raw: str | None) -> int | None:
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
-    # FUNCTION: dispatch
+
+# FUNCTION: _with_header_replaced
+# SUMMARY: Return a raw ASGI header list with one name set to one value, dropping any duplicate.
+# INPUT: headers (list[tuple[bytes, bytes]]): Raw headers from an `http.response.start` message.
+# INPUT: name (bytes): Lower-case header name to set.
+# INPUT: value (bytes): Value to set it to.
+# OUTPUT: (list[tuple[bytes, bytes]]): Headers with exactly one entry for `name`.
+# NOTE: Mirrors starlette.datastructures.MutableHeaders.__setitem__ (drop existing, append once)
+# without constructing a MutableHeaders/Response just to change one header on a message we are
+# forwarding, not building.
+def _with_header_replaced(
+    headers: list[tuple[bytes, bytes]], name: bytes, value: bytes
+) -> list[tuple[bytes, bytes]]:
+    kept = [(key, val) for key, val in headers if key.lower() != name]
+    kept.append((name, value))
+    return kept
+
+
+# CLASS: project.infrastructure.api.middleware._ResponseObserver
+# SUMMARY: Accumulates response shape from the raw ASGI messages a downstream app sends, for the
+# span output that used to come from inspecting a Response object BaseHTTPMiddleware never gave us.
+# NOTE: starlette.middleware.base.BaseHTTPMiddleware.call_next does not return the endpoint's own
+# Response — it consumes the downstream ASGI messages and hands back its own private
+# `_StreamingResponse` (starlette/middleware/base.py). That type does not subclass
+# fastapi.responses.StreamingResponse and never gets a `.body` attribute, so on starlette==1.4.1
+# every one of this class's three old branches — `isinstance(response, StreamingResponse)`,
+# `isinstance(response, FileResponse)`, `hasattr(response, "body")` — was unreachable: confirmed
+# by running an actual StreamingResponse and an actual JSONResponse through the real dispatch path
+# on 2026-08-24 and printing what `call_next` returned (`type(response).__name__` was
+# `_StreamingResponse` and `hasattr(response, "body")` was False in both cases). response_type was
+# "standard" and response_size was None for every request this middleware ever logged, streaming or
+# not. Reading the ASGI messages directly, as below, is the first version of these two fields that
+# observes what it claims to rather than a branch that never matched.
+class _ResponseObserver:
+    # FUNCTION: __init__
+    # SUMMARY: Start from the same values the dead branches used to leave behind.
+    def __init__(self) -> None:
+        self.status_code: int | None = None
+        self.content_type: str = _UNKNOWN_CONTENT_TYPE
+        self.response_type: str = "standard"
+        self.response_size: int | str | None = None
+        # ATTRIBUTE: _content_length (int | None)
+        # SUMMARY: Content-Length from `http.response.start`, used only if this turns out to be
+        # a pathsend (file) response — kept private because "standard" responses size themselves
+        # from bytes actually seen, not from a header a handler could get wrong.
+        self._content_length: int | None = None
+        self._bytes_seen: int = 0
+
+    # FUNCTION: record_start
+    # SUMMARY: Capture status and content-type from `http.response.start`.
+    # INPUT: status (int | None): The response's HTTP status, as sent by the downstream app.
+    # INPUT: headers (list[tuple[bytes, bytes]]): Raw headers from the same message.
+    def record_start(self, status: int | None, headers: list[tuple[bytes, bytes]]) -> None:
+        self.status_code = status
+        header_view = Headers(raw=headers)
+        self.content_type = header_view.get("content-type", _UNKNOWN_CONTENT_TYPE)
+        self._content_length = _parse_content_length(header_view.get("content-length"))
+
+    # FUNCTION: record_pathsend
+    # SUMMARY: Record a zero-copy file response — the `http.response.pathsend` extension message.
+    # NOTE: FileResponse only sends this when the ASGI server advertises the extension, and only
+    # after its own os.stat() call already set Content-Length (starlette.responses.FileResponse).
+    # Reading that header back here is what lets this file drop the Path().stat() call the old
+    # implementation made — see the module NOTE below the class for what that removal means for
+    # pyproject.toml's ASYNC240 exclusion.
+    def record_pathsend(self) -> None:
+        self.response_type = "file"
+        self.response_size = self._content_length
+
+    # FUNCTION: record_body
+    # SUMMARY: Fold one `http.response.body` message into the running response shape.
+    # INPUT: body (bytes): This message's chunk.
+    # INPUT: more_body (bool): Whether another body message will follow.
+    # NOTE: A response sent as a single message with more_body False or absent (plain
+    # Response.__call__ — starlette.responses) stays "standard" and is sized by the bytes actually
+    # seen. Any message with more_body True flips it to "streaming", which is the only signal pure
+    # ASGI has for "more than one chunk" — real StreamingResponse and a FileResponse falling back to
+    # chunked reads because the server has no pathsend support look identical from here, and both
+    # get called "streaming". That collapse is a real loss of information the old isinstance check
+    # would have avoided if it had ever run; it did not (see the class NOTE), so this is not a
+    # regression against anything that worked. "streaming" keeps its old meaning of "size not
+    # counted", matching what response_size was hand-set to before rather than a byte total.
+    def record_body(self, body: bytes, more_body: bool) -> None:
+        if more_body and self.response_type == "standard":
+            self.response_type = "streaming"
+        if self.response_type == "standard":
+            self._bytes_seen += len(body)
+        if not more_body:
+            if self.response_type == "streaming":
+                self.response_size = "streaming"
+            elif self.response_type == "standard":
+                # **LOGIC_STEP**: An empty body reports None, not 0 — matching the old
+                # `len(response.body) if response.body else None`, whose truthiness check treated
+                # b"" the same as absent.
+                self.response_size = self._bytes_seen if self._bytes_seen else None
+
+    # FUNCTION: as_span_output
+    # SUMMARY: Render the accumulated shape as the span.output payload.
+    # OUTPUT: (dict[str, Any]): status_code, response_type, response_size, content_type.
+    def as_span_output(self) -> dict[str, Any]:
+        return {
+            "status_code": self.status_code,
+            "response_type": self.response_type,
+            "response_size": self.response_size,
+            "content_type": self.content_type,
+        }
+
+
+# FUNCTION: _observing_send
+# SUMMARY: Wrap a `send` callable to feed `observer` from the ASGI messages passing through it and
+# stamp X-Request-ID onto the response, without buffering a single byte of the body.
+# INPUT: send (Send): The downstream `send` this middleware was given.
+# INPUT: request_id (str): Resolved request id to publish on the response.
+# INPUT: observer (_ResponseObserver): Sink for the response shape, read after the app returns.
+# OUTPUT: (Send): A `send` with the same signature, safe to hand to the wrapped app.
+def _observing_send(send: Send, request_id: str, observer: _ResponseObserver) -> Send:
+    request_id_header = request_id.encode("latin-1")
+
+    async def _send(message: Message) -> None:
+        message_type = message.get("type")
+        if message_type == "http.response.start":
+            raw_headers = list(message.get("headers") or [])
+            observer.record_start(message.get("status"), raw_headers)
+            # **LOGIC_STEP**: Headers can only be changed on this one message — by the time a body
+            # message arrives the client has already seen them.
+            raw_headers = _with_header_replaced(raw_headers, b"x-request-id", request_id_header)
+            message = {**message, "headers": raw_headers}
+        elif message_type == "http.response.pathsend":
+            observer.record_pathsend()
+        elif message_type == "http.response.body":
+            observer.record_body(message.get("body") or b"", bool(message.get("more_body", False)))
+        await send(message)
+
+    return _send
+
+
+# CLASS: project.infrastructure.api.middleware.AILoggingMiddleware
+# SUMMARY: Pure-ASGI middleware providing AI-optimized semantic logging with request tracing.
+# NOTE: Used to extend starlette.middleware.base.BaseHTTPMiddleware. Starlette's own docs (and
+# https://github.com/encode/starlette/discussions/1737, checked 2026-08-24) recommend pure ASGI for
+# hot-path middleware for exactly the reason found above: BaseHTTPMiddleware runs the downstream app
+# in a task group with a memory-object-stream per request to rebuild a Response from raw ASGI
+# messages, which is where the real response type got lost in the first place. This class is on
+# every request of every service built from this template, so that per-request task group and
+# stream were pure cost, and they were the reason response_type/response_size never worked. Pure
+# ASGI removes both problems at once: no task group, and the messages this middleware wanted to
+# inspect all along instead of a rebuilt stand-in for them.
+class AILoggingMiddleware:
+    # FUNCTION: __init__
+    # SUMMARY: Store the wrapped ASGI application.
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    # FUNCTION: __call__
     # SUMMARY: Process each HTTP request with comprehensive logging and error handling.
-    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        # **LOGIC_STEP**: Skip logging for sampled-out health checks to reduce log noise.
-        if request.url.path.rstrip("/") == "/health" and not should_sample_health_check():
-            return await call_next(request)
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # **LOGIC_STEP**: Lifespan and websocket scopes carry none of the request shape below;
+        # forward untouched, exactly as the BaseHTTPMiddleware version did for non-http scopes.
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # **LOGIC_STEP**: Skip logging for sampled-out health checks to reduce log noise. Read
+        # straight off the scope rather than building a Request: a skipped health ping should cost
+        # a dict lookup and a random draw, nothing more.
+        if scope["path"].rstrip("/") == "/health" and not should_sample_health_check():
+            await self.app(scope, receive, send)
+            return
+
+        # **LOGIC_STEP**: A Request built from `scope` (and `receive`, unused otherwise) is a thin,
+        # lazy view — no task group, no stream, no I/O — so header/query/client access below reuses
+        # the same tested datastructures the BaseHTTPMiddleware version did.
+        request = Request(scope, receive)
 
         # **LOGIC_STEP**: Resolve request ID from inbound trace headers (X-Request-ID,
         # then W3C traceparent), with a fresh UUID fallback. Lets multi-service traces
@@ -100,6 +270,9 @@ class AILoggingMiddleware(BaseHTTPMiddleware):
 
         try:
             # **LOGIC_STEP**: Store request_id in request.state for exception handlers.
+            # Request.state reads and writes `scope["state"]` directly (starlette.requests.State),
+            # so this is visible to every later Request built from the same `scope` — including the
+            # one the exception handler below builds — with no ASGI message involved.
             request.state.request_id = request_id
 
             # **LOGIC_STEP**: Stash the trace_id too. An unhandled exception unwinds past this
@@ -117,6 +290,12 @@ class AILoggingMiddleware(BaseHTTPMiddleware):
             # **LOGIC_STEP**: Extract optional business-context headers for log enrichment.
             session_id = request.headers.get("x-session-id")
             user_id = request.headers.get("x-user-id")
+            # NOTE: x-session-id and x-user-id are correlation only. Either header is entirely
+            # client-controlled and unauthenticated — this middleware performs no check on them
+            # beyond "present or absent" — so neither one may ever feed an authorization decision
+            # or be treated as a caller's identity. A project that adds authentication derives the
+            # real principal from its own auth layer and logs that under its own field, separately
+            # from these.
 
             # **LOGIC_STEP**: Set business-context BEFORE the span so it propagates
             # to span.finish and request.summary events (which fire on span exit).
@@ -152,41 +331,17 @@ class AILoggingMiddleware(BaseHTTPMiddleware):
                 ) as span_ctx:
                     # **LOGIC_STEP**: Add span_id to context for all nested logs.
                     with logger.context(span_id=span_ctx.span_id):
-                        # **LOGIC_STEP**: Process the request through the application.
-                        response = await call_next(request)
+                        # **LOGIC_STEP**: Wrap `send` rather than the response: the wrapped app
+                        # writes straight through to the real ASGI `send`, one message at a time, so
+                        # nothing here buffers a streamed body or blocks a background task the way
+                        # BaseHTTPMiddleware's memory stream did.
+                        observer = _ResponseObserver()
+                        await self.app(scope, receive, _observing_send(send, request_id, observer))
 
-                        # **LOGIC_STEP**: Determine response type and extract appropriate metadata.
-                        response_type = "standard"
-                        response_size: int | str | None = None
-                        content_type = response.headers.get("content-type", "unknown")
-
-                        if isinstance(response, StreamingResponse):
-                            response_type = "streaming"
-                            response_size = "streaming"
-                        elif isinstance(response, FileResponse):
-                            response_type = "file"
-                            try:
-                                response_size = (
-                                    Path(response.path).stat().st_size if response.path else None
-                                )
-                            except Exception:
-                                response_size = None
-                        elif hasattr(response, "body"):
-                            try:
-                                response_size = len(response.body) if response.body else None
-                            except Exception:
-                                response_size = None
-
-                        # **LOGIC_STEP**: Attach response metadata to span output for automatic logging on span finish.
-                        span_ctx.output = {
-                            "status_code": response.status_code,
-                            "response_type": response_type,
-                            "response_size": response_size,
-                            "content_type": content_type,
-                        }
-
-                        # **LOGIC_STEP**: Add request ID to response headers for client tracing.
-                        response.headers["X-Request-ID"] = request_id
+                        # **LOGIC_STEP**: Attach response metadata to span output for automatic
+                        # logging on span finish. See _ResponseObserver for what response_type and
+                        # response_size mean now and why.
+                        span_ctx.output = observer.as_span_output()
 
             # **LOGIC_STEP**: Span is now closed — span.finish and, because the span above declares
             # itself a trace root, request.summary too. Both of those were silently absent for
@@ -197,8 +352,16 @@ class AILoggingMiddleware(BaseHTTPMiddleware):
             # read and the write were silently destroyed, and the cost grew with the file. The
             # summary is regenerated once at shutdown (project/launcher/main.py) and on demand with
             # `make format-trace`, which is every bit as useful and cannot lose a line.
-
-            return response
         finally:
-            # **LOGIC_STEP**: Reset trace_id to previous state.
+            # **LOGIC_STEP**: Reset trace_id to previous state, on every path including a raised
+            # exception — this `finally` is not inside the `with logger.span(...)` block above, so
+            # it also runs after that span has already logged span.error and re-raised.
             reset_trace_id(trace_token)
+
+
+# NOTE: Removing the class above's Path(response.path).stat() call (there was no faithful pure-ASGI
+# equivalent — file size now comes from the Content-Length the downstream FileResponse already
+# computed, see _ResponseObserver.record_pathsend) removes the reason pyproject.toml's
+# `[tool.ruff.lint]` comment gives for excluding ASYNC240 from the ASYNC rule family: that comment
+# names this file as the sole reason. Not changed here — pyproject.toml is out of scope for this
+# change — flagged for whoever reconciles it.

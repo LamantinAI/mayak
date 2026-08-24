@@ -8,8 +8,11 @@ from typing import Any, Iterator
 from unittest.mock import patch
 
 import pytest
-from httpx import AsyncClient
+from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
+from httpx import ASGITransport, AsyncClient
 
+from project.core.logging.context import get_trace_id
 from project.infrastructure.api.middleware import (
     _SENSITIVE_PARAM_PATTERN,
     _extract_or_generate_request_id,
@@ -217,3 +220,104 @@ class TestRequestIdReachesTheResponse:
         second = await async_client.get("/health/")
 
         assert first.headers["X-Request-ID"] != second.headers["X-Request-ID"]
+
+
+# FUNCTION: _http_request_span_outputs
+# SUMMARY: Every span.finish `output` payload recorded for the `http_request` span, in order.
+# **LOGIC_STEP**: The response shape lives in span.finish's `output`, not in request.summary —
+# `_ResponseObserver.as_span_output` is what feeds `span_ctx.output` in
+# project/infrastructure/api/middleware.py.
+def _http_request_span_outputs(captured: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        (entry["kwargs"].get("data") or {}).get("output") or {}
+        for entry in captured
+        if entry["kwargs"].get("event_id") == "span.finish"
+        and entry["kwargs"].get("name") == "http_request"
+    ]
+
+
+# CLASS: tests.application.test_middleware.TestResponseShapeIsObservedFromTheRealAsgiMessages
+# SUMMARY: response_type/response_size now come from the ASGI messages the pure-ASGI middleware
+# forwards, not from inspecting a Response object — see the NOTE on _ResponseObserver in
+# project/infrastructure/api/middleware.py for why the previous BaseHTTPMiddleware version of this
+# branch never actually matched anything.
+class TestResponseShapeIsObservedFromTheRealAsgiMessages:
+    # FUNCTION: test_streaming_response_still_reports_streaming
+    # SUMMARY: A real StreamingResponse — one that sends more than one `http.response.body` message
+    # — is reported as response_type "streaming" with response_size "streaming", not a byte count.
+    @pytest.mark.unit
+    async def test_streaming_response_still_reports_streaming(
+        self,
+        fastapi_app: FastAPI,
+        async_client: AsyncClient,
+        log_capture: list[dict[str, Any]],
+    ) -> None:
+        async def _chunks() -> Any:
+            yield b"chunk-one-"
+            yield b"chunk-two"
+
+        async def _stream() -> StreamingResponse:
+            return StreamingResponse(_chunks(), media_type="text/plain")
+
+        fastapi_app.add_api_route("/__stream_probe", _stream, methods=["GET"])
+
+        response = await async_client.get("/__stream_probe")
+
+        assert response.status_code == 200
+        assert response.text == "chunk-one-chunk-two"
+        outputs = _http_request_span_outputs(log_capture)
+        assert outputs, "no span.finish was recorded for http_request"
+        assert outputs[-1]["response_type"] == "streaming"
+        assert outputs[-1]["response_size"] == "streaming"
+
+    # FUNCTION: test_an_ordinary_response_is_sized_by_its_real_bytes
+    # SUMMARY: A single-message response is "standard", sized by the bytes actually sent — not the
+    # None every request got before this rewrite (see the class NOTE in middleware.py).
+    @pytest.mark.unit
+    async def test_an_ordinary_response_is_sized_by_its_real_bytes(
+        self,
+        fastapi_app: FastAPI,
+        async_client: AsyncClient,
+        log_capture: list[dict[str, Any]],
+    ) -> None:
+        async def _ordinary() -> dict[str, str]:
+            return {"status": "ok"}
+
+        fastapi_app.add_api_route("/__ordinary_probe", _ordinary, methods=["GET"])
+
+        response = await async_client.get("/__ordinary_probe")
+
+        assert response.status_code == 200
+        outputs = _http_request_span_outputs(log_capture)
+        assert outputs, "no span.finish was recorded for http_request"
+        assert outputs[-1]["response_type"] == "standard"
+        assert outputs[-1]["response_size"] == len(response.content)
+
+
+# CLASS: tests.application.test_middleware.TestAnUnhandledExceptionStillUnwindsCleanly
+# SUMMARY: The `finally: reset_trace_id(...)` in AILoggingMiddleware.__call__ has to run whether the
+# downstream app returns or raises — pure ASGI has no `except` clause around the awaited call to
+# fall back on the way BaseHTTPMiddleware's Response return value implicitly did.
+class TestAnUnhandledExceptionStillUnwindsCleanly:
+    # FUNCTION: test_the_trace_context_var_is_reset_and_the_response_is_a_500
+    # SUMMARY: After a crashing request completes, the trace ContextVar is back to its unset
+    # default — proving the `finally` ran on the exception path, not only the success path.
+    # **LOGIC_STEP**: tests/application/test_critical_event_trace_id.py already proves the
+    # exception handler receives a *usable* trace_id restored from request.state; this proves the
+    # middleware's own ContextVar was actually reset rather than left dangling, which that test
+    # does not check.
+    @pytest.mark.unit
+    async def test_the_trace_context_var_is_reset_and_the_response_is_a_500(
+        self, fastapi_app: FastAPI
+    ) -> None:
+        async def _boom() -> dict[str, str]:
+            raise RuntimeError("kaboom")
+
+        fastapi_app.add_api_route("/__boom_probe", _boom, methods=["GET"])
+        transport = ASGITransport(app=fastapi_app, raise_app_exceptions=False)
+
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/__boom_probe")
+
+        assert response.status_code == 500
+        assert get_trace_id() is None

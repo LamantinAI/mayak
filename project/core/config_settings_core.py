@@ -163,6 +163,17 @@ class ServerSettings(BaseSettings):
     # SUMMARY: Allowed CORS origins.
     cors_origins: list[str] = Field(default=["*"], description="Allowed CORS origins")
 
+    # ATTRIBUTE: cors_allow_credentials (bool)
+    # SUMMARY: Whether CORS responses include Access-Control-Allow-Credentials.
+    # Used to be a hardcoded True in composition_root.py, with no supported way to turn it off.
+    # Default true keeps every existing deployment behaving exactly as it does today. The reason
+    # this needed to become a setting at all — a wildcard origin combined with credentials is the
+    # actual vulnerability, not the wildcard alone — is explained where the guard that depends on
+    # it lives: project/core/config_runtime.py, Settings.validate_runtime.
+    cors_allow_credentials: bool = Field(
+        default=True, description="Whether CORS responses allow credentials"
+    )
+
     # FUNCTION: validate_cors_origins
     # SUMMARY: Normalize CORS origins by trimming whitespace and dropping empty values.
     @field_validator("cors_origins")

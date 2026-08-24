@@ -8,8 +8,10 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
+from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr, ValidationError
 
+from project.core.composition_root import CompositionRoot
 from project.core.config import (
     APP_VERSION,
     ProjectSettings,
@@ -20,6 +22,8 @@ from project.core.config import (
     Settings,
     build_postgres_dsn,
     build_sqlalchemy_postgres_dsn,
+    clear_settings_override,
+    set_settings_override,
 )
 from project.core.config_runtime import (
     _ENV_SAMPLE_PATH,
@@ -280,6 +284,135 @@ class TestSettings:
             with pytest.raises(ValueError) as exc_info:
                 settings.validate_runtime()
             assert "SERVER_CORS_ORIGINS" in str(exc_info.value)
+
+    # FUNCTION: test_runtime_validation_rejects_wildcard_mixed_with_real_origins
+    # SUMMARY: Verify a wildcard mixed into a list of real origins is caught, not only ["*"] alone.
+    # NOTE: Pins the membership check (`"*" in self.server.cors_origins`) in
+    # Settings.validate_runtime (project/core/config_runtime.py) so a future "simplification" back
+    # to the old `== ["*"]` equality check fails here first. Why membership and not equality, the
+    # Starlette mechanism it guards against, and the reproduction with its date all live in that
+    # comment — not repeated here.
+    @pytest.mark.unit
+    def test_runtime_validation_rejects_wildcard_mixed_with_real_origins(self) -> None:
+        with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
+            settings = Settings()
+            settings.project.debug = False
+            settings.server.cors_origins = ["https://app.example.com", "*"]
+            with pytest.raises(ValueError) as exc_info:
+                settings.validate_runtime()
+            assert "SERVER_CORS_ORIGINS" in str(exc_info.value)
+
+    # FUNCTION: test_runtime_validation_allows_wildcard_cors_in_debug_mode
+    # SUMMARY: Verify a wildcard origin still passes when APP_DEBUG=true, mixed-in or alone.
+    # no-assert-ok: the assertion is that validate_runtime() does not raise; it returns None.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "cors_origins", [["*"], ["https://app.example.com", "*"]], ids=["alone", "mixed"]
+    )
+    def test_runtime_validation_allows_wildcard_cors_in_debug_mode(
+        self, cors_origins: list[str]
+    ) -> None:
+        with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
+            settings = Settings()
+            settings.project.debug = True
+            settings.server.cors_origins = cors_origins
+
+            settings.validate_runtime()
+
+    # FUNCTION: test_runtime_validation_rejects_wildcard_with_credentials_enabled
+    # SUMMARY: Verify the vulnerability (wildcard + credentials) is still refused explicitly.
+    # NOTE: test_runtime_validation_rejects_wildcard_cors_in_production already covers this via the
+    # cors_allow_credentials default (True) — this test pins the flag explicitly so the case keeps
+    # failing even if that default ever changes.
+    @pytest.mark.unit
+    def test_runtime_validation_rejects_wildcard_with_credentials_enabled(self) -> None:
+        with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
+            settings = Settings()
+            settings.project.debug = False
+            settings.server.cors_allow_credentials = True
+            settings.server.cors_origins = ["*"]
+            with pytest.raises(ValueError) as exc_info:
+                settings.validate_runtime()
+            assert "SERVER_CORS_ORIGINS" in str(exc_info.value)
+            assert "SERVER_CORS_ALLOW_CREDENTIALS" in str(exc_info.value)
+
+    # FUNCTION: test_runtime_validation_rejects_wildcard_mixed_with_credentials_enabled
+    # SUMMARY: Verify a wildcard mixed into a real origin list is still refused when credentials
+    # are enabled — the membership check and the credentials gate compose correctly.
+    @pytest.mark.unit
+    def test_runtime_validation_rejects_wildcard_mixed_with_credentials_enabled(self) -> None:
+        with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
+            settings = Settings()
+            settings.project.debug = False
+            settings.server.cors_allow_credentials = True
+            settings.server.cors_origins = ["https://app.example.com", "*"]
+            with pytest.raises(ValueError) as exc_info:
+                settings.validate_runtime()
+            assert "SERVER_CORS_ORIGINS" in str(exc_info.value)
+
+    # FUNCTION: test_runtime_validation_allows_wildcard_when_credentials_disabled
+    # SUMMARY: Verify the newly legitimate configuration passes: a wildcard is safe once no
+    # credential ever rides on the response.
+    # no-assert-ok: the assertion is that validate_runtime() does not raise; it returns None.
+    @pytest.mark.unit
+    def test_runtime_validation_allows_wildcard_when_credentials_disabled(self) -> None:
+        with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
+            settings = Settings()
+            settings.project.debug = False
+            # **LOGIC_STEP**: Declare no relational store, because this test asserts that
+            # validate_runtime() RETURNS, and with debug off every other guard in that method is
+            # live too. The placeholder-password guard is the one that bites: `Settings()` reads
+            # the ambient .env, so on a developer machine POSTGRES_PASSWORD holds the real value
+            # `make init-project` generated and the guard stays quiet, while on a fresh checkout
+            # with no .env it falls back to the driver default and the guard fires. Measured
+            # 2026-08-24: this test and the one below passed locally and failed three CI jobs for
+            # exactly that reason. Reproduce either state with `mv .env /tmp/ && pytest …`.
+            # The sibling refusal tests never hit this because they assert a raise, and the
+            # debug-mode test never hits it because the guard is gated on `not debug`.
+            settings.postgres.enabled = False
+            settings.server.cors_allow_credentials = False
+            settings.server.cors_origins = ["*"]
+
+            settings.validate_runtime()
+
+    # FUNCTION: test_runtime_validation_allows_explicit_origins_with_credentials_enabled
+    # SUMMARY: Verify explicit origins with credentials on is not a false positive of the guard.
+    # no-assert-ok: the assertion is that validate_runtime() does not raise; it returns None.
+    @pytest.mark.unit
+    def test_runtime_validation_allows_explicit_origins_with_credentials_enabled(self) -> None:
+        with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
+            settings = Settings()
+            settings.project.debug = False
+            # **LOGIC_STEP**: Same reason as the test above — an assertion that validate_runtime()
+            # returns has to neutralise every guard it is not about.
+            settings.postgres.enabled = False
+            settings.server.cors_allow_credentials = True
+            settings.server.cors_origins = ["https://app.example.com"]
+
+            settings.validate_runtime()
+
+    # FUNCTION: test_cors_allow_credentials_setting_reaches_the_middleware
+    # SUMMARY: Verify SERVER_CORS_ALLOW_CREDENTIALS=false is not just read but actually changes the
+    # CORSMiddleware behaviour — the settings object alone proves nothing about the response.
+    @pytest.mark.unit
+    async def test_cors_allow_credentials_setting_reaches_the_middleware(self) -> None:
+        settings = FixtureSettings()
+        settings.server.cors_origins = ["https://app.example.com"]
+        settings.server.cors_allow_credentials = False
+
+        set_settings_override(settings)
+        try:
+            app = CompositionRoot().build_application()
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                response = await client.get(
+                    "/health/", headers={"Origin": "https://app.example.com"}
+                )
+        finally:
+            clear_settings_override()
+
+        assert response.status_code == 200
+        assert "access-control-allow-credentials" not in response.headers
 
     # FUNCTION: test_runtime_validation_requires_api_key_in_live_mode
     # SUMMARY: Verify live LLM mode rejects missing provider credentials.

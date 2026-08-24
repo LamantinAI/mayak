@@ -2,11 +2,12 @@
 # SUMMARY: Unit tests for mock-mode LLM service behavior and readiness semantics.
 
 from typing import Literal
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from project.infrastructure.agents import llm_service_readiness as readiness_module
 from project.infrastructure.agents.llm_service import LLMService
 from tests.conftest import _FixtureSettings as FixtureSettings
 
@@ -249,3 +250,128 @@ class TestLiveReadinessBranches:
         assert readiness["status"] == "healthy"
         assert readiness["provider_reachable"] is True
         assert readiness["response_time_ms"] >= 0
+
+
+# CLASS: tests.application.test_llm_service._FakeMonotonicClock
+# SUMMARY: Controllable stand-in for time.monotonic(), so the TTL-expiry test advances the cache's
+# notion of time explicitly instead of sleeping for real and paying the TTL in wall-clock seconds.
+class _FakeMonotonicClock:
+    # FUNCTION: __init__
+    # SUMMARY: Start the fake clock at a fixed reading.
+    def __init__(self, start: float = 0.0) -> None:
+        self._now = start
+
+    # FUNCTION: read
+    # SUMMARY: Return the current fake reading. Matches time.monotonic()'s zero-argument signature
+    # so it can replace it directly via monkeypatch.setattr.
+    def read(self) -> float:
+        return self._now
+
+    # FUNCTION: advance
+    # SUMMARY: Move the fake clock forward by the given number of seconds.
+    def advance(self, seconds: float) -> None:
+        self._now += seconds
+
+
+# CLASS: tests.application.test_llm_service.TestReadinessProbeCaching
+# SUMMARY: Verify the TTL cache added to probe mode: one provider call per TTL window, a fresh call
+# once the TTL elapses, and that caching never turns a real failure into a reported success.
+class TestReadinessProbeCaching:
+    # FUNCTION: _live_service
+    # SUMMARY: Build a service in live mode with the requested readiness check mode.
+    # OUTPUT: (LLMService): Service whose settings declare live mode.
+    def _live_service(self, mode: Literal["probe", "init"]) -> LLMService:
+        # **LOGIC_STEP**: A fresh settings object per service, matching TestLiveReadinessBranches —
+        # each test in this class needs its own cold _probe_cache, and a fresh LLMService() is what
+        # gives it one (the cache lives on the instance, not the shared session-scoped fixture).
+        settings = FixtureSettings()
+        settings.agent.llm_mode = "live"
+        settings.agent.llm_readiness_check_mode = mode
+        with patch(
+            "project.infrastructure.agents.llm_service.get_settings",
+            return_value=settings,
+        ):
+            return LLMService()
+
+    # FUNCTION: test_two_consecutive_probes_inside_ttl_call_the_provider_once
+    # SUMMARY: Verify the second of two back-to-back check_readiness() calls is served from cache.
+    @pytest.mark.unit
+    async def test_two_consecutive_probes_inside_ttl_call_the_provider_once(self) -> None:
+        service = self._live_service("probe")
+        probe = AsyncMock(return_value=None)
+
+        with patch.object(service, "_run_readiness_probe", probe):
+            first = await service.check_readiness()
+            second = await service.check_readiness()
+
+        # **LOGIC_STEP**: Call count, not just "was it called" — two check_readiness() calls
+        # inside the TTL must still mean exactly one round-trip to the provider.
+        assert probe.await_count == 1
+        assert first["status"] == "healthy"
+        assert first["cached"] is False
+        assert second["status"] == "healthy"
+        assert second["cached"] is True
+        assert second["cache_age_seconds"] >= 0.0
+
+    # FUNCTION: test_probe_after_ttl_elapsed_calls_the_provider_again
+    # SUMMARY: Verify a call made after _PROBE_CACHE_TTL_SECONDS has passed re-probes the provider,
+    # using a controlled clock instead of a real sleep so the test stays fast.
+    @pytest.mark.unit
+    async def test_probe_after_ttl_elapsed_calls_the_provider_again(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        service = self._live_service("probe")
+        probe = AsyncMock(return_value=None)
+        clock = _FakeMonotonicClock(start=0.0)
+        monkeypatch.setattr(readiness_module.time, "monotonic", clock.read)
+
+        with patch.object(service, "_run_readiness_probe", probe):
+            first = await service.check_readiness()
+            clock.advance(readiness_module._PROBE_CACHE_TTL_SECONDS + 1.0)
+            second = await service.check_readiness()
+
+        assert probe.await_count == 2
+        assert first["cached"] is False
+        assert second["cached"] is False
+
+    # FUNCTION: test_a_failing_probe_stays_unhealthy_when_served_from_cache
+    # SUMMARY: Regression guard: the cache stores failures too, and must not turn a cached failure
+    # into a reported success on the second call.
+    @pytest.mark.unit
+    async def test_a_failing_probe_stays_unhealthy_when_served_from_cache(self) -> None:
+        service = self._live_service("probe")
+        probe = AsyncMock(side_effect=TimeoutError("provider did not answer"))
+
+        with patch.object(service, "_run_readiness_probe", probe):
+            first = await service.check_readiness()
+            second = await service.check_readiness()
+
+        assert probe.await_count == 1
+        assert first["status"] == "unhealthy"
+        assert first["error"] == "TimeoutError"
+        assert second["status"] == "unhealthy"
+        assert second["error"] == "TimeoutError"
+        assert second["cached"] is True
+
+    # FUNCTION: test_mock_mode_makes_zero_provider_calls_and_stays_healthy
+    # SUMMARY: Verify the cache change left the mock-mode early return untouched: still zero calls
+    # to the provider probe, still healthy.
+    @pytest.mark.unit
+    async def test_mock_mode_makes_zero_provider_calls_and_stays_healthy(
+        self,
+        test_settings: FixtureSettings,
+    ) -> None:
+        with patch(
+            "project.infrastructure.agents.llm_service.get_settings",
+            return_value=test_settings,
+        ):
+            service = LLMService()
+        probe = AsyncMock(return_value=None)
+
+        with patch.object(service, "_run_readiness_probe", probe):
+            readiness = await service.check_readiness()
+
+        probe.assert_not_called()
+        assert readiness["status"] == "healthy"
+        assert readiness["backend_mode"] == "mock"
