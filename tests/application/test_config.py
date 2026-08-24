@@ -359,6 +359,17 @@ class TestSettings:
         with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
             settings = Settings()
             settings.project.debug = False
+            # **LOGIC_STEP**: Declare no relational store, because this test asserts that
+            # validate_runtime() RETURNS, and with debug off every other guard in that method is
+            # live too. The placeholder-password guard is the one that bites: `Settings()` reads
+            # the ambient .env, so on a developer machine POSTGRES_PASSWORD holds the real value
+            # `make init-project` generated and the guard stays quiet, while on a fresh checkout
+            # with no .env it falls back to the driver default and the guard fires. Measured
+            # 2026-08-24: this test and the one below passed locally and failed three CI jobs for
+            # exactly that reason. Reproduce either state with `mv .env /tmp/ && pytest …`.
+            # The sibling refusal tests never hit this because they assert a raise, and the
+            # debug-mode test never hits it because the guard is gated on `not debug`.
+            settings.postgres.enabled = False
             settings.server.cors_allow_credentials = False
             settings.server.cors_origins = ["*"]
 
@@ -372,6 +383,9 @@ class TestSettings:
         with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
             settings = Settings()
             settings.project.debug = False
+            # **LOGIC_STEP**: Same reason as the test above — an assertion that validate_runtime()
+            # returns has to neutralise every guard it is not about.
+            settings.postgres.enabled = False
             settings.server.cors_allow_credentials = True
             settings.server.cors_origins = ["https://app.example.com"]
 
