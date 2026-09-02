@@ -1,6 +1,7 @@
 # FILE: tests/application/test_logging_api.py
 # SUMMARY: Unit tests for the semantic logging helper API surface.
 
+import asyncio
 import inspect
 import logging
 from pathlib import Path
@@ -8,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from project.core.logging import get_logger
+from project.core.logging.enums import EventType
 from project.core.logging.logger import SemanticLogger
 
 
@@ -139,3 +141,101 @@ class TestChildSpanCostsNothingWhenFiltered:
         ]
         assert len(summaries) == 1
         assert summaries[0]["kwargs"]["data"]["child_span_count"] == 3
+
+
+# CLASS: tests.application.test_logging_api.TestAnInterruptedSpanStillReportsItself
+# SUMMARY: Verify a span cut short by cancellation writes its error and summary and re-raises as-is.
+# NOTE: `except Exception` does not see asyncio.CancelledError, KeyboardInterrupt or SystemExit.
+# A request cancelled by uvicorn's graceful-shutdown timeout therefore emitted span.start and
+# nothing else, and the trace tree — built from span.finish and span.error — had no node for it.
+# Measured on 2026-09-02: ['span.start'] against ['span.start', 'span.error', 'request.summary']
+# for a RuntimeError in the same harness.
+class TestAnInterruptedSpanStillReportsItself:
+    # FUNCTION: test_an_interrupted_root_span_leaves_an_error_and_a_summary
+    # SUMMARY: Verify the three events appear, at WARNING, and the same object comes back out.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "interruption", [asyncio.CancelledError, KeyboardInterrupt, SystemExit]
+    )
+    def test_an_interrupted_root_span_leaves_an_error_and_a_summary(
+        self,
+        log_capture: list[dict],
+        caplog: pytest.LogCaptureFixture,
+        interruption: type[BaseException],
+    ) -> None:
+        logger = get_logger("tests.application.test_logging_api.interrupted")
+        caplog.set_level(logging.INFO, logger="tests.application.test_logging_api.interrupted")
+        raised = interruption()
+
+        with pytest.raises(interruption) as excinfo:
+            with logger.span("http_request", root=True):
+                raise raised
+
+        # **LOGIC_STEP**: Identity, not type. asyncio tells its own cancellation apart by the
+        # object it threw; a re-raise that wrapped or re-created it would make the task look
+        # like it failed with an unrelated error.
+        assert excinfo.value is raised
+        assert [event["kwargs"].get("event_id") for event in log_capture] == [
+            "span.start",
+            "span.error",
+            "request.summary",
+        ]
+        error, summary = log_capture[1], log_capture[2]
+        assert error["kwargs"]["exception_type"] == interruption.__name__
+        assert error["kwargs"]["level"] == logging.WARNING
+        # **LOGIC_STEP**: event_type is what the NDJSON carries and what a reader filters on;
+        # the numeric level alone would let issue.error ship under a WARNING and mark every
+        # cancelled request as an application failure.
+        assert error["event_type"] is EventType.ISSUE_WARNING
+        assert summary["kwargs"]["data"]["outcome"] == "cancelled"
+        assert summary["kwargs"]["level"] == logging.WARNING
+
+    # FUNCTION: test_an_interrupted_child_span_is_reported_under_its_root
+    # SUMMARY: Verify a child at production level still writes its error, and the root its summary.
+    @pytest.mark.unit
+    def test_an_interrupted_child_span_is_reported_under_its_root(
+        self, log_capture: list[dict], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        logger = get_logger("tests.application.test_logging_api.interrupted_child")
+        caplog.set_level(
+            logging.INFO, logger="tests.application.test_logging_api.interrupted_child"
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            with logger.span("http_request", root=True):
+                log_capture.clear()
+                with logger.span("db.reference_task.get", task_id="x"):
+                    raise asyncio.CancelledError()
+
+        # **LOGIC_STEP**: The child's own start was filtered at INFO, as for any child span; its
+        # error is not, because a WARNING passes the same filter the ERROR branch relies on.
+        assert [event["kwargs"].get("event_id") for event in log_capture] == [
+            "span.error",
+            "span.error",
+            "request.summary",
+        ]
+        assert log_capture[0]["kwargs"]["name"] == "db.reference_task.get"
+        assert log_capture[0]["kwargs"]["parent_span_id"] is not None
+        assert log_capture[1]["kwargs"]["name"] == "http_request"
+
+    # FUNCTION: test_a_failing_log_cannot_replace_the_cancellation
+    # SUMMARY: Verify an error raised while logging the interruption is dropped, not propagated.
+    @pytest.mark.unit
+    def test_a_failing_log_cannot_replace_the_cancellation(
+        self, log_capture: list[dict], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        logger = get_logger("tests.application.test_logging_api.interrupted_logging")
+
+        def handler_already_closed(**_: object) -> None:
+            raise RuntimeError("handler closed during shutdown")
+
+        monkeypatch.setattr(logger, "_emit_interrupted_span", handler_already_closed)
+        raised = asyncio.CancelledError()
+
+        # **LOGIC_STEP**: Had the RuntimeError escaped, it would carry the CancelledError only as
+        # __context__ and uvicorn would record a task that failed rather than one it cancelled.
+        with pytest.raises(asyncio.CancelledError) as excinfo:
+            with logger.span("http_request", root=True):
+                raise raised
+
+        assert excinfo.value is raised

@@ -26,6 +26,9 @@ class SpanNode:
     output: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
     error_site: str | None = None
+    # ATTRIBUTE: interrupted (bool)
+    # SUMMARY: The span.error arrived at WARNING — a cancellation, not the application's failure.
+    interrupted: bool = False
     seq: int = 0
     children: list[SpanNode | LeafEvent] = field(default_factory=list)
 
@@ -182,6 +185,10 @@ def _build_tree(
             node.parent_span_id = ev.get("parent_span_id")
             node.error = data.get("exception_type", data.get("error_message", "error"))
             node.error_site = _last_own_frame(ev.get("exc_traceback"))
+            # **LOGIC_STEP**: logger.span writes an interruption — CancelledError at uvicorn's
+            # shutdown timeout, KeyboardInterrupt — as span.error at WARNING, an application
+            # failure at ERROR. The level is the one field that tells them apart here.
+            node.interrupted = ev.get("level") == "WARNING"
             node.seq = seq
 
         elif eid == "request.summary":
@@ -299,7 +306,9 @@ def _render_span_line(node: SpanNode) -> str:
     sid = f"[{node.span_id[:8]}] " if node.span_id else ""
     dur = f"({node.duration_ms}ms)" if node.duration_ms is not None else ""
     if node.error:
-        suffix = f" ✗ {node.error}"
+        # **LOGIC_STEP**: ⊘ for a span that was stopped, ✗ for one that failed. The same mark
+        # on both put a cancelled request next to a 500 with nothing to tell them apart.
+        suffix = f" {'⊘' if node.interrupted else '✗'} {node.error}"
         if node.error_site:
             suffix = f"{suffix} at {node.error_site}"
     else:
@@ -379,11 +388,18 @@ def format_trace_for_llm(
     summary_data = (
         summary.get("data", {}) if summary and isinstance(summary.get("data"), dict) else {}
     )
+    # **LOGIC_STEP**: A cancelled request is neither a success nor the application's failure.
+    # Its span.error arrives at WARNING and its summary says `cancelled`; counting either as a
+    # failure put the ✗ of a 500 on a request the server was told to stop — the confusion the
+    # WARNING level exists to avoid.
+    cancelled_status = RequestOutcome.CANCELLED.value.upper()
+    summary_status = _summary_status(summary_data)
     trace_failed = any(
         ev.get("event_id", "").startswith(("critical.", "error."))
-        or ev.get("event_id") == "span.error"
+        or (ev.get("event_id") == "span.error" and ev.get("level") != "WARNING")
         for ev in events
-    ) or _summary_status(summary_data) not in {RequestOutcome.OK.value.upper(), "UNKNOWN"}
+    ) or summary_status not in {RequestOutcome.OK.value.upper(), "UNKNOWN", cancelled_status}
+    trace_cancelled = not trace_failed and summary_status == cancelled_status
 
     # Header
     parts: list[str] = []
@@ -408,15 +424,17 @@ def format_trace_for_llm(
         # **LOGIC_STEP**: Child spans render their error text via _render_span_line; the root
         # printed a bare ✗ and swallowed it, so a failed request showed the mark and nothing else.
         if root.error:
-            mark = f" ✗ {root.error}"
+            mark = f" {'⊘' if root.interrupted else '✗'} {root.error}"
             # **LOGIC_STEP**: The root is where a failed request's exception lands, so this is the
             # one line that must carry the location. Duplicated from _render_span_line rather than
             # shared because the root has no connector prefix — the same reason the error text
             # itself was missing here until it was added by hand.
             if root.error_site:
                 mark = f"{mark} at {root.error_site}"
+        elif trace_failed:
+            mark = " ✗"
         else:
-            mark = " ✗" if trace_failed else " ✓"
+            mark = " ⊘" if trace_cancelled else " ✓"
         parts.append(f"{sid}{root.name} {dur}{mark}".strip())
 
         # Children
@@ -484,13 +502,16 @@ def format_all_traces_for_llm(lines: Iterable[str]) -> str:
 
 
 # FUNCTION: trace_inventory
-# SUMMARY: List the HTTP traces present in a log and mark which of them failed.
+# SUMMARY: List the HTTP traces present in a log and mark which of them failed or were cancelled.
 # INPUT: lines (Iterable[str]): NDJSON log lines.
-# OUTPUT: (tuple[list[str], set[str]]): Ordered HTTP trace ids, and the subset that carries a failure.
-def trace_inventory(lines: Iterable[str]) -> tuple[list[str], set[str]]:
+# OUTPUT: (tuple[list[str], set[str], set[str]]): Ordered HTTP trace ids, the subset that carries
+#         a failure, and the subset that was cancelled without failing.
+def trace_inventory(lines: Iterable[str]) -> tuple[list[str], set[str], set[str]]:
     trace_ids: list[str] = []
     seen: set[str] = set()
     failed: set[str] = set()
+    cancelled: set[str] = set()
+    cancelled_status = RequestOutcome.CANCELLED.value.upper()
 
     for raw in lines:
         raw = raw.strip()
@@ -509,24 +530,34 @@ def trace_inventory(lines: Iterable[str]) -> tuple[list[str], set[str]]:
             trace_ids.append(tid)
             seen.add(tid)
 
-        if eid == "span.error" or eid.startswith("critical.") or eid.startswith("error."):
+        # **LOGIC_STEP**: The same split as format_trace_for_llm: a span.error at WARNING is an
+        # interruption, and a summary saying `cancelled` is not a failure. A trace that both
+        # failed and was cancelled counts as failed — the failure is the older, more useful fact.
+        if eid == "span.error" and ev.get("level") == "WARNING":
+            cancelled.add(tid)
+        elif eid == "span.error" or eid.startswith("critical.") or eid.startswith("error."):
             failed.add(tid)
         elif eid == "request.summary":
             data = ev.get("data", {}) if isinstance(ev.get("data"), dict) else {}
-            if _summary_status(data) not in {RequestOutcome.OK.value.upper(), "UNKNOWN"}:
+            status = _summary_status(data)
+            if status == cancelled_status:
+                cancelled.add(tid)
+            elif status not in {RequestOutcome.OK.value.upper(), "UNKNOWN"}:
                 failed.add(tid)
 
-    return trace_ids, failed
+    return trace_ids, failed, cancelled - failed
 
 
 # FUNCTION: render_inventory_note
 # SUMMARY: Build the one-line note telling the reader what the single-trace view is not showing.
 # INPUT: shown_trace_id (str): Trace id that was rendered.
+# INPUT: cancelled (set[str] | None): Traces that were cancelled; named separately from failures.
 # OUTPUT: (str): Note text, or an empty string when the log holds nothing else worth mentioning.
 def render_inventory_note(
     trace_ids: list[str],
     failed: set[str],
     shown_trace_id: str,
+    cancelled: set[str] | None = None,
 ) -> str:
     # **LOGIC_STEP**: The default view renders one trace — the last HTTP one. A failure in any
     # earlier request was therefore invisible, and a reader who saw a green tree concluded the
@@ -535,14 +566,16 @@ def render_inventory_note(
     if not hidden:
         return ""
     hidden_failed = [tid for tid in hidden if tid in failed]
-    note = f"({len(hidden)} more trace(s) in this log — rerun with --all to see them"
+    hidden_cancelled = [tid for tid in hidden if tid in (cancelled or set())]
+    note = f"({len(hidden)} more trace(s) in this log"
     if hidden_failed:
         preview = ", ".join(tid[:8] for tid in hidden_failed[:3])
-        note = (
-            f"({len(hidden)} more trace(s) in this log, {len(hidden_failed)} with errors: "
-            f"{preview}{'…' if len(hidden_failed) > 3 else ''} — rerun with --all"
-        )
-    return note + ")"
+        note = f"{note}, {len(hidden_failed)} with errors: {preview}{'…' if len(hidden_failed) > 3 else ''}"
+    if hidden_cancelled:
+        note = f"{note}, {len(hidden_cancelled)} cancelled"
+    if hidden_failed or hidden_cancelled:
+        return note + " — rerun with --all)"
+    return note + " — rerun with --all to see them)"
 
 
 # FUNCTION: prepend_trace_summary
@@ -635,8 +668,8 @@ def _cli() -> None:
 
     # **LOGIC_STEP**: Tell the reader what this view leaves out. Without it the default render of
     # a green last request reads as "the whole run was fine" even when an earlier one failed.
-    trace_ids, failed = trace_inventory(lines)
-    note = render_inventory_note(trace_ids, failed, meta.get("trace_id", ""))
+    trace_ids, failed, cancelled = trace_inventory(lines)
+    note = render_inventory_note(trace_ids, failed, meta.get("trace_id", ""), cancelled)
     if note:
         print()
         print(note)

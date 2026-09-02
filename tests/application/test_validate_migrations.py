@@ -3,6 +3,7 @@
 
 import subprocess
 import sys
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,7 @@ from scripts.validate_migrations import (
     ALEMBIC_INI_PATH,
     ROOT_DIR,
     _build_commands,
+    _revision_heads,
     collect_migration_issues,
     get_migrations_rule_playbook,
     main,
@@ -380,3 +382,154 @@ class TestRulePlaybook:
         assert "ProgrammingError" in issues[0].stderr
         assert "alembic stderr" in issues[0].message
         assert "ProgrammingError" in issues[0].message
+
+
+# FUNCTION: _script_directory
+# SUMMARY: Write a throwaway Alembic script directory whose revisions form the given graph.
+# INPUT: chain (dict[str, str | None]): revision id → down_revision, in any order.
+# OUTPUT: (Path): The script directory to hand to _revision_heads.
+def _script_directory(root: Path, chain: dict[str, str | None]) -> Path:
+    versions = root / "alembic" / "versions"
+    versions.mkdir(parents=True)
+    for revision, down_revision in chain.items():
+        (versions / f"{revision}.py").write_text(
+            f"revision = {revision!r}\ndown_revision = {down_revision!r}\n\n\n"
+            "def upgrade() -> None:\n    pass\n\n\ndef downgrade() -> None:\n    pass\n",
+            encoding="utf-8",
+        )
+    return root / "alembic"
+
+
+# CLASS: tests.application.test_validate_migrations.TestRevisionGraphIsCheckedWithoutADatabase
+# SUMMARY: Verify a fork or a dangling down_revision turns the gate red before the database skip.
+# NOTE: The comment on database_skip_is_allowed names "a second alembic head or a dangling
+# down_revision" as what the CI backstop exists for — and until 2026-09-02 both passed a checkout
+# without Postgres green, because every alembic command sat behind the reachability check. Neither
+# defect needs a database to see: ScriptDirectory reads the files. Measured: two revisions sharing
+# a down_revision, `make quality-gates` exit 0, "migration validation skipped".
+class TestRevisionGraphIsCheckedWithoutADatabase:
+    # FUNCTION: test_the_shipped_revisions_form_one_chain
+    # SUMMARY: Verify the repository's own alembic/versions/ has exactly one head, read offline.
+    @pytest.mark.unit
+    def test_the_shipped_revisions_form_one_chain(self) -> None:
+        # **LOGIC_STEP**: The real directory, no monkeypatch: this is the read every local gate
+        # now makes, and it must work with no .env and no database in the environment.
+        assert len(_revision_heads()) == 1
+
+    # FUNCTION: test_a_project_without_a_script_directory_has_no_graph_to_check
+    # SUMMARY: Verify a deleted alembic/ reads as "no revisions", so the database_disabled skip still follows.
+    @pytest.mark.unit
+    def test_a_project_without_a_script_directory_has_no_graph_to_check(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import scripts.validate_migrations as validate_migrations
+
+        monkeypatch.setattr(
+            validate_migrations, "_revision_heads", partial(_revision_heads, tmp_path / "gone")
+        )
+        monkeypatch.setenv("POSTGRES_ENABLED", "false")
+
+        issues = collect_migration_issues(ROOT_DIR)
+
+        assert [issue.rule_id for issue in issues] == ["migrations.database_disabled"]
+
+    # FUNCTION: test_a_fork_fails_the_gate_where_it_used_to_skip
+    # SUMMARY: Verify two heads make main() exit 1 with the database unreachable and CI unset.
+    @pytest.mark.unit
+    def test_a_fork_fails_the_gate_where_it_used_to_skip(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        import scripts.validate_migrations as validate_migrations
+
+        script_dir = _script_directory(tmp_path, {"aaa": None, "bbb": "aaa", "ccc": "aaa"})
+        monkeypatch.setattr(
+            validate_migrations, "_revision_heads", partial(_revision_heads, script_dir)
+        )
+        monkeypatch.setattr(validate_migrations, "_is_database_reachable", lambda: False)
+        monkeypatch.delenv("CI", raising=False)
+        monkeypatch.delenv("MIGRATIONS_ALLOW_SKIP", raising=False)
+        monkeypatch.setenv("POSTGRES_ENABLED", "true")
+
+        exit_code = main()
+        output = capsys.readouterr().out
+
+        assert exit_code == 1
+        assert "2 heads (bbb, ccc)" in output
+
+    # FUNCTION: test_a_fork_is_reported_even_where_postgres_is_disabled
+    # SUMMARY: Verify POSTGRES_ENABLED=false does not hide a fork — the files are wrong either way.
+    @pytest.mark.unit
+    def test_a_fork_is_reported_even_where_postgres_is_disabled(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import scripts.validate_migrations as validate_migrations
+
+        script_dir = _script_directory(tmp_path, {"aaa": None, "bbb": "aaa", "ccc": "aaa"})
+        monkeypatch.setattr(
+            validate_migrations, "_revision_heads", partial(_revision_heads, script_dir)
+        )
+        monkeypatch.setenv("POSTGRES_ENABLED", "false")
+
+        issues = collect_migration_issues(ROOT_DIR)
+
+        assert [issue.rule_id for issue in issues] == ["migrations.multiple_heads"]
+        assert issues[0].severity == "error"
+
+    # FUNCTION: test_a_dangling_down_revision_is_reported
+    # SUMMARY: Verify a down_revision naming no revision is an error, not an alembic traceback.
+    @pytest.mark.unit
+    def test_a_dangling_down_revision_is_reported(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import scripts.validate_migrations as validate_migrations
+
+        script_dir = _script_directory(tmp_path, {"aaa": None, "bbb": "nope"})
+        monkeypatch.setattr(
+            validate_migrations, "_revision_heads", partial(_revision_heads, script_dir)
+        )
+        monkeypatch.setenv("POSTGRES_ENABLED", "true")
+
+        # **LOGIC_STEP**: Alembic warns before it raises; the warning is part of the behaviour
+        # under test, not noise to let through to the suite's summary.
+        with pytest.warns(UserWarning, match="is not present"):
+            issues = collect_migration_issues(ROOT_DIR)
+
+        assert [issue.rule_id for issue in issues] == ["migrations.broken_revision_graph"]
+        assert "nope" in issues[0].message
+
+    # FUNCTION: test_one_chain_still_reaches_the_database_skip
+    # SUMMARY: Verify a healthy graph changes nothing: the unreachable-database skip follows as before.
+    @pytest.mark.unit
+    def test_one_chain_still_reaches_the_database_skip(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import scripts.validate_migrations as validate_migrations
+
+        script_dir = _script_directory(tmp_path, {"aaa": None, "bbb": "aaa"})
+        monkeypatch.setattr(
+            validate_migrations, "_revision_heads", partial(_revision_heads, script_dir)
+        )
+        monkeypatch.setattr(validate_migrations, "_is_database_reachable", lambda: False)
+        monkeypatch.delenv("CI", raising=False)
+        monkeypatch.setenv("POSTGRES_ENABLED", "true")
+
+        issues = collect_migration_issues(ROOT_DIR)
+
+        assert [issue.rule_id for issue in issues] == ["migrations.database_unreachable"]
+
+    # FUNCTION: test_each_offline_rule_has_a_playbook
+    # SUMMARY: Verify both new rule ids resolve to a playbook that points at the revision files.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "rule_id", ["migrations.multiple_heads", "migrations.broken_revision_graph"]
+    )
+    def test_each_offline_rule_has_a_playbook(self, rule_id: str) -> None:
+        playbook = get_migrations_rule_playbook(rule_id)
+
+        assert playbook is not None
+        read_first = playbook["read_first"]
+        assert isinstance(read_first, list)
+        assert "alembic/versions/" in read_first

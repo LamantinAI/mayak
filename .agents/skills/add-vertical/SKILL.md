@@ -78,6 +78,24 @@ the tree, so this stays one place.
    database is behind head: `FAILED: Target database is not up to date.`, exit 255. On a new
    project that is the first thing you hit, because nothing has applied `001` to that database yet.
    Then read the generated file before trusting it, `make migrate` again, and look at the table.
+
+   **Without a database** — no Docker on this machine, or none you are allowed to start —
+   autogeneration is not available, and nothing in the local gate stands in for it: the note on
+   `scripts/validate_migrations.py` in `docs/agent_rules.md` says why that gate stays green.
+   Write the revision by hand, modelled on
+   `alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py` — a `revision` id, a
+   `down_revision` naming the current head, an `upgrade()` and a `downgrade()` that undoes it —
+   and read what the two offline commands say before moving on:
+
+   ```bash
+   uv run alembic -c alembic.ini heads              # one head, and it is yours
+   uv run alembic -c alembic.ini upgrade head --sql # the SQL your revision would run
+   ```
+
+   Neither compares `orm_models.py` against a real schema: a wrong column type or a forgotten
+   index passes both. The revision stays unverified until `make test-e2e` or CI has run
+   `alembic upgrade head` and `alembic check` against PostgreSQL, so say that when you hand the
+   vertical over, rather than reporting the green local gate as proof.
 4. `make refresh-generated-docs`. Do this as soon as the first new file exists, not at the end:
    adding or removing a file moves `docs/project_map.md`, `structure_builder.py --check` compares
    it against the tree inside every gate, and until you regenerate, *every* validation command

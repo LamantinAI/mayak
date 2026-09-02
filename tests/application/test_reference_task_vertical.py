@@ -12,11 +12,13 @@ from pathlib import Path
 from typing import Generator
 from uuid import uuid4
 
+import pydantic
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from ai_context.extraction import extract_service_registry_entries
+from project.application.reference_task_dtos import ReferenceTaskCreateRequest
 from project.application.reference_task_service import MAX_LIST_LIMIT, ReferenceTaskService
 from project.domain.exceptions import ConflictError, NotFoundError, ValidationError
 from project.domain.ports import ReferenceTaskRepositoryPort
@@ -427,6 +429,32 @@ class TestServiceRules:
         task = await service.create_task(title="x" * MAX_TITLE_LENGTH)
 
         assert len(task.title) == MAX_TITLE_LENGTH
+
+    # FUNCTION: test_the_title_bound_is_the_number_the_migration_wrote
+    # SUMMARY: Verify MAX_TITLE_LENGTH still equals the literal the shipped migration gave the column.
+    @pytest.mark.unit
+    def test_the_title_bound_is_the_number_the_migration_wrote(self) -> None:
+        # **LOGIC_STEP**: 200 as a literal, on purpose. Every other test here builds its string
+        # as `"x" * MAX_TITLE_LENGTH`, so all of them move with the constant and none can see it
+        # move — while alembic/versions/001_initial_reference_tasks_schema.py carries
+        # `String(length=200)` and does not move with it. Measured on 2026-09-02:
+        # MAX_TITLE_LENGTH = 50 left `make quality-gates` green and was caught only by
+        # `alembic check` against a live database. Raising the bound is a schema change: add an
+        # ALTER migration, then change this number in the same commit.
+        assert MAX_TITLE_LENGTH == 200
+
+    # FUNCTION: test_the_request_dto_enforces_the_same_bound
+    # SUMMARY: Verify the wire-format bound is the domain constant, not a literal beside it.
+    @pytest.mark.unit
+    def test_the_request_dto_enforces_the_same_bound(self) -> None:
+        # **LOGIC_STEP**: Deliberately relative to the constant — the literal is pinned once,
+        # above. This one holds the DTO to the constant so the two cannot part; the ORM column
+        # is held the same way in tests/infrastructure/test_persistence_models.py.
+        with pytest.raises(pydantic.ValidationError):
+            ReferenceTaskCreateRequest(title="x" * (MAX_TITLE_LENGTH + 1))
+
+        accepted = ReferenceTaskCreateRequest(title="x" * MAX_TITLE_LENGTH)
+        assert len(accepted.title) == MAX_TITLE_LENGTH
 
     # FUNCTION: test_create_rejects_a_blank_title
     # SUMMARY: Verify whitespace alone is not a title for a caller that never meets the DTO.

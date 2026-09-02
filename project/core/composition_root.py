@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from psycopg_pool import AsyncConnectionPool
 
-from project.core.config import APP_VERSION, Settings, get_settings
+from project.core.config import APP_VERSION, GUARDS_RELAXED_BY_DEBUG, Settings, get_settings
 from project.core.logging import get_logger
 from project.core.service_registration import build_reference_services
 from project.domain.exceptions import ProjectError
@@ -200,6 +200,13 @@ class CompositionRoot:
                         "title": app.title,
                         "version": APP_VERSION,
                         "debug": settings.project.debug,
+                        # **LOGIC_STEP**: Which startup checks this build skipped, by the
+                        # variable each protects, so a debug flag left on in a deployed
+                        # container shows in the first lines of its log rather than in a README
+                        # row nobody reads at 3 a.m. Empty whenever the guards ran.
+                        "guards_relaxed_by_debug": (
+                            list(GUARDS_RELAXED_BY_DEBUG) if settings.project.debug else []
+                        ),
                         "host": settings.server.host,
                         "port": settings.server.port,
                     },

@@ -23,6 +23,48 @@ from project.core.serialization import (
 # SUMMARY: The package whose own literal payload keys must survive redaction untouched.
 _LOGGING_PACKAGE = Path(__file__).resolve().parents[2] / "project" / "core" / "logging"
 
+# ATTRIBUTE: _REDACTED_KEY_NAMES (tuple[str, ...])
+# SUMMARY: Every name REDACT_KEYS holds, written out by hand rather than read off the set.
+# NOTE: The parametrised test below takes its cases from REDACT_KEYS itself, so deleting
+# "password" from the set also deletes the case that would have noticed: the suite went from ten
+# cases to nine, stayed green, and `safe_serialize({"password": "hunter2"})` returned the password
+# in clear. Measured on 2026-09-02 — the comment on that test had claimed the opposite since the
+# first commit. Only a copy that does not move with the set can see the set shrink; this is the
+# same reason `test.sql_constant_round_trip` demands a clause pinned as text. Removing a key
+# means editing this tuple in the same change, which is the point.
+_REDACTED_KEY_NAMES = (
+    "password",
+    "token",
+    "secret",
+    "authorization",
+    "api_key",
+    "private_key",
+    "credentials",
+    "jwt",
+    "bearer",
+    "cookie",
+)
+
+# ATTRIBUTE: _EXEMPT_KEY_NAMES (tuple[str, ...])
+# SUMMARY: Every name REDACT_EXEMPT_KEYS holds, for the same reason as _REDACTED_KEY_NAMES.
+# NOTE: The mirror trap: drop "total_tokens" from the exempt set and the parametrised test drops
+# the case with it, while every request summary starts reporting its token count as
+# "***REDACTED***". The observability numbers this set exists to protect would vanish under a
+# green suite.
+_EXEMPT_KEY_NAMES = (
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+    "prompt_tokens",
+    "completion_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+    "reasoning_tokens",
+    "tokens_per_second",
+    "total_input_tokens",
+    "total_output_tokens",
+)
+
 
 # ENUM: tests.application.test_serialization.ExampleEnum
 # SUMMARY: Simple enum used to verify enum serialization behavior.
@@ -58,10 +100,44 @@ class TestSerialization:
     @pytest.mark.unit
     @pytest.mark.parametrize("key", sorted(REDACT_KEYS))
     def test_safe_serialize_redacts_every_declared_key(self, key: str) -> None:
-        # **LOGIC_STEP**: Parametrised over the constant instead of naming two keys by hand.
-        # Deleting "password" from REDACT_KEYS left the whole suite green — the spot checks used
-        # "token" and "api_key", so the one key most likely to appear in a log line was the one
-        # nothing covered. Driving the test from the set means a key can never be dropped quietly.
+        # **LOGIC_STEP**: Parametrised over the constant, so a key ADDED to the set is exercised
+        # without anyone editing this file — that is the one direction a set-driven test covers.
+        # It does not cover removal: a key deleted from REDACT_KEYS is a case deleted from this
+        # test, and the suite stays green. The tuple-driven test below is what catches that.
+        serialized = safe_serialize({key: "leaked-value"})
+
+        assert serialized[key] == "***REDACTED***"
+
+    # FUNCTION: test_every_key_named_by_hand_is_still_redacted
+    # SUMMARY: Verify each name in the hand-written copy is redacted — the copy cannot shrink with the set.
+    @pytest.mark.unit
+    @pytest.mark.parametrize("key", _REDACTED_KEY_NAMES)
+    def test_every_key_named_by_hand_is_still_redacted(self, key: str) -> None:
+        # **LOGIC_STEP**: Runs the real function over a literal name, not a membership check on
+        # the set: this fails both when the key leaves REDACT_KEYS and when the matcher itself
+        # stops honouring it.
+        serialized = safe_serialize({key: "leaked-value"})
+
+        assert serialized[key] == "***REDACTED***"
+
+    # FUNCTION: test_the_hand_written_copy_and_the_set_agree
+    # SUMMARY: Verify the literal tuple and REDACT_KEYS name the same keys, so neither drifts.
+    @pytest.mark.unit
+    def test_the_hand_written_copy_and_the_set_agree(self) -> None:
+        # **LOGIC_STEP**: Equality, both ways. A key added to the set without being added here
+        # would be covered only by the set-driven test, which cannot see it removed later; a key
+        # left here after leaving the set is a stale claim. Editing both in one change is the cost.
+        assert set(_REDACTED_KEY_NAMES) == REDACT_KEYS
+
+    # FUNCTION: test_redaction_ignores_case_and_hyphens
+    # SUMMARY: Verify a key arriving as an HTTP header — capitalised, hyphenated — is still redacted.
+    @pytest.mark.unit
+    @pytest.mark.parametrize("key", ["Password", "AUTHORIZATION", "Api-Key", "Set-Cookie"])
+    def test_redaction_ignores_case_and_hyphens(self, key: str) -> None:
+        # **LOGIC_STEP**: Every other test in this class spells its keys in lower case, so the
+        # `.lower().replace("-", "_")` in _redact_key had no test at all: removing it left 49
+        # tests green while `Authorization` — the spelling every header arrives in — went
+        # through in clear. Found by a reviewer's mutation on 2026-09-02.
         serialized = safe_serialize({key: "leaked-value"})
 
         assert serialized[key] == "***REDACTED***"
@@ -108,9 +184,26 @@ class TestSerialization:
         # **LOGIC_STEP**: Parametrised over the constant, the mirror of the REDACT_KEYS test above.
         # The hand-written case listed nine names and the set had nine entries, so the two looked
         # like each other; when two names were added, the test kept passing without covering them.
+        # That is the direction this test covers — an addition. A removal takes its case with it,
+        # and the tuple-driven pair below is what sees that.
         serialized = safe_serialize({key: 1234})
 
         assert serialized[key] == 1234
+
+    # FUNCTION: test_every_exempt_key_named_by_hand_still_survives
+    # SUMMARY: Verify each name in the hand-written copy keeps its value — the copy cannot shrink with the set.
+    @pytest.mark.unit
+    @pytest.mark.parametrize("key", _EXEMPT_KEY_NAMES)
+    def test_every_exempt_key_named_by_hand_still_survives(self, key: str) -> None:
+        serialized = safe_serialize({key: 1234})
+
+        assert serialized[key] == 1234
+
+    # FUNCTION: test_the_hand_written_exempt_copy_and_the_set_agree
+    # SUMMARY: Verify the literal tuple and REDACT_EXEMPT_KEYS name the same keys.
+    @pytest.mark.unit
+    def test_the_hand_written_exempt_copy_and_the_set_agree(self) -> None:
+        assert set(_EXEMPT_KEY_NAMES) == REDACT_EXEMPT_KEYS
 
     # FUNCTION: test_logging_package_writes_no_key_its_own_redactor_would_hide
     # SUMMARY: Verify every literal payload key the logging package writes survives redaction.

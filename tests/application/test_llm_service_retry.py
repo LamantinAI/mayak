@@ -94,6 +94,21 @@ class TestRetryPolicy:
 
         assert result.content == "ok"
         assert instance._bound_llm.ainvoke.await_count == 3
+        # **LOGIC_STEP**: Each failed attempt is logged as its own llm.call with success=False
+        # before the retry, and only the last one as success=True. Nothing read these calls until
+        # 2026-09-02: flipping the retry branch to success=True left every gate green, so a log
+        # in which every timeout looked like a completed call would have shipped. The two
+        # assertions on `TestTokenAccounting` read `call_args` — the last call only — and never
+        # execute the retry branch at all.
+        calls = instance._logger.log_llm_call.call_args_list
+        assert [call.kwargs["success"] for call in calls] == [False, False, True]
+        assert calls[0].kwargs["error"] == "Request timed out."
+        assert calls[1].kwargs["error"] == "slow down"
+        assert "error" not in calls[2].kwargs
+        retry_errors = [
+            call.kwargs["error_type"] for call in instance._logger.log_error.call_args_list
+        ]
+        assert retry_errors == ["llm_call_retryable_error", "llm_call_retryable_error"]
 
     # FUNCTION: test_attempts_stop_at_the_configured_limit
     # SUMMARY: A provider that never recovers must raise after exactly max_llm_call_retries tries.

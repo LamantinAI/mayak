@@ -7,6 +7,7 @@ from project.core.config_builders import (
 )
 from project.core.config_runtime import (
     APP_VERSION,
+    GUARDS_RELAXED_BY_DEBUG,
     Settings,
     clear_settings_override,
     get_settings,
@@ -25,6 +26,7 @@ from project.core.config_settings_observability import ObservabilitySettings
 # SUMMARY: Public configuration symbols re-exported by the stable config facade.
 __all__ = [
     "APP_VERSION",
+    "GUARDS_RELAXED_BY_DEBUG",
     "LLMSettings",
     "AgentSettings",
     "ObservabilitySettings",

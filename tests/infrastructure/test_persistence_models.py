@@ -6,8 +6,9 @@ from __future__ import annotations
 import pytest
 from typing import cast
 
-from sqlalchemy import Table
+from sqlalchemy import String, Table
 
+from project.domain.reference_task import MAX_TITLE_LENGTH
 from project.infrastructure.persistence.orm_models import Base, ReferenceTaskORM
 
 
@@ -31,6 +32,21 @@ class TestReferenceTaskORMSchema:
     @pytest.mark.unit
     def test_reference_task_orm_has_title_column(self) -> None:
         assert "title" in ReferenceTaskORM.__table__.columns
+
+    # FUNCTION: test_title_column_is_as_long_as_the_domain_allows
+    # SUMMARY: Verify the column's declared length is the domain constant, not a literal that
+    # happens to equal it today.
+    @pytest.mark.unit
+    def test_title_column_is_as_long_as_the_domain_allows(self) -> None:
+        # **LOGIC_STEP**: Read off the metadata, so `String(200)` written in place of
+        # `String(MAX_TITLE_LENGTH)` is caught the day the constant moves and the column does
+        # not — the exact split the constant exists to prevent. Found by a reviewer's mutation
+        # on 2026-09-02: with the literal in the model and the constant raised to 300, every
+        # suite stayed green.
+        column_type = cast(Table, ReferenceTaskORM.__table__).columns["title"].type
+
+        assert isinstance(column_type, String)
+        assert column_type.length == MAX_TITLE_LENGTH
 
 
 # CLASS: tests.infrastructure.test_persistence_models.TestORMRegistry

@@ -309,6 +309,8 @@ class TestFailureRuleRegression:
             "size.module_exceeds_limit",
             "file_policy.missing_field",
             "migrations.head_drift",
+            "migrations.multiple_heads",
+            "migrations.broken_revision_graph",
             "project_context.invalid_json",
             "script_paths.broken_reference",
             "skills_frontmatter.missing_frontmatter",

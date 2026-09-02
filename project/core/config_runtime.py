@@ -98,6 +98,22 @@ APP_VERSION = _declared_app_version()
 # SUMMARY: Optional in-process settings override used by tests and controlled bootstrap flows.
 _SETTINGS_OVERRIDE: Optional["Settings"] = None
 
+# ATTRIBUTE: GUARDS_RELAXED_BY_DEBUG (tuple[str, ...])
+# SUMMARY: The startup checks in validate_runtime() that APP_DEBUG=true switches off, each named
+# by the variable it protects.
+# NOTE: One flag, three guards — and the documentation named two of them next to a fourth
+# effect that does not exist: "Starlette's own error page" has been dead since
+# composition_root.py hard-wired FastAPI(debug=False). Measured on 2026-09-02. This tuple is
+# what README.md and .env.sample are checked against, and what the startup event lists, so the
+# three places cannot describe the flag three different ways again. A new guard gated on
+# `not self.project.debug` is added here in the same change; the test in
+# tests/application/test_env_sample_matches_code.py counts them.
+GUARDS_RELAXED_BY_DEBUG = (
+    "SERVER_CORS_ORIGINS",
+    "POSTGRES_PASSWORD",
+    "OPENAI_COMPATIBLE_API_KEY",
+)
+
 
 # CLASS: project.core.config_runtime.Settings
 # SUMMARY: Main settings facade that combines all configuration sections.

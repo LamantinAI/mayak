@@ -136,16 +136,17 @@ class TestHiddenTracesAreAnnounced:
     # SUMMARY: Verify both traces are found and only the failed one is flagged.
     @pytest.mark.unit
     def test_inventory_lists_traces_and_marks_failures(self) -> None:
-        trace_ids, failed = trace_inventory(_log_with_failed_then_ok())
+        trace_ids, failed, cancelled = trace_inventory(_log_with_failed_then_ok())
 
         assert trace_ids == [_FAILED_TRACE, _OK_TRACE]
         assert failed == {_FAILED_TRACE}
+        assert cancelled == set()
 
     # FUNCTION: test_note_warns_about_hidden_failed_trace
     # SUMMARY: Verify rendering the healthy last trace still surfaces the earlier failure.
     @pytest.mark.unit
     def test_note_warns_about_hidden_failed_trace(self) -> None:
-        trace_ids, failed = trace_inventory(_log_with_failed_then_ok())
+        trace_ids, failed, _ = trace_inventory(_log_with_failed_then_ok())
 
         note = render_inventory_note(trace_ids, failed, _OK_TRACE)
 
@@ -158,6 +159,148 @@ class TestHiddenTracesAreAnnounced:
     @pytest.mark.unit
     def test_note_is_empty_when_nothing_is_hidden(self) -> None:
         assert render_inventory_note([_OK_TRACE], set(), _OK_TRACE) == ""
+
+
+_CANCELLED_TRACE = "cccccccc3333"
+
+
+# FUNCTION: _log_with_cancelled_then_ok
+# SUMMARY: Build a log where the FIRST request was cancelled at shutdown and the LAST succeeded.
+# OUTPUT: (list[str]): NDJSON lines, shaped as logger.span writes them for an interruption.
+def _log_with_cancelled_then_ok() -> list[str]:
+    return [
+        _line(
+            seq=1,
+            trace_id=_CANCELLED_TRACE,
+            event_id="span.start",
+            span_id="s3",
+            span_name="http_request",
+            parent_span_id=None,
+            data={"method": "POST", "path": "/slow"},
+        ),
+        # **LOGIC_STEP**: WARNING, no traceback — the shape _emit_interrupted_span produces.
+        _line(
+            seq=2,
+            trace_id=_CANCELLED_TRACE,
+            level="WARNING",
+            event_id="span.error",
+            span_id="s3",
+            span_name="http_request",
+            parent_span_id=None,
+            duration_ms=30000.0,
+            data={"exception_type": "CancelledError", "error_message": ""},
+        ),
+        _line(
+            seq=3,
+            trace_id=_CANCELLED_TRACE,
+            level="WARNING",
+            event_id="request.summary",
+            data={"child_span_count": 0, "error_count": 0, "outcome": "cancelled"},
+        ),
+        *_log_with_failed_then_ok()[4:],
+    ]
+
+
+# CLASS: tests.application.test_trace_formatter_failure_visibility.TestCancelledIsNotFailed
+# SUMMARY: Verify a cancelled request is shown as stopped, in the tree and in the inventory note.
+# NOTE: logger.span writes an interruption as span.error at WARNING and a summary of `cancelled`,
+# and the renderer used to treat both as a failure: the same ✗ as a 500 on the root line, and
+# "1 with errors" in the note for a request the server was told to stop. Found by a reviewer on
+# 2026-09-02, the day the WARNING level was introduced to keep the two apart.
+class TestCancelledIsNotFailed:
+    # FUNCTION: test_root_span_is_marked_stopped_not_failed
+    # SUMMARY: Verify the root line carries ⊘ and the exception type, never ✗.
+    @pytest.mark.unit
+    def test_root_span_is_marked_stopped_not_failed(self) -> None:
+        rendered = format_trace_for_llm(_log_with_cancelled_then_ok(), trace_id=_CANCELLED_TRACE)
+        root_line = next(line for line in rendered.splitlines() if "http_request" in line)
+
+        assert "⊘ CancelledError" in root_line
+        assert "✗" not in root_line
+
+    # FUNCTION: test_inventory_names_the_cancelled_trace_separately
+    # SUMMARY: Verify the cancelled trace is in its own set and not among the failures.
+    @pytest.mark.unit
+    def test_inventory_names_the_cancelled_trace_separately(self) -> None:
+        trace_ids, failed, cancelled = trace_inventory(_log_with_cancelled_then_ok())
+
+        assert trace_ids == [_CANCELLED_TRACE, _OK_TRACE]
+        assert failed == set()
+        assert cancelled == {_CANCELLED_TRACE}
+
+    # FUNCTION: test_note_says_cancelled_rather_than_with_errors
+    # SUMMARY: Verify the hidden-trace note counts the cancellation under its own word.
+    @pytest.mark.unit
+    def test_note_says_cancelled_rather_than_with_errors(self) -> None:
+        trace_ids, failed, cancelled = trace_inventory(_log_with_cancelled_then_ok())
+
+        note = render_inventory_note(trace_ids, failed, _OK_TRACE, cancelled)
+
+        assert "1 cancelled" in note
+        assert "with errors" not in note
+        assert "--all" in note
+
+    # FUNCTION: test_a_handled_interruption_in_a_child_does_not_fail_the_request
+    # SUMMARY: Verify a child stopped at WARNING under a root that answered OK keeps the ✓.
+    @pytest.mark.unit
+    def test_a_handled_interruption_in_a_child_does_not_fail_the_request(self) -> None:
+        # **LOGIC_STEP**: The root has no error of its own here, so its mark comes from the
+        # trace-wide failure scan — the one place that used to count every span.error as a
+        # failure whatever its level.
+        lines = [
+            _line(
+                seq=1,
+                trace_id=_OK_TRACE,
+                event_id="span.start",
+                span_id="s2",
+                span_name="http_request",
+                parent_span_id=None,
+                data={"method": "GET", "path": "/health"},
+            ),
+            _line(
+                seq=2,
+                trace_id=_OK_TRACE,
+                level="WARNING",
+                event_id="span.error",
+                span_id="s5",
+                span_name="llm.call",
+                parent_span_id="s2",
+                duration_ms=1.0,
+                data={"exception_type": "CancelledError"},
+            ),
+            *_log_with_failed_then_ok()[5:],
+        ]
+
+        rendered = format_trace_for_llm(lines, trace_id=_OK_TRACE)
+        root_line = next(line for line in rendered.splitlines() if "http_request" in line)
+
+        assert "✓" in root_line
+        assert "✗" not in root_line
+
+    # FUNCTION: test_a_trace_that_failed_before_it_was_cancelled_counts_as_failed
+    # SUMMARY: Verify an ERROR-level span.error keeps the trace among the failures.
+    @pytest.mark.unit
+    def test_a_trace_that_failed_before_it_was_cancelled_counts_as_failed(self) -> None:
+        lines = _log_with_cancelled_then_ok()
+        lines.insert(
+            1,
+            _line(
+                seq=1,
+                trace_id=_CANCELLED_TRACE,
+                level="ERROR",
+                event_id="span.error",
+                span_id="s4",
+                span_name="db.reference_task.get",
+                parent_span_id="s3",
+                duration_ms=1.0,
+                data={"exception_type": "OperationalError"},
+            ),
+        )
+
+        trace_ids, failed, cancelled = trace_inventory(lines)
+
+        assert failed == {_CANCELLED_TRACE}
+        assert cancelled == set()
 
     # FUNCTION: test_all_traces_view_contains_both_requests
     # SUMMARY: Verify the --all rendering path covers every HTTP trace in the file.
