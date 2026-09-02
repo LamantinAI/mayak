@@ -42,6 +42,50 @@ No gate in this repository catches that failure mode:
   anywhere in the worked example, and a vertical author has nothing to copy from when their own
   repository grows a second statement.
 
+## Read-modify-write across requests (added 2026-09-02)
+
+A transaction makes two statements land together. It does not make a *read* and a later *write*
+agree, and that is the second failure this pool shape invites — the one an agent hits first, because
+it is the shape of every update.
+
+`PATCH /reference-tasks/{id}` reads the task, changes one field and writes it back. Between the read
+and the write another request can do the same. With the obvious statement:
+
+```sql
+UPDATE reference_tasks SET title = %s, details = %s WHERE id = %s
+```
+
+both requests report success and the later write erases the earlier one. Nothing raises, both
+clients are told their change was stored, and the data is simply gone. Wrapping the update in
+`connection.transaction()` does not help: each request's read and write are already atomic, they are
+just atomic over stale data.
+
+The reference vertical therefore ships the conditional form, and a vertical that needs an update
+copies it rather than the obvious one:
+
+```python
+_UPDATE_BY_ID = (
+    "UPDATE reference_tasks SET title = %s, details = %s, status = %s, updated_at = %s "
+    "WHERE id = %s AND updated_at = %s RETURNING id, title, details, status, created_at, updated_at"
+)
+```
+
+`updated_at` is the optimistic token: the service passes the value it *read* as the condition and a
+fresh one as data, so a row somebody else has written since matches nothing, the repository returns
+`None`, and the service raises `ConflictError` — 409, which the caller retries after re-reading. The
+`RETURNING` clause keeps the write and the read of the stored state one statement, so the answer
+cannot be a row that changed again in between, and the method stays at a single `execute()` where
+autocommit is correct.
+
+A project that cannot accept a timestamp as the token — because it writes the same row more than
+once per microsecond, or because it wants the version visible to clients — uses an integer `version`
+column with `SET version = version + 1 ... WHERE id = %s AND version = %s` instead. The mechanism is
+identical; only the token changes.
+
+Measured on 2026-09-02: an agent given "add a vertical with PATCH" and following
+`.agents/skills/add-vertical/SKILL.md` wrote the blind form, because the reference vertical had no
+update to copy and this ADR said nothing about the case. All 876 tests passed.
+
 ## Proving the fix
 
 A unit test against a fake repository has no transaction to roll back, so it cannot see a partial
@@ -49,6 +93,16 @@ write — the fake either has both rows or neither, by construction. The only te
 this bug is a functional test against the real database: make the second statement raise, then assert
 the *first* row is absent afterward. That is the one check a missing `connection.transaction()` fails
 and a wrapped one passes.
+
+The same asymmetry applies to the lost update above, and for the same reason. A fake can model the
+condition — `tests/application/test_reference_task_vertical.py` does, and its in-memory double
+refuses a write whose expected timestamp does not match — but nothing interleaves inside one
+process, so a fake proves only that the service passes the right argument, never that the database
+enforces it. `tests/functional/src/test_reference_task_repository.py` stages the interleaving against
+real PostgreSQL: write, let another writer land, then write from the first read and assert the row
+still holds the other writer's value. `tests/functional/src/test_reference_tasks_api.py` runs the
+unstaged version over HTTP with `asyncio.gather`, asserting the invariant rather than a fixed
+outcome — every request that answered 200 must find its own change in the final state.
 
 ## Operationalization
 

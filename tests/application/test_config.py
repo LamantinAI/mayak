@@ -414,6 +414,42 @@ class TestSettings:
         assert response.status_code == 200
         assert "access-control-allow-credentials" not in response.headers
 
+    # FUNCTION: test_only_configured_origins_are_echoed_by_the_middleware
+    # SUMMARY: Verify the configured origin LIST is what CORSMiddleware answers with, so a
+    # deployment that lists its own origins cannot be silently serving every origin instead.
+    # NOTE: This is the wiring, not the guard. Settings.validate_runtime() refuses a wildcard in
+    # `settings.server.cors_origins`, and the tests above prove that refusal — but the guard reads
+    # the settings object, and nothing read what CompositionRoot actually handed to CORSMiddleware.
+    # Measured on 2026-09-02: replacing `allow_origins=settings.server.cors_origins` with a literal
+    # `["*"]` in composition_root.py left `STRICT_GENERATED=1 make quality-gates-steps` at exit 0,
+    # every test green, while a request carrying `Origin: https://evil.attacker.test` came back
+    # with that origin echoed and `access-control-allow-credentials: true` — the credentialed
+    # wildcard the guard exists to prevent, reached by bypassing the setting the guard checks.
+    # `grep -rn access-control-allow-origin tests/` was empty before this test; the second request
+    # below is what makes the mutation red.
+    @pytest.mark.unit
+    async def test_only_configured_origins_are_echoed_by_the_middleware(self) -> None:
+        settings = FixtureSettings()
+        settings.server.cors_origins = ["https://app.example.com"]
+        settings.server.cors_allow_credentials = True
+
+        set_settings_override(settings)
+        try:
+            app = CompositionRoot().build_application()
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                configured = await client.get(
+                    "/health/", headers={"Origin": "https://app.example.com"}
+                )
+                stranger = await client.get(
+                    "/health/", headers={"Origin": "https://evil.attacker.test"}
+                )
+        finally:
+            clear_settings_override()
+
+        assert configured.headers["access-control-allow-origin"] == "https://app.example.com"
+        assert "access-control-allow-origin" not in stranger.headers
+
     # FUNCTION: test_runtime_validation_requires_api_key_in_live_mode
     # SUMMARY: Verify live LLM mode rejects missing provider credentials.
     @pytest.mark.unit

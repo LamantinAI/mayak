@@ -18,6 +18,7 @@ from project.domain.reference_task import ReferenceTask
 from project.infrastructure.persistence.reference_task_repository import (
     _SELECT_BY_ID,
     _SELECT_BY_STATUS,
+    _UPDATE_BY_ID,
     ReferenceTaskRepository,
     row_to_reference_task,
 )
@@ -40,6 +41,7 @@ class TestRowToReferenceTask:
                 "details": None,
                 "status": "pending",
                 "created_at": created_at,
+                "updated_at": created_at,
             }
         )
 
@@ -58,6 +60,7 @@ class TestRowToReferenceTask:
                 "details": None,
                 "status": "done",
                 "created_at": datetime(2026, 8, 5, tzinfo=timezone.utc),
+                "updated_at": datetime(2026, 8, 5, tzinfo=timezone.utc),
             }
         )
 
@@ -168,6 +171,7 @@ class TestQueriesAreParameterised:
             "details": None,
             "status": "pending",
             "created_at": datetime(2026, 8, 6, tzinfo=timezone.utc),
+            "updated_at": datetime(2026, 8, 6, tzinfo=timezone.utc),
         }
         pool, _ = _pool_returning([row])
 
@@ -197,6 +201,7 @@ class TestQueriesAreParameterised:
                 "details": None,
                 "status": "pending",
                 "created_at": datetime(2026, 8, 6, tzinfo=timezone.utc),
+                "updated_at": datetime(2026, 8, 6, tzinfo=timezone.utc),
             }
             for index in range(3)
         ]
@@ -219,6 +224,7 @@ class TestQueriesAreParameterised:
             details="details",
             status="pending",
             created_at=datetime(2026, 8, 6, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 8, 6, tzinfo=timezone.utc),
         )
 
         await ReferenceTaskRepository(pool).add(task)
@@ -229,7 +235,79 @@ class TestQueriesAreParameterised:
             sql, params = connection.execute.await_args.args
 
         assert "%s" in sql
-        assert params == (task.id, task.title, task.details, task.status, task.created_at)
+        assert params == (
+            task.id,
+            task.title,
+            task.details,
+            task.status,
+            task.created_at,
+            task.updated_at,
+        )
+
+    # FUNCTION: test_update_binds_the_new_state_and_the_expected_timestamp
+    # SUMMARY: Verify the conditional write sends every value as a parameter, in the order the
+    # statement declares them, and that the condition carries the OLD timestamp, not the new one.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_update_binds_the_new_state_and_the_expected_timestamp(self) -> None:
+        pool, cursor = _pool_returning([])
+        expected_updated_at = datetime(2026, 8, 6, tzinfo=timezone.utc)
+        task = ReferenceTask(
+            id=str(UUID(int=9)),
+            title="Changed",
+            details="details",
+            status="in_progress",
+            created_at=datetime(2026, 8, 6, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 8, 7, tzinfo=timezone.utc),
+        )
+
+        await ReferenceTaskRepository(pool).update(task, expected_updated_at=expected_updated_at)
+
+        cursor.execute.assert_awaited_once_with(
+            _UPDATE_BY_ID,
+            (
+                task.title,
+                task.details,
+                task.status,
+                task.updated_at,
+                task.id,
+                expected_updated_at,
+            ),
+        )
+        # **LOGIC_STEP**: The condition pinned as text, for the same reason the ORDER BY of the
+        # status query is. Nothing else here can see it: dropping `AND updated_at = %s` turns this
+        # into a blind overwrite that still stores the row, still returns it, and still passes both
+        # assertions above — while losing a concurrent writer's update in production. The tail of
+        # the statement is pinned too, because a RETURNING list that stops matching _COLUMNS gives
+        # the row mapper a shape it cannot map.
+        assert _UPDATE_BY_ID.split(" WHERE ", 1)[1] == (
+            "id = %s AND updated_at = %s "
+            "RETURNING id, title, details, status, created_at, updated_at"
+        )
+        assert _UPDATE_BY_ID.split(" SET ", 1)[1].split(" WHERE ", 1)[0] == (
+            "title = %s, details = %s, status = %s, updated_at = %s"
+        )
+
+    # FUNCTION: test_update_returns_none_when_the_row_moved
+    # SUMMARY: Verify a write that matches no row is reported as a miss rather than as success.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_update_returns_none_when_the_row_moved(self) -> None:
+        pool, _ = _pool_returning([])
+        task = ReferenceTask(
+            id=str(UUID(int=9)),
+            title="Changed",
+            details=None,
+            status="pending",
+            created_at=datetime(2026, 8, 6, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 8, 7, tzinfo=timezone.utc),
+        )
+
+        stored = await ReferenceTaskRepository(pool).update(
+            task, expected_updated_at=datetime(2026, 8, 6, tzinfo=timezone.utc)
+        )
+
+        assert stored is None
 
 
 # CLASS: tests.infrastructure.test_reference_task_repository.TestAnImpossibleIdIsAMiss
@@ -333,6 +411,7 @@ class TestEveryQueryGetsItsOwnSpan:
                 "details": None,
                 "status": "pending",
                 "created_at": datetime(2026, 8, 11, tzinfo=timezone.utc),
+                "updated_at": datetime(2026, 8, 11, tzinfo=timezone.utc),
             }
             for index in range(1, 4)
         ]
@@ -360,6 +439,7 @@ class TestEveryQueryGetsItsOwnSpan:
             details=None,
             status="pending",
             created_at=datetime(2026, 8, 11, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 8, 11, tzinfo=timezone.utc),
         )
 
         await ReferenceTaskRepository(pool).add(task)

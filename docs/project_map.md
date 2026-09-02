@@ -33,6 +33,7 @@ Project Map: Mayak
 │   ├── build_change_map.py
 │   ├── build_context_map.py
 │   ├── constants.py
+│   ├── dynamic_imports.py  ---  Recognise dynamic import calls so the import-boundary validators are not blind to them.
 │   ├── errors.py
 │   ├── extraction.py  ---  AST-based extraction helpers for AI-facing repository context artifacts.
 │   ├── file_policy.py
@@ -55,7 +56,8 @@ Project Map: Mayak
 │   └── router.py
 ├── alembic/
 │   ├── versions/
-│   │   └── 001_initial_reference_tasks_schema.py
+│   │   ├── 001_initial_reference_tasks_schema.py
+│   │   └── 7300d4656a8d_add_updated_at_to_reference_tasks.py
 │   ├── env.py  ---  Alembic migration environment configuration for PostgreSQL schema management.
 │   ├── README
 │   └── script.py.mako

@@ -74,3 +74,15 @@ class ReferenceTask:
     # ATTRIBUTE: created_at (datetime)
     # SUMMARY: Timestamp when the task was created.
     created_at: datetime
+
+    # ATTRIBUTE: updated_at (datetime)
+    # SUMMARY: Timestamp of the last write, and the token that makes an update detect a lost one.
+    # NOTE: This field exists for the concurrency check, not for display. An update reads the task,
+    # changes a field and writes it back; between the read and the write another request can do the
+    # same, and a blind `UPDATE ... WHERE id = %s` then overwrites whatever that request stored —
+    # a lost update, silent, with both callers told they succeeded. The repository's update instead
+    # matches on `id AND updated_at`, so a row written by somebody else since the read matches
+    # nothing and the service answers 409 rather than destroying that write. Full reasoning, and
+    # when to prefer an integer version column instead, are in
+    # docs/adr/ADR-007-autocommit-and-explicit-transactions.md.
+    updated_at: datetime

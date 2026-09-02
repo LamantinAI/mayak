@@ -207,6 +207,15 @@ that uses a comfortable middle value — `"a title"` — cannot see the boundary
   `async with connection.transaction():` inside the connection block it already opens, and is
   proved with a functional test, not a unit test — see
   `docs/adr/ADR-007-autocommit-and-explicit-transactions.md` for why and for the code shape.
+- **An update reads, changes and writes back, and a transaction does not make that safe.** Two
+  requests that read the same row and patch different fields both report success, and the later
+  write erases the earlier one. Copy `ReferenceTaskRepository.update` rather than writing the
+  obvious `WHERE id = %s`: it matches on `id AND updated_at`, returns `None` when the row moved, and
+  the service turns that into a `ConflictError` — 409. Measured on 2026-09-02, an agent that
+  followed this file when the reference vertical had no update wrote the blind form and passed all
+  876 tests. The unit suite can only check that the service passes the timestamp it read; the test
+  that watches two writers collide is in `tests/functional/`. Same ADR, section
+  "Read-modify-write across requests".
 
 ## A vertical whose adapter is a language model
 

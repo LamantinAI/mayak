@@ -118,6 +118,29 @@ class TestUndeclaredImportIsReported:
 
         assert [issue.rule_id for issue in issues] == ["dependencies.undeclared_import"]
 
+    # FUNCTION: test_a_dynamically_imported_distribution_is_reported
+    # SUMMARY: Verify importlib.import_module counts as an import for the declared-dependency check.
+    # NOTE: The same one-line bypass this validator shared with validate_architecture.py until
+    # 2026-09-02: only ast.Import/ast.ImportFrom were collected, so a package pulled in through
+    # `importlib.import_module` was undeclared and unreported at once.
+    @pytest.mark.unit
+    def test_a_dynamically_imported_distribution_is_reported(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "probe"\ndependencies = ["fastapi"]\n',
+            encoding="utf-8",
+        )
+        runtime = tmp_path / "project" / "core"
+        runtime.mkdir(parents=True)
+        (runtime / "module.py").write_text(
+            'import importlib\n\n_json = importlib.import_module("orjson")\n',
+            encoding="utf-8",
+        )
+
+        issues = collect_dependency_issues(tmp_path)
+
+        assert [issue.rule_id for issue in issues] == ["dependencies.undeclared_import"]
+        assert "orjson" in issues[0].message
+
     # FUNCTION: test_stdlib_and_first_party_imports_are_ignored
     # SUMMARY: Verify the validator does not flag the standard library or repository packages.
     @pytest.mark.unit

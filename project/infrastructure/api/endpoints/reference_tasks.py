@@ -13,6 +13,7 @@ from project.application.reference_task_dtos import (
     ReferenceTaskCreateRequest,
     ReferenceTaskListResponse,
     ReferenceTaskResponse,
+    ReferenceTaskUpdateRequest,
 )
 from project.domain.reference_task import DEFAULT_STATUS
 from project.infrastructure.api.dependencies import ReferenceTaskServiceDep
@@ -61,6 +62,38 @@ async def get_reference_task(
     # whole application. A handler that catches it locally produces a second, divergent error
     # envelope — which is how two services in one repository end up with two error formats.
     task = await service.get_task(task_id)
+    return ReferenceTaskResponse.from_domain(task)
+
+
+# FUNCTION: update_reference_task
+# SUMMARY: Change some fields of one reference task.
+# OUTPUT: (ReferenceTaskResponse): The stored task after the change.
+@reference_tasks_router.patch(
+    "/{task_id}",
+    response_model=ReferenceTaskResponse,
+    summary="Update a reference task",
+    responses={
+        http_status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},
+        http_status.HTTP_409_CONFLICT: {"model": ErrorResponse},
+        http_status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": ErrorResponse},
+    },
+)
+async def update_reference_task(
+    task_id: str,
+    payload: ReferenceTaskUpdateRequest,
+    service: ReferenceTaskServiceDep,
+) -> ReferenceTaskResponse:
+    # **LOGIC_STEP**: Still three lines: parse, delegate, convert. The 409 this route documents is
+    # raised by the service as ConflictError and mapped once in exception_handlers.py — a handler
+    # that caught it here to build its own body would be the second error envelope this template
+    # exists to avoid. The concurrency rule itself lives in the service, not here, because a caller
+    # that never passes through HTTP needs it just as much.
+    task = await service.update_task(
+        task_id,
+        title=payload.title,
+        details=payload.details,
+        status=payload.status,
+    )
     return ReferenceTaskResponse.from_domain(task)
 
 

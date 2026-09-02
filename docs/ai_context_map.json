@@ -747,6 +747,26 @@
               "source": "ast_exact"
             }
           ],
+          "full_path": "/reference-tasks/{task_id}",
+          "handler": "update_reference_task",
+          "method": "PATCH",
+          "path": "/{task_id}",
+          "resolution_status": "resolved",
+          "source": "ast_exact"
+        },
+        {
+          "confidence": "high",
+          "dependencies": [
+            {
+              "alias": "ReferenceTaskServiceDep",
+              "confidence": "high",
+              "getter": "get_reference_task_service",
+              "parameter": "service",
+              "resolution_status": "resolved",
+              "service_key": "reference_task_service",
+              "source": "ast_exact"
+            }
+          ],
           "full_path": "/reference-tasks/",
           "handler": "list_reference_tasks",
           "method": "GET",
