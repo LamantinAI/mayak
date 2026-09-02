@@ -77,6 +77,13 @@ fresh one as data, so a row somebody else has written since matches nothing, the
 cannot be a row that changed again in between, and the method stays at a single `execute()` where
 autocommit is correct.
 
+One field of the same method is not about concurrency at all and is included because a first
+attempt gets it wrong the same way: a patch has three states per field — absent, set to a value,
+set to null — and `None` can only carry two of them. `details: str | None = None` therefore makes
+`{"details": null}` indistinguishable from a body that never mentioned details, so a nullable
+column can never be emptied and the request still answers 200. The service takes an `UNCHANGED`
+sentinel instead, and the endpoint decides between them with `payload.model_fields_set`.
+
 A project that cannot accept a timestamp as the token — because it writes the same row more than
 once per microsecond, or because it wants the version visible to clients — uses an integer `version`
 column with `SET version = version + 1 ... WHERE id = %s AND version = %s` instead. The mechanism is

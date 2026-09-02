@@ -203,6 +203,28 @@ async def test_concurrent_patches_never_lose_a_write_that_reported_success(
             assert reloaded["body"][field] == value
 
 
+# FUNCTION: test_patch_with_an_explicit_null_empties_the_column
+# SUMMARY: Verify a cleared field really lands as NULL in PostgreSQL, not as the string "None" and
+# not as the old value kept by a service that could not tell absent from null.
+@pytest.mark.asyncio
+async def test_patch_with_an_explicit_null_empties_the_column(
+    make_post_request: SendRequest,
+    make_patch_request: SendRequest,
+    make_get_request: SendRequest,
+) -> None:
+    created = await make_post_request(
+        "/reference-tasks", {"title": "Has details", "details": "Remove me"}
+    )
+    task_id = created["body"]["id"]
+
+    patched = await make_patch_request(f"/reference-tasks/{task_id}", {"details": None})
+
+    assert patched["status"] == 200
+    assert patched["body"]["details"] is None
+    reloaded = await make_get_request(f"/reference-tasks/{task_id}")
+    assert reloaded["body"]["details"] is None
+
+
 # FUNCTION: test_patch_of_an_unknown_task_returns_404
 # SUMMARY: Verify a patch against a missing identifier is a 404 on the deployed application too.
 @pytest.mark.asyncio

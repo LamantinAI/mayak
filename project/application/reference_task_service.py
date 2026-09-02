@@ -18,6 +18,23 @@ from project.domain.reference_task import (
     ReferenceTask,
 )
 
+
+# CLASS: project.application.reference_task_service._Unchanged
+# SUMMARY: The type of the UNCHANGED sentinel below; it exists so mypy can name it in signatures.
+class _Unchanged:
+    pass
+
+
+# ATTRIBUTE: UNCHANGED (_Unchanged)
+# SUMMARY: "This field was not part of the patch", as distinct from "this field was set to null".
+# NOTE: A patch has three possible states per field and `None` can only express two of them. With
+# `details: str | None = None`, a caller who sends `{"details": null}` to clear the description is
+# indistinguishable from one who never mentioned details at all — so the field can never be
+# emptied, the request answers 200, and nothing changed. Measured on this very vertical on
+# 2026-09-02, before this sentinel existed. Every vertical with a nullable column inherits that
+# trap by copying, which is why the exemplar carries the fix rather than a warning.
+UNCHANGED = _Unchanged()
+
 # ATTRIBUTE: MAX_LIST_LIMIT (int)
 # SUMMARY: Hard ceiling on page size, enforced here rather than only in the DTO. A caller that
 # reaches the service directly — a background job, another service, a test — bypasses FastAPI
@@ -113,13 +130,17 @@ class ReferenceTaskService:
     async def update_task(
         self,
         task_id: str,
-        title: str | None = None,
-        details: str | None = None,
-        status: str | None = None,
+        title: str | None | _Unchanged = UNCHANGED,
+        details: str | None | _Unchanged = UNCHANGED,
+        status: str | None | _Unchanged = UNCHANGED,
     ) -> ReferenceTask:
         # **LOGIC_STEP**: An empty patch is a caller mistake, not a no-op to absorb quietly: it
         # would otherwise bump updated_at and answer 200 for a request that asked for nothing.
-        if title is None and details is None and status is None:
+        if (
+            isinstance(title, _Unchanged)
+            and isinstance(details, _Unchanged)
+            and isinstance(status, _Unchanged)
+        ):
             raise ValidationError("at least one of title, details or status must be provided")
 
         # **LOGIC_STEP**: Reuse the repository read so an unknown id raises NotFoundError here
@@ -128,22 +149,34 @@ class ReferenceTaskService:
         if current is None:
             raise NotFoundError(f"Reference task '{task_id}' does not exist")
 
-        if title is not None:
+        # **LOGIC_STEP**: `title` and `status` back non-nullable columns, so an explicit null is a
+        # caller mistake rather than a clearing instruction — the asymmetry with `details` above is
+        # the column definitions, not an oversight, and it is answered with 422 rather than a 500
+        # from the driver.
+        if not isinstance(title, _Unchanged):
+            if title is None:
+                raise ValidationError("title must not be null")
             if not title.strip():
                 raise ValidationError("title must not be empty")
             if len(title) > MAX_TITLE_LENGTH:
                 raise ValidationError(
                     f"title must be at most {MAX_TITLE_LENGTH} characters, got {len(title)}"
                 )
-        if status is not None and status not in ALLOWED_STATUSES:
-            allowed = ", ".join(sorted(ALLOWED_STATUSES))
-            raise ValidationError(f"Unknown status '{status}'. Allowed statuses: {allowed}")
+        if not isinstance(status, _Unchanged):
+            if status is None:
+                raise ValidationError("status must not be null")
+            if status not in ALLOWED_STATUSES:
+                allowed = ", ".join(sorted(ALLOWED_STATUSES))
+                raise ValidationError(f"Unknown status '{status}'. Allowed statuses: {allowed}")
 
+        # **LOGIC_STEP**: `isinstance(..., _Unchanged)`, never `is None` — that is the whole point
+        # of the sentinel. `details=None` here means the caller asked for the description to be
+        # cleared, and the row must end up with NULL in that column.
         changed = replace(
             current,
-            title=current.title if title is None else title,
-            details=current.details if details is None else details,
-            status=current.status if status is None else status,
+            title=current.title if isinstance(title, _Unchanged) else title,
+            details=current.details if isinstance(details, _Unchanged) else details,
+            status=current.status if isinstance(status, _Unchanged) else status,
             updated_at=datetime.now(timezone.utc),
         )
 
@@ -152,6 +185,13 @@ class ReferenceTaskService:
         # the row this method read.
         stored = await self._repository.update(changed, expected_updated_at=current.updated_at)
         if stored is None:
+            # **LOGIC_STEP**: A miss has two causes and they need different answers. The row was
+            # written by somebody else — retry after re-reading, 409 — or it was deleted, and
+            # telling that caller to retry sends them after a row that will never come back. One
+            # extra read is what separates the two; the repository cannot, because from inside the
+            # UPDATE both look like zero rows.
+            if await self._repository.get(task_id) is None:
+                raise NotFoundError(f"Reference task '{task_id}' does not exist")
             raise ConflictError(
                 f"Reference task '{task_id}' was modified by another request; re-read and retry"
             )

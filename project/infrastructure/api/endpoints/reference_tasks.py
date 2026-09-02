@@ -9,6 +9,7 @@ from fastapi import APIRouter, Query
 from fastapi import status as http_status
 
 from project.application.dtos import ErrorResponse
+from project.application.reference_task_service import UNCHANGED
 from project.application.reference_task_dtos import (
     ReferenceTaskCreateRequest,
     ReferenceTaskListResponse,
@@ -83,16 +84,16 @@ async def update_reference_task(
     payload: ReferenceTaskUpdateRequest,
     service: ReferenceTaskServiceDep,
 ) -> ReferenceTaskResponse:
-    # **LOGIC_STEP**: Still three lines: parse, delegate, convert. The 409 this route documents is
-    # raised by the service as ConflictError and mapped once in exception_handlers.py — a handler
-    # that caught it here to build its own body would be the second error envelope this template
-    # exists to avoid. The concurrency rule itself lives in the service, not here, because a caller
-    # that never passes through HTTP needs it just as much.
+    # **LOGIC_STEP**: `model_fields_set` is what makes `{"details": null}` mean "clear it" and an
+    # absent `details` mean "leave it alone". Passing `payload.details` straight through cannot:
+    # both arrive as None, so the nullable column could never be emptied. Everything the caller did
+    # not mention stays UNCHANGED, and the service decides what that means.
+    supplied = payload.model_fields_set
     task = await service.update_task(
         task_id,
-        title=payload.title,
-        details=payload.details,
-        status=payload.status,
+        title=payload.title if "title" in supplied else UNCHANGED,
+        details=payload.details if "details" in supplied else UNCHANGED,
+        status=payload.status if "status" in supplied else UNCHANGED,
     )
     return ReferenceTaskResponse.from_domain(task)
 

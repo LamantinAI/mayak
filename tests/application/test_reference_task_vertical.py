@@ -219,6 +219,85 @@ class TestServiceRules:
 
         assert repository.items[created.id].title == "Written by somebody else"
 
+    # FUNCTION: test_update_clears_a_nullable_field_when_the_caller_asks_for_null
+    # SUMMARY: Verify an explicit null empties the column instead of being read as "not supplied".
+    # NOTE: The trap this pins was live in this file's own vertical on 2026-09-02: with
+    # `details: str | None = None` the service could not tell `{"details": null}` from a body that
+    # never mentioned details, so a nullable column could never be emptied and the request still
+    # answered 200. Every vertical with a nullable column would have copied it.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_update_clears_a_nullable_field_when_the_caller_asks_for_null(
+        self,
+        service: ReferenceTaskService,
+    ) -> None:
+        created = await service.create_task(title="Original", details="Remove me")
+
+        updated = await service.update_task(created.id, details=None)
+
+        assert updated.details is None
+        assert updated.title == "Original"
+
+    # FUNCTION: test_update_leaves_a_field_alone_when_it_is_not_supplied
+    # SUMMARY: Verify the other half of the sentinel: absent means keep, and only null means clear.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_update_leaves_a_field_alone_when_it_is_not_supplied(
+        self,
+        service: ReferenceTaskService,
+    ) -> None:
+        created = await service.create_task(title="Original", details="Keep me")
+
+        updated = await service.update_task(created.id, title="Changed")
+
+        assert updated.details == "Keep me"
+
+    # FUNCTION: test_update_rejects_an_explicit_null_for_a_non_nullable_field
+    # SUMMARY: Verify null is refused where the column cannot hold it, rather than reaching psycopg.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("field", ["title", "status"])
+    async def test_update_rejects_an_explicit_null_for_a_non_nullable_field(
+        self,
+        service: ReferenceTaskService,
+        field: str,
+    ) -> None:
+        created = await service.create_task(title="Original")
+
+        with pytest.raises(ValidationError, match="must not be null"):
+            await service.update_task(created.id, **{field: None})
+
+    # FUNCTION: test_update_of_a_deleted_task_is_a_404_not_a_conflict
+    # SUMMARY: Verify a row that vanished between the read and the write is reported as missing.
+    # NOTE: The repository answers None for both "somebody else wrote first" and "the row is gone",
+    # because from inside the UPDATE they are the same zero rows. Telling the caller of a deleted
+    # task to re-read and retry sends them after a row that will never come back.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_update_of_a_deleted_task_is_a_404_not_a_conflict(
+        self,
+        service: ReferenceTaskService,
+        repository: InMemoryReferenceTaskRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await service.create_task(title="Original")
+        stored_get = repository.get
+        reads = {"count": 0}
+
+        # FUNCTION: get_then_let_somebody_else_delete
+        # SUMMARY: Answer the first read, then remove the row before the caller writes back.
+        async def get_then_let_somebody_else_delete(task_id: str) -> ReferenceTask | None:
+            task = await stored_get(task_id)
+            reads["count"] += 1
+            if reads["count"] == 1:
+                repository.items.pop(task_id, None)
+            return task
+
+        monkeypatch.setattr(repository, "get", get_then_let_somebody_else_delete)
+
+        with pytest.raises(NotFoundError, match="does not exist"):
+            await service.update_task(created.id, title="Mine")
+
     # FUNCTION: test_update_rejects_a_patch_that_supplies_nothing
     # SUMMARY: Verify an empty body is a caller error rather than a write that only bumps time.
     @pytest.mark.unit
@@ -449,6 +528,22 @@ class TestHttpSurface:
         assert body["status"] == "in_progress"
         assert body["title"] == "Original"
         assert body["updated_at"] > created["updated_at"]
+
+    # FUNCTION: test_patch_with_an_explicit_null_clears_the_field_over_http
+    # SUMMARY: Verify `{"details": null}` reaches the service as a clearing instruction, which is
+    # what `model_fields_set` in the endpoint is for.
+    @pytest.mark.unit
+    def test_patch_with_an_explicit_null_clears_the_field_over_http(
+        self, client: TestClient
+    ) -> None:
+        created = client.post(
+            "/reference-tasks", json={"title": "Original", "details": "Remove me"}
+        ).json()
+
+        response = client.patch(f"/reference-tasks/{created['id']}", json={"details": None})
+
+        assert response.status_code == 200
+        assert response.json()["details"] is None
 
     # FUNCTION: test_patch_of_an_unknown_identifier_returns_404
     # SUMMARY: Verify a patch against a missing task answers 404 rather than creating one.
