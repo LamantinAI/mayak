@@ -11,7 +11,11 @@ import pytest
 from starlette.testclient import TestClient
 
 from project.core.composition_root import CompositionRoot
-from project.core.config import clear_settings_override, set_settings_override
+from project.core.config import (
+    GUARDS_RELAXED_BY_DEBUG,
+    clear_settings_override,
+    set_settings_override,
+)
 from project.core.logging import get_logger
 from project.core.logging.formatters import NDJSONFormatter
 from project.core.logging.redaction import redact_secrets
@@ -33,8 +37,9 @@ class TestEnvSampleDebugFlag:
     @pytest.mark.unit
     def test_env_sample_does_not_enable_debug(self) -> None:
         # **LOGIC_STEP**: dev_setup.sh copies this file verbatim into .env for every new project,
-        # and APP_DEBUG=true makes Starlette answer 500s with its own traceback page while
-        # silently disabling the wildcard-CORS and default-password guards in validate_runtime().
+        # and APP_DEBUG=true switches off every guard in GUARDS_RELAXED_BY_DEBUG at once. (It no
+        # longer hands out Starlette's traceback page — the class below pins that — but the
+        # guards alone are reason enough for the sample to ship it off.)
         assignments = [
             line.split("=", 1)[1].strip().strip("\"'").lower()
             for line in (_REPO_ROOT / ".env.sample").read_text(encoding="utf-8").splitlines()
@@ -140,6 +145,53 @@ class TestDebugFlagCannotPublishTracebacks:
             clear_settings_override()
 
         assert app.debug is False
+
+    # FUNCTION: test_the_startup_event_names_the_guards_debug_relaxed
+    # SUMMARY: Verify a debug build says in its first log lines which startup checks it did not run.
+    @pytest.mark.unit
+    def test_the_startup_event_names_the_guards_debug_relaxed(
+        self, log_capture: list[dict]
+    ) -> None:
+        # **LOGIC_STEP**: README described the flag wrongly for months and nothing noticed; a
+        # container started with APP_DEBUG=true now names the three guards itself, in the same
+        # event that already reported `debug: true`, so the operator reading the log at the
+        # moment it matters does not depend on the README having been right.
+        settings = FixtureSettings()
+        settings.project.debug = True
+        set_settings_override(settings)
+        try:
+            CompositionRoot().build_application()
+        finally:
+            clear_settings_override()
+
+        built = [
+            event
+            for event in log_capture
+            if event["kwargs"].get("event_id") == "system.fastapi_application_built"
+        ]
+        assert len(built) == 1
+        assert built[0]["kwargs"]["data"]["new_value"]["guards_relaxed_by_debug"] == list(
+            GUARDS_RELAXED_BY_DEBUG
+        )
+
+    # FUNCTION: test_a_production_build_reports_no_relaxed_guard
+    # SUMMARY: Verify the same field is an empty list whenever the guards actually ran.
+    @pytest.mark.unit
+    def test_a_production_build_reports_no_relaxed_guard(self, log_capture: list[dict]) -> None:
+        settings = FixtureSettings()
+        settings.project.debug = False
+        set_settings_override(settings)
+        try:
+            CompositionRoot().build_application()
+        finally:
+            clear_settings_override()
+
+        built = next(
+            event
+            for event in log_capture
+            if event["kwargs"].get("event_id") == "system.fastapi_application_built"
+        )
+        assert built["kwargs"]["data"]["new_value"]["guards_relaxed_by_debug"] == []
 
     # FUNCTION: test_unhandled_exception_answers_with_the_safe_message
     # SUMMARY: Verify a raising route returns the fixed envelope, not the exception text.

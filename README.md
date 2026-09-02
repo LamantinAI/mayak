@@ -205,7 +205,8 @@ can be followed without parsing prose:
 
 Each root span closes with a `request.summary` carrying the aggregate: duration, outcome, status
 code, child span count, LLM calls and token totals. `outcome` is `ok` (2xx/3xx), `client_error`
-(4xx, logged at INFO) or `server_error` (5xx, logged at ERROR), so real failures are one filter away.
+(4xx, logged at INFO), `server_error` (5xx, logged at ERROR) or `cancelled` (the request's task was
+cancelled before it answered, logged at WARNING), so real failures are one filter away.
 
 ```bash
 make logs                          # the container's log, rendered as a trace tree
@@ -254,7 +255,7 @@ either removed after measuring that it earned nothing, or never added for the sa
 | `AGENT_LLM_READINESS_CRITICAL` | whether an unhealthy LLM check makes `/health/ready` report unready | `false` |
 | `SERVER_CORS_ORIGINS` | allowed CORS origins; a wildcard is rejected at startup under the conditions below | `["*"]` |
 | `SERVER_CORS_ALLOW_CREDENTIALS` | whether the app sends `Access-Control-Allow-Credentials`; `false` makes a wildcard origin list safe | `true` |
-| `APP_DEBUG` | `DEBUG` log level, single worker, Starlette's own error page | `false` |
+| `APP_DEBUG` | `DEBUG` log level, single worker, and three startup guards switched off: the wildcard check on `SERVER_CORS_ORIGINS`, the placeholder checks on `POSTGRES_PASSWORD` and `OPENAI_COMPATIBLE_API_KEY`. Not Starlette's traceback page — `FastAPI(debug=False)` is hard-wired | `false` |
 
 Notes worth knowing:
 

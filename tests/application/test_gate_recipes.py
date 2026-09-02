@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import shlex
 from pathlib import Path
 from subprocess import run
 
@@ -557,3 +559,84 @@ class TestBothAgentsRunTheSameGuard:
         assert self.GUARD in claude
         assert self.GUARD in codex
         assert len(list(_REPO_ROOT.glob("**/pre-edit-guard.sh"))) == 1
+
+
+# FUNCTION: _with_docker_shim
+# SUMMARY: Build an environment whose `docker` is a shell script with the given exit status.
+# INPUT: stdout (str): Written to standard output before exiting, as `docker compose logs` would.
+# OUTPUT: (dict[str, str]): os.environ with the shim's directory first on PATH.
+def _with_docker_shim(directory: Path, *, exit_code: int, stdout: str = "") -> dict[str, str]:
+    shim = directory / "docker"
+    shim.write_text(
+        f"#!/bin/sh\nprintf '%s' {shlex.quote(stdout)}\nexit {exit_code}\n", encoding="utf-8"
+    )
+    shim.chmod(0o755)
+    return {**os.environ, "PATH": f"{directory}{os.pathsep}{os.environ['PATH']}"}
+
+
+# FUNCTION: _make
+# SUMMARY: Run one Makefile target from the repository root with the given environment.
+def _make(target: str, env: dict[str, str]) -> tuple[int, str]:
+    result = run(["make", "-s", target], cwd=_REPO_ROOT, env=env, capture_output=True, text=True)
+    return result.returncode, result.stdout
+
+
+# CLASS: tests.application.test_gate_recipes.TestLogTargetsReportAFailedCompose
+# SUMMARY: Verify `make logs` and `make logs-raw` exit non-zero when `docker compose logs` fails.
+# NOTE: Behavioural, with a fake `docker` on PATH — not a grep over the recipe. The first
+# version pinned the words "mktemp" and "&&", and a reviewer rewrote the recipe to contain both
+# while piping compose into the formatter exactly as before: 35 passed, exit 0 restored. Why the
+# recipes do not use `set -o pipefail` is explained above the `logs` target in the Makefile.
+class TestLogTargetsReportAFailedCompose:
+    # FUNCTION: test_logs_fails_when_compose_fails
+    # SUMMARY: Verify a failed compose call is not rendered as a service that logged nothing.
+    @pytest.mark.unit
+    def test_logs_fails_when_compose_fails(self, tmp_path: Path) -> None:
+        returncode, stdout = _make("logs", _with_docker_shim(tmp_path, exit_code=1))
+
+        assert returncode != 0
+        assert "(no events found)" not in stdout
+
+    # FUNCTION: test_logs_renders_an_empty_log_as_no_events
+    # SUMMARY: Verify the healthy case — compose succeeded with nothing to show — still exits 0.
+    @pytest.mark.unit
+    def test_logs_renders_an_empty_log_as_no_events(self, tmp_path: Path) -> None:
+        returncode, stdout = _make("logs", _with_docker_shim(tmp_path, exit_code=0))
+
+        assert returncode == 0
+        assert "(no events found)" in stdout
+
+    # FUNCTION: test_logs_raw_fails_and_leaves_no_file_when_compose_fails
+    # SUMMARY: Verify a failed dump exits non-zero and leaves no empty file under logs/.
+    @pytest.mark.unit
+    def test_logs_raw_fails_and_leaves_no_file_when_compose_fails(self, tmp_path: Path) -> None:
+        logs_dir = _REPO_ROOT / "logs"
+        before = set(logs_dir.glob("container-*.ndjson")) if logs_dir.is_dir() else set()
+
+        returncode, _ = _make("logs-raw", _with_docker_shim(tmp_path, exit_code=1))
+
+        assert returncode != 0
+        assert set(logs_dir.glob("container-*.ndjson")) == before
+
+    # FUNCTION: test_logs_raw_prints_the_file_it_wrote
+    # SUMMARY: Verify a successful dump prints a path holding exactly what compose produced.
+    @pytest.mark.unit
+    def test_logs_raw_prints_the_file_it_wrote(self, tmp_path: Path) -> None:
+        line = '{"event_id":"probe"}\n'
+        returncode, stdout = _make(
+            "logs-raw", _with_docker_shim(tmp_path, exit_code=0, stdout=line)
+        )
+        written = _REPO_ROOT / stdout.strip()
+
+        try:
+            assert returncode == 0
+            assert written.read_text(encoding="utf-8") == line
+        finally:
+            written.unlink(missing_ok=True)
+
+    # FUNCTION: test_neither_recipe_relies_on_pipefail
+    # SUMMARY: Verify the fix did not reach for the option dash does not have.
+    @pytest.mark.unit
+    @pytest.mark.parametrize("target", ["logs", "logs-raw"])
+    def test_neither_recipe_relies_on_pipefail(self, target: str) -> None:
+        assert "pipefail" not in "\n".join(_recipe(target))

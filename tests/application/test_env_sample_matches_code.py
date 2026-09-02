@@ -7,8 +7,10 @@
 from __future__ import annotations
 
 import ast
+import inspect
 import json
 import re
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,7 @@ import pytest
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings
 
+from project.core.config_runtime import GUARDS_RELAXED_BY_DEBUG, Settings
 from project.core.config_settings_core import (
     LLMSettings,
     PostgresSettings,
@@ -246,6 +249,62 @@ class TestLogFileGateIsDocumentedAsItself:
         # **LOGIC_STEP**: "debug mode" alone, with no mention of the real gate, is the exact
         # wording that misdirected the reader; the sample may still contrast the two flags.
         assert "debug mode" not in description.lower()
+
+
+# FUNCTION: _debug_gated_guards_in_validate_runtime
+# SUMMARY: Count the reads of `self.project.debug` inside Settings.validate_runtime.
+# OUTPUT: (int): How many startup guards the flag switches off — one read per guard.
+# NOTE: Every read, in whatever expression. The first version counted only `not
+# self.project.debug`, and a guard written as `self.project.debug is False` — the same gate,
+# one operator away — was invisible to it, so the tuple, README and the startup event all
+# stayed at three while a fourth guard went undocumented. Counted on the AST, not the text: a
+# comment in that method quotes the expression.
+def _debug_gated_guards_in_validate_runtime() -> int:
+    tree = ast.parse(textwrap.dedent(inspect.getsource(Settings.validate_runtime)))
+    return sum(
+        1
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and ast.unparse(node) == "self.project.debug"
+    )
+
+
+# CLASS: tests.application.test_env_sample_matches_code.TestDebugFlagIsDocumentedAsItself
+# SUMMARY: Verify README and both env samples credit APP_DEBUG with the guards it relaxes, and no more.
+# NOTE: README's row said "Starlette's own error page" — an effect composition_root.py removed when
+# it hard-wired FastAPI(debug=False) — and .env.sample named two of the three guards the flag
+# switches off. Measured on 2026-09-02. The list is read out of config_runtime.py, and the number
+# of debug-gated conditions out of validate_runtime's own AST, so a fourth guard or a removed one
+# fails here instead of quietly leaving the prose behind again.
+class TestDebugFlagIsDocumentedAsItself:
+    # FUNCTION: test_the_tuple_counts_every_guard_the_flag_gates
+    # SUMMARY: Verify GUARDS_RELAXED_BY_DEBUG has one entry per `not self.project.debug` condition.
+    @pytest.mark.unit
+    def test_the_tuple_counts_every_guard_the_flag_gates(self) -> None:
+        assert _debug_gated_guards_in_validate_runtime() == len(GUARDS_RELAXED_BY_DEBUG)
+
+    # FUNCTION: test_readme_names_every_relaxed_guard_and_no_dead_effect
+    # SUMMARY: Verify the README row lists the three variables and no longer credits the error page.
+    @pytest.mark.unit
+    def test_readme_names_every_relaxed_guard_and_no_dead_effect(self) -> None:
+        readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        row = next(line for line in readme.splitlines() if line.startswith("| `APP_DEBUG`"))
+
+        for variable in GUARDS_RELAXED_BY_DEBUG:
+            assert f"`{variable}`" in row
+        assert "Starlette's own error page" not in row
+
+    # FUNCTION: test_every_sample_comment_names_every_relaxed_guard
+    # SUMMARY: Verify the comment above APP_DEBUG in each sample lists the variables and drops the dead claim.
+    @pytest.mark.unit
+    @pytest.mark.parametrize("sample", [".env.sample", "tests/functional/.env.sample"])
+    def test_every_sample_comment_names_every_relaxed_guard(self, sample: str) -> None:
+        comment = _sample_comment_above(_REPO_ROOT / sample, "APP_DEBUG")
+
+        for variable in GUARDS_RELAXED_BY_DEBUG:
+            assert variable in comment
+        # **LOGIC_STEP**: The two sentences that described an effect the flag no longer has.
+        assert "return its own traceback" not in comment
+        assert "intercepts unhandled exceptions" not in comment
 
 
 # CLASS: tests.application.test_env_sample_matches_code.TestReadmePythonVersions

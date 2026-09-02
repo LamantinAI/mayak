@@ -76,6 +76,7 @@ _OUTCOME_WORDS: dict[RequestOutcome, str] = {
     RequestOutcome.OK: "completed",
     RequestOutcome.CLIENT_ERROR: "rejected",
     RequestOutcome.SERVER_ERROR: "failed",
+    RequestOutcome.CANCELLED: "cancelled",
 }
 
 
@@ -293,6 +294,36 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                     _caller=_caller,
                 )
             raise
+        except BaseException as interruption:
+            # **LOGIC_STEP**: asyncio.CancelledError, KeyboardInterrupt and SystemExit are not
+            # Exceptions, so the branch above never sees them — and until 2026-09-02 neither did
+            # the log. A request cancelled by uvicorn's graceful-shutdown timeout (30 s, set in
+            # project/launcher/main.py) emitted span.start and nothing else: no span.error, no
+            # span.finish, no request.summary. The trace tree is built from finish and error
+            # events alone, so the request was not in it at all. Measured with a fake log_event:
+            # ['span.start'] against ['span.start', 'span.error', 'request.summary'] for a
+            # RuntimeError in the same harness.
+            duration_ms = (time.perf_counter_ns() - start_ns) / 1e6
+            # **LOGIC_STEP**: An Exception raised while logging must not replace the
+            # interruption. A handler already closing at shutdown would otherwise turn a
+            # CancelledError into its own error through __context__, and uvicorn would see a
+            # failed task instead of a cancelled one. The log line is the one that gets dropped.
+            # A second BaseException from inside the logger — a second Ctrl-C landing exactly
+            # here — is not caught, and does replace the first; that one is the newer signal.
+            with contextlib.suppress(Exception):
+                self._emit_interrupted_span(
+                    name=name,
+                    span_id=span_id,
+                    parent_span_id=parent_span_id,
+                    metadata=metadata,
+                    duration_ms=duration_ms,
+                    is_root_span=is_root_span,
+                    interruption=interruption,
+                    _caller=_caller,
+                )
+            # **LOGIC_STEP**: Bare `raise`, the same object. asyncio recognises its cancellation
+            # by identity, and tests/application/test_logging_api.py pins that it comes out.
+            raise
         else:
             duration_ms = (time.perf_counter_ns() - start_ns) / 1e6
             if emit_lifecycle:
@@ -328,6 +359,54 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             if stats_token is not None:
                 reset_span_stats(stats_token)
             reset_span(span_token, name_token)
+
+    # FUNCTION: _emit_interrupted_span
+    # SUMMARY: Write the span.error and, for a root span, the request.summary that an interruption
+    # would otherwise skip.
+    # INPUT: interruption (BaseException): What cut the span short; named in the event, never traced.
+    # INPUT: _caller (Optional[CallerInfo]): Resolved at span entry when lifecycle events were
+    #        enabled, and here otherwise — the same lazy rule as the Exception branch.
+    def _emit_interrupted_span(
+        self,
+        *,
+        name: str,
+        span_id: str,
+        parent_span_id: Optional[str],
+        metadata: dict[str, Any],
+        duration_ms: float,
+        is_root_span: bool,
+        interruption: BaseException,
+        _caller: Optional[CallerInfo],
+    ) -> None:
+        if _caller is None:
+            _caller = self._resolve_caller()
+        # **LOGIC_STEP**: The same event_id as a failure, so the trace tree — which reads
+        # span.finish and span.error and nothing else — shows the span with its exception type.
+        # At WARNING and without a traceback: a CancelledError's frames say nothing a reader can
+        # act on, and the ERROR level is reserved for the application's own failures.
+        self.log_event(
+            EventType.ISSUE_WARNING,
+            f"Span interrupted: {name} ({type(interruption).__name__})",
+            level=logging.WARNING,
+            event_id="span.error",
+            _caller=_caller,
+            data=metadata,
+            span_id=span_id,
+            parent_span_id=parent_span_id,
+            duration_ms=round(duration_ms, 3),
+            name=name,
+            error_message=str(interruption),
+            exception_type=type(interruption).__name__,
+        )
+        if is_root_span:
+            self._emit_request_summary(
+                name=name,
+                root_span_id=span_id,
+                duration_ms=duration_ms,
+                outcome=RequestOutcome.CANCELLED,
+                status_code=None,
+                _caller=_caller,
+            )
 
     # FUNCTION: _emit_request_summary
     # SUMMARY: Emit an aggregated request summary event at the end of a root span.
@@ -385,8 +464,13 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             payload["total_output_tokens"] = stats.get("total_output_tokens", 0)
 
         # **LOGIC_STEP**: Only a server-side outcome deserves ERROR; 4xx is routine traffic and would
-        # drown the reader in noise at anything above INFO.
-        level = logging.ERROR if outcome is RequestOutcome.SERVER_ERROR else logging.INFO
+        # drown the reader in noise at anything above INFO. An interrupted request sits between
+        # the two: not the application's fault, but a request that never answered.
+        level = logging.INFO
+        if outcome is RequestOutcome.SERVER_ERROR:
+            level = logging.ERROR
+        elif outcome is RequestOutcome.CANCELLED:
+            level = logging.WARNING
 
         self.log_event(
             EventType.REQUEST_SUMMARY,

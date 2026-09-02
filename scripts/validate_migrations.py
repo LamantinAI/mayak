@@ -144,6 +144,52 @@ _MIGRATIONS_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
             "Stop once the validator actually runs `alembic upgrade head` and `alembic check`."
         ),
     },
+    "migrations.multiple_heads": {
+        "meaning": (
+            "alembic/versions/ holds more than one head: two revisions share a down_revision, "
+            "so `alembic upgrade head` has no single target and refuses to run. Read from the "
+            "files alone — this check needs no database and runs before the skip an "
+            "unreachable one would trigger."
+        ),
+        "suggested_fix": (
+            "Point the newer revision's down_revision at the other head, or run "
+            "`uv run alembic -c alembic.ini merge heads -m describe_merge` to add a merge "
+            "revision."
+        ),
+        "read_first": [
+            "alembic/versions/",
+        ],
+        "smallest_command_to_rerun": "uv run alembic -c alembic.ini heads",
+        "likely_fix_shape": ("Rewrite one down_revision so the revisions form a single chain."),
+        "next_checks": [
+            "uv run alembic -c alembic.ini heads",
+            "uv run python scripts/validate_migrations.py",
+        ],
+        "stop_widening_condition": ("Stop once `alembic heads` prints exactly one revision."),
+    },
+    "migrations.broken_revision_graph": {
+        "meaning": (
+            "Alembic cannot walk alembic/versions/: a down_revision names a revision that does "
+            "not exist, or a revision file fails to import. Read from the files alone, without "
+            "a database."
+        ),
+        "suggested_fix": (
+            "Fix the down_revision or the import error the message names; "
+            "`uv run alembic -c alembic.ini history` shows the chain Alembic can see."
+        ),
+        "read_first": [
+            "alembic/versions/",
+        ],
+        "smallest_command_to_rerun": "uv run alembic -c alembic.ini history",
+        "likely_fix_shape": ("Correct one revision id so every down_revision resolves."),
+        "next_checks": [
+            "uv run alembic -c alembic.ini history",
+            "uv run python scripts/validate_migrations.py",
+        ],
+        "stop_widening_condition": (
+            "Stop once `alembic history` lists every revision without a warning."
+        ),
+    },
 }
 
 
@@ -279,6 +325,66 @@ def _is_database_reachable() -> bool:
         return False
 
 
+# FUNCTION: _revision_heads
+# SUMMARY: Read the heads of the revision graph from the migration files alone, without a database.
+# INPUT: script_location (Path): The Alembic script directory; the repository's unless a test
+#        points at a temporary one.
+# OUTPUT: (list[str]): Every head revision id. One is healthy; two is a fork.
+# RAISES: Exception: Whatever Alembic raises when the files do not form a graph it can walk — a
+#         down_revision naming no revision surfaces as KeyError, a revision file that fails to
+#         import as its own error. _revision_graph_issue reports either without narrowing.
+def _revision_heads(script_location: Path = ROOT_DIR / "alembic") -> list[str]:
+    # **LOGIC_STEP**: ScriptDirectory reads alembic/versions/ and nothing else — env.py is not
+    # executed, so no connection is attempted and no .env is needed. Verified on 2026-09-02
+    # under `env -i`. That is what lets this run ahead of the reachability skip.
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    # **LOGIC_STEP**: The repository's alembic.ini is read so a project that adds
+    # `version_locations` there is walked the same way the CLI walks it; only script_location is
+    # overridden, because the ini spells it relative to the working directory and this gate does
+    # not chdir.
+    # **LOGIC_STEP**: No script directory means no revisions, not a broken graph — a project
+    # that declared POSTGRES_ENABLED=false and deleted alembic/ has nothing here to check, and
+    # the database_disabled skip below is the answer it should get.
+    if not script_location.is_dir():
+        return []
+    config = Config(str(ALEMBIC_INI_PATH))
+    config.set_main_option("script_location", str(script_location))
+    return list(ScriptDirectory.from_config(config).get_heads())
+
+
+# FUNCTION: _revision_graph_issue
+# SUMMARY: Report a fork or an unwalkable revision graph, or None when the files form one chain.
+# OUTPUT: (MigrationIssue | None): An error-severity issue, or None.
+def _revision_graph_issue() -> MigrationIssue | None:
+    try:
+        heads = _revision_heads()
+    except Exception as exc:
+        return MigrationIssue(
+            rule_id="migrations.broken_revision_graph",
+            command_name="heads",
+            message=(
+                f"alembic/versions/ cannot be walked: {type(exc).__name__}: {exc}. "
+                "A down_revision names a revision that does not exist, or a revision file "
+                "does not import."
+            ),
+            returncode=1,
+        )
+    if len(heads) > 1:
+        return MigrationIssue(
+            rule_id="migrations.multiple_heads",
+            command_name="heads",
+            message=(
+                f"alembic/versions/ has {len(heads)} heads ({', '.join(sorted(heads))}); "
+                "`alembic upgrade head` needs exactly one. Point the newer down_revision at "
+                "the other head, or add a merge revision."
+            ),
+            returncode=1,
+        )
+    return None
+
+
 # FUNCTION: _build_commands
 # SUMMARY: Build the ordered Alembic commands required to validate migration completeness.
 # OUTPUT: (list[MigrationCommand]): Upgrade and metadata-check commands executed by the gate.
@@ -333,6 +439,11 @@ def _remediation_messages(command_name: str) -> list[str]:
             "Failed to upgrade the local database to the latest revision.",
             "Fix the broken migration or local database state before rerunning this validator.",
         ]
+    if command_name == "heads":
+        return [
+            "The revision files under alembic/versions/ do not form a single chain.",
+            "Run `uv run alembic -c alembic.ini heads` and `history`; no database is needed.",
+        ]
     return [
         "Inspect the failing Alembic command output and correct the migration state before retrying."
     ]
@@ -367,6 +478,16 @@ def collect_migration_issues(
     del (
         root_dir
     )  # _build_commands uses module-level ROOT_DIR; preserved for symmetry with other validators.
+    # **LOGIC_STEP**: The one part of this gate that needs no database runs first, ahead of both
+    # skips below. A second head and a dangling down_revision are defects of the files in
+    # alembic/versions/, readable without connecting — and until 2026-09-02 a checkout without
+    # Postgres passed both green, although the comment on database_skip_is_allowed names exactly
+    # these two as what the CI backstop exists for. Ahead of the POSTGRES_ENABLED=false skip too:
+    # a project that uses no database today still ships its revision files, and a fork in them
+    # is still a fork.
+    graph_issue = _revision_graph_issue()
+    if graph_issue is not None:
+        return [graph_issue]
     # **LOGIC_STEP**: A project that declared it needs no relational store has nothing for this
     # gate to verify. This is deliberately NOT the MIGRATIONS_ALLOW_SKIP path: that env var is
     # the emergency hatch for "the database is temporarily unreachable", and letting it also

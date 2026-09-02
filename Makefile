@@ -388,15 +388,24 @@ format-trace: ## Reading a running service | Render a local NDJSON file: ARGS="<
 # ARGS="--all" to render every trace in the window.
 # --no-log-prefix matters: without it compose prepends the service name to every line and the
 # NDJSON parser skips all of them.
+# The compose output lands in a temporary file, not in a pipe. A pipe's exit status is the
+# formatter's, so a broken compose file or a stopped stack printed "(no events found)" and
+# exited 0 — the same answer as a service that logged nothing. Measured on 2026-09-02 with
+# COMPOSE_FILE=nonexistent.yml. `set -o pipefail` would be the one-line fix, and the /bin/sh
+# that make uses is dash on Debian and Ubuntu, where that is an illegal option.
 logs: ## Reading a running service | Render the container's semantic log as a trace tree
-	@docker compose logs --no-color --no-log-prefix --tail $(or $(LINES),2000) app \
-		| $(UV) run python -c "from project.core.logging.trace_formatter import _cli; _cli()" $(ARGS)
+	@tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
+	docker compose logs --no-color --no-log-prefix --tail $(or $(LINES),2000) app > "$$tmp" && \
+	$(UV) run python -c "from project.core.logging.trace_formatter import _cli; _cli()" "$$tmp" $(ARGS)
 
 # Same source, unrendered, for grepping. Writes to logs/container-<timestamp>.ndjson.
+# A failed compose call removes the file it was writing and exits non-zero; before 2026-09-02 the
+# recipe went on to print the path of an empty file and exit 0.
 logs-raw: ## Reading a running service | Dump the container's raw NDJSON under logs/
 	@mkdir -p logs
 	@out="logs/container-$$(date -u +%Y-%m-%dT%H-%M-%S).ndjson"; \
-	docker compose logs --no-color --no-log-prefix --tail $(or $(LINES),2000) app > "$$out"; \
+	docker compose logs --no-color --no-log-prefix --tail $(or $(LINES),2000) app > "$$out" \
+		|| { rm -f "$$out"; exit 1; }; \
 	echo "$$out"
 
 autogenerate-migration: ## Scaffolding | Alembic migration: MSG="description"

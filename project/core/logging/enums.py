@@ -76,7 +76,13 @@ class EventType(Enum):
 # SUMMARY: The request finished with a 4xx response — routine, logged at INFO, not an alarm.
 # ATTRIBUTE: SERVER_ERROR (str)
 # SUMMARY: The request finished with a 5xx response or the span raised — logged at ERROR.
+# ATTRIBUTE: CANCELLED (str)
+# SUMMARY: The span was cut short by something that is not an Exception — asyncio cancellation
+# at uvicorn's graceful-shutdown timeout, KeyboardInterrupt, SystemExit, or GeneratorExit when
+# a span's generator is closed before its body finished — and produced no HTTP result. Logged
+# at WARNING: not the application's failure, but a request that did not finish.
 class RequestOutcome(Enum):
     OK = "ok"
     CLIENT_ERROR = "client_error"
     SERVER_ERROR = "server_error"
+    CANCELLED = "cancelled"
