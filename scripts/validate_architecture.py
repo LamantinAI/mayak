@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from ai_context.dynamic_imports import dynamic_import_target
+from ai_context.dynamic_imports import dynamic_import_targets
 from ai_context.rendering import render_json
 from ai_context.validator_contract import build_validator_issue_payload
 
@@ -389,22 +389,6 @@ def _resolve_import_name(
     return [node.module] if node.module else []
 
 
-# FUNCTION: _import_names_in_node
-# SUMMARY: Return every module one AST node imports, whether it is written or called.
-# INPUT: current_module (str): Dotted module path of the file being validated.
-# INPUT: node (ast.AST): Any node from the file's tree.
-# OUTPUT: (list[str]): Absolute dotted import targets, empty for nodes that import nothing.
-def _import_names_in_node(current_module: str, node: ast.AST) -> list[str]:
-    if isinstance(node, (ast.Import, ast.ImportFrom)):
-        return _resolve_import_name(current_module, node)
-
-    # **LOGIC_STEP**: A dynamic call names an absolute module already — there is no relative form
-    # to resolve, because importlib.import_module needs a package argument for one and this
-    # detector only reads the literal first argument.
-    dynamic_target = dynamic_import_target(node)
-    return [dynamic_target] if dynamic_target else []
-
-
 # FUNCTION: _matches_prefix
 # SUMMARY: Check whether an import path matches a banned prefix exactly or as a child module.
 # OUTPUT: (bool): True when the import violates the banned prefix.
@@ -509,26 +493,33 @@ def validate_python_source(path: Path, repo_root: Path) -> list[ArchitectureIssu
         ]
     issues: list[ArchitectureIssue] = []
 
+    # **LOGIC_STEP**: Written imports and called ones are checked the same way. Until 2026-09-02
+    # only the first kind was collected, so `importlib.import_module("psycopg")` in a domain module
+    # passed the whole gate — see ai_context/dynamic_imports.py for the measurement, for why the
+    # call's names are resolved against this file's own imports, and for what still escapes.
+    imported: list[tuple[str, int]] = []
     for node in ast.walk(tree):
-        # **LOGIC_STEP**: A dynamic import is checked exactly like a written one. Until 2026-09-02
-        # this loop skipped every node that was not an Import/ImportFrom, so
-        # `importlib.import_module("psycopg")` in a domain module passed the whole gate — see the
-        # note in ai_context/dynamic_imports.py for the measurement and for what still escapes.
-        for import_name in _import_names_in_node(current_module, node):
-            if not import_name:
-                continue
-            violation = _validate_import(layer, import_name)
-            if violation is None:
-                continue
-            rule_id, message = violation
-            issues.append(
-                ArchitectureIssue(
-                    path=path,
-                    line=node.lineno,
-                    message=message,
-                    rule_id=rule_id,
-                )
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            imported.extend(
+                (name, node.lineno) for name in _resolve_import_name(current_module, node)
             )
+    imported.extend(dynamic_import_targets(tree))
+
+    for import_name, line in imported:
+        if not import_name:
+            continue
+        violation = _validate_import(layer, import_name)
+        if violation is None:
+            continue
+        rule_id, message = violation
+        issues.append(
+            ArchitectureIssue(
+                path=path,
+                line=line,
+                message=message,
+                rule_id=rule_id,
+            )
+        )
 
     return issues
 

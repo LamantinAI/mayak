@@ -125,6 +125,14 @@ class TestValidateArchitecture:
             'import importlib\n_driver = importlib.import_module("psycopg")\n',
             'from importlib import import_module\n_driver = import_module("psycopg")\n',
             '_driver = __import__("psycopg")\n',
+            # **LOGIC_STEP**: The four below were the gaps an independent review found in the first
+            # version of the detector, which matched on the attribute name alone: an alias for the
+            # module, an alias for the function, the keyword spelling of the argument, and the
+            # submodule import that still binds the name `importlib`.
+            'import importlib as il\n_driver = il.import_module("psycopg")\n',
+            'from importlib import import_module as pull\n_driver = pull("psycopg")\n',
+            '_driver = __import__(name="psycopg")\n',
+            'import importlib.util\n_driver = importlib.import_module("psycopg")\n',
         ],
     )
     def test_validator_rejects_a_dynamically_imported_module(
@@ -140,6 +148,27 @@ class TestValidateArchitecture:
             "psycopg" in issue.message and issue.rule_id == "arch.domain.import_not_allowed"
             for issue in issues
         )
+
+    # FUNCTION: test_a_method_named_like_an_import_is_not_reported
+    # SUMMARY: Verify only names this file bound to importlib count, not every `import_module`.
+    # NOTE: The regression an independent review reproduced on 2026-09-02: the first version of the
+    # detector matched any attribute called `import_module`, so an unrelated object with a method
+    # of that name was reported as a forbidden import. A gate that fires on correct code is worse
+    # than one that misses — this is the test that keeps the receiver check honest.
+    @pytest.mark.unit
+    def test_a_method_named_like_an_import_is_not_reported(self, tmp_path: Path) -> None:
+        _write_fixture(
+            tmp_path / "project" / "domain" / "registry.py",
+            "class Registry:\n"
+            "    def import_module(self, name: str) -> object:\n"
+            "        return object()\n"
+            "\n"
+            "\n"
+            "registry = Registry()\n"
+            '_loaded = registry.import_module("psycopg")\n',
+        )
+
+        assert collect_architecture_issues(tmp_path) == []
 
     # FUNCTION: test_a_dynamic_import_of_a_variable_module_is_not_guessed
     # SUMMARY: Verify a non-literal argument is left alone rather than reported under a made-up name.

@@ -447,8 +447,40 @@ class TestSettings:
         finally:
             clear_settings_override()
 
+        assert configured.status_code == 200
         assert configured.headers["access-control-allow-origin"] == "https://app.example.com"
         assert "access-control-allow-origin" not in stranger.headers
+
+    # FUNCTION: test_a_preflight_answers_for_the_methods_the_application_serves
+    # SUMMARY: Verify the preflight branch of CORSMiddleware answers, which a plain GET never
+    # reaches — so a narrowed allow_methods cannot break every browser client unnoticed.
+    # NOTE: Added after an independent review of the test above showed its blind spot: Starlette
+    # applies `allow_methods` only to an OPTIONS request carrying Access-Control-Request-Method, so
+    # narrowing the list to ["POST"] left all 836 tests green while a browser's preflight for a GET
+    # would have received 400. The origin assertion above and this one are the two halves of "the
+    # CORS configuration reaches the middleware".
+    @pytest.mark.unit
+    async def test_a_preflight_answers_for_the_methods_the_application_serves(self) -> None:
+        settings = FixtureSettings()
+        settings.server.cors_origins = ["https://app.example.com"]
+
+        set_settings_override(settings)
+        try:
+            app = CompositionRoot().build_application()
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                preflight = await client.options(
+                    "/health/",
+                    headers={
+                        "Origin": "https://app.example.com",
+                        "Access-Control-Request-Method": "GET",
+                    },
+                )
+        finally:
+            clear_settings_override()
+
+        assert preflight.status_code == 200
+        assert "GET" in preflight.headers["access-control-allow-methods"]
 
     # FUNCTION: test_runtime_validation_requires_api_key_in_live_mode
     # SUMMARY: Verify live LLM mode rejects missing provider credentials.

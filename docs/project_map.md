@@ -231,6 +231,7 @@ Project Map: Mayak
 │   ├── functional/
 │   │   ├── src/
 │   │   │   ├── __init__.py
+│   │   │   ├── test_migration_lock.py  ---  Prove that two processes migrating the same fresh database at once both succeed.
 │   │   │   ├── test_migrations_match_models.py  ---  Run the migration gate where a database actually exists.
 │   │   │   ├── test_reference_task_repository.py  ---  Functional proof that the reference repository maps real psycopg rows onto domain types.
 │   │   │   └── test_reference_tasks_api.py  ---  Functional proof that the reference vertical answers over real HTTP against a real

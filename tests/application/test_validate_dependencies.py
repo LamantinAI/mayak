@@ -141,6 +141,29 @@ class TestUndeclaredImportIsReported:
         assert [issue.rule_id for issue in issues] == ["dependencies.undeclared_import"]
         assert "orjson" in issues[0].message
 
+    # FUNCTION: test_a_method_named_like_an_import_is_not_reported
+    # SUMMARY: Verify an unrelated object's `import_module` method is not read as an import.
+    @pytest.mark.unit
+    def test_a_method_named_like_an_import_is_not_reported(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "probe"\ndependencies = []\n',
+            encoding="utf-8",
+        )
+        runtime = tmp_path / "project" / "core"
+        runtime.mkdir(parents=True)
+        (runtime / "module.py").write_text(
+            "class Registry:\n"
+            "    def import_module(self, name: str) -> object:\n"
+            "        return object()\n"
+            "\n"
+            "\n"
+            "registry = Registry()\n"
+            '_loaded = registry.import_module("orjson")\n',
+            encoding="utf-8",
+        )
+
+        assert collect_dependency_issues(tmp_path) == []
+
     # FUNCTION: test_stdlib_and_first_party_imports_are_ignored
     # SUMMARY: Verify the validator does not flag the standard library or repository packages.
     @pytest.mark.unit

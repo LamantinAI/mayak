@@ -119,9 +119,22 @@ def run_migrations_online() -> None:
             # Taken INSIDE begin_transaction() and before run_migrations(), because the collision
             # this prevents is the creation of `alembic_version` itself, which happens on the first
             # statement Alembic issues.
+            _lock_requested_at = time.perf_counter()
             connection.execute(
                 text("SELECT pg_advisory_xact_lock(:key)"), {"key": _MIGRATION_LOCK_KEY}
             )
+            # **LOGIC_STEP**: The wait is logged on its own line rather than folded into the total
+            # below. It is included in that total — the total is wall clock, and pretending
+            # otherwise would be its own lie — but a run that reports "complete in 10142 ms"
+            # because it queued behind another replica for ten seconds, with no line saying so,
+            # reads as a migration that took ten seconds. Anyone watching migration duration would
+            # chase the DDL.
+            _waited_ms = round((time.perf_counter() - _lock_requested_at) * 1000, 1)
+            if _waited_ms >= 1.0:
+                _migration_logger.info(
+                    "Waited %.1f ms for the migration advisory lock held by another process",
+                    _waited_ms,
+                )
             context.run_migrations()
 
     _elapsed_ms = round((time.perf_counter() - _start) * 1000, 1)

@@ -14,7 +14,7 @@ from importlib.metadata import PackageNotFoundError, metadata, packages_distribu
 from pathlib import Path
 from typing import Sequence
 
-from ai_context.dynamic_imports import dynamic_import_target
+from ai_context.dynamic_imports import dynamic_import_targets
 from ai_context.rendering import render_json
 from ai_context.validator_contract import build_validator_issue_payload
 
@@ -214,14 +214,11 @@ def _top_level_imports(tree: ast.AST) -> list[tuple[str, int]]:
             # **LOGIC_STEP**: level > 0 is a relative import, which is first-party by definition.
             if node.level == 0 and node.module:
                 found.append((node.module.split(".")[0], node.lineno))
-        else:
-            # **LOGIC_STEP**: A module pulled in by importlib.import_module("x") is as undeclared
-            # as one pulled in by `import x`, and until 2026-09-02 only the second was checked —
-            # so the dynamic spelling imported a transitively-installed distribution with this
-            # gate green. ai_context/dynamic_imports.py owns which call shapes count and why.
-            dynamic_target = dynamic_import_target(node)
-            if dynamic_target:
-                found.append((dynamic_target.split(".")[0], node.lineno))
+    # **LOGIC_STEP**: A module pulled in by importlib.import_module("x") is as undeclared as one
+    # pulled in by `import x`, and until 2026-09-02 only the second was checked — so the dynamic
+    # spelling imported a transitively-installed distribution with this gate green.
+    # ai_context/dynamic_imports.py owns which call shapes count and why.
+    found.extend((target.split(".")[0], line) for target, line in dynamic_import_targets(tree))
     return found
 
 
