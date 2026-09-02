@@ -7,6 +7,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from ai_context.dynamic_imports import dynamic_import_targets
 from ai_context.rendering import render_json
 from ai_context.validator_contract import build_validator_issue_payload
 
@@ -492,24 +493,33 @@ def validate_python_source(path: Path, repo_root: Path) -> list[ArchitectureIssu
         ]
     issues: list[ArchitectureIssue] = []
 
+    # **LOGIC_STEP**: Written imports and called ones are checked the same way. Until 2026-09-02
+    # only the first kind was collected, so `importlib.import_module("psycopg")` in a domain module
+    # passed the whole gate — see ai_context/dynamic_imports.py for the measurement, for why the
+    # call's names are resolved against this file's own imports, and for what still escapes.
+    imported: list[tuple[str, int]] = []
     for node in ast.walk(tree):
-        if not isinstance(node, (ast.Import, ast.ImportFrom)):
-            continue
-        for import_name in _resolve_import_name(current_module, node):
-            if not import_name:
-                continue
-            violation = _validate_import(layer, import_name)
-            if violation is None:
-                continue
-            rule_id, message = violation
-            issues.append(
-                ArchitectureIssue(
-                    path=path,
-                    line=node.lineno,
-                    message=message,
-                    rule_id=rule_id,
-                )
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            imported.extend(
+                (name, node.lineno) for name in _resolve_import_name(current_module, node)
             )
+    imported.extend(dynamic_import_targets(tree))
+
+    for import_name, line in imported:
+        if not import_name:
+            continue
+        violation = _validate_import(layer, import_name)
+        if violation is None:
+            continue
+        rule_id, message = violation
+        issues.append(
+            ArchitectureIssue(
+                path=path,
+                line=line,
+                message=message,
+                rule_id=rule_id,
+            )
+        )
 
     return issues
 

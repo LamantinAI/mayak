@@ -98,7 +98,12 @@ the tree, so this stays one place.
    raises inside a span, so it cannot show you this. For a repository that translates a driver error
    into a domain one — a unique violation into a `ConflictError`, say — what the trace carries is
    `span.error / ConflictError`, and that is what to assert on.
-6. Application service and DTOs.
+6. Application service and DTOs. If the vertical has an update, copy
+   `ReferenceTaskService.update_task` whole rather than writing the obvious version: it carries the
+   two things a first attempt gets wrong — the conditional write that stops a concurrent patch from
+   erasing another one, and the `UNCHANGED` sentinel that lets a caller clear a nullable field
+   instead of `None` meaning both "absent" and "null". Both are explained in
+   `docs/adr/ADR-007-autocommit-and-explicit-transactions.md`.
 7. **The endpoint and all three wiring files in the same step.** The endpoint's last import is the
    typed alias, and that alias is defined in `dependencies.py`; writing the endpoint a step earlier
    leaves an import resolving to nothing. `service_registration.py` and `router_registration.py`
@@ -145,6 +150,7 @@ async def test_a_title_up_to_the_limit_is_accepted(self, length: int) -> None:
     task = await service.create_task(title="x" * length)
 
     assert len(task.title) == length
+
 
 async def test_a_title_one_character_over_the_limit_is_rejected(self) -> None:
     service = ReferenceTaskService(AsyncMock())
@@ -207,6 +213,15 @@ that uses a comfortable middle value — `"a title"` — cannot see the boundary
   `async with connection.transaction():` inside the connection block it already opens, and is
   proved with a functional test, not a unit test — see
   `docs/adr/ADR-007-autocommit-and-explicit-transactions.md` for why and for the code shape.
+- **An update reads, changes and writes back, and a transaction does not make that safe.** Two
+  requests that read the same row and patch different fields both report success, and the later
+  write erases the earlier one. Copy `ReferenceTaskRepository.update` rather than writing the
+  obvious `WHERE id = %s`: it matches on `id AND updated_at`, returns `None` when the row moved, and
+  the service turns that into a `ConflictError` — 409. Measured on 2026-09-02, an agent that
+  followed this file when the reference vertical had no update wrote the blind form and passed all
+  876 tests. The unit suite can only check that the service passes the timestamp it read; the test
+  that watches two writers collide is in `tests/functional/`. Same ADR, section
+  "Read-modify-write across requests".
 
 ## A vertical whose adapter is a language model
 
@@ -267,7 +282,9 @@ Those nine are every file whose **name** carries the vertical. Do not use
 `find . -iname '*reference_task*'` as the completeness check: the references that break the build
 live in files named after something else, and the `find` sweep is exactly what misses them.
 
-`alembic/versions/001_initial_reference_tasks_schema.py` stays. **Append** a drop
+`alembic/versions/001_initial_reference_tasks_schema.py` and
+`alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py` stay — both have run on every
+database created from this template. **Append** a drop
 migration — autogenerate it once the ORM model is gone, and let Alembic pick the revision id and
 the parent; it is `002` only for a project that deletes the example before adding a table of its
 own, and the usual order is the other way round — rather than folding the drop into 001 or

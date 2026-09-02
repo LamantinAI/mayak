@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional, Protocol
 
 from project.domain.reference_task import ReferenceTask
@@ -69,3 +70,20 @@ class ReferenceTaskRepositoryPort(Protocol):
     # FUNCTION: list_by_status
     # SUMMARY: List tasks in a given workflow status, newest first.
     async def list_by_status(self, status: str, limit: int = 50) -> list[ReferenceTask]: ...
+
+    # FUNCTION: update
+    # SUMMARY: Store a changed task, but only while the stored row is the one it was read from.
+    # INPUT: task (ReferenceTask): The new state to store, carrying its own fresh `updated_at`.
+    # INPUT: expected_updated_at (datetime): The `updated_at` the caller read before changing it.
+    # OUTPUT: (ReferenceTask | None): The stored task, or None when no row matched — meaning the
+    #         row was written by somebody else in between, or it no longer exists.
+    # NOTE: `expected_updated_at` is a separate parameter rather than something the adapter digs
+    # out of `task`, because by then `task` carries the NEW timestamp: the value the WHERE clause
+    # needs is the one that was read, and only the caller still has it. Returning None instead of
+    # raising keeps the port free of the application's vocabulary — the service decides that a miss
+    # is a ConflictError, the same way it decides a missing row is a NotFoundError.
+    async def update(
+        self,
+        task: ReferenceTask,
+        expected_updated_at: datetime,
+    ) -> ReferenceTask | None: ...

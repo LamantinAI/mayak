@@ -110,6 +110,79 @@ class TestValidateArchitecture:
             for issue in issues
         )
 
+    # FUNCTION: test_validator_rejects_a_dynamically_imported_module
+    # SUMMARY: Verify importlib.import_module and __import__ are checked like a written import.
+    # NOTE: The regression this pins is one line long. Until 2026-09-02 the walk skipped every node
+    # that was not ast.Import/ast.ImportFrom, so `importlib.import_module("psycopg")` in a domain
+    # module left the full `make quality-gates` at exit 0 — measured, both this validator and
+    # validate_dependencies.py reporting "passed". The parameters cover the three call shapes
+    # ai_context/dynamic_imports.py claims to recognise; the variable form below is the documented
+    # residue, not an oversight.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "line",
+        [
+            'import importlib\n_driver = importlib.import_module("psycopg")\n',
+            'from importlib import import_module\n_driver = import_module("psycopg")\n',
+            '_driver = __import__("psycopg")\n',
+            # **LOGIC_STEP**: The four below were the gaps an independent review found in the first
+            # version of the detector, which matched on the attribute name alone: an alias for the
+            # module, an alias for the function, the keyword spelling of the argument, and the
+            # submodule import that still binds the name `importlib`.
+            'import importlib as il\n_driver = il.import_module("psycopg")\n',
+            'from importlib import import_module as pull\n_driver = pull("psycopg")\n',
+            '_driver = __import__(name="psycopg")\n',
+            'import importlib.util\n_driver = importlib.import_module("psycopg")\n',
+        ],
+    )
+    def test_validator_rejects_a_dynamically_imported_module(
+        self,
+        tmp_path: Path,
+        line: str,
+    ) -> None:
+        _write_fixture(tmp_path / "project" / "domain" / "bad_module.py", line)
+
+        issues = collect_architecture_issues(tmp_path)
+
+        assert any(
+            "psycopg" in issue.message and issue.rule_id == "arch.domain.import_not_allowed"
+            for issue in issues
+        )
+
+    # FUNCTION: test_a_method_named_like_an_import_is_not_reported
+    # SUMMARY: Verify only names this file bound to importlib count, not every `import_module`.
+    # NOTE: The regression an independent review reproduced on 2026-09-02: the first version of the
+    # detector matched any attribute called `import_module`, so an unrelated object with a method
+    # of that name was reported as a forbidden import. A gate that fires on correct code is worse
+    # than one that misses — this is the test that keeps the receiver check honest.
+    @pytest.mark.unit
+    def test_a_method_named_like_an_import_is_not_reported(self, tmp_path: Path) -> None:
+        _write_fixture(
+            tmp_path / "project" / "domain" / "registry.py",
+            "class Registry:\n"
+            "    def import_module(self, name: str) -> object:\n"
+            "        return object()\n"
+            "\n"
+            "\n"
+            "registry = Registry()\n"
+            '_loaded = registry.import_module("psycopg")\n',
+        )
+
+        assert collect_architecture_issues(tmp_path) == []
+
+    # FUNCTION: test_a_dynamic_import_of_a_variable_module_is_not_guessed
+    # SUMMARY: Verify a non-literal argument is left alone rather than reported under a made-up name.
+    @pytest.mark.unit
+    def test_a_dynamic_import_of_a_variable_module_is_not_guessed(self, tmp_path: Path) -> None:
+        # **LOGIC_STEP**: The module here is decided at runtime, so there is no name to check. A
+        # validator that reported one anyway would hand the agent a violation it cannot act on.
+        _write_fixture(
+            tmp_path / "project" / "domain" / "dynamic_module.py",
+            "import importlib\n\n\ndef load(name: str) -> object:\n    return importlib.import_module(name)\n",
+        )
+
+        assert collect_architecture_issues(tmp_path) == []
+
     # FUNCTION: test_validator_rejects_the_module_a_blacklist_missed
     # SUMMARY: Verify the import that motivated the allowlist is rejected by name.
     @pytest.mark.unit

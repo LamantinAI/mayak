@@ -9,10 +9,12 @@ from fastapi import APIRouter, Query
 from fastapi import status as http_status
 
 from project.application.dtos import ErrorResponse
+from project.application.reference_task_service import UNCHANGED
 from project.application.reference_task_dtos import (
     ReferenceTaskCreateRequest,
     ReferenceTaskListResponse,
     ReferenceTaskResponse,
+    ReferenceTaskUpdateRequest,
 )
 from project.domain.reference_task import DEFAULT_STATUS
 from project.infrastructure.api.dependencies import ReferenceTaskServiceDep
@@ -61,6 +63,38 @@ async def get_reference_task(
     # whole application. A handler that catches it locally produces a second, divergent error
     # envelope — which is how two services in one repository end up with two error formats.
     task = await service.get_task(task_id)
+    return ReferenceTaskResponse.from_domain(task)
+
+
+# FUNCTION: update_reference_task
+# SUMMARY: Change some fields of one reference task.
+# OUTPUT: (ReferenceTaskResponse): The stored task after the change.
+@reference_tasks_router.patch(
+    "/{task_id}",
+    response_model=ReferenceTaskResponse,
+    summary="Update a reference task",
+    responses={
+        http_status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},
+        http_status.HTTP_409_CONFLICT: {"model": ErrorResponse},
+        http_status.HTTP_422_UNPROCESSABLE_CONTENT: {"model": ErrorResponse},
+    },
+)
+async def update_reference_task(
+    task_id: str,
+    payload: ReferenceTaskUpdateRequest,
+    service: ReferenceTaskServiceDep,
+) -> ReferenceTaskResponse:
+    # **LOGIC_STEP**: `model_fields_set` is what makes `{"details": null}` mean "clear it" and an
+    # absent `details` mean "leave it alone". Passing `payload.details` straight through cannot:
+    # both arrive as None, so the nullable column could never be emptied. Everything the caller did
+    # not mention stays UNCHANGED, and the service decides what that means.
+    supplied = payload.model_fields_set
+    task = await service.update_task(
+        task_id,
+        title=payload.title if "title" in supplied else UNCHANGED,
+        details=payload.details if "details" in supplied else UNCHANGED,
+        status=payload.status if "status" in supplied else UNCHANGED,
+    )
     return ReferenceTaskResponse.from_domain(task)
 
 

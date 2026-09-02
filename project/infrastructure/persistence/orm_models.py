@@ -53,3 +53,16 @@ class ReferenceTaskORM(Base):
         nullable=False,
         server_default=func.now(),
     )
+
+    # ATTRIBUTE: updated_at (Mapped[datetime])
+    # SUMMARY: Timestamp of the last write; the repository's update matches on it.
+    # NOTE: No `onupdate=func.now()` here on purpose. Nothing reads this ORM at runtime — the
+    # repository speaks raw psycopg — so a SQLAlchemy-side default would fire for nobody, while
+    # making it look as though the column maintained itself. The value is set by the application
+    # service and sent as a parameter, which is also what lets the update use it as an optimistic
+    # token: a database that stamped its own time would leave the caller with no value to match on.
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )

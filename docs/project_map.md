@@ -33,6 +33,7 @@ Project Map: Mayak
 │   ├── build_change_map.py
 │   ├── build_context_map.py
 │   ├── constants.py
+│   ├── dynamic_imports.py  ---  Recognise dynamic import calls so the import-boundary validators are not blind to them.
 │   ├── errors.py
 │   ├── extraction.py  ---  AST-based extraction helpers for AI-facing repository context artifacts.
 │   ├── file_policy.py
@@ -55,7 +56,8 @@ Project Map: Mayak
 │   └── router.py
 ├── alembic/
 │   ├── versions/
-│   │   └── 001_initial_reference_tasks_schema.py
+│   │   ├── 001_initial_reference_tasks_schema.py
+│   │   └── 7300d4656a8d_add_updated_at_to_reference_tasks.py
 │   ├── env.py  ---  Alembic migration environment configuration for PostgreSQL schema management.
 │   ├── README
 │   └── script.py.mako
@@ -229,6 +231,7 @@ Project Map: Mayak
 │   ├── functional/
 │   │   ├── src/
 │   │   │   ├── __init__.py
+│   │   │   ├── test_migration_lock.py  ---  Prove that two processes migrating the same fresh database at once both succeed.
 │   │   │   ├── test_migrations_match_models.py  ---  Run the migration gate where a database actually exists.
 │   │   │   ├── test_reference_task_repository.py  ---  Functional proof that the reference repository maps real psycopg rows onto domain types.
 │   │   │   └── test_reference_tasks_api.py  ---  Functional proof that the reference vertical answers over real HTTP against a real

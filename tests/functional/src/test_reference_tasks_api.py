@@ -5,6 +5,7 @@
 # missing migration, a column too narrow for the DTO, or a driver type that never reaches the
 # domain. This file is where those failures show up. Verticals add their API suites here.
 
+import asyncio
 from uuid import uuid4
 
 import pytest
@@ -121,3 +122,113 @@ async def test_title_longer_than_the_column_is_rejected(
     response = await make_post_request("/reference-tasks", {"title": "x" * 201})
 
     assert response["status"] == 422
+
+
+# FUNCTION: test_patch_changes_one_field_and_leaves_the_rest
+# SUMMARY: Verify PATCH over real HTTP writes the change and returns the stored state.
+@pytest.mark.asyncio
+async def test_patch_changes_one_field_and_leaves_the_rest(
+    make_post_request: SendRequest,
+    make_patch_request: SendRequest,
+    make_get_request: SendRequest,
+) -> None:
+    created = await make_post_request("/reference-tasks", {"title": "Before", "details": "Keep me"})
+    task_id = created["body"]["id"]
+
+    patched = await make_patch_request(f"/reference-tasks/{task_id}", {"status": "in_progress"})
+
+    assert patched["status"] == 200
+    assert patched["body"]["status"] == "in_progress"
+    assert patched["body"]["details"] == "Keep me"
+    # **LOGIC_STEP**: Read it back through a second request rather than trusting the response body.
+    # RETURNING makes them the same row, and this is the check that proves it: a repository that
+    # answered from the object it was handed instead of from the database would pass every unit
+    # test and fail here.
+    reloaded = await make_get_request(f"/reference-tasks/{task_id}")
+    assert reloaded["body"]["status"] == "in_progress"
+    assert reloaded["body"]["updated_at"] == patched["body"]["updated_at"]
+    assert reloaded["body"]["updated_at"] > created["body"]["updated_at"]
+
+
+# FUNCTION: test_two_sequential_patches_of_different_fields_both_survive
+# SUMMARY: Verify a patch merges into the stored row instead of replacing it, so an earlier
+# writer's field is still there after a later patch touches a different one.
+@pytest.mark.asyncio
+async def test_two_sequential_patches_of_different_fields_both_survive(
+    make_post_request: SendRequest,
+    make_patch_request: SendRequest,
+    make_get_request: SendRequest,
+) -> None:
+    created = await make_post_request("/reference-tasks", {"title": "Shared", "details": None})
+    task_id = created["body"]["id"]
+
+    first = await make_patch_request(f"/reference-tasks/{task_id}", {"title": "Written first"})
+    second = await make_patch_request(f"/reference-tasks/{task_id}", {"details": "Written second"})
+
+    assert [first["status"], second["status"]] == [200, 200]
+    reloaded = await make_get_request(f"/reference-tasks/{task_id}")
+    assert reloaded["body"]["title"] == "Written first"
+    assert reloaded["body"]["details"] == "Written second"
+
+
+# FUNCTION: test_concurrent_patches_never_lose_a_write_that_reported_success
+# SUMMARY: Verify two patches racing for the same task either both apply or one is refused — never
+# both answering 200 while one of the two changes is gone.
+# NOTE: This is the test the unit suite cannot write, and the one an agent-written vertical failed
+# on 2026-09-02: its UPDATE matched on the id alone, so both requests reported success and the
+# database kept only the later write. The two requests below patch DIFFERENT fields, which is what
+# makes the loss invisible to a client — nothing about the payloads conflicts, only the states they
+# were computed from. The assertion is the invariant rather than a fixed outcome, because the
+# scheduler decides whether the two reads actually overlap: a refusal is correct, a silent loss is
+# not.
+@pytest.mark.asyncio
+async def test_concurrent_patches_never_lose_a_write_that_reported_success(
+    make_post_request: SendRequest,
+    make_patch_request: SendRequest,
+    make_get_request: SendRequest,
+) -> None:
+    created = await make_post_request("/reference-tasks", {"title": "Shared", "details": None})
+    task_id = created["body"]["id"]
+
+    changes = [{"title": "Written by A"}, {"details": "Written by B"}]
+    results = await asyncio.gather(
+        *(make_patch_request(f"/reference-tasks/{task_id}", change) for change in changes)
+    )
+
+    assert sorted(result["status"] for result in results) in ([200, 200], [200, 409])
+    reloaded = await make_get_request(f"/reference-tasks/{task_id}")
+    for change, result in zip(changes, results):
+        if result["status"] == 200:
+            field, value = next(iter(change.items()))
+            assert reloaded["body"][field] == value
+
+
+# FUNCTION: test_patch_with_an_explicit_null_empties_the_column
+# SUMMARY: Verify a cleared field really lands as NULL in PostgreSQL, not as the string "None" and
+# not as the old value kept by a service that could not tell absent from null.
+@pytest.mark.asyncio
+async def test_patch_with_an_explicit_null_empties_the_column(
+    make_post_request: SendRequest,
+    make_patch_request: SendRequest,
+    make_get_request: SendRequest,
+) -> None:
+    created = await make_post_request(
+        "/reference-tasks", {"title": "Has details", "details": "Remove me"}
+    )
+    task_id = created["body"]["id"]
+
+    patched = await make_patch_request(f"/reference-tasks/{task_id}", {"details": None})
+
+    assert patched["status"] == 200
+    assert patched["body"]["details"] is None
+    reloaded = await make_get_request(f"/reference-tasks/{task_id}")
+    assert reloaded["body"]["details"] is None
+
+
+# FUNCTION: test_patch_of_an_unknown_task_returns_404
+# SUMMARY: Verify a patch against a missing identifier is a 404 on the deployed application too.
+@pytest.mark.asyncio
+async def test_patch_of_an_unknown_task_returns_404(make_patch_request: SendRequest) -> None:
+    response = await make_patch_request(f"/reference-tasks/{uuid4()}", {"title": "Anything"})
+
+    assert response["status"] == 404

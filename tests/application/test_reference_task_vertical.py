@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Generator
@@ -17,7 +18,7 @@ from starlette.testclient import TestClient
 
 from ai_context.extraction import extract_service_registry_entries
 from project.application.reference_task_service import MAX_LIST_LIMIT, ReferenceTaskService
-from project.domain.exceptions import NotFoundError, ValidationError
+from project.domain.exceptions import ConflictError, NotFoundError, ValidationError
 from project.domain.ports import ReferenceTaskRepositoryPort
 from project.domain.reference_task import (
     ALLOWED_STATUSES,
@@ -37,6 +38,12 @@ class InMemoryReferenceTaskRepository:
     # SUMMARY: Start with an empty store.
     def __init__(self) -> None:
         self.items: dict[str, ReferenceTask] = {}
+        # ATTRIBUTE: update_calls (list[tuple[ReferenceTask, datetime]])
+        # SUMMARY: Every (task, expected_updated_at) pair the service handed to update.
+        # NOTE: Recorded because the argument that matters is the one a lost-update bug gets wrong:
+        # passing the NEW timestamp, or the id alone, still stores the row and still returns it, so
+        # only reading the arguments back can tell a conditional write from a blind one.
+        self.update_calls: list[tuple[ReferenceTask, datetime]] = []
 
     # FUNCTION: tests/application/test_reference_task_vertical/InMemoryReferenceTaskRepository/add
     # SUMMARY: Store one task.
@@ -54,6 +61,26 @@ class InMemoryReferenceTaskRepository:
         matching = [task for task in self.items.values() if task.status == status]
         matching.sort(key=lambda task: task.created_at, reverse=True)
         return matching[:limit]
+
+    # FUNCTION: tests/application/test_reference_task_vertical/InMemoryReferenceTaskRepository/update
+    # SUMMARY: Store a changed task only while the stored one still carries the expected timestamp.
+    # NOTE: The double models the CONDITION the real `WHERE id = %s AND updated_at = %s` expresses,
+    # which is what makes the service's conflict branch testable here. It cannot model the RACE:
+    # nothing interleaves between the read and the write in one process, so a repository that
+    # dropped the condition entirely would still pass every test in this file as long as the tests
+    # never staged a second writer by hand. The test that watches two real transactions collide is
+    # tests/functional/src/test_reference_task_repository.py.
+    async def update(
+        self,
+        task: ReferenceTask,
+        expected_updated_at: datetime,
+    ) -> ReferenceTask | None:
+        self.update_calls.append((task, expected_updated_at))
+        stored = self.items.get(task.id)
+        if stored is None or stored.updated_at != expected_updated_at:
+            return None
+        self.items[task.id] = task
+        return task
 
 
 # FUNCTION: repository
@@ -114,6 +141,228 @@ class TestServiceRules:
         assert task.created_at >= before
         assert task.created_at.tzinfo is not None
         assert repository.items[task.id] == task
+
+    # FUNCTION: test_update_changes_only_the_supplied_fields
+    # SUMMARY: Verify a patch leaves absent fields alone and moves the write timestamp forward.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_update_changes_only_the_supplied_fields(
+        self,
+        service: ReferenceTaskService,
+    ) -> None:
+        created = await service.create_task(title="Original", details="Keep me")
+
+        updated = await service.update_task(created.id, title="Changed")
+
+        assert updated.title == "Changed"
+        assert updated.details == "Keep me"
+        assert updated.status == created.status
+        assert updated.created_at == created.created_at
+        assert updated.updated_at > created.updated_at
+
+    # FUNCTION: test_the_timestamp_that_was_read_is_the_one_the_repository_matches_on
+    # SUMMARY: Verify the service sends the OLD timestamp as the condition and the new one as data.
+    # NOTE: This is the assertion a lost update fails. A blind `WHERE id = %s` implementation — the
+    # one an agent writes when the reference vertical has no update to copy — still stores the row
+    # and still returns it, so every other test in this file passes. The only visible difference is
+    # which timestamp reached the adapter as the condition, so that is what this reads back.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_the_timestamp_that_was_read_is_the_one_the_repository_matches_on(
+        self,
+        service: ReferenceTaskService,
+        repository: InMemoryReferenceTaskRepository,
+    ) -> None:
+        created = await service.create_task(title="Original")
+
+        await service.update_task(created.id, status="in_progress")
+
+        written, expected_updated_at = repository.update_calls[0]
+        assert expected_updated_at == created.updated_at
+        assert written.updated_at > created.updated_at
+        assert written.status == "in_progress"
+
+    # FUNCTION: test_update_refuses_to_overwrite_a_task_that_moved
+    # SUMMARY: Verify a row written by somebody else between the read and the write raises Conflict.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_update_refuses_to_overwrite_a_task_that_moved(
+        self,
+        service: ReferenceTaskService,
+        repository: InMemoryReferenceTaskRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await service.create_task(title="Original")
+        stored_get = repository.get
+
+        # FUNCTION: get_then_let_somebody_else_write
+        # SUMMARY: Answer the read, then land another writer's row before the caller writes back.
+        async def get_then_let_somebody_else_write(task_id: str) -> ReferenceTask | None:
+            # **LOGIC_STEP**: This is the interleaving, staged where it actually happens: the
+            # service now holds a snapshot that the store no longer matches. Without the timestamp
+            # in the WHERE clause the next write would overwrite the other writer's row and report
+            # success — the lost update, invisible to every assertion that only reads back its own
+            # value.
+            task = await stored_get(task_id)
+            if task is not None:
+                repository.items[task_id] = replace(
+                    task,
+                    title="Written by somebody else",
+                    updated_at=task.updated_at + timedelta(seconds=1),
+                )
+            return task
+
+        monkeypatch.setattr(repository, "get", get_then_let_somebody_else_write)
+
+        with pytest.raises(ConflictError, match="modified by another request"):
+            await service.update_task(created.id, title="Mine")
+
+        assert repository.items[created.id].title == "Written by somebody else"
+
+    # FUNCTION: test_update_clears_a_nullable_field_when_the_caller_asks_for_null
+    # SUMMARY: Verify an explicit null empties the column instead of being read as "not supplied".
+    # NOTE: The trap this pins was live in this file's own vertical on 2026-09-02: with
+    # `details: str | None = None` the service could not tell `{"details": null}` from a body that
+    # never mentioned details, so a nullable column could never be emptied and the request still
+    # answered 200. Every vertical with a nullable column would have copied it.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_update_clears_a_nullable_field_when_the_caller_asks_for_null(
+        self,
+        service: ReferenceTaskService,
+    ) -> None:
+        created = await service.create_task(title="Original", details="Remove me")
+
+        updated = await service.update_task(created.id, details=None)
+
+        assert updated.details is None
+        assert updated.title == "Original"
+
+    # FUNCTION: test_update_leaves_a_field_alone_when_it_is_not_supplied
+    # SUMMARY: Verify the other half of the sentinel: absent means keep, and only null means clear.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_update_leaves_a_field_alone_when_it_is_not_supplied(
+        self,
+        service: ReferenceTaskService,
+    ) -> None:
+        created = await service.create_task(title="Original", details="Keep me")
+
+        updated = await service.update_task(created.id, title="Changed")
+
+        assert updated.details == "Keep me"
+
+    # FUNCTION: test_update_rejects_an_explicit_null_for_a_non_nullable_field
+    # SUMMARY: Verify null is refused where the column cannot hold it, rather than reaching psycopg.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("field", ["title", "status"])
+    async def test_update_rejects_an_explicit_null_for_a_non_nullable_field(
+        self,
+        service: ReferenceTaskService,
+        field: str,
+    ) -> None:
+        created = await service.create_task(title="Original")
+
+        with pytest.raises(ValidationError, match="must not be null"):
+            await service.update_task(created.id, **{field: None})
+
+    # FUNCTION: test_update_of_a_deleted_task_is_a_404_not_a_conflict
+    # SUMMARY: Verify a row that vanished between the read and the write is reported as missing.
+    # NOTE: The repository answers None for both "somebody else wrote first" and "the row is gone",
+    # because from inside the UPDATE they are the same zero rows. Telling the caller of a deleted
+    # task to re-read and retry sends them after a row that will never come back.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_update_of_a_deleted_task_is_a_404_not_a_conflict(
+        self,
+        service: ReferenceTaskService,
+        repository: InMemoryReferenceTaskRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = await service.create_task(title="Original")
+        stored_get = repository.get
+        reads = {"count": 0}
+
+        # FUNCTION: get_then_let_somebody_else_delete
+        # SUMMARY: Answer the first read, then remove the row before the caller writes back.
+        async def get_then_let_somebody_else_delete(task_id: str) -> ReferenceTask | None:
+            task = await stored_get(task_id)
+            reads["count"] += 1
+            if reads["count"] == 1:
+                repository.items.pop(task_id, None)
+            return task
+
+        monkeypatch.setattr(repository, "get", get_then_let_somebody_else_delete)
+
+        with pytest.raises(NotFoundError, match="does not exist"):
+            await service.update_task(created.id, title="Mine")
+
+    # FUNCTION: test_update_rejects_a_patch_that_supplies_nothing
+    # SUMMARY: Verify an empty body is a caller error rather than a write that only bumps time.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_update_rejects_a_patch_that_supplies_nothing(
+        self,
+        service: ReferenceTaskService,
+    ) -> None:
+        created = await service.create_task(title="Original")
+
+        with pytest.raises(ValidationError, match="at least one"):
+            await service.update_task(created.id)
+
+    # FUNCTION: test_update_rejects_a_status_outside_the_domain_set
+    # SUMMARY: Verify the closed status set applies to a patch exactly as it does to a list filter.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_update_rejects_a_status_outside_the_domain_set(
+        self,
+        service: ReferenceTaskService,
+    ) -> None:
+        created = await service.create_task(title="Original")
+
+        with pytest.raises(ValidationError, match="Unknown status"):
+            await service.update_task(created.id, status="archived")
+
+    # FUNCTION: test_update_accepts_a_title_of_exactly_the_maximum_length
+    # SUMMARY: Verify the boundary itself is allowed on the patch path, not one character short of it.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("length", [MAX_TITLE_LENGTH - 1, MAX_TITLE_LENGTH])
+    async def test_update_accepts_a_title_of_exactly_the_maximum_length(
+        self,
+        service: ReferenceTaskService,
+        length: int,
+    ) -> None:
+        created = await service.create_task(title="Original")
+
+        updated = await service.update_task(created.id, title="x" * length)
+
+        assert len(updated.title) == length
+
+    # FUNCTION: test_update_rejects_a_title_one_character_over_the_limit
+    # SUMMARY: Verify the other side of the same boundary, so `>` cannot silently become `>=`.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_update_rejects_a_title_one_character_over_the_limit(
+        self,
+        service: ReferenceTaskService,
+    ) -> None:
+        created = await service.create_task(title="Original")
+
+        with pytest.raises(ValidationError, match="at most"):
+            await service.update_task(created.id, title="x" * (MAX_TITLE_LENGTH + 1))
+
+    # FUNCTION: test_update_raises_not_found_for_unknown_identifier
+    # SUMMARY: Verify a patch against a missing task is a 404, not a conflict and not a silent no-op.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_update_raises_not_found_for_unknown_identifier(
+        self,
+        service: ReferenceTaskService,
+    ) -> None:
+        with pytest.raises(NotFoundError, match="does not exist"):
+            await service.update_task(str(uuid4()), title="Anything")
 
     # FUNCTION: test_get_raises_not_found_for_unknown_identifier
     # SUMMARY: Verify absence is a domain exception, which exception_handlers maps to 404.
@@ -208,6 +457,7 @@ class TestServiceRules:
             details=None,
             status=DEFAULT_STATUS,
             created_at=now - timedelta(minutes=5),
+            updated_at=now - timedelta(minutes=5),
         )
         newer = ReferenceTask(
             id=str(uuid4()),
@@ -215,6 +465,7 @@ class TestServiceRules:
             details=None,
             status=DEFAULT_STATUS,
             created_at=now,
+            updated_at=now,
         )
         other = ReferenceTask(
             id=str(uuid4()),
@@ -222,6 +473,7 @@ class TestServiceRules:
             details=None,
             status="done",
             created_at=now,
+            updated_at=now,
         )
         for task in (older, newer, other):
             await repository.add(task)
@@ -262,6 +514,87 @@ class TestHttpSurface:
 
         assert response.status_code == 200
         assert response.json()["id"] == created["id"]
+
+    # FUNCTION: test_patch_returns_200_and_the_changed_task
+    # SUMMARY: Verify the patch route answers with the stored state, including the moved timestamp.
+    @pytest.mark.unit
+    def test_patch_returns_200_and_the_changed_task(self, client: TestClient) -> None:
+        created = client.post("/reference-tasks", json={"title": "Original"}).json()
+
+        response = client.patch(f"/reference-tasks/{created['id']}", json={"status": "in_progress"})
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "in_progress"
+        assert body["title"] == "Original"
+        assert body["updated_at"] > created["updated_at"]
+
+    # FUNCTION: test_patch_with_an_explicit_null_clears_the_field_over_http
+    # SUMMARY: Verify `{"details": null}` reaches the service as a clearing instruction, which is
+    # what `model_fields_set` in the endpoint is for.
+    @pytest.mark.unit
+    def test_patch_with_an_explicit_null_clears_the_field_over_http(
+        self, client: TestClient
+    ) -> None:
+        created = client.post(
+            "/reference-tasks", json={"title": "Original", "details": "Remove me"}
+        ).json()
+
+        response = client.patch(f"/reference-tasks/{created['id']}", json={"details": None})
+
+        assert response.status_code == 200
+        assert response.json()["details"] is None
+
+    # FUNCTION: test_patch_of_an_unknown_identifier_returns_404
+    # SUMMARY: Verify a patch against a missing task answers 404 rather than creating one.
+    @pytest.mark.unit
+    def test_patch_of_an_unknown_identifier_returns_404(self, client: TestClient) -> None:
+        response = client.patch(f"/reference-tasks/{uuid4()}", json={"title": "Anything"})
+
+        assert response.status_code == 404
+        assert response.json()["error"]["status_code"] == 404
+
+    # FUNCTION: test_patch_with_no_fields_is_rejected_with_422
+    # SUMMARY: Verify the empty-patch rule reaches the client as the shared validation envelope.
+    @pytest.mark.unit
+    def test_patch_with_no_fields_is_rejected_with_422(self, client: TestClient) -> None:
+        created = client.post("/reference-tasks", json={"title": "Original"}).json()
+
+        response = client.patch(f"/reference-tasks/{created['id']}", json={})
+
+        assert response.status_code == 422
+
+    # FUNCTION: test_patch_of_a_task_that_moved_returns_409
+    # SUMMARY: Verify a lost update surfaces to the client as a conflict it can retry.
+    # NOTE: 409 rather than 200-with-wrong-data is the whole visible difference between a
+    # conditional write and a blind one. The other writer is staged the same way as in the service
+    # test above: the read succeeds, then the stored row moves before the write lands.
+    @pytest.mark.unit
+    def test_patch_of_a_task_that_moved_returns_409(
+        self,
+        client: TestClient,
+        repository: InMemoryReferenceTaskRepository,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        created = client.post("/reference-tasks", json={"title": "Original"}).json()
+        stored_get = repository.get
+
+        # FUNCTION: get_then_let_somebody_else_write
+        # SUMMARY: Answer the read, then land another writer's row before the caller writes back.
+        async def get_then_let_somebody_else_write(task_id: str) -> ReferenceTask | None:
+            task = await stored_get(task_id)
+            if task is not None:
+                repository.items[task_id] = replace(
+                    task, updated_at=task.updated_at + timedelta(seconds=1)
+                )
+            return task
+
+        monkeypatch.setattr(repository, "get", get_then_let_somebody_else_write)
+
+        response = client.patch(f"/reference-tasks/{created['id']}", json={"title": "Mine"})
+
+        assert response.status_code == 409
+        assert response.json()["error"]["status_code"] == 409
 
     # FUNCTION: test_unknown_identifier_returns_404_in_the_shared_envelope
     # SUMMARY: Verify NotFoundError reaches the client as the kernel's error shape, not a bespoke one.
