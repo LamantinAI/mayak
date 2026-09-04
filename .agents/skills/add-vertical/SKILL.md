@@ -222,6 +222,22 @@ that uses a comfortable middle value — `"a title"` — cannot see the boundary
   advice: `scripts/validate_test_quality.py` reports `test.sql_constant_round_trip` when a module
   hands a query constant to the assertion that checks the query and pins no clause of it as text.
   The gate cannot tell whether your SQL is right — it can tell that nothing here would notice.
+- **`# nosec` goes on the line bandit reports, which is the literal's own line.** A query built
+  as a parenthesised multi-line string reports at the line the f-string starts on; a marker parked
+  on the closing parenthesis suppresses nothing, and the finding stays. It looks handled in a
+  diff, which is the expensive part. `make quality-gates` runs bandit itself since 2026-09-04, so
+  a misplaced marker is a red gate in the loop you already run rather than a surprise from CI —
+  and the five shipped markers in `project/` show the placement: each sits on the line carrying
+  the value bandit flags, never on a bracket.
+- **Two fields of the same type, side by side, need two different values in the test.** A fixture
+  that sets `subject="Changed"` and `description="Changed"` cannot tell "bound in the column order
+  of the SET clause" from "bound the other way round": the tuple is identical either way, so
+  `assert_awaited_once_with` passes on both. Measured on 2026-09-03 in a project built from this
+  template: `PATCH /tickets/{id}` wrote the description into the subject column and the subject
+  into the description on every edit where the two differed — 200 OK, persisted, visible on the
+  next GET — and 1 150 unit tests stayed green, because the one test covering that method used
+  that fixture. Give neighbouring fields values that cannot be swapped unnoticed, and assert the
+  bound parameters at those positions individually rather than comparing the whole tuple at once.
 - An ORM model whose migration is missing passes `make quality-gates` — that gate skips itself
   without a database — and fails in the functional lane, where
   `tests/functional/src/test_migrations_match_models.py` runs `alembic upgrade head` and
