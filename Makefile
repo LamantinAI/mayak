@@ -18,7 +18,7 @@ PYTHON_SOURCES = project tests ai_context ai_query scripts
 # it. Running does not check an annotation. `adapter: SomePort = _Fake()` is an assertion no
 # interpreter evaluates and no Protocol enforces at runtime, so a fake whose signature had drifted
 # from LLMPort kept a green test that proved nothing. Adding the suites cost 240 one-time fixes.
-MYPY_TARGETS = project scripts ai_context ai_query alembic tests/functional tests/application tests/infrastructure tests/integration tests/conftest.py
+MYPY_TARGETS = project scripts ai_context ai_query alembic tests/functional tests/application tests/infrastructure tests/integration tests/support tests/conftest.py
 
 # Does this project use a relational store? Asked through the same reader the migration gate
 # uses (scripts/validate_migrations.py::postgres_is_enabled), so there is one implementation of

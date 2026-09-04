@@ -3,11 +3,9 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Protocol
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
-
-from project.infrastructure.agents.llm_service import LLMService
 
 
 # FUNCTION: _as_text
@@ -28,6 +26,19 @@ def _as_text(message: BaseMessage) -> str:
     return "".join(parts)
 
 
+# CLASS: project.infrastructure.agents.prompt_llm_adapter.SupportsMessageCall
+# SUMMARY: The one method this adapter needs from a model: a message list in, a message out.
+# NOTE: A Protocol rather than the concrete LLMService, so a test can hand this adapter a scripted
+# double — see tests/support/scripted_llm.py — and prove how a vertical handles a reply that is
+# plausible and wrong. Typed against the class, the only model a test could supply was the shipped
+# mock, which computes its answer from the conversation and so cannot produce a wrong one.
+# LLMService satisfies this structurally; nothing about it changes.
+class SupportsMessageCall(Protocol):
+    # FUNCTION: call
+    # SUMMARY: Send the conversation and return the model's reply.
+    async def call(self, messages: list[BaseMessage]) -> BaseMessage: ...
+
+
 # CLASS: project.infrastructure.agents.prompt_llm_adapter.PromptLLMAdapter
 # SUMMARY: Concrete LLMPort implementation: one text prompt in, the model's text out.
 # NOTE: This exists because project/domain/ports.py named LLMService as its adapter while the two
@@ -37,7 +48,7 @@ def _as_text(message: BaseMessage) -> str:
 class PromptLLMAdapter:
     # FUNCTION: __init__
     # SUMMARY: Wrap an already-configured LLMService instance.
-    def __init__(self, llm_service: LLMService) -> None:
+    def __init__(self, llm_service: SupportsMessageCall) -> None:
         self._llm_service = llm_service
 
     # FUNCTION: call

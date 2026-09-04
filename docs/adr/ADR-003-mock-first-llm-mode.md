@@ -35,6 +35,22 @@ The trade: the mock never declines to call a tool. A live model decides per prom
 at bind time, so "the model answered without reaching for a tool" cannot be tested here. Assert that
 path against a fake port in the vertical's own test.
 
+## What mock mode is not for (2026-09-04)
+
+Every reply the mock gives is derived from the conversation: text when nothing is bound, a tool call
+when a tool is, a summary once tool results arrive. That is what makes a loop runnable with no key,
+and it is also the limit — a derived answer is a well-formed answer, and the failures that reach
+production are the other kind. Valid JSON naming a value outside the enum, a missing field, a number
+where a string belonged, one more tool call than the budget allows: none of those can be asked of a
+model that answers by describing the request.
+
+So a test that needs one writes it down. `tests/support/scripted_llm.py` ships a `ScriptedLLMService`
+that replays a fixed list of replies in order and raises when a call arrives past the end of the
+script, which is how a turn budget is tested at all. It is a test double, not a second mode: nothing
+in `project/` knows about it, and mock mode is unchanged. A vertical hands it to its own adapter the
+way `PromptLLMAdapter` takes one — through a Protocol naming the one method, never the concrete
+`LLMService` — and `tests/application/test_scripted_llm.py` shows the four answers worth pinning.
+
 ## Consequences
 
 - Fast local feedback loops.
