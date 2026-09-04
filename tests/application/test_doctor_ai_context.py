@@ -562,6 +562,7 @@ class TestGateLayersAreModelled:
             "$(UV) run python scripts/validate_file_policy.py": "file_policy",
             "$(UV) run python scripts/validate_script_paths.py": "script_paths",
             "$(UV) run python scripts/validate_secrets.py": "secrets",
+            "$(MAKE) --no-print-directory security-scan": "security",
             "$(UV) run python scripts/structure_builder.py --check": "project_map_drift",
             "$(UV) run python scripts/generate_ai_context.py --check": "context",
             "$(UV) run python scripts/sync_agent_docs.py --check": "agent_docs_drift",

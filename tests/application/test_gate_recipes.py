@@ -9,7 +9,7 @@ import os
 import re
 import shlex
 from pathlib import Path
-from subprocess import run
+from subprocess import CompletedProcess, run
 
 import pytest
 
@@ -163,6 +163,95 @@ class TestToolStepsHaveOneDefinition:
         )
 
 
+# CLASS: tests.application.test_gate_recipes.TestTheSecurityScanIsPartOfTheGate
+# SUMMARY: Verify the suite an agent runs while working is the one that runs bandit.
+# NOTE: Until 2026-09-04 `security-scan` was a lane of `make ci-local` and nothing else, so
+# `make quality-gates` was green on code bandit would reject and only the pipeline could see it.
+# Nobody runs `ci-local` between edits; that is what makes the difference load-bearing.
+class TestTheSecurityScanIsPartOfTheGate:
+    # FUNCTION: test_the_gate_runs_the_security_scan
+    # SUMMARY: Verify the step list behind `make quality-gates` calls the security-scan target.
+    @pytest.mark.unit
+    def test_the_gate_runs_the_security_scan(self) -> None:
+        recipe = "\n".join(_recipe("quality-gates-steps"))
+
+        assert "security-scan" in recipe, (
+            "quality-gates-steps must call security-scan; without it `make quality-gates` is "
+            "green on anything only bandit would catch."
+        )
+
+    # FUNCTION: test_the_gate_calls_the_target_instead_of_respelling_bandit
+    # SUMMARY: Verify the step delegates rather than keeping a second copy of the command.
+    @pytest.mark.unit
+    def test_the_gate_calls_the_target_instead_of_respelling_bandit(self) -> None:
+        # **LOGIC_STEP**: Same rule as the shared gate-* targets above — one spelling per command.
+        # A bare bandit invocation here plus the one inside `security-scan` is two flag lists to
+        # keep in step, which is the defect class this file exists for.
+        recipe = "\n".join(_recipe("quality-gates-steps"))
+
+        assert "bandit" not in recipe
+
+
+# CLASS: tests.application.test_gate_recipes.TestBanditResolvesNosecByLine
+# SUMMARY: Verify a suppression marker one line off does not suppress anything.
+# NOTE: This pins tool behaviour, not a recipe, because the behaviour is what made the gap above
+# expensive. In the field an agent put `# nosec B608` on the closing-paren line of a multi-line
+# query — reviewable-looking, and suppressing nothing, since bandit matches the marker against
+# the exact line it reports the issue on. Neither half of this is guesswork now: both directions
+# run the real command.
+class TestBanditResolvesNosecByLine:
+    # FUNCTION: _scan
+    # SUMMARY: Run the security-scan command over a throwaway `project/` package.
+    # INPUT: tmp_path (Path): Directory the package is written into and the command runs from.
+    # INPUT: source (str): Contents of the single module in that package.
+    # OUTPUT: (CompletedProcess[str]): bandit's completed run, unasserted.
+    @staticmethod
+    def _scan(tmp_path: Path, source: str) -> CompletedProcess[str]:
+        package = tmp_path / "project"
+        package.mkdir()
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        (package / "queries.py").write_text(source, encoding="utf-8")
+        return run(
+            ["uv", "run", "--with", "bandit", "bandit", "-q", "-r", "project", "-ll"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+        )
+
+    # FUNCTION: test_a_marker_on_the_closing_paren_line_suppresses_nothing
+    # SUMMARY: Verify the field mistake still fails the scan.
+    @pytest.mark.unit
+    def test_a_marker_on_the_closing_paren_line_suppresses_nothing(self, tmp_path: Path) -> None:
+        result = self._scan(
+            tmp_path,
+            "columns = 'id, title'\n"
+            "QUERY = (\n"
+            '    f"SELECT {columns} FROM reference_tasks WHERE id = %s"\n'
+            ")  # nosec B608\n",
+        )
+
+        assert result.returncode != 0, (
+            f"bandit accepted a marker on the closing-paren line:\n{result.stdout}{result.stderr}"
+        )
+        assert "B608" in result.stdout + result.stderr
+
+    # FUNCTION: test_a_marker_on_the_literals_own_line_suppresses_the_finding
+    # SUMMARY: Verify the same query with the marker one line up passes.
+    @pytest.mark.unit
+    def test_a_marker_on_the_literals_own_line_suppresses_the_finding(self, tmp_path: Path) -> None:
+        result = self._scan(
+            tmp_path,
+            "columns = 'id, title'\n"
+            "QUERY = (\n"
+            '    f"SELECT {columns} FROM reference_tasks WHERE id = %s"  # nosec B608\n'
+            ")\n",
+        )
+
+        assert result.returncode == 0, (
+            f"bandit flagged a correctly suppressed finding:\n{result.stdout}{result.stderr}"
+        )
+
+
 # ATTRIBUTE: _CI_JOB_TO_LOCAL_COVER (dict[str, str])
 # SUMMARY: Every job in .github/workflows/ci.yml and the local command that covers it.
 # NOTE: The value is either a `make` target `ci-local` runs as one of its lanes, or the sentinel
@@ -174,7 +263,7 @@ _CI_JOB_TO_LOCAL_COVER: dict[str, str] = {
     "quality-gates": "quality-gates",
     "quality-gates-without-postgres": "quality-gates",
     "functional-tests": "test-e2e",
-    "security": "security-scan",
+    "security": _INSIDE_THE_GATE_SUITE,
     "dependency-audit": "audit-deps",
     "diff-coverage": "diff-coverage",
     "secret-scan": _INSIDE_THE_GATE_SUITE,

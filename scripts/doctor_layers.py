@@ -110,6 +110,21 @@ _GATE_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
         "next_checks": ["make gate-types", "make quality-gates"],
         "stop_widening_condition": "Stop widening once `make gate-types` exits 0.",
     },
+    "gate.security.failed": {
+        "meaning": (
+            "bandit reported a medium-or-higher finding under project/. The gate runs it, so a "
+            "green suite and a red security step are the same run."
+        ),
+        "read_first": ["the file named in the message", "Makefile"],
+        "smallest_command_to_rerun": "make security-scan",
+        "likely_fix_shape": (
+            "Fix the finding. Suppress only what is genuinely safe, with `# nosec <id>` on the "
+            "line bandit reports — a marker on the closing parenthesis of a multi-line statement "
+            "suppresses nothing, which is how a real finding once looked handled."
+        ),
+        "next_checks": ["make security-scan", "make quality-gates"],
+        "stop_widening_condition": "Stop widening once `make security-scan` exits 0.",
+    },
     "gate.tests.failed": {
         "meaning": (
             "The local suites — unit, infrastructure and integration — failed; the code is "
@@ -165,6 +180,11 @@ TOOL_LAYERS: tuple[ToolLayer, ...] = (
     ToolLayer("types", "gate-types", "gate.types.failed", "pyproject.toml"),
 )
 
+# ATTRIBUTE: SECURITY_LAYER (ToolLayer)
+# SUMMARY: The bandit step, which quality-gates runs after the validators and before the drift
+# checks. A tool layer rather than a validator layer: it shells out to the same make target.
+SECURITY_LAYER = ToolLayer("security", "security-scan", "gate.security.failed", "project/")
+
 # ATTRIBUTE: TESTS_LAYER (ToolLayer)
 # SUMMARY: The last step quality-gates runs, and the one the doctor was asked for by name.
 TESTS_LAYER = ToolLayer("tests", "gate-tests", "gate.tests.failed", "tests/")
@@ -179,6 +199,7 @@ LATE_LAYER_NAMES: tuple[str, ...] = (
     "test_quality",
     "dependencies",
     "secrets",
+    SECURITY_LAYER.name,
     TESTS_LAYER.name,
 )
 
@@ -244,7 +265,7 @@ def tool_layers_enabled() -> bool:
 def skipped_layer_names() -> tuple[str, ...]:
     if tool_layers_enabled() and shutil.which("make") is not None:
         return ()
-    return (*EARLY_LAYER_NAMES, TESTS_LAYER.name)
+    return (*EARLY_LAYER_NAMES, SECURITY_LAYER.name, TESTS_LAYER.name)
 
 
 # FUNCTION: diagnose_tool_layer
@@ -404,6 +425,13 @@ def _diagnose_secrets() -> dict[str, object] | None:
     )
 
 
+# FUNCTION: _diagnose_security
+# SUMMARY: Run the bandit step and report a finding as the security layer.
+# OUTPUT: (dict[str, object] | None): Payload, or None when the scan is clean.
+def _diagnose_security() -> dict[str, object] | None:
+    return diagnose_tool_layer(SECURITY_LAYER)
+
+
 # FUNCTION: _diagnose_tests
 # SUMMARY: Run the unit and infrastructure suites and report a failure as the tests layer.
 # OUTPUT: (dict[str, object] | None): Payload, or None when the suites pass.
@@ -421,6 +449,7 @@ _LATE_LAYERS: tuple[Callable[[], dict[str, object] | None], ...] = (
     _diagnose_test_quality,
     _diagnose_dependencies,
     _diagnose_secrets,
+    _diagnose_security,
     _diagnose_tests,
 )
 
@@ -448,7 +477,9 @@ def diagnose_early_layers() -> tuple[dict[str, object] | None, tuple[str, ...]]:
 def diagnose_late_layers() -> tuple[dict[str, object] | None, tuple[str, ...]]:
     executed: list[str] = []
     for name, diagnose in zip(LATE_LAYER_NAMES, _LATE_LAYERS):
-        if name == TESTS_LAYER.name and not tool_layers_enabled():
+        # **LOGIC_STEP**: Both tool layers here shell out to make, so both are skipped inside a
+        # process the doctor spawned — that is what stops the recursion.
+        if name in (SECURITY_LAYER.name, TESTS_LAYER.name) and not tool_layers_enabled():
             continue
         payload = diagnose()
         executed.append(name)
