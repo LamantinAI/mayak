@@ -10,7 +10,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 # ATTRIBUTE: ROOT_DIR (Path)
 # SUMMARY: Absolute repository root directory derived from the script location.
@@ -122,11 +122,67 @@ def _emit(message: str) -> None:
     sys.stdout.flush()
 
 
+# FUNCTION: env_sample_drift
+# SUMMARY: Report the sample keys a local env file is missing or answers differently.
+# INPUT: sample (Mapping[str, str | None]): Keys and defaults the committed sample declares.
+# INPUT: current (Mapping[str, str | None]): Keys the local, git-ignored env file carries.
+# OUTPUT: (list[str]): Sorted sample keys absent from `current` or holding a different value.
+# NOTE: Asymmetric on purpose. A key the local file ADDS is a deliberate override and is not
+# drift; a key the sample gained, or a default it changed, is — the local file is generated once
+# and then never compared again, so it keeps answering with last month's value.
+def env_sample_drift(
+    sample: Mapping[str, str | None], current: Mapping[str, str | None]
+) -> list[str]:
+    return sorted(
+        key for key, value in sample.items() if key not in current or current[key] != value
+    )
+
+
+# FUNCTION: _parse_env_file
+# SUMMARY: Read an env file into a mapping, tolerating comments, blanks and quoted values.
+# INPUT: path (Path): File to read; a missing file reads as empty.
+# OUTPUT: (dict[str, str]): Key to value, with surrounding quotes stripped.
+# NOTE: Hand-rolled rather than `dotenv_values` because this runner is the one script that must
+# work before the project's environment is installed — it is what installs nothing and runs
+# everything. The syntax it needs to understand is the syntax docker compose reads: KEY=value,
+# `#` comments, optional quotes. Anything more elaborate belongs in the app, not here.
+def _parse_env_file(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        values[key.strip()] = value.strip().strip("\"'")
+    return values
+
+
+# FUNCTION: _warn_on_functional_env_drift
+# SUMMARY: Name the stale keys of tests/functional/.env before Docker Compose reads it.
+# NOTE: A warning, not a failure: the local file is allowed to differ (a port taken by another
+# stack, a password someone changed), and this runner has no way to tell a deliberate override
+# from a forgotten one. What it can do is say which keys differ BEFORE the containers start, so a
+# suite that fails two layers down inside Docker is not the first anyone hears of it.
+def _warn_on_functional_env_drift() -> None:
+    drifted = env_sample_drift(
+        _parse_env_file(FUNCTIONAL_ENV_SAMPLE), _parse_env_file(FUNCTIONAL_ENV_FILE)
+    )
+    if not drifted:
+        return
+    _emit(
+        f"warning: {FUNCTIONAL_ENV_FILE} differs from {FUNCTIONAL_ENV_SAMPLE.name} "
+        f"for: {', '.join(drifted)} — delete it to regenerate, or update it by hand"
+    )
+
+
 # FUNCTION: _ensure_functional_env
 # SUMMARY: Ensure the functional test suite has a concrete env file before Docker Compose starts.
 # RAISES: FileNotFoundError: When the functional env sample file is missing.
 def _ensure_functional_env() -> None:
     if FUNCTIONAL_ENV_FILE.exists():
+        _warn_on_functional_env_drift()
         return
     if not FUNCTIONAL_ENV_SAMPLE.exists():
         raise FileNotFoundError(f"Functional env sample not found: {FUNCTIONAL_ENV_SAMPLE}")
