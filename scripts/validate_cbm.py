@@ -3,8 +3,10 @@
 
 import argparse
 import ast
+import io
 import json
 import sys
+import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -383,6 +385,37 @@ def _enclosing_function(
     return max(matches, key=lambda node: node.lineno)
 
 
+# FUNCTION: _logic_step_comment_lines
+# SUMMARY: Return the 1-based lines carrying a real logic-step marker comment token.
+# INPUT: source (str): Module source, already known to parse.
+# OUTPUT: (set[int]): Lines where the marker stands as a comment, not as text inside a string.
+# NOTE: The rule below used to select its lines by substring over the raw file text, so a module
+# that merely NAMES the marker — a keyword table, a docstring explaining the convention, a test
+# fixture — was reported as carrying a misplaced one. This validator's own rule table is such a
+# module: scanned without the `project/` scope filter it reported itself, on the very string it
+# uses to classify this rule's message. The tokenizer is the only reliable way to tell a real
+# comment from a `#` inside a string literal, which is why ai_context/line_metrics.py tokenizes
+# rather than scanning text. Note the marker is spelled nowhere in this comment block for the
+# same reason it is a rule: a marker outside a function body is a violation, header comments
+# included.
+def _logic_step_comment_lines(source: str) -> set[int]:
+    try:
+        return {
+            token.start[0]
+            for token in tokenize.generate_tokens(io.StringIO(source).readline)
+            if token.type == tokenize.COMMENT and "**LOGIC_STEP**:" in token.string
+        }
+    except (tokenize.TokenError, IndentationError, SyntaxError, ValueError):
+        # **LOGIC_STEP**: The source parsed as AST moments ago, so tokenize failing here means the
+        # two disagree. Fall back to the raw scan: over-reporting a real violation is the safer
+        # direction, silence is not.
+        return {
+            line_number
+            for line_number, line in enumerate(source.splitlines(), start=1)
+            if "**LOGIC_STEP**:" in line
+        }
+
+
 # FUNCTION: validate_python_source
 # SUMMARY: Validate module, class, and function CBM annotations for a single Python file.
 def validate_python_source(path: Path) -> list[ValidationIssue]:
@@ -432,9 +465,7 @@ def validate_python_source(path: Path) -> list[ValidationIssue]:
         node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     ]
 
-    for line_number, line in enumerate(lines, start=1):
-        if "**LOGIC_STEP**:" not in line:
-            continue
+    for line_number in sorted(_logic_step_comment_lines(source)):
         enclosing_function = _enclosing_function(function_nodes, line_number)
         if enclosing_function is None:
             issues.append(
