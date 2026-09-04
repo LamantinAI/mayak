@@ -207,9 +207,11 @@ LATE_LAYER_NAMES: tuple[str, ...] = (
 # ATTRIBUTE: _DIAGNOSTIC_LINE (re.Pattern[str])
 # SUMMARY: Shapes that carry the actual finding rather than a runner's banner.
 # `FAILED tests/...::test_x` from pytest, `file.py:12: error: ...` from mypy and ruff,
-# `would reformat: ...` from the formatter.
+# `would reformat: ...` from the formatter, `>> Issue: [B608:...]` from bandit — whose other
+# output is a `[tester] WARNING ...` line that matches nothing else here and would otherwise be
+# reported as the finding.
 _DIAGNOSTIC_LINE = re.compile(
-    r"^(FAILED |ERROR |E\s|\S+:\d+[:\s]|would reformat|unformatted)", re.IGNORECASE
+    r"^(FAILED |ERROR |E\s|>> Issue:|\S+:\d+[:\s]|would reformat|unformatted)", re.IGNORECASE
 )
 
 

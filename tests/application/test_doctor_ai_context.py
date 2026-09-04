@@ -19,6 +19,7 @@ from scripts.doctor_ai_context import (
     unavailable_validator_payload,
 )
 from scripts.doctor_layers import (
+    SECURITY_LAYER,
     LATE_LAYER_NAMES,
     REENTRY_ENV_VAR,
     TESTS_LAYER,
@@ -615,6 +616,37 @@ class TestGateLayersAreModelled:
         assert payload["blocking_layer"] == "types"
         # **LOGIC_STEP**: make's own framing must not become the diagnosis.
         assert payload["issues"][0]["message"] == "some/file.py:3: error: bad type"
+        assert get_doctor_layer_playbook(str(payload["issues"][0]["rule_id"])) is not None
+
+    # FUNCTION: test_the_security_layer_reports_the_bandit_finding
+    # SUMMARY: Verify the security layer reports bandit's issue line, not the noise around it.
+    # NOTE: bandit prints a `[tester] WARNING nosec encountered ...` line for each suppression it
+    # meets, before any finding. That line matches none of the other diagnostic shapes, so it was
+    # the first candidate and would have been reported as the diagnosis — sending the reader to a
+    # suppression comment instead of to the query that failed.
+    @pytest.mark.unit
+    def test_the_security_layer_reports_the_bandit_finding(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import subprocess as _subprocess
+
+        class _Failed:
+            returncode = 1
+            stdout = (
+                "[tester]\tWARNING\tnosec encountered (B608), but no failed test on file a.py:46\n"
+                ">> Issue: [B608:hardcoded_sql_expressions] Possible SQL injection vector.\n"
+                "   Location: project/infrastructure/persistence/queries.py:71:4\n"
+            )
+            stderr = ""
+
+        monkeypatch.delenv(REENTRY_ENV_VAR, raising=False)
+        monkeypatch.setattr(_subprocess, "run", lambda *a, **k: _Failed())
+
+        payload: dict[str, Any] | None = diagnose_tool_layer(SECURITY_LAYER)
+
+        assert payload is not None
+        assert payload["blocking_layer"] == "security"
+        assert payload["issues"][0]["message"].startswith(">> Issue: [B608")
         assert get_doctor_layer_playbook(str(payload["issues"][0]["rule_id"])) is not None
 
     # FUNCTION: test_every_tool_layer_rule_id_resolves_through_failure_playbook

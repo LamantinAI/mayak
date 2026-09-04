@@ -119,20 +119,58 @@ def assignment_targets_variable(
     return isinstance(node.target, ast.Name) and node.target.id == variable_name
 
 
-def returned_dict_literals(
-    tree: ast.AST,
-    dict_literal_bindings: dict[str, ast.Dict],
-) -> list[ast.Dict]:
-    literals: list[ast.Dict] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Return) or node.value is None:
+def looks_like_a_service_registry(node: ast.Dict) -> bool:
+    # Every key a string and every value something that can BE a service: a name bound elsewhere,
+    # a constructor call, or `None` for a service the project turned off. Without this, any
+    # function in the file returning any mapping — request headers, an error body, a kwargs
+    # bundle — became service entries in docs/ai_context_map.json, and nothing would have gone
+    # red, because that map is generated and so agrees with itself.
+    if not node.keys:
+        return False
+    for key_node, value_node in zip(node.keys, node.values):
+        if literal_str(key_node) is None:
+            return False
+        if isinstance(value_node, (ast.Name, ast.Call)):
             continue
-        if isinstance(node.value, ast.Dict):
-            literals.append(node.value)
-        elif isinstance(node.value, ast.Name):
-            bound = dict_literal_bindings.get(node.value.id)
-            if bound is not None:
-                literals.append(bound)
+        if isinstance(value_node, ast.Constant) and value_node.value is None:
+            continue
+        return False
+    return True
+
+
+def returned_registry_dicts(tree: ast.AST) -> list[ast.Dict]:
+    # Read what each function RETURNS, one function at a time. `services = {...}` is the kernel's
+    # own spelling, not a rule the language enforces, so a builder returning the literal inline or
+    # binding it to another name is equally legal — and used to extract to nothing.
+    # Per function, not per module: two builders in one file may both call their local mapping
+    # `registry`, and a single file-wide name -> literal map would let the second silently answer
+    # for the first.
+    literals: list[ast.Dict] = []
+    for scope in ast.walk(tree):
+        if not isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        bindings: dict[str, ast.Dict] = {}
+        for node in ast.walk(scope):
+            if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                target: ast.AST = node.targets[0]
+                value = node.value
+            elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                target = node.target
+                value = node.value
+            else:
+                continue
+            if isinstance(target, ast.Name) and isinstance(value, ast.Dict):
+                bindings[target.id] = value
+        for node in ast.walk(scope):
+            if not isinstance(node, ast.Return) or node.value is None:
+                continue
+            returned: ast.Dict | None = None
+            if isinstance(node.value, ast.Dict):
+                returned = node.value
+            elif isinstance(node.value, ast.Name):
+                returned = bindings.get(node.value.id)
+            if returned is not None and looks_like_a_service_registry(returned):
+                literals.append(returned)
     return literals
 
 
@@ -145,7 +183,6 @@ def extract_service_registry_entries(
     import_map = build_import_map(tree)
     relative_path = path.relative_to(root_dir)
     binding_metadata: dict[str, dict[str, object]] = {}
-    dict_literal_bindings: dict[str, ast.Dict] = {}
     service_entries: dict[str, dict[str, object]] = {}
 
     for node in ast.walk(tree):
@@ -164,9 +201,6 @@ def extract_service_registry_entries(
         if target_name is None or value is None:
             continue
 
-        if isinstance(value, ast.Dict):
-            dict_literal_bindings[target_name] = value
-
         if isinstance(value, ast.Call):
             binding_metadata[target_name] = {
                 "construction_kind": "bound_variable",
@@ -183,13 +217,9 @@ def extract_service_registry_entries(
             },
         }
 
-    # A registry is whatever the builder RETURNS, not a variable spelled a particular way. This
-    # used to match `services = {...}` and nothing else, so a builder that returned the literal
-    # inline — `return {"customer_service": ...}` — or bound it to any other name produced an
-    # EMPTY registry, and docs/ai_context_map.json then told every agent the project had no
-    # services at all. Nothing went red: the map is generated, so it agreed with itself.
-    # The variable named `services` is still matched on its own, because the shipped kernel
-    # assigns the registry in one function and returns it in another.
+    # Two ways in, and the first is the kernel's own: a variable named `services`, which
+    # composition_root.py assigns in one function and reads in another. The second is whatever a
+    # builder returns, for projects that spell it differently — see returned_registry_dicts.
     registry_dicts: list[ast.Dict] = [
         node.value
         for node in ast.walk(tree)
@@ -197,9 +227,9 @@ def extract_service_registry_entries(
         and assignment_targets_variable(node, "services")
         and isinstance(node.value, ast.Dict)
     ]
-    for returned in returned_dict_literals(tree, dict_literal_bindings):
+    for returned in returned_registry_dicts(tree):
         # `not in` on AST nodes is identity, which is what is wanted: the same literal reached
-        # twice (assigned to `services`, then returned) must be walked once.
+        # twice — assigned to `services`, then returned — must be walked once.
         if returned not in registry_dicts:
             registry_dicts.append(returned)
 

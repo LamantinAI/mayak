@@ -12,6 +12,7 @@ from scripts.run_all_tests import (
     _build_test_steps,
     _ensure_functional_env,
     _parse_args,
+    _parse_env_file,
     env_sample_drift,
 )
 
@@ -168,6 +169,44 @@ class TestRunAllTests:
         assert "NEW_KEY" in warning
         # **LOGIC_STEP**: A warning, not a failure — and the file it warns about is left alone.
         assert env_file.read_text(encoding="utf-8") == "AGENT_LLM_MODE=live\n"
+
+    # FUNCTION: test_parse_env_file_reads_the_conventions_a_local_file_actually_uses
+    # SUMMARY: Ensure `export`, inline comments, quotes and values containing `=` all read right.
+    # INPUT: tmp_path (Path): Temporary directory holding the env file under test.
+    # OUTPUT: (None): None.
+    # **LOGIC_STEP**: Each line here is a shape that, read naively, reports drift on a file that
+    # matches the sample: the key would be "export FOO", the value would carry its own comment,
+    # and a URL would be cut at its first `=`.
+    def test_parse_env_file_reads_the_conventions_a_local_file_actually_uses(
+        self, tmp_path: Path
+    ) -> None:
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            "export AGENT_LLM_MODE=mock\n"
+            "APP_PORT=8000  # the port the compose stack publishes\n"
+            'POSTGRES_PASSWORD="pa#ss"\n'
+            "DATABASE_URL=postgres://user:pw@db:5432/app?sslmode=disable\n",
+            encoding="utf-8",
+        )
+
+        assert _parse_env_file(env_file) == {
+            "AGENT_LLM_MODE": "mock",
+            "APP_PORT": "8000",
+            "POSTGRES_PASSWORD": "pa#ss",
+            "DATABASE_URL": "postgres://user:pw@db:5432/app?sslmode=disable",
+        }
+
+    # FUNCTION: test_an_exported_key_is_not_reported_as_drift
+    # SUMMARY: Ensure a local file written for `source` matches a sample written without `export`.
+    # INPUT: tmp_path (Path): Temporary directory holding both files.
+    # OUTPUT: (None): None.
+    def test_an_exported_key_is_not_reported_as_drift(self, tmp_path: Path) -> None:
+        sample = tmp_path / ".env.sample"
+        sample.write_text("AGENT_LLM_MODE=mock\n", encoding="utf-8")
+        local = tmp_path / ".env"
+        local.write_text("export AGENT_LLM_MODE=mock\n", encoding="utf-8")
+
+        assert env_sample_drift(_parse_env_file(sample), _parse_env_file(local)) == []
 
     # FUNCTION: test_functional_env_paths_point_to_repository_suite
     # SUMMARY: Ensure exported path constants target the repository functional suite by default.

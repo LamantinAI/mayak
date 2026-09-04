@@ -125,6 +125,10 @@ class TestToolStepsHaveOneDefinition:
         [
             ("ruff", re.compile(r"(?:uv run |uv run --with ruff )ruff (?:check|format)\s+\w")),
             ("mypy", re.compile(r"(?:uv run |uv run --with mypy )mypy\s+\w")),
+            # **LOGIC_STEP**: bandit joined the list on 2026-09-04, when the gate started running
+            # it: the CI job spelled the whole command itself, so a flag added to the target would
+            # have left CI scanning with the old one and nobody would have seen the two diverge.
+            ("bandit", re.compile(r"(?:uv run |uv run --with bandit )bandit\s+-")),
         ],
     )
     def test_no_file_outside_the_makefile_respells_a_tool_step(
@@ -211,8 +215,10 @@ class TestBanditResolvesNosecByLine:
         package.mkdir()
         (package / "__init__.py").write_text("", encoding="utf-8")
         (package / "queries.py").write_text(source, encoding="utf-8")
+        # **LOGIC_STEP**: `--project` points uv at this repository's environment, where bandit is
+        # pinned, while the scan itself reads the throwaway package under `cwd`.
         return run(
-            ["uv", "run", "--with", "bandit", "bandit", "-q", "-r", "project", "-ll"],
+            ["uv", "run", "--project", str(_REPO_ROOT), "bandit", "-q", "-r", "project", "-ll"],
             cwd=tmp_path,
             capture_output=True,
             text=True,

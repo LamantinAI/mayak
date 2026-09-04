@@ -139,13 +139,15 @@ def env_sample_drift(
 
 
 # FUNCTION: _parse_env_file
-# SUMMARY: Read an env file into a mapping, tolerating comments, blanks and quoted values.
+# SUMMARY: Read an env file into a mapping, tolerating comments, blanks, quotes and `export`.
 # INPUT: path (Path): File to read; a missing file reads as empty.
-# OUTPUT: (dict[str, str]): Key to value, with surrounding quotes stripped.
+# OUTPUT: (dict[str, str]): Key to value, with `export ` dropped and surrounding quotes stripped.
 # NOTE: Hand-rolled rather than `dotenv_values` because this runner is the one script that must
-# work before the project's environment is installed — it is what installs nothing and runs
-# everything. The syntax it needs to understand is the syntax docker compose reads: KEY=value,
-# `#` comments, optional quotes. Anything more elaborate belongs in the app, not here.
+# work before the project's environment is installed. The syntax it needs to understand is the
+# syntax docker compose reads: KEY=value, `#` comments, optional quotes — plus two conventions
+# that would otherwise be reported as drift on every run: a leading `export ` (so the file can be
+# sourced by a shell) and a trailing comment after an unquoted value. `=` inside a value is kept,
+# because `partition` splits on the first one only.
 def _parse_env_file(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
@@ -155,7 +157,17 @@ def _parse_env_file(path: Path) -> dict[str, str]:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
-        values[key.strip()] = value.strip().strip("\"'")
+        key = key.strip()
+        if key.startswith("export "):
+            key = key[len("export ") :].strip()
+        value = value.strip()
+        if value[:1] in {'"', "'"} and value[-1:] == value[:1] and len(value) > 1:
+            value = value[1:-1]
+        else:
+            # **LOGIC_STEP**: Only an unquoted value can carry a trailing comment; inside quotes
+            # a `#` is part of the value, and a password is exactly where one turns up.
+            value = value.split("#", 1)[0].strip()
+        values[key] = value
     return values
 
 

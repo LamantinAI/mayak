@@ -121,10 +121,10 @@ gate-tests:
 # `ai-fast-check` in the middle, and this one — and the ladder was measured on the fourth template
 # run: ai-fast-check took 15.0 s against this target's 14.8 s, so the middle rung was slower than
 # the thing it was a cheap alternative to. Re-measured on 2026-09-04, after bandit joined the
-# steps: 17.0 s in total, of which the suite is 13.8 and everything else 3.2 — bandit is 0.5 of
-# that 3.2, and about 2.5 s of the suite's growth is two of its own tests running bandit against
-# throwaway files. (The total read 14.2 until 2026-08-14, against parts that add to 14.8 — the
-# two halves were measured and the total was typed.) The narrow loop did buy ~12 s, and paid for them by never running mypy
+# steps: 16.2 s in total, of which the suite is 12.4 and everything else 3.8 — bandit is 0.2 of
+# that, and about 2 s of the suite's own growth is two of its tests running bandit over throwaway
+# files. (The total read 14.2 until 2026-08-14, against parts that add to 14.8 — the two halves
+# were measured and the total was typed.) The narrow loop did buy ~12 s, and paid for them by never running mypy
 # and by resolving no tests at all for 22 of the 50 files under project/ — a green "workset checks
 # passed" on a diff that fails this target with 5 type errors and 24 broken tests.
 #
@@ -257,7 +257,10 @@ audit-deps:
 	fi
 
 # bandit lives here rather than only in a CI job, so the security scan is runnable by the person
-# who can act on it. `-ll` reports medium severity and above; the three `# nosec B608` markers in
+# who can act on it. It is a pinned dev dependency, not `--with bandit`: the gate runs this, and an
+# overlay dependency re-resolves against the network every time. The `@` matters too — the doctor
+# reads this target's output and reports its first meaningful line, and an echoed command line is
+# what it would report instead of the finding. `-ll` reports medium severity and above; the three `# nosec B608` markers in
 # the reference repository are load-bearing — without them this exits 1.
 #
 # Called from `quality-gates-steps` above, not only from `ci-local`. Until 2026-09-04 this target
@@ -268,7 +271,7 @@ audit-deps:
 # bandit resolves the marker by physical line, so it suppressed nothing, and the finding was
 # real — but ruff, mypy and every validator here passed, because none of them is bandit.
 security-scan: ## Validation | bandit security scan over project/
-	$(UV) run --with bandit bandit -q -r project -ll
+	@$(UV) run bandit -q -r project -ll
 
 # Everything the pipeline runs, in one local command, cheapest lane first so it fails fast.
 # It exists because the pipeline stopped being reachable and "green" has to keep meaning

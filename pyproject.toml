@@ -40,6 +40,11 @@ dev = [
     "httpx==0.28.1",
     "ruff==0.16.1",
     "mypy==2.3.0",
+    # Pinned here rather than fetched with `uv run --with bandit`, because `make quality-gates`
+    # runs it now: an ephemeral overlay dependency re-resolves on every invocation and needs the
+    # network, which turned the everyday gate — and the pre-commit hook that calls it — into
+    # something that fails on a machine with no connection and a cold uv cache.
+    "bandit==1.9.4",
 ]
 
 [build-system]
