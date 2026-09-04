@@ -12,6 +12,7 @@ from project.domain.exceptions import (
     ConflictError,
     ExternalServiceError,
     NotFoundError,
+    UpstreamAuthenticationError,
     ValidationError,
 )
 
@@ -65,6 +66,31 @@ class TestExceptionToHTTPStatus:
         )
         response = await async_client.get("/__test_raise_external")
         assert response.status_code == 502
+
+    # FUNCTION: test_upstream_authentication_error_maps_to_502_not_401
+    # SUMMARY: A provider refusing OUR key is an upstream failure, and the caller is told so.
+    # NOTE: The distinction this pins is who is being asked to act. 401 tells the caller their own
+    # credentials are wrong and invites them to re-authenticate; a dead provider key is not
+    # something they can re-authenticate their way out of, and the message must not describe our
+    # configuration to them either. The type stays distinct for our logs and tests; the answer on
+    # the wire is the same 502 any other upstream failure gets.
+    @pytest.mark.integration
+    async def test_upstream_authentication_error_maps_to_502_not_401(
+        self, fastapi_app: FastAPI, async_client: AsyncClient
+    ) -> None:
+        _wire_raising_route(
+            fastapi_app,
+            "/__test_raise_upstream_auth",
+            UpstreamAuthenticationError("LLM provider rejected this service's credentials"),
+        )
+
+        response = await async_client.get("/__test_raise_upstream_auth")
+
+        assert response.status_code == 502
+        # **LOGIC_STEP**: And the wording the caller sees is the generic upstream one, not the
+        # exception's own text — error_utils only lets the caller-facing error types speak for
+        # themselves, and this is not one of them.
+        assert "credentials" not in response.text
 
     # FUNCTION: test_authentication_error_maps_to_401
     @pytest.mark.integration

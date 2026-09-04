@@ -281,6 +281,48 @@ Two things the deterministic provider cannot tell you, both measured on 2026-08-
   lost outright — with every gate green, because the gates never call a provider. Whatever ceiling
   you pick, make the loop report that it hit it, in the trace and in the response.
 
+Three things to write down before the vertical is done, each from a field build that shipped
+without them (2026-09-03):
+
+- **The function that reads the model's answer gets its own tests, fed by hand.** Not through the
+  service — the service's unit test fakes the whole port, a fixed verdict in and a fixed error out,
+  which proves nothing about parsing. Not through the mock provider either: mock mode derives its
+  reply from the conversation, so the only bad answer it can produce is "this is not JSON at all".
+  A field build's parser had exactly that one case covered, by a functional test asserting 502, and
+  every other branch — a missing key, a value outside the enum, a number where a string belonged,
+  an id the tools never returned — was untested for as long as the suite stayed green. Feed the
+  parser each shape directly: it is a plain function taking text, so the test needs no event loop
+  and no double at all.
+- **`isinstance` before the enum check, always.** `value not in VALID_PRIORITIES` reads like a
+  type check and is not one: a `frozenset` hashes what it is asked about, so a JSON array or object
+  where a string was expected raises `TypeError: unhashable type` on that line — one line before
+  the `raise ExternalServiceError(...)` written to catch exactly this. `TypeError` is not a
+  `ProjectError`, so it reaches the client as 500 from the code whose whole purpose was to make it
+  a 502. The kernel's own `status not in ALLOWED_STATUSES` is safe for a different reason: its
+  input came through a Pydantic DTO typed `str | None`. Model output has no such guarantee. Write
+  `isinstance(value, str) and value in VALID_...`, and assert the domain type in the test, never
+  bare `Exception` — an assertion on `Exception` passes on both the fix and the defect.
+- **The loop's own bookkeeping needs a scripted model, not a fake port.** Which tool's results
+  count toward which rule, how the turn budget is spent, what happens when the same tool answers
+  twice: a fake port skips all of it, and mock mode never calls a second tool in one run. A field
+  build regressed exactly there — ids from any list-shaped tool result were counted as "articles
+  the model saw", so a verdict could cite a sibling ticket as its source — and neither test layer
+  could have caught it. `tests/support/scripted_llm.py` is the layer that can: hand the real
+  adapter a `ScriptedLLMService` with a fixed sequence of turns (tool call, tool call, final
+  answer) and the real tools, and assert on what the adapter did with them. It raises when the loop
+  asks for one more turn than the script allows, which is how the ceiling gets tested at all.
+  **For that to be possible your adapter must take the model as a Protocol, not as `LLMService`.**
+  An adapter whose `__init__` is annotated with the concrete class type-checks against exactly one
+  model — the shipped one — and mypy rejects the double at the door, so the loop goes back to being
+  testable only through a fake of the whole adapter. Declare the one method you call, the way
+  `prompt_llm_adapter.py` declares `SupportsMessageCall`, and annotate against that; `LLMService`
+  satisfies it structurally and production wiring does not change.
+
+A provider error never reaches your vertical as a provider error: the adapter translates it. Catch
+`ExternalServiceError` for "the model failed", or `UpstreamAuthenticationError` first — a subclass
+— when a dead API key deserves a different page than a provider outage. Both answer 502. See
+ADR-009 for why a rejected key is not 401 and why a rejected request stays 500.
+
 ## Subsystems that can be off
 
 If the vertical needs PostgreSQL, it must survive `POSTGRES_ENABLED=false`, because `make ci-local`
