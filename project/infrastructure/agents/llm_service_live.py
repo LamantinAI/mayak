@@ -10,10 +10,13 @@ from langchain_openai import ChatOpenAI
 from openai import (
     APIConnectionError,
     APITimeoutError,
+    BadRequestError,
     InternalServerError,
     OpenAIError,
+    PermissionDeniedError,
     RateLimitError,
 )
+from openai import AuthenticationError as OpenAIAuthenticationError
 from tenacity import (
     AsyncRetrying,
     retry_if_exception_type,
@@ -23,7 +26,7 @@ from tenacity import (
 
 from project.core.config import Settings
 from project.core.logging import SemanticLogger
-from project.domain.exceptions import ExternalServiceError
+from project.domain.exceptions import ExternalServiceError, UpstreamAuthenticationError
 
 
 # FUNCTION: _build_full_trace_extras
@@ -140,8 +143,10 @@ class LLMServiceLiveMixin:
 
     # FUNCTION: _call_llm_with_retry
     # SUMMARY: Call the LLM with automatic retry logic using configured max retries.
-    # RAISES: RuntimeError: If the live provider has not been initialized.
-    # RAISES: OpenAIError: If the provider call fails permanently.
+    # RAISES: UpstreamAuthenticationError: If the provider rejects this service's credentials.
+    # RAISES: ExternalServiceError: If the provider is uninitialised, or fails for any other
+    #         reason — including a retryable failure that used up every attempt.
+    # RAISES: BadRequestError: Untranslated on purpose; see the handler at the end of this method.
     async def _call_llm_with_retry(
         self: _LLMServiceLiveContract,
         messages: list[BaseMessage],
@@ -159,122 +164,152 @@ class LLMServiceLiveMixin:
         # combine, so three attempts around three attempts is a nine-attempt worst case that
         # outlives whatever asyncio.wait_for budget the caller set. Add attempts here, never
         # around this.
-        async for attempt in AsyncRetrying(
-            stop=stop_after_attempt(effective_retries),
-            wait=wait_exponential(multiplier=1, min=2, max=10),
-            retry=retry_if_exception_type(
-                (
-                    RateLimitError,
-                    APITimeoutError,
-                    APIConnectionError,
-                    InternalServerError,
-                )
-            ),
-            reraise=True,
-        ):
-            with attempt:
-                start_ns = time.perf_counter_ns()
-                model = self._settings.llm.model
+        try:
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(effective_retries),
+                wait=wait_exponential(multiplier=1, min=2, max=10),
+                retry=retry_if_exception_type(
+                    (
+                        RateLimitError,
+                        APITimeoutError,
+                        APIConnectionError,
+                        InternalServerError,
+                    )
+                ),
+                reraise=True,
+            ):
+                with attempt:
+                    start_ns = time.perf_counter_ns()
+                    model = self._settings.llm.model
 
-                try:
-                    response = cast(BaseMessage, await runnable.ainvoke(messages))
-                    duration_ms = (time.perf_counter_ns() - start_ns) / 1e6
-                    input_tokens = None
-                    output_tokens = None
-                    total_tokens = None
-                    usage = getattr(response, "usage_metadata", None)
-                    if usage:
-                        if isinstance(usage, dict):
-                            input_tokens = usage.get("input_tokens")
-                            output_tokens = usage.get("output_tokens")
-                            total_tokens = usage.get("total_tokens")
-                        else:
-                            input_tokens = getattr(usage, "input_tokens", None)
-                            output_tokens = getattr(usage, "output_tokens", None)
-                            total_tokens = getattr(usage, "total_tokens", None)
+                    try:
+                        response = cast(BaseMessage, await runnable.ainvoke(messages))
+                        duration_ms = (time.perf_counter_ns() - start_ns) / 1e6
+                        input_tokens = None
+                        output_tokens = None
+                        total_tokens = None
+                        usage = getattr(response, "usage_metadata", None)
+                        if usage:
+                            if isinstance(usage, dict):
+                                input_tokens = usage.get("input_tokens")
+                                output_tokens = usage.get("output_tokens")
+                                total_tokens = usage.get("total_tokens")
+                            else:
+                                input_tokens = getattr(usage, "input_tokens", None)
+                                output_tokens = getattr(usage, "output_tokens", None)
+                                total_tokens = getattr(usage, "total_tokens", None)
 
-                    # Structural-only meta (no content): prompt/response sizes.
-                    system_prompt_chars = sum(
-                        len(str(m.content)) for m in messages if isinstance(m, SystemMessage)
-                    )
-                    prompt_chars_total = sum(
-                        len(str(m.content)) for m in messages if not isinstance(m, SystemMessage)
-                    )
-                    response_content = getattr(response, "content", "")
-                    response_chars = len(str(response_content))
+                        # Structural-only meta (no content): prompt/response sizes.
+                        system_prompt_chars = sum(
+                            len(str(m.content)) for m in messages if isinstance(m, SystemMessage)
+                        )
+                        prompt_chars_total = sum(
+                            len(str(m.content))
+                            for m in messages
+                            if not isinstance(m, SystemMessage)
+                        )
+                        response_content = getattr(response, "content", "")
+                        response_chars = len(str(response_content))
 
-                    full_trace = self._settings.observability.full_trace_enabled
-                    extras = _build_full_trace_extras(full_trace, messages, str(response_content))
-                    self._logger.log_llm_call(
-                        model,
-                        duration_ms=duration_ms,
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                        total_tokens=total_tokens,
-                        success=True,
-                        prompt_chars_total=prompt_chars_total,
-                        system_prompt_chars=system_prompt_chars,
-                        messages_count=len(messages),
-                        response_chars=response_chars,
-                        **extras,
-                    )
-                    return response
-                except (
-                    RateLimitError,
-                    APITimeoutError,
-                    APIConnectionError,
-                    InternalServerError,
-                ) as error:
-                    duration_ms = (time.perf_counter_ns() - start_ns) / 1e6
-                    system_prompt_chars = sum(
-                        len(str(m.content)) for m in messages if isinstance(m, SystemMessage)
-                    )
-                    prompt_chars_total = sum(
-                        len(str(m.content)) for m in messages if not isinstance(m, SystemMessage)
-                    )
-                    full_trace = self._settings.observability.full_trace_enabled
-                    extras = _build_full_trace_extras(full_trace, messages, None)
-                    self._logger.log_llm_call(
-                        model,
-                        duration_ms=duration_ms,
-                        success=False,
-                        error=str(error),
-                        prompt_chars_total=prompt_chars_total,
-                        system_prompt_chars=system_prompt_chars,
-                        messages_count=len(messages),
-                        **extras,
-                    )
-                    self._logger.log_error(
-                        error_type="llm_call_retryable_error",
-                        message="LLM call failed, retrying",
-                        exception=error,
-                    )
-                    raise
-                except OpenAIError as error:
-                    duration_ms = (time.perf_counter_ns() - start_ns) / 1e6
-                    system_prompt_chars = sum(
-                        len(str(m.content)) for m in messages if isinstance(m, SystemMessage)
-                    )
-                    prompt_chars_total = sum(
-                        len(str(m.content)) for m in messages if not isinstance(m, SystemMessage)
-                    )
-                    full_trace = self._settings.observability.full_trace_enabled
-                    extras = _build_full_trace_extras(full_trace, messages, None)
-                    self._logger.log_llm_call(
-                        model,
-                        duration_ms=duration_ms,
-                        success=False,
-                        error=str(error),
-                        prompt_chars_total=prompt_chars_total,
-                        system_prompt_chars=system_prompt_chars,
-                        messages_count=len(messages),
-                        **extras,
-                    )
-                    self._logger.log_error(
-                        error_type="llm_call_failed",
-                        message="LLM call failed permanently",
-                        exception=error,
-                    )
-                    raise
+                        full_trace = self._settings.observability.full_trace_enabled
+                        extras = _build_full_trace_extras(
+                            full_trace, messages, str(response_content)
+                        )
+                        self._logger.log_llm_call(
+                            model,
+                            duration_ms=duration_ms,
+                            input_tokens=input_tokens,
+                            output_tokens=output_tokens,
+                            total_tokens=total_tokens,
+                            success=True,
+                            prompt_chars_total=prompt_chars_total,
+                            system_prompt_chars=system_prompt_chars,
+                            messages_count=len(messages),
+                            response_chars=response_chars,
+                            **extras,
+                        )
+                        return response
+                    except (
+                        RateLimitError,
+                        APITimeoutError,
+                        APIConnectionError,
+                        InternalServerError,
+                    ) as error:
+                        duration_ms = (time.perf_counter_ns() - start_ns) / 1e6
+                        system_prompt_chars = sum(
+                            len(str(m.content)) for m in messages if isinstance(m, SystemMessage)
+                        )
+                        prompt_chars_total = sum(
+                            len(str(m.content))
+                            for m in messages
+                            if not isinstance(m, SystemMessage)
+                        )
+                        full_trace = self._settings.observability.full_trace_enabled
+                        extras = _build_full_trace_extras(full_trace, messages, None)
+                        self._logger.log_llm_call(
+                            model,
+                            duration_ms=duration_ms,
+                            success=False,
+                            error=str(error),
+                            prompt_chars_total=prompt_chars_total,
+                            system_prompt_chars=system_prompt_chars,
+                            messages_count=len(messages),
+                            **extras,
+                        )
+                        self._logger.log_error(
+                            error_type="llm_call_retryable_error",
+                            message="LLM call failed, retrying",
+                            exception=error,
+                        )
+                        raise
+                    except OpenAIError as error:
+                        duration_ms = (time.perf_counter_ns() - start_ns) / 1e6
+                        system_prompt_chars = sum(
+                            len(str(m.content)) for m in messages if isinstance(m, SystemMessage)
+                        )
+                        prompt_chars_total = sum(
+                            len(str(m.content))
+                            for m in messages
+                            if not isinstance(m, SystemMessage)
+                        )
+                        full_trace = self._settings.observability.full_trace_enabled
+                        extras = _build_full_trace_extras(full_trace, messages, None)
+                        self._logger.log_llm_call(
+                            model,
+                            duration_ms=duration_ms,
+                            success=False,
+                            error=str(error),
+                            prompt_chars_total=prompt_chars_total,
+                            system_prompt_chars=system_prompt_chars,
+                            messages_count=len(messages),
+                            **extras,
+                        )
+                        self._logger.log_error(
+                            error_type="llm_call_failed",
+                            message="LLM call failed permanently",
+                            exception=error,
+                        )
+                        raise
+        except (OpenAIAuthenticationError, PermissionDeniedError) as error:
+            # **LOGIC_STEP**: Whose credentials failed decides who can fix it. The provider
+            # rejecting OUR key is an operator's configuration problem — a dead key, a revoked
+            # project — and it is answered 502 like any other upstream failure, because the
+            # caller's own credentials are fine and a 401 would send them to re-authenticate
+            # against something they cannot reach. The distinct type is what a log query, an
+            # alert or a test can key on.
+            raise UpstreamAuthenticationError(
+                "LLM provider rejected this service's credentials"
+            ) from error
+        except BadRequestError:
+            # **LOGIC_STEP**: Deliberately not translated. A rejected request — a malformed tool
+            # schema, a prompt past the context window — is this service's own defect, and the
+            # identical retry fails identically forever. Reported as 500, because 502 would say
+            # "the provider is unwell" and send whoever is on call to a status page that is green.
+            raise
+        except OpenAIError as error:
+            # **LOGIC_STEP**: Everything else the provider can fail with, including the retryable
+            # kinds that exhausted their attempts above. The cause survives on __cause__ for the
+            # log; the client is told only that an upstream service failed.
+            raise ExternalServiceError("LLM provider call failed") from error
 
         raise ExternalServiceError("LLM retry loop exited unexpectedly")

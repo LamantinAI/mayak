@@ -71,6 +71,7 @@ Project Map: Mayak
 │   │   ├── ADR-006-optional-postgres.md
 │   │   ├── ADR-007-autocommit-and-explicit-transactions.md
 │   │   ├── ADR-008-readiness-criticality.md
+│   │   ├── ADR-009-provider-errors-at-the-llm-boundary.md
 │   │   └── README.md
 │   ├── agent_rules.md
 │   ├── ai_change_map.json
@@ -205,6 +206,7 @@ Project Map: Mayak
 │   │   ├── test_request_summary_outcome.py  ---  Regression tests proving request.summary reports the real result of a request.
 │   │   ├── test_run_all_tests.py  ---  Unit tests for the canonical all-tests runner script used by AI agents and developers.
 │   │   ├── test_sampling.py  ---  Cover the health-check log sampler, which had no test of its own before.
+│   │   ├── test_scripted_llm.py  ---  The scripted model double itself, and the one thing it exists for — proving a vertical
 │   │   ├── test_secret_leak_guards.py  ---  Regression guards for the two paths that leaked secrets to clients and to logs.
 │   │   ├── test_serialization.py  ---  Unit tests for low-level structured serialization helpers used by semantic logging.
 │   │   ├── test_skill_texts_match_reality.py  ---  Guard the factual claims the skills make about this repository, so prose cannot drift
@@ -257,6 +259,9 @@ Project Map: Mayak
 │   │   ├── test_composition_root_lifecycle.py  ---  Smoke test that the assembled FastAPI app responds to /health/ inside a real lifespan.
 │   │   ├── test_exception_to_http_status.py  ---  End-to-end mapping of ProjectError subclasses to HTTP status codes via the FastAPI exception handler pipeline.
 │   │   └── test_trace_propagation.py  ---  Verify the middleware extracts request id from inbound trace headers and echoes it.
+│   ├── support/
+│   │   ├── __init__.py  ---  Test doubles shared by the unit and integration suites.
+│   │   └── scripted_llm.py  ---  A language model that answers from a script, so a vertical's own handling of a bad
 │   └── conftest.py  ---  Global test configuration and fixtures for the FastAPI backend test suite.
 ├── .dockerignore
 ├── .env.sample

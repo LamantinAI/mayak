@@ -11,6 +11,7 @@ Current ADRs:
 - `ADR-006-optional-postgres.md`
 - `ADR-007-autocommit-and-explicit-transactions.md`
 - `ADR-008-readiness-criticality.md`
+- `ADR-009-provider-errors-at-the-llm-boundary.md`
 
 Guidelines:
 - Add a short ADR when a durable architectural or workflow decision changes.
