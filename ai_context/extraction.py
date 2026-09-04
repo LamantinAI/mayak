@@ -119,6 +119,23 @@ def assignment_targets_variable(
     return isinstance(node.target, ast.Name) and node.target.id == variable_name
 
 
+def returned_dict_literals(
+    tree: ast.AST,
+    dict_literal_bindings: dict[str, ast.Dict],
+) -> list[ast.Dict]:
+    literals: list[ast.Dict] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Return) or node.value is None:
+            continue
+        if isinstance(node.value, ast.Dict):
+            literals.append(node.value)
+        elif isinstance(node.value, ast.Name):
+            bound = dict_literal_bindings.get(node.value.id)
+            if bound is not None:
+                literals.append(bound)
+    return literals
+
+
 def extract_service_registry_entries(
     path: Path,
     root_dir: Path,
@@ -128,6 +145,7 @@ def extract_service_registry_entries(
     import_map = build_import_map(tree)
     relative_path = path.relative_to(root_dir)
     binding_metadata: dict[str, dict[str, object]] = {}
+    dict_literal_bindings: dict[str, ast.Dict] = {}
     service_entries: dict[str, dict[str, object]] = {}
 
     for node in ast.walk(tree):
@@ -146,6 +164,9 @@ def extract_service_registry_entries(
         if target_name is None or value is None:
             continue
 
+        if isinstance(value, ast.Dict):
+            dict_literal_bindings[target_name] = value
+
         if isinstance(value, ast.Call):
             binding_metadata[target_name] = {
                 "construction_kind": "bound_variable",
@@ -162,14 +183,28 @@ def extract_service_registry_entries(
             },
         }
 
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
-            continue
-        if not assignment_targets_variable(node, "services"):
-            continue
-        if not isinstance(node.value, ast.Dict):
-            continue
-        for key_node, value_node in zip(node.value.keys, node.value.values):
+    # A registry is whatever the builder RETURNS, not a variable spelled a particular way. This
+    # used to match `services = {...}` and nothing else, so a builder that returned the literal
+    # inline — `return {"customer_service": ...}` — or bound it to any other name produced an
+    # EMPTY registry, and docs/ai_context_map.json then told every agent the project had no
+    # services at all. Nothing went red: the map is generated, so it agreed with itself.
+    # The variable named `services` is still matched on its own, because the shipped kernel
+    # assigns the registry in one function and returns it in another.
+    registry_dicts: list[ast.Dict] = [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        and assignment_targets_variable(node, "services")
+        and isinstance(node.value, ast.Dict)
+    ]
+    for returned in returned_dict_literals(tree, dict_literal_bindings):
+        # `not in` on AST nodes is identity, which is what is wanted: the same literal reached
+        # twice (assigned to `services`, then returned) must be walked once.
+        if returned not in registry_dicts:
+            registry_dicts.append(returned)
+
+    for registry_dict in registry_dicts:
+        for key_node, value_node in zip(registry_dict.keys, registry_dict.values):
             service_key = literal_str(key_node)
             if service_key is None:
                 continue

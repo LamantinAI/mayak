@@ -190,6 +190,58 @@ class TestGenerateAIContext:
 
         assert result == {}
 
+    # FUNCTION: test_extract_services_from_a_returned_dict_literal
+    # SUMMARY: Verify a registry returned inline, with no local variable at all, is still read.
+    # NOTE: `services = {...}` is the reference vertical's spelling, not a rule the language
+    # enforces. Measured in a field build on 2026-09-03: a project whose builder returned the
+    # literal produced an EMPTY service registry in docs/ai_context_map.json, and no gate went
+    # red — the map is generated, so it agreed with itself while telling every agent the project
+    # had no services.
+    @pytest.mark.unit
+    def test_extract_services_from_a_returned_dict_literal(self, tmp_path: Path) -> None:
+        source_path = tmp_path / "services_returned_literal.py"
+        source_path.write_text(
+            "\n".join(
+                [
+                    "from typing import Any",
+                    "",
+                    "def build_services() -> dict[str, Any]:",
+                    "    return {",
+                    '        "reference_task_service": object(),',
+                    "    }",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        result = extract_service_registry_entries(source_path, tmp_path, "core")
+
+        assert sorted(result) == ["reference_task_service"]
+
+    # FUNCTION: test_extract_services_follows_a_returned_variable_of_any_name
+    # SUMMARY: Verify a registry built under another name and then returned is read from the return.
+    @pytest.mark.unit
+    def test_extract_services_follows_a_returned_variable_of_any_name(self, tmp_path: Path) -> None:
+        source_path = tmp_path / "services_returned_variable.py"
+        source_path.write_text(
+            "\n".join(
+                [
+                    "from typing import Any",
+                    "",
+                    "def build_services() -> dict[str, Any]:",
+                    "    registry: dict[str, Any] = {",
+                    '        "reference_task_service": object(),',
+                    "    }",
+                    "    return registry",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        result = extract_service_registry_entries(source_path, tmp_path, "core")
+
+        assert sorted(result) == ["reference_task_service"]
+
     # FUNCTION: test_render_json_is_deterministic
     # SUMMARY: Verify JSON rendering is stable and newline-terminated for drift checks.
     @pytest.mark.unit
