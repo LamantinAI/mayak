@@ -15,8 +15,11 @@ from openai import (
     OpenAIError,
     PermissionDeniedError,
     RateLimitError,
+    UnprocessableEntityError,
 )
 from openai import AuthenticationError as OpenAIAuthenticationError
+from openai import ConflictError as OpenAIConflictError
+from openai import NotFoundError as OpenAINotFoundError
 from tenacity import (
     AsyncRetrying,
     retry_if_exception_type,
@@ -300,11 +303,19 @@ class LLMServiceLiveMixin:
             raise UpstreamAuthenticationError(
                 "LLM provider rejected this service's credentials"
             ) from error
-        except BadRequestError:
-            # **LOGIC_STEP**: Deliberately not translated. A rejected request — a malformed tool
-            # schema, a prompt past the context window — is this service's own defect, and the
-            # identical retry fails identically forever. Reported as 500, because 502 would say
-            # "the provider is unwell" and send whoever is on call to a status page that is green.
+        except (
+            BadRequestError,
+            OpenAINotFoundError,
+            OpenAIConflictError,
+            UnprocessableEntityError,
+        ):
+            # **LOGIC_STEP**: Deliberately not translated. Every status here says the provider
+            # understood us and refused what we asked for: a malformed tool schema, a prompt past
+            # the context window, a model name that does not exist. Each is this service's own
+            # defect, and the identical retry fails identically forever. Reported as 500, because
+            # 502 would say "the provider is unwell" and send whoever is on call to a status page
+            # that is green. A rate limit is not in this list — that one really is the provider
+            # declining to serve us right now, and it is retried before it becomes a 502.
             raise
         except OpenAIError as error:
             # **LOGIC_STEP**: Everything else the provider can fail with, including the retryable

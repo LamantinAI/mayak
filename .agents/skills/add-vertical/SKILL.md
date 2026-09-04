@@ -311,6 +311,12 @@ without them (2026-09-03):
   adapter a `ScriptedLLMService` with a fixed sequence of turns (tool call, tool call, final
   answer) and the real tools, and assert on what the adapter did with them. It raises when the loop
   asks for one more turn than the script allows, which is how the ceiling gets tested at all.
+  **For that to be possible your adapter must take the model as a Protocol, not as `LLMService`.**
+  An adapter whose `__init__` is annotated with the concrete class type-checks against exactly one
+  model — the shipped one — and mypy rejects the double at the door, so the loop goes back to being
+  testable only through a fake of the whole adapter. Declare the one method you call, the way
+  `prompt_llm_adapter.py` declares `SupportsMessageCall`, and annotate against that; `LLMService`
+  satisfies it structurally and production wiring does not change.
 
 A provider error never reaches your vertical as a provider error: the adapter translates it. Catch
 `ExternalServiceError` for "the model failed", or `UpstreamAuthenticationError` first — a subclass

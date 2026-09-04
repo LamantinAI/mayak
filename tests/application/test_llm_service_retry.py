@@ -17,9 +17,12 @@ from openai import (
     APITimeoutError,
     AuthenticationError as OpenAIAuthenticationError,
     BadRequestError,
+    ConflictError as OpenAIConflictError,
     InternalServerError,
+    NotFoundError as OpenAINotFoundError,
     PermissionDeniedError,
     RateLimitError,
+    UnprocessableEntityError,
 )
 from tenacity import wait_none
 
@@ -245,22 +248,38 @@ class TestProviderErrorsBecomeDomainErrors:
         assert raised.value.__cause__ is provider_error
 
     # FUNCTION: test_a_request_the_provider_refuses_is_left_untranslated
-    # SUMMARY: A malformed request stays the provider's own error, and so reports as a 500.
-    # NOTE: The one deliberate hole in the translation. A rejected request is this service's
-    # defect — a tool schema the provider will not take, a prompt past the context window — and
-    # the identical retry fails identically forever. Calling it 502 would say "the provider is
-    # unwell" and send whoever is on call to a status page that is green.
+    # SUMMARY: Every "we asked for the wrong thing" status stays the provider's own error, and so
+    # reports as a 500.
+    # NOTE: The deliberate hole in the translation. Each status here means the provider understood
+    # the request and refused it — a tool schema it will not take, a prompt past the context
+    # window, a model name that does not exist in `Settings.llm.model`. Each is this service's own
+    # defect, and the identical retry fails identically forever. Calling any of them 502 would say
+    # "the provider is unwell" and send whoever is on call to a status page that is green. A rate
+    # limit is deliberately NOT here: that one is the provider declining to serve us right now.
     @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("error_class", "status_code"),
+        [
+            (BadRequestError, 400),
+            (OpenAINotFoundError, 404),
+            (OpenAIConflictError, 409),
+            (UnprocessableEntityError, 422),
+        ],
+    )
     async def test_a_request_the_provider_refuses_is_left_untranslated(
-        self, test_settings: FixtureSettings
+        self,
+        test_settings: FixtureSettings,
+        error_class: type[APIStatusError],
+        status_code: int,
     ) -> None:
-        provider_error = _status_error(BadRequestError, 400)
+        provider_error = _status_error(error_class, status_code)
         instance = _build_instance(test_settings, side_effect=provider_error)
 
-        with pytest.raises(BadRequestError) as raised:
+        with pytest.raises(error_class) as raised:
             await instance._call_llm_with_retry([HumanMessage(content="hi")])
 
         assert raised.value is provider_error
+        assert not isinstance(raised.value, ExternalServiceError)
 
     # FUNCTION: test_the_permanent_failure_is_still_logged_before_it_is_translated
     # SUMMARY: Translation happens outside the retry loop, so the existing log events survive it.

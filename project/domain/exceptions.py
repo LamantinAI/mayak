@@ -49,7 +49,8 @@ class AuthenticationError(ProjectError):
 
 # CLASS: project.domain.exceptions.UpstreamAuthenticationError
 # EXTENDS: ExternalServiceError
-# SUMMARY: Raised when an upstream provider rejects the credentials this service presents to it.
+# SUMMARY: Raised when an upstream provider refuses the credentials this service presents — either
+# because it does not accept them at all, or because they do not carry the access being asked for.
 # NOTE: A subclass of ExternalServiceError, so it answers 502 with the generic upstream message,
 # and deliberately NOT of AuthenticationError: the caller's own credentials are fine, and telling
 # them 401 would send them to re-authenticate against a problem they cannot fix. The distinct type

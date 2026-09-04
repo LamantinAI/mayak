@@ -104,6 +104,21 @@ class TestTheDouble:
 
         assert reply.content == "answer"
 
+    # FUNCTION: test_what_each_binding_offered_is_recorded
+    # SUMMARY: Verify a loop that stops offering tools on its last turn can be tested for it.
+    # **LOGIC_STEP**: A bounded loop usually guarantees termination by binding tools for the
+    # working turns and none for the forced final one. The script alone cannot see that — the
+    # final reply is text either way, whether or not the code actually withheld the tools.
+    @pytest.mark.unit
+    async def test_what_each_binding_offered_is_recorded(self) -> None:
+        model = ScriptedLLMService([ScriptedToolCall("search", {}), "done"])
+        tool = object()
+
+        await model.bind_tools([tool]).call([HumanMessage(content="hi")])
+        await model.bind_tools([]).call([HumanMessage(content="hi")])
+
+        assert model.bound_tools == [[tool], []]
+
     # FUNCTION: test_the_conversation_each_call_saw_is_kept
     # SUMMARY: Verify a test can read back what the code under test actually sent.
     @pytest.mark.unit

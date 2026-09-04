@@ -11,9 +11,9 @@ Accepted (2026-09-04)
 
 | What happened | What leaves the adapter | What the caller is answered |
 | --- | --- | --- |
-| The provider rejected our API key (`AuthenticationError`, `PermissionDeniedError`) | `UpstreamAuthenticationError` | 502 |
-| Anything else the provider failed with, including a retryable failure that used up its attempts | `ExternalServiceError` | 502 |
-| The provider refused the request itself (`BadRequestError`) | the provider's own error, untranslated | 500 |
+| The provider refused our credentials, or the access they carry (`AuthenticationError` 401, `PermissionDeniedError` 403) | `UpstreamAuthenticationError` | 502 |
+| The provider understood the request and refused it (`BadRequestError` 400, `NotFoundError` 404, `ConflictError` 409, `UnprocessableEntityError` 422) | the provider's own error, untranslated | 500 |
+| Anything else, including a retryable failure that used up its attempts (`RateLimitError`, timeouts, connection drops, 5xx) | `ExternalServiceError` | 502 |
 
 `UpstreamAuthenticationError` is a subclass of `ExternalServiceError`, declared in
 `project/domain/exceptions.py`. Every translation uses `raise ... from error`, so the provider's
@@ -40,10 +40,17 @@ exists for our side of the boundary: a log query, an alert, a vertical that want
 about a dead key rather than watch a provider status page. What crosses the wire is the same 502
 and the same generic message any other upstream failure gets.
 
-**A refused request stays a 500.** A `BadRequestError` is a tool schema the provider will not
-accept, or a prompt past the context window: this service's own defect, and the identical retry
-fails identically forever. Calling it 502 would say "the provider is unwell" and send whoever is on
-call to a status page that is green.
+**A refused request stays a 500.** Each status in that row means the provider understood us and
+said no: a tool schema it will not accept, a prompt past the context window, a model name that is
+not there — `Settings.llm.model` naming a model the account cannot see is the everyday one. Each is
+this service's own defect, and the identical retry fails identically forever. Calling any of them
+502 would say "the provider is unwell" and send whoever is on call to a status page that is green.
+A rate limit is deliberately not in this row: that one is the provider declining to serve us right
+now, it is retried first, and only then reported as an upstream failure.
+
+The 403 belongs with the 401 rather than here for the same reason, though it is the closer call: a
+key with no access to the requested model is refused for a credential's shortcoming, not for a
+malformed request, and the operator repairs it in the same place — the account, not the code.
 
 **The translation lives outside the retry loop, not in its `except` clauses.** Tenacity re-reads
 the type raised inside the loop to decide whether to retry, so raising a domain error there would

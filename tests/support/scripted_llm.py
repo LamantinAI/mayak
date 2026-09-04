@@ -85,6 +85,14 @@ class ScriptedLLMService:
         # a second spy around the double.
         self.received: list[list[BaseMessage]] = []
 
+        # ATTRIBUTE: bound_tools (list[list[Any]])
+        # SUMMARY: What each bind_tools call offered, in order.
+        # NOTE: A loop that guarantees its own end by taking the tools away on the last turn — the
+        # shape a bounded agent uses — is only half-tested by the script: the reply is whatever the
+        # test wrote down either way. This is the other half, and the only place the offer is
+        # visible: assert the last binding offered nothing.
+        self.bound_tools: list[list[Any]] = []
+
     # FUNCTION: call_count
     # SUMMARY: How many replies have been used.
     @property
@@ -109,7 +117,8 @@ class ScriptedLLMService:
     # SUMMARY: Return this same double, so `model.bind_tools(...).call(...)` runs unchanged.
     # NOTE: The script already fixes every reply, so there is no per-binding state to copy the way
     # the real service copies its tool list. What the model was offered is not what decides the
-    # answer here — the test is.
+    # answer here — the test is. What each call offered is recorded, because a loop that ends by
+    # offering no tools on its last turn has nothing else to be tested against.
     def bind_tools(self, tools: list[Any]) -> "ScriptedLLMService":
-        del tools
+        self.bound_tools.append(list(tools))
         return self
