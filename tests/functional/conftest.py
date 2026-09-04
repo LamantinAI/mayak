@@ -97,7 +97,8 @@ async def make_post_request(http_client: httpx.AsyncClient) -> SendRequest:
         response = await http_client.post(url, json=data, headers=headers)
         body = (
             response.json()
-            if response.headers.get("content-type", "").startswith("application/json")
+            if response.content
+            and response.headers.get("content-type", "").startswith("application/json")
             else response.text
         )
         return {"status": response.status_code, "body": body}
@@ -116,7 +117,8 @@ async def make_get_request(http_client: httpx.AsyncClient) -> SendRequest:
         response = await http_client.get(url, params=params)
         body = (
             response.json()
-            if response.headers.get("content-type", "").startswith("application/json")
+            if response.content
+            and response.headers.get("content-type", "").startswith("application/json")
             else response.text
         )
         return {"status": response.status_code, "body": body}
@@ -137,7 +139,8 @@ async def make_put_request(http_client: httpx.AsyncClient) -> SendRequest:
         response = await http_client.put(url, json=data, headers=headers)
         body = (
             response.json()
-            if response.headers.get("content-type", "").startswith("application/json")
+            if response.content
+            and response.headers.get("content-type", "").startswith("application/json")
             else response.text
         )
         return {"status": response.status_code, "body": body}
@@ -161,7 +164,8 @@ async def make_patch_request(http_client: httpx.AsyncClient) -> SendRequest:
         response = await http_client.patch(url, json=data, headers=headers)
         body = (
             response.json()
-            if response.headers.get("content-type", "").startswith("application/json")
+            if response.content
+            and response.headers.get("content-type", "").startswith("application/json")
             else response.text
         )
         return {"status": response.status_code, "body": body}
@@ -170,6 +174,12 @@ async def make_patch_request(http_client: httpx.AsyncClient) -> SendRequest:
 
 
 # FUNCTION: make_delete_request
+# NOTE: `response.content` is checked before the content-type sniff, here and in the four helpers
+# above. FastAPI answers a 204 route — a handler returning `None` with `status_code=204`, which is
+# what a DELETE endpoint usually is — with an EMPTY body and a `Content-Type: application/json`
+# header, and `response.json()` on zero bytes raises `json.decoder.JSONDecodeError: Expecting
+# value`, which reads like the caller's bug rather than this helper's. The reference vertical has
+# no 204 route, so the first one a project adds is the first caller to reach it.
 # SUMMARY: Fixture factory for making DELETE requests to the test API.
 # INPUT: http_client (httpx.AsyncClient): HTTP client fixture.
 # OUTPUT: (Callable): Async function that sends DELETE and returns status/body dict.
@@ -180,7 +190,8 @@ async def make_delete_request(http_client: httpx.AsyncClient) -> SendRequest:
         response = await http_client.delete(url)
         body = (
             response.json()
-            if response.headers.get("content-type", "").startswith("application/json")
+            if response.content
+            and response.headers.get("content-type", "").startswith("application/json")
             else response.text
         )
         return {"status": response.status_code, "body": body}
