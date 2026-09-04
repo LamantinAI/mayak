@@ -300,6 +300,73 @@ class TestValidateCBM:
 
         assert any("must appear inside a function body" in issue.message for issue in issues)
 
+    # FUNCTION: test_validate_python_source_ignores_the_marker_inside_a_string_literal
+    # SUMMARY: Verify a module that only names the marker as data is not reported as violating it.
+    # NOTE: The rule used to select its lines by substring over the raw file text, so a keyword
+    # table, a docstring about the convention or a test fixture read as a misplaced marker.
+    # scripts/validate_cbm.py is itself such a module — the string below is the shape of its own
+    # rule table — and scanning it without the `project/` scope filter reported it. That the
+    # filter hid it is an accident of directory layout, not a property of the check.
+    @pytest.mark.unit
+    def test_validate_python_source_ignores_the_marker_inside_a_string_literal(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        path = tmp_path / "marker_as_data_module.py"
+        path.write_text(
+            "# FILE: marker_as_data_module.py\n"
+            "# SUMMARY: Module whose data happens to quote the marker.\n\n"
+            "# ATTRIBUTE: _RULE_KEYWORDS (list[str])\n"
+            "# SUMMARY: Message fragments this module classifies by.\n"
+            "_RULE_KEYWORDS = [\n"
+            "    \"'**LOGIC_STEP**:' must appear inside\",\n"
+            "]\n",
+            encoding="utf-8",
+        )
+
+        issues = validate_python_source(path)
+
+        assert not any("must appear inside a function body" in issue.message for issue in issues)
+
+    # FUNCTION: test_validate_python_source_ignores_the_marker_inside_a_module_level_string
+    # SUMMARY: Verify prose quoting the convention outside any function is not read as a marker.
+    # NOTE: Outside a function is where it matters: a marker quoted inside a function body sits on
+    # a line the old substring scan also accepted, so such a fixture proves nothing about the
+    # change. This one is on a line the raw scan reported and the tokenizer does not.
+    @pytest.mark.unit
+    def test_validate_python_source_ignores_the_marker_inside_a_module_level_string(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        path = tmp_path / "marker_in_module_string.py"
+        path.write_text(
+            "# FILE: marker_in_module_string.py\n"
+            "# SUMMARY: Module whose own prose quotes the convention.\n\n"
+            "# ATTRIBUTE: CONVENTION (str)\n"
+            "# SUMMARY: The sentence this project's contributing guide prints.\n"
+            "CONVENTION = (\n"
+            "    \"Annotate a branch with '# **LOGIC_STEP**: why', inside the function body.\"\n"
+            ")\n",
+            encoding="utf-8",
+        )
+
+        issues = validate_python_source(path)
+
+        assert not any("must appear inside a function body" in issue.message for issue in issues)
+
+    # FUNCTION: test_this_validator_does_not_report_itself
+    # SUMMARY: Verify the validator is clean against its own source, scope filter aside.
+    # NOTE: The rule table in scripts/validate_cbm.py quotes this rule's own message as data. Under
+    # the substring scan that was one reported violation on shipped, correct code; it stayed
+    # invisible only because strict scanning covers `project/` and nothing else.
+    @pytest.mark.unit
+    def test_this_validator_does_not_report_itself(self) -> None:
+        validator = Path(__file__).resolve().parents[2] / "scripts" / "validate_cbm.py"
+
+        issues = validate_python_source(validator)
+
+        assert [issue.message for issue in issues] == []
+
     # FUNCTION: test_fix_python_source_does_not_add_private_helper_tags
     # SUMMARY: Verify autofix mode does not synthesize missing tags for private helpers that remain optional detail.
     @pytest.mark.unit

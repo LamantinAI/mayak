@@ -10,7 +10,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
 
 # ATTRIBUTE: ROOT_DIR (Path)
 # SUMMARY: Absolute repository root directory derived from the script location.
@@ -122,11 +122,79 @@ def _emit(message: str) -> None:
     sys.stdout.flush()
 
 
+# FUNCTION: env_sample_drift
+# SUMMARY: Report the sample keys a local env file is missing or answers differently.
+# INPUT: sample (Mapping[str, str | None]): Keys and defaults the committed sample declares.
+# INPUT: current (Mapping[str, str | None]): Keys the local, git-ignored env file carries.
+# OUTPUT: (list[str]): Sorted sample keys absent from `current` or holding a different value.
+# NOTE: Asymmetric on purpose. A key the local file ADDS is a deliberate override and is not
+# drift; a key the sample gained, or a default it changed, is — the local file is generated once
+# and then never compared again, so it keeps answering with last month's value.
+def env_sample_drift(
+    sample: Mapping[str, str | None], current: Mapping[str, str | None]
+) -> list[str]:
+    return sorted(
+        key for key, value in sample.items() if key not in current or current[key] != value
+    )
+
+
+# FUNCTION: _parse_env_file
+# SUMMARY: Read an env file into a mapping, tolerating comments, blanks, quotes and `export`.
+# INPUT: path (Path): File to read; a missing file reads as empty.
+# OUTPUT: (dict[str, str]): Key to value, with `export ` dropped and surrounding quotes stripped.
+# NOTE: Hand-rolled rather than `dotenv_values` because this runner is the one script that must
+# work before the project's environment is installed. The syntax it needs to understand is the
+# syntax docker compose reads: KEY=value, `#` comments, optional quotes — plus two conventions
+# that would otherwise be reported as drift on every run: a leading `export ` (so the file can be
+# sourced by a shell) and a trailing comment after an unquoted value. `=` inside a value is kept,
+# because `partition` splits on the first one only.
+def _parse_env_file(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    values: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key.startswith("export "):
+            key = key[len("export ") :].strip()
+        value = value.strip()
+        if value[:1] in {'"', "'"} and value[-1:] == value[:1] and len(value) > 1:
+            value = value[1:-1]
+        else:
+            # **LOGIC_STEP**: Only an unquoted value can carry a trailing comment; inside quotes
+            # a `#` is part of the value, and a password is exactly where one turns up.
+            value = value.split("#", 1)[0].strip()
+        values[key] = value
+    return values
+
+
+# FUNCTION: _warn_on_functional_env_drift
+# SUMMARY: Name the stale keys of tests/functional/.env before Docker Compose reads it.
+# NOTE: A warning, not a failure: the local file is allowed to differ (a port taken by another
+# stack, a password someone changed), and this runner has no way to tell a deliberate override
+# from a forgotten one. What it can do is say which keys differ BEFORE the containers start, so a
+# suite that fails two layers down inside Docker is not the first anyone hears of it.
+def _warn_on_functional_env_drift() -> None:
+    drifted = env_sample_drift(
+        _parse_env_file(FUNCTIONAL_ENV_SAMPLE), _parse_env_file(FUNCTIONAL_ENV_FILE)
+    )
+    if not drifted:
+        return
+    _emit(
+        f"warning: {FUNCTIONAL_ENV_FILE} differs from {FUNCTIONAL_ENV_SAMPLE.name} "
+        f"for: {', '.join(drifted)} — delete it to regenerate, or update it by hand"
+    )
+
+
 # FUNCTION: _ensure_functional_env
 # SUMMARY: Ensure the functional test suite has a concrete env file before Docker Compose starts.
 # RAISES: FileNotFoundError: When the functional env sample file is missing.
 def _ensure_functional_env() -> None:
     if FUNCTIONAL_ENV_FILE.exists():
+        _warn_on_functional_env_drift()
         return
     if not FUNCTIONAL_ENV_SAMPLE.exists():
         raise FileNotFoundError(f"Functional env sample not found: {FUNCTIONAL_ENV_SAMPLE}")

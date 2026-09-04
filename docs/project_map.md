@@ -187,6 +187,7 @@ Project Map: Mayak
 │   │   ├── test_env_sample_matches_code.py  ---  Guard against .env.sample drifting from the defaults declared in the settings models.
 │   │   ├── test_error_utils.py  ---  Unit tests for safe client-facing exception messages and sanitized exception summaries.
 │   │   ├── test_exceptions.py  ---  Unit tests for the domain exception hierarchy.
+│   │   ├── test_functional_request_helpers.py  ---  Pin that the five request helpers in tests/functional/conftest.py read an empty 204
 │   │   ├── test_gate_recipes.py  ---  Guard the Makefile recipes whose defect is what they do NOT do — a gate that measures
 │   │   ├── test_generate_ai_context.py  ---  Unit tests for the AI context map generator script.
 │   │   ├── test_health_endpoints.py  ---  Endpoint tests for liveness and readiness health contracts.

@@ -97,32 +97,41 @@ def _declared_project_name() -> str:
     return str(context["project_name"]).lower()
 
 
-# FUNCTION: _tracked_files
-# SUMMARY: List the repository's tracked files, which is exactly what a clone of the template gets.
-# OUTPUT: (list[Path]): Absolute paths of every file in the git index.
-def _tracked_files() -> list[Path]:
+# FUNCTION: _working_copy_files
+# SUMMARY: List every file the working copy carries — tracked or newly written — minus what
+# .gitignore excludes.
+# NOTE: `git ls-files -z` alone reports the index, and a file is not in the index until someone
+# runs `git add`. That is the whole time a new vertical is being drafted, which is exactly when
+# the project's name leaks into a file that shipped from the template. Measured on 2026-09-03:
+# a freshly written, un-added file carrying the project name passed all three guards below and
+# only became visible after the commit that made it tracked. `--others --exclude-standard` adds
+# precisely what `git add .` would pick up, so a .gitignored artifact (.venv, coverage.xml, a
+# log) still stays out and does not turn build litter into a red gate.
+# INPUT: root (Path): Repository to enumerate. The mechanism test points this at a throwaway repo.
+# OUTPUT: (list[Path]): Absolute paths of every tracked or newly added, non-ignored file.
+def _working_copy_files(root: Path = _REPO_ROOT) -> list[Path]:
     result = run(
-        ["git", "ls-files", "-z"],
-        cwd=_REPO_ROOT,
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        cwd=root,
         capture_output=True,
         text=True,
         check=True,
     )
-    return [_REPO_ROOT / name for name in result.stdout.split("\0") if name]
+    return [root / name for name in result.stdout.split("\0") if name]
 
 
 # CLASS: tests.application.test_template_neutrality.TestNoSupersededTemplateName
-# SUMMARY: Verify no tracked file still carries a retired name of this template.
+# SUMMARY: Verify no file in the working copy still carries a retired name of this template.
 class TestNoSupersededTemplateName:
-    # FUNCTION: test_retired_name_appears_in_no_tracked_file
+    # FUNCTION: test_retired_name_appears_in_no_working_copy_file
     # SUMMARY: Verify a rename left nothing behind, including in generated and hand-written docs.
     @pytest.mark.unit
-    def test_retired_name_appears_in_no_tracked_file(self) -> None:
+    def test_retired_name_appears_in_no_working_copy_file(self) -> None:
         # **LOGIC_STEP**: This file names the retired strings, so scanning it would always fail.
         this_file = Path(__file__).resolve()
         offenders: list[str] = []
 
-        for path in _tracked_files():
+        for path in _working_copy_files():
             if path.resolve() == this_file or not path.is_file():
                 continue
             try:
@@ -138,17 +147,17 @@ class TestNoSupersededTemplateName:
 
 
 # CLASS: tests.application.test_template_neutrality.TestForbiddenTerms
-# SUMMARY: Verify nothing this checkout is not allowed to mention appears in a tracked file.
+# SUMMARY: Verify nothing this checkout may not mention appears in any working-copy file.
 class TestForbiddenTerms:
-    # FUNCTION: test_no_tracked_file_contains_a_forbidden_term
+    # FUNCTION: test_no_working_copy_file_contains_a_forbidden_term
     # SUMMARY: Verify the local word list, if there is one, finds nothing.
     @pytest.mark.unit
-    def test_no_tracked_file_contains_a_forbidden_term(self) -> None:
+    def test_no_working_copy_file_contains_a_forbidden_term(self) -> None:
         terms = _forbidden_terms(FORBIDDEN_TERMS_FILE)
         if not terms:
             pytest.skip(f"no {FORBIDDEN_TERMS_FILE.name} in this checkout — nothing to enforce")
 
-        offenders = _files_containing(_tracked_files(), terms)
+        offenders = _files_containing(_working_copy_files(), terms)
 
         assert not offenders, "a forbidden term appears in: " + ", ".join(offenders)
 
@@ -181,6 +190,36 @@ class TestForbiddenTermsMechanism:
     @pytest.mark.unit
     def test_an_absent_list_yields_no_terms(self, tmp_path: Path) -> None:
         assert _forbidden_terms(tmp_path / "nothing-here") == ()
+
+
+# CLASS: tests.application.test_template_neutrality.TestWorkingCopyEnumerationMechanism
+# SUMMARY: Verify the enumeration the guards above scan reaches a file before `git add` does.
+# **LOGIC_STEP**: The guards themselves only prove the matcher works on whatever they are handed.
+# This proves the hand-off: a file written but not yet added is in scope, and a .gitignored one is
+# still out, so widening the scan did not buy the guards a new way to go red on build litter.
+class TestWorkingCopyEnumerationMechanism:
+    # FUNCTION: test_a_file_not_yet_added_is_still_enumerated
+    # SUMMARY: Verify an untracked, freshly written file appears in the scan.
+    @pytest.mark.unit
+    def test_a_file_not_yet_added_is_still_enumerated(self, tmp_path: Path) -> None:
+        run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        (tmp_path / "new_vertical.md").write_text("drafted, never added", encoding="utf-8")
+
+        found = {path.name for path in _working_copy_files(root=tmp_path)}
+
+        assert "new_vertical.md" in found
+
+    # FUNCTION: test_an_ignored_file_is_not_enumerated
+    # SUMMARY: Verify .gitignore still keeps build output and scratch work out of the scan.
+    @pytest.mark.unit
+    def test_an_ignored_file_is_not_enumerated(self, tmp_path: Path) -> None:
+        run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        (tmp_path / ".gitignore").write_text("scratch.md\n", encoding="utf-8")
+        (tmp_path / "scratch.md").write_text("drafted, ignored", encoding="utf-8")
+
+        found = {path.name for path in _working_copy_files(root=tmp_path)}
+
+        assert "scratch.md" not in found
 
 
 # CLASS: tests.application.test_template_neutrality.TestProjectMapHeading
@@ -232,7 +271,7 @@ class TestKernelSurfacesCarryNoProjectName:
         # .sql or .jinja asset could carry a stale name straight past it.
         name = _declared_project_name()
         offenders: list[str] = []
-        for path in _tracked_files():
+        for path in _working_copy_files():
             repo_path = str(path.relative_to(_REPO_ROOT))
             if not repo_path.startswith("project/") or repo_path in MAY_NAME_THE_PROJECT:
                 continue

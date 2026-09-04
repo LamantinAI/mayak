@@ -190,6 +190,131 @@ class TestGenerateAIContext:
 
         assert result == {}
 
+    # FUNCTION: test_extract_services_from_a_returned_dict_literal
+    # SUMMARY: Verify a registry returned inline, with no local variable at all, is still read.
+    # NOTE: `services = {...}` is the reference vertical's spelling, not a rule the language
+    # enforces, and the extractor used to accept nothing else. A builder returning the literal
+    # extracts to an empty registry, which docs/ai_context_map.json then reports as a project
+    # with no services — with no gate going red, because that map is generated and agrees with
+    # itself. Not seen in a real project: every one built from this template so far copied the
+    # reference spelling. Found by reading the extractor against the shapes an agent may write.
+    @pytest.mark.unit
+    def test_extract_services_from_a_returned_dict_literal(self, tmp_path: Path) -> None:
+        source_path = tmp_path / "services_returned_literal.py"
+        source_path.write_text(
+            "\n".join(
+                [
+                    "from typing import Any",
+                    "",
+                    "def build_services() -> dict[str, Any]:",
+                    "    return {",
+                    '        "reference_task_service": object(),',
+                    "    }",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        result = extract_service_registry_entries(source_path, tmp_path, "core")
+
+        assert sorted(result) == ["reference_task_service"]
+
+    # FUNCTION: test_extract_services_follows_a_returned_variable_of_any_name
+    # SUMMARY: Verify a registry built under another name and then returned is read from the return.
+    @pytest.mark.unit
+    def test_extract_services_follows_a_returned_variable_of_any_name(self, tmp_path: Path) -> None:
+        source_path = tmp_path / "services_returned_variable.py"
+        source_path.write_text(
+            "\n".join(
+                [
+                    "from typing import Any",
+                    "",
+                    "def build_services() -> dict[str, Any]:",
+                    "    registry: dict[str, Any] = {",
+                    '        "reference_task_service": object(),',
+                    "    }",
+                    "    return registry",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        result = extract_service_registry_entries(source_path, tmp_path, "core")
+
+        assert sorted(result) == ["reference_task_service"]
+
+    # FUNCTION: test_extract_services_ignores_a_returned_mapping_that_is_not_a_registry
+    # SUMMARY: Verify an unrelated dict-returning helper contributes no phantom services.
+    # NOTE: Reading returns rather than one variable name is what lets a differently-spelled
+    # builder be found; done naively it also turns every mapping in the file — request headers,
+    # an error body — into service entries. Nothing would go red: the map is generated, so it
+    # agrees with itself either way. A registry is a mapping of string keys onto names, calls or
+    # `None`; the helper below fails that shape on its values.
+    @pytest.mark.unit
+    def test_extract_services_ignores_a_returned_mapping_that_is_not_a_registry(
+        self, tmp_path: Path
+    ) -> None:
+        source_path = tmp_path / "services_beside_a_helper.py"
+        source_path.write_text(
+            "\n".join(
+                [
+                    "from typing import Any",
+                    "",
+                    "def default_headers() -> dict[str, str]:",
+                    "    headers = {",
+                    '        "accept": "application/json",',
+                    "    }",
+                    "    return headers",
+                    "",
+                    "def build_services(dependency: Any) -> dict[str, Any]:",
+                    "    services = {",
+                    '        "reference_task_service": dependency,',
+                    "    }",
+                    "    return services",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        result = extract_service_registry_entries(source_path, tmp_path, "core")
+
+        assert sorted(result) == ["reference_task_service"]
+
+    # FUNCTION: test_extract_services_keeps_two_builders_that_share_a_variable_name_apart
+    # SUMMARY: Verify a name bound in one builder cannot answer for the return of another.
+    # NOTE: service_registration.py is where every vertical's builder lands, so a file with
+    # several of them is the normal case, and each is free to call its local mapping the same
+    # thing. Resolved file-wide, the last binding wins and the earlier vertical vanishes.
+    @pytest.mark.unit
+    def test_extract_services_keeps_two_builders_that_share_a_variable_name_apart(
+        self, tmp_path: Path
+    ) -> None:
+        source_path = tmp_path / "two_builders.py"
+        source_path.write_text(
+            "\n".join(
+                [
+                    "from typing import Any",
+                    "",
+                    "def build_first(dependency: Any) -> dict[str, Any]:",
+                    "    registry = {",
+                    '        "first_service": dependency,',
+                    "    }",
+                    "    return registry",
+                    "",
+                    "def build_second(dependency: Any) -> dict[str, Any]:",
+                    "    registry = {",
+                    '        "second_service": dependency,',
+                    "    }",
+                    "    return registry",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        result = extract_service_registry_entries(source_path, tmp_path, "core")
+
+        assert sorted(result) == ["first_service", "second_service"]
+
     # FUNCTION: test_render_json_is_deterministic
     # SUMMARY: Verify JSON rendering is stable and newline-terminated for drift checks.
     @pytest.mark.unit

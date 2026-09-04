@@ -209,8 +209,12 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen
 
+      # Through the make target, for the reason the type-check job above gives: a copy of a gate
+      # step is a gate step that can go stale silently. This job stays even though
+      # `make quality-gates` now runs bandit too, so a security finding keeps a named red check
+      # of its own rather than being buried in the gate's output.
       - name: Bandit security scan
-        run: uv run --with bandit bandit -q -r project -ll
+        run: make security-scan
 
   dependency-audit:
     runs-on: ubuntu-latest

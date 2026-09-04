@@ -120,9 +120,11 @@ gate-tests:
 # The one validation command. There used to be three — `ai-workset-check` for the current diff,
 # `ai-fast-check` in the middle, and this one — and the ladder was measured on the fourth template
 # run: ai-fast-check took 15.0 s against this target's 14.8 s, so the middle rung was slower than
-# the thing it was a cheap alternative to. Everything here except the test suite costs 3.0 s; the
-# suite is the other 11.8. (The total read 14.2 until 2026-08-14, against parts that add to 14.8 —
-# the two halves were measured and the total was typed.) The narrow loop did buy ~12 s, and paid for them by never running mypy
+# the thing it was a cheap alternative to. Re-measured on 2026-09-04, after bandit joined the
+# steps: 16.2 s in total, of which the suite is 12.4 and everything else 3.8 — bandit is 0.2 of
+# that, and about 2 s of the suite's own growth is two of its tests running bandit over throwaway
+# files. (The total read 14.2 until 2026-08-14, against parts that add to 14.8 — the two halves
+# were measured and the total was typed.) The narrow loop did buy ~12 s, and paid for them by never running mypy
 # and by resolving no tests at all for 22 of the 50 files under project/ — a green "workset checks
 # passed" on a diff that fails this target with 5 type errors and 24 broken tests.
 #
@@ -204,6 +206,7 @@ quality-gates-steps:
 	$(UV) run python scripts/validate_file_policy.py
 	$(UV) run python scripts/validate_script_paths.py
 	$(UV) run python scripts/validate_secrets.py
+	@$(MAKE) --no-print-directory security-scan
 	$(UV) run python scripts/structure_builder.py --check
 	$(UV) run python scripts/generate_ai_context.py --check
 	$(UV) run python scripts/sync_agent_docs.py --check
@@ -254,15 +257,30 @@ audit-deps:
 	fi
 
 # bandit lives here rather than only in a CI job, so the security scan is runnable by the person
-# who can act on it. `-ll` reports medium severity and above; the two `# nosec B608` markers in
+# who can act on it. It is a pinned dev dependency, not `--with bandit`: the gate runs this, and an
+# overlay dependency re-resolves against the network every time. The `@` matters too — the doctor
+# reads this target's output and reports its first meaningful line, and an echoed command line is
+# what it would report instead of the finding. `-ll` reports medium severity and above; the three `# nosec B608` markers in
 # the reference repository are load-bearing — without them this exits 1.
+#
+# Called from `quality-gates-steps` above, not only from `ci-local`. Until 2026-09-04 this target
+# was a lane of `ci-local` alone, so the command an agent actually runs while working — `make
+# quality-gates` — never asked bandit anything, and only the pipeline could see a finding. Costs
+# 0.5 s with a warm uv cache. What that blindness hid in the field was a `# nosec B608` an agent
+# had placed on the closing-paren line of a multi-line query instead of the literal's own line:
+# bandit resolves the marker by physical line, so it suppressed nothing, and the finding was
+# real — but ruff, mypy and every validator here passed, because none of them is bandit.
 security-scan: ## Validation | bandit security scan over project/
-	$(UV) run --with bandit bandit -q -r project -ll
+	@$(UV) run bandit -q -r project -ll
 
 # Everything the pipeline runs, in one local command, cheapest lane first so it fails fast.
 # It exists because the pipeline stopped being reachable and "green" has to keep meaning
 # something. Each lane below corresponds to a job in .github/workflows/ci.yml; adding a job
 # there without adding it here puts the two back out of step, which is how a gate starts lying.
+#
+# There is no security lane either, since 2026-09-04: `quality-gates` runs bandit itself, and both
+# gate lanes below already invoke it, so a third invocation of the same command bought nothing.
+# `make security-scan` remains as a target for anyone who wants only that check.
 #
 # There is no minimum-Python lane. requires-python and .python-version now name the same version,
 # so such a lane could only re-run the suite on the interpreter lane 1 already used — a gate that
@@ -271,18 +289,16 @@ security-scan: ## Validation | bandit security scan over project/
 # there a stale generated artifact is a failure, not something to fix on the fly. Plain
 # `make quality-gates` refreshes instead — by the time you reach ci-local the artifacts are
 # already fresh, so this lane only fires for someone who skipped the gate entirely.
-ci-local: ## Validation | Everything CI runs, locally: gates, both Postgres modes, security, audit, e2e
-	@echo "===> 1/6 quality-gates"
+ci-local: ## Validation | Everything CI runs, locally: gates, both Postgres modes, audit, e2e
+	@echo "===> 1/5 quality-gates"
 	@STRICT_GENERATED=1 $(MAKE) --no-print-directory quality-gates
-	@echo "===> 2/6 quality-gates without PostgreSQL"
+	@echo "===> 2/5 quality-gates without PostgreSQL"
 	@STRICT_GENERATED=1 POSTGRES_ENABLED=false $(MAKE) --no-print-directory quality-gates
-	@echo "===> 3/6 security scan"
-	@$(MAKE) --no-print-directory security-scan
-	@echo "===> 4/6 dependency audit"
+	@echo "===> 3/5 dependency audit"
 	@$(MAKE) --no-print-directory audit-deps
-	@echo "===> 5/6 diff coverage"
+	@echo "===> 4/5 diff coverage"
 	@$(MAKE) --no-print-directory diff-coverage
-	@echo "===> 6/6 functional tests"
+	@echo "===> 5/5 functional tests"
 	@$(MAKE) --no-print-directory test-e2e
 	@echo "===> ci-local: all lanes passed"
 
