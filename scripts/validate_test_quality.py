@@ -699,37 +699,71 @@ def _is_none(expression: ast.AST) -> bool:
 _WILDCARD_NAMES = frozenset({"ANY"})
 
 
+# FUNCTION: _wildcard_aliases
+# SUMMARY: Every local name in a module that refers to mock.ANY.
+# OUTPUT: (set[str]): "ANY" plus any name it was imported or assigned as.
+# NOTE: `from unittest.mock import ANY as WHATEVER` is visible right here in the module's imports,
+# so following it costs nothing. What is not followed is a wildcard arriving from another module
+# or built at runtime; the rule's note says so rather than claiming to catch every spelling.
+def _wildcard_aliases(tree: ast.AST) -> set[str]:
+    aliases = set(_WILDCARD_NAMES)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for imported in node.names:
+                if imported.name in _WILDCARD_NAMES and imported.asname:
+                    aliases.add(imported.asname)
+        elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Name):
+            if node.value.id in aliases:
+                aliases.update(target.id for target in node.targets if isinstance(target, ast.Name))
+    return aliases
+
+
 # FUNCTION: _is_a_wildcard
-# SUMMARY: Report whether an expression is mock.ANY under any spelling.
-def _is_a_wildcard(expression: ast.AST) -> bool:
+# SUMMARY: Report whether an expression is mock.ANY under a name this module gave it.
+def _is_a_wildcard(expression: ast.AST, aliases: set[str] | None = None) -> bool:
+    known = aliases or _WILDCARD_NAMES
     if isinstance(expression, ast.Name):
-        return expression.id in _WILDCARD_NAMES
+        return expression.id in known
     if isinstance(expression, ast.Attribute):
         return expression.attr in _WILDCARD_NAMES
     return False
 
 
+# FUNCTION: _bound_names
+# SUMMARY: Every name a binding target introduces, including tuple and list unpacking.
+def _bound_names(target: ast.AST) -> list[str]:
+    return [node.id for node in ast.walk(target) if isinstance(node, ast.Name)]
+
+
 # FUNCTION: _names_holding_the_output
-# SUMMARY: Local names a function assigned from the span's output.
-# OUTPUT: (set[str]): Every name bound to an expression that reads the output key.
+# SUMMARY: Local names a function bound to the span's output, however they were bound.
+# OUTPUT: (set[str]): Every name that holds the value the span reported.
 # NOTE: The tautology guard below compares the two sides of an equality, and a tautology survives
 # one `expected = finish[...]["output"]` line above the assert: neither side reads the key twice,
-# so a purely syntactic guard sees two different expressions. Following the assignment is what
-# makes the guard about the value rather than about the spelling.
+# so a purely syntactic guard sees two different expressions. Following the binding is what makes
+# the guard about the value rather than about the spelling — through an assignment, a walrus, a
+# loop variable, a `with ... as`, and unpacking, because a guard that covers only the first of
+# those is a guard anybody can walk around by accident.
 def _names_holding_the_output(node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
     held: set[str] = set()
     for child in ast.walk(node):
         if isinstance(child, ast.Assign) and _touches_the_output_key(child.value):
             for target in child.targets:
-                if isinstance(target, ast.Name):
-                    held.add(target.id)
+                held.update(_bound_names(target))
         elif (
             isinstance(child, ast.AnnAssign)
             and child.value is not None
             and _touches_the_output_key(child.value)
-            and isinstance(child.target, ast.Name)
         ):
-            held.add(child.target.id)
+            held.update(_bound_names(child.target))
+        elif isinstance(child, ast.NamedExpr) and _touches_the_output_key(child.value):
+            held.update(_bound_names(child.target))
+        elif isinstance(child, (ast.For, ast.AsyncFor)) and _touches_the_output_key(child.iter):
+            held.update(_bound_names(child.target))
+        elif isinstance(child, (ast.With, ast.AsyncWith)):
+            for item in child.items:
+                if item.optional_vars is not None and _touches_the_output_key(item.context_expr):
+                    held.update(_bound_names(item.optional_vars))
     return held
 
 
@@ -754,10 +788,20 @@ def _reads_the_output(expression: ast.AST, held: set[str]) -> bool:
 # A rule that fires on correct work teaches people to reach for the opt-out marker.
 #
 # Two equalities are still refused, because neither states anything. `== ANY` compares equal to
-# whatever the span reported. And the tautology — both sides reading the same span, whether
-# spelled out twice or routed through a local name — is the shape test.sql_constant_round_trip
-# refuses for the same reason: both sides move together.
-def _pins_a_value(expression: ast.AST, held: set[str] | None = None) -> bool:
+# whatever the span reported, under any name this module gave it. And the tautology — both sides
+# reading the same span, whether spelled out twice or bound to a local name first — is the shape
+# test.sql_constant_round_trip refuses for the same reason: both sides move together.
+#
+# The refusals are read off this module's own syntax, so an assertion assembled elsewhere gets
+# through: a wildcard handed in by a fixture, an expected value computed by a helper out of the
+# same record, a comparison built at runtime. Those take deliberate work to write. This rule is a
+# check for the presence of a real assertion, the way test.sql_constant_round_trip is a check for
+# the presence of a trap — neither can tell you the assertion is the right one.
+def _pins_a_value(
+    expression: ast.AST,
+    held: set[str] | None = None,
+    wildcards: set[str] | None = None,
+) -> bool:
     held = held or set()
     collections = (ast.Dict, ast.List, ast.Tuple, ast.Set)
     for inner in ast.walk(expression):
@@ -767,7 +811,7 @@ def _pins_a_value(expression: ast.AST, held: set[str] | None = None) -> bool:
             if isinstance(operator, (ast.Eq, ast.NotEq)):
                 if _is_none(inner.left) or _is_none(right):
                     continue
-                if _is_a_wildcard(inner.left) or _is_a_wildcard(right):
+                if _is_a_wildcard(inner.left, wildcards) or _is_a_wildcard(right, wildcards):
                     continue
                 if _reads_the_output(inner.left, held) and _reads_the_output(right, held):
                     continue
@@ -780,11 +824,14 @@ def _pins_a_value(expression: ast.AST, held: set[str] | None = None) -> bool:
 # FUNCTION: _states_a_span_output
 # SUMMARY: Report whether one assertion both reads the span's output and says what it holds.
 # OUTPUT: (bool): True when the same assert touches `output` and pins a value in it.
-def _states_a_span_output(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+def _states_a_span_output(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    wildcards: set[str] | None = None,
+) -> bool:
     held = _names_holding_the_output(node)
     for child in ast.walk(node):
         if isinstance(child, ast.Assert) and _touches_the_output_key(child.test):
-            if _pins_a_value(child.test, held):
+            if _pins_a_value(child.test, held, wildcards):
                 return True
     return False
 
@@ -814,10 +861,13 @@ def _reads_output_key(node: ast.AST) -> bool:
 # FUNCTION: _compares_to_a_literal
 # SUMMARY: Report whether some assertion states a concrete value rather than mere truthiness.
 # OUTPUT: (bool): True when an assert compares against a literal.
-def _compares_to_a_literal(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+def _compares_to_a_literal(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    wildcards: set[str] | None = None,
+) -> bool:
     held = _names_holding_the_output(node)
     return any(
-        isinstance(child, ast.Assert) and _pins_a_value(child.test, held)
+        isinstance(child, ast.Assert) and _pins_a_value(child.test, held, wildcards)
         for child in ast.walk(node)
     )
 
@@ -846,6 +896,7 @@ def _span_output_issues(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     helpers: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
     path: Path,
+    wildcards: set[str] | None = None,
 ) -> list[TestQualityIssue]:
     looks_up = _looks_up_a_span_finish(node)
     # **LOGIC_STEP**: A helper that already narrows to `output` hands the test the payload
@@ -876,7 +927,9 @@ def _span_output_issues(
             helper_extracts_output = True
     if not looks_up:
         return []
-    if _states_a_span_output(node) or (helper_extracts_output and _compares_to_a_literal(node)):
+    if _states_a_span_output(node, wildcards) or (
+        helper_extracts_output and _compares_to_a_literal(node, wildcards)
+    ):
         return []
     return [
         TestQualityIssue(
@@ -909,6 +962,7 @@ def validate_test_module(path: Path, repo_root: Path | None = None) -> list[Test
     source_lines = source.splitlines()
     issues: list[TestQualityIssue] = _query_round_trip_issues(tree, path, repo_root or ROOT_DIR)
     helpers = _module_functions(tree)
+    wildcards = _wildcard_aliases(tree)
 
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -938,7 +992,7 @@ def validate_test_module(path: Path, repo_root: Path | None = None) -> list[Test
                 )
             )
 
-        issues.extend(_span_output_issues(node, helpers, path))
+        issues.extend(_span_output_issues(node, helpers, path, wildcards))
 
         states_expectation, weak_call = _verification_strength(node, helpers)
 
@@ -1035,12 +1089,21 @@ def _spans_recording_an_outcome(tree: ast.AST) -> list[tuple[str, int]]:
         # **LOGIC_STEP**: The span's own name and any local alias of it, because `handle = span`
         # one line down is an ordinary thing to write and the write through it is the same write.
         aliases = {variable}
-        for child in ast.walk(node):
-            if isinstance(child, ast.Assign) and isinstance(child.value, ast.Name):
-                if child.value.id in aliases:
-                    aliases.update(
-                        target.id for target in child.targets if isinstance(target, ast.Name)
-                    )
+        # **LOGIC_STEP**: Repeated until it stops growing. ast.walk visits breadth-first, so a
+        # single pass missed `b = a` whenever `a = span` sat one level deeper — the chain was read
+        # out of order and the write through `b` disappeared.
+        growing = True
+        while growing:
+            growing = False
+            for child in ast.walk(node):
+                if not isinstance(child, ast.Assign) or not isinstance(child.value, ast.Name):
+                    continue
+                if child.value.id not in aliases:
+                    continue
+                for target in child.targets:
+                    if isinstance(target, ast.Name) and target.id not in aliases:
+                        aliases.add(target.id)
+                        growing = True
         for child in ast.walk(node):
             if not isinstance(child, ast.Assign):
                 continue
