@@ -441,6 +441,34 @@ class TestAStatusIsCheckedAgainstTheWiring:
 
         assert collect_project_context_issues(tmp_path) == []
 
+    # FUNCTION: test_wiring_files_that_register_nothing_are_still_reported
+    # SUMMARY: Verify silence is reserved for wiring this cannot read, not for wiring that is empty.
+    # **LOGIC_STEP**: The two look alike from here — both yield no names — and treating them alike
+    # was a false negative for the ordinary mistake this rule exists to catch: replacing the
+    # example vertical and forgetting to wire the replacement. The discriminator is whether a
+    # function hands back something the extractor could not follow.
+    @pytest.mark.unit
+    def test_wiring_files_that_register_nothing_are_still_reported(self, tmp_path: Path) -> None:
+        _write_context(tmp_path, _valid_skeleton())
+        core = tmp_path / "project" / "core"
+        core.mkdir(parents=True)
+        (core / "service_registration.py").write_text(
+            "def register_vertical_services(container: object) -> None:\n    pass\n",
+            encoding="utf-8",
+        )
+        api = tmp_path / "project" / "infrastructure" / "api"
+        api.mkdir(parents=True)
+        (api / "router_registration.py").write_text(
+            "def include_application_routers(app: object) -> None:\n    pass\n",
+            encoding="utf-8",
+        )
+
+        issues = collect_project_context_issues(tmp_path)
+
+        assert [issue.rule_id for issue in issues] == [
+            "project_context.vertical_status_contradicts_wiring"
+        ]
+
     # FUNCTION: test_a_checkout_without_wiring_files_says_nothing_about_status
     # SUMMARY: Verify absent wiring is silence, not evidence that nothing is registered.
     @pytest.mark.unit

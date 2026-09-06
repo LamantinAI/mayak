@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -507,6 +508,37 @@ def _validate_business_rules(
 _RUNNING_STATUSES = frozenset({"active", "reference_implementation"})
 
 
+# FUNCTION: _registry_is_out_of_reach
+# SUMMARY: Report whether a registration file builds its registry somewhere this cannot follow.
+# OUTPUT: (bool): True when a function there returns a value that is not a mapping written inline.
+# NOTE: The discriminator is a returned value the extractor cannot read: `return build_registry()`
+# or `services = build_registry(); return services`. A file whose functions return nothing at all
+# is not out of reach — it registers nothing, which is a different fact and a reportable one.
+def _registry_is_out_of_reach(registration: Path) -> bool:
+    if not registration.is_file():
+        return False
+    try:
+        tree = ast.parse(registration.read_text(encoding="utf-8"), filename=str(registration))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return True
+    inline: set[str] = {
+        target.id
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and isinstance(node.value, ast.Dict)
+        for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
+        if isinstance(target, ast.Name)
+    }
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Return) or node.value is None:
+            continue
+        if isinstance(node.value, ast.Dict):
+            continue
+        if isinstance(node.value, ast.Name) and node.value.id in inline:
+            continue
+        return True
+    return False
+
+
 # FUNCTION: _wired_vertical_names
 # SUMMARY: The vertical names the wiring files actually register, or None when they are absent.
 # OUTPUT: (tuple[set[str], dict[str, str]] | None): Names registered outright, and the singular
@@ -535,13 +567,15 @@ def _wired_vertical_names(root_dir: Path) -> tuple[set[str], dict[str, str]] | N
             names.add(module)
             if module.endswith("s"):
                 singulars.setdefault(module[:-1], module)
-    # **LOGIC_STEP**: Nothing read is not the same as nothing registered. Both extractors read one
-    # file's syntax tree and follow no imports, so a project that has moved registry construction
-    # into a helper module — an ordinary refactor, and one the module-size budget pushes towards —
-    # yields an empty set from files that are plainly wiring up verticals. Reporting every active
-    # vertical as unregistered there would turn the gate red on correct work, and a rule that does
-    # that gets switched off rather than obeyed. Silence is the honest answer.
-    if not names:
+    # **LOGIC_STEP**: Nothing read is not the same as nothing registered — but neither is it the
+    # same as nothing to read. Both extractors read one file's syntax tree and follow no imports,
+    # so a project that moved registry construction into a helper module yields an empty set from
+    # a file that is plainly wiring verticals up, and reporting every active vertical as
+    # unregistered there would redden the gate on correct work. A registration file that hands
+    # back something this validator cannot follow is therefore silence. One that registers nothing
+    # at all is not: that is the ordinary mistake of replacing the example vertical and forgetting
+    # to wire the replacement, and it is what the rule exists for.
+    if not names and _registry_is_out_of_reach(registration):
         return None
     return names, singulars
 
