@@ -380,7 +380,7 @@ class TestReadmeListsEverySkill:
 
 # ATTRIBUTE: _NUMBER (re.Pattern[str])
 # SUMMARY: Any decimal number in a comment line.
-_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+_NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 
 
 # FUNCTION: _rejecting_bounds
@@ -476,6 +476,16 @@ class TestReadmeCountsTheValidatorsThatExist:
     # SUMMARY: Verify each "<number> validators" in README equals the count of scripts/validate_*.py.
     @pytest.mark.unit
     def test_every_stated_validator_count_matches_the_scripts_directory(self) -> None:
+        # **LOGIC_STEP**: The template's own README, not a project's. A project inherits this test
+        # along with the file, rewrites the page in its own words, and would then be held to a
+        # sentence it never wrote — "we dropped three validators last year" reads as a wrong count
+        # to a check that cannot see a tense.
+        shipped = json.loads(
+            (_REPO_ROOT / "docs" / "project_context.json").read_text(encoding="utf-8")
+        )
+        if not shipped.get("is_template", False):
+            pytest.skip("this repository is a project built from the template, not the template")
+
         actual = len(list((_REPO_ROOT / "scripts").glob("validate_*.py")))
         readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
         counted: list[str] = []

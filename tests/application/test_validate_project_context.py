@@ -627,13 +627,26 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 # they name are read back out of the code here, so deleting one turns this red rather than leaving
 # a confident sentence about a bound that no longer exists.
 class TestTheShippedFileShowsTheShape:
+    # FUNCTION: _shipped_context
+    # SUMMARY: The repository's own project context, or a skip when this is not the template.
+    # **LOGIC_STEP**: These three assertions are about the example the template ships, and a
+    # project inherits the file AND the tests. Left unguarded they turned into a standing demand
+    # that every project keep three business rules it may not have and a README sentence it may
+    # have rewritten — a red gate for doing exactly what the Quick Start tells them to do.
+    @staticmethod
+    def _shipped_context() -> dict[str, Any]:
+        shipped: dict[str, Any] = json.loads(
+            (_REPO_ROOT / "docs" / "project_context.json").read_text(encoding="utf-8")
+        )
+        if not shipped.get("is_template", False):
+            pytest.skip("this repository is a project built from the template, not the template")
+        return shipped
+
     # FUNCTION: test_the_shipped_context_demonstrates_a_business_rule
     # SUMMARY: Verify the shipped file carries rules and references them from a vertical.
     @pytest.mark.unit
     def test_the_shipped_context_demonstrates_a_business_rule(self) -> None:
-        data = json.loads(
-            (_REPO_ROOT / "docs" / "project_context.json").read_text(encoding="utf-8")
-        )
+        data = self._shipped_context()
         rules = data["business_rules"]
 
         assert rules, "business_rules is empty, so the shipped file shows no example of the shape"
@@ -654,9 +667,7 @@ class TestTheShippedFileShowsTheShape:
     # written for different readers and are meant to differ.
     @pytest.mark.unit
     def test_the_prose_and_the_json_agree_on_whether_rules_exist(self) -> None:
-        data = json.loads(
-            (_REPO_ROOT / "docs" / "project_context.json").read_text(encoding="utf-8")
-        )
+        data = self._shipped_context()
         prose = (_REPO_ROOT / "PROJECT.md").read_text(encoding="utf-8")
 
         missing = [rule_id for rule_id in data["business_rules"] if rule_id not in prose]
@@ -670,9 +681,7 @@ class TestTheShippedFileShowsTheShape:
     # SUMMARY: Verify a rule's summary does not describe a bound the code no longer has.
     @pytest.mark.unit
     def test_every_constant_a_shipped_rule_names_still_exists(self) -> None:
-        data = json.loads(
-            (_REPO_ROOT / "docs" / "project_context.json").read_text(encoding="utf-8")
-        )
+        data = self._shipped_context()
         sources = "\n".join(
             path.read_text(encoding="utf-8")
             for path in sorted((_REPO_ROOT / "project").rglob("*.py"))
@@ -681,7 +690,10 @@ class TestTheShippedFileShowsTheShape:
         missing: list[str] = []
         for rule_id, rule in data["business_rules"].items():
             for name in _CONSTANT.findall(str(rule["summary"])):
-                if f"{name} " not in sources and f"{name}\n" not in sources:
+                # **LOGIC_STEP**: A word boundary, not "followed by a space". `MAX_TITLE_LENGTH=200`
+                # and `MAX_TITLE_LENGTH:` are ordinary Python and read as absent under the first
+                # spelling of this check.
+                if not re.search(rf"\b{re.escape(name)}\b", sources):
                     missing.append(f"{rule_id} -> {name}")
 
         assert missing == [], f"these rules name constants no longer in project/: {missing}"
