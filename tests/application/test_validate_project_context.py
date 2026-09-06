@@ -521,6 +521,72 @@ class TestAStatusIsCheckedAgainstTheWiring:
 
         assert collect_project_context_issues(tmp_path) == []
 
+    # FUNCTION: test_a_vertical_wired_beside_one_this_cannot_read_is_not_reported
+    # SUMMARY: Verify one hidden registration silences the check instead of accusing the vertical.
+    # **LOGIC_STEP**: The question is whether everything was found, not whether anything was. A
+    # project that wires its first vertical inline and its second through a registration submodule
+    # and a helper that includes the router had the second reported as unwired while it was
+    # running — the set looked usable because the first vertical was in it.
+    @pytest.mark.unit
+    def test_a_vertical_wired_beside_one_this_cannot_read_is_not_reported(
+        self, tmp_path: Path
+    ) -> None:
+        data = _valid_skeleton()
+        data["verticals"]["widgets"] = {
+            "description": "Wired through its own registration module",
+            "status": "active",
+            "domain_entities": ["Widget"],
+        }
+        _write_context(tmp_path, data)
+        core = tmp_path / "project" / "core"
+        core.mkdir(parents=True)
+        (core / "service_registration.py").write_text(
+            "from typing import Any\n\n"
+            "from project.core.widgets_registration import build_widgets_services\n\n\n"
+            "def build_reference_services() -> dict[str, Any]:\n"
+            '    services: dict[str, Any] = {"orders_service": None}\n'
+            "    services.update(build_widgets_services())\n"
+            "    return services\n",
+            encoding="utf-8",
+        )
+        api = tmp_path / "project" / "infrastructure" / "api"
+        api.mkdir(parents=True)
+        (api / "router_registration.py").write_text(
+            "from project.infrastructure.api.endpoints.orders import router as orders_router\n"
+            "from project.infrastructure.api.widgets_routes import register_widgets_router\n\n\n"
+            "def include_application_routers(app: object) -> None:\n"
+            "    app.include_router(orders_router)\n"
+            "    register_widgets_router(app)\n",
+            encoding="utf-8",
+        )
+
+        assert collect_project_context_issues(tmp_path) == []
+
+    # FUNCTION: test_a_registry_held_in_a_module_constant_counts_as_wiring
+    # SUMMARY: Verify a registry spelled out at module level registers its verticals.
+    # **LOGIC_STEP**: Plain to read and invisible to an extractor that expects the literal inside
+    # the builder, so the keys are read here as well and added to what the extractor found.
+    @pytest.mark.unit
+    def test_a_registry_held_in_a_module_constant_counts_as_wiring(self, tmp_path: Path) -> None:
+        _write_context(tmp_path, _valid_skeleton())
+        core = tmp_path / "project" / "core"
+        core.mkdir(parents=True)
+        (core / "service_registration.py").write_text(
+            "from typing import Any\n\n"
+            'REGISTRY: dict[str, Any] = {"orders_service": None}\n\n\n'
+            "def build_reference_services() -> dict[str, Any]:\n"
+            "    return REGISTRY\n",
+            encoding="utf-8",
+        )
+        api = tmp_path / "project" / "infrastructure" / "api"
+        api.mkdir(parents=True)
+        (api / "router_registration.py").write_text(
+            "def include_application_routers(app: object) -> None:\n    pass\n",
+            encoding="utf-8",
+        )
+
+        assert collect_project_context_issues(tmp_path) == []
+
     # FUNCTION: test_a_checkout_without_wiring_files_says_nothing_about_status
     # SUMMARY: Verify absent wiring is silence, not evidence that nothing is registered.
     @pytest.mark.unit

@@ -519,35 +519,91 @@ def _parsed(path: Path) -> ast.Module | None:
         return None
 
 
-# FUNCTION: _wiring_registers_nothing
-# SUMMARY: Report whether the wiring files plainly register nothing at all.
-# OUTPUT: (bool): True when no function hands a value back and no router is included.
-# NOTE: This is the discriminator between the two ways a project can yield no vertical names, and
-# it is written as the narrow question rather than the broad one on purpose. The extractors read
-# one file's syntax tree and follow no imports, so a registry assembled anywhere else — a helper
-# module, a merged mapping, a module-level constant, a comprehension — is invisible to them, and
-# an earlier attempt to enumerate the readable shapes kept finding another one it had missed and
-# reporting a correctly wired project. Anything that hands a value back, or includes a router at
-# all, is therefore treated as wiring this validator cannot vouch for, and the check stands down.
-#
-# What is left is the shape that registers nothing under any reading: functions that return
-# nothing and no router inclusion. That is the ordinary mistake the rule exists for — replacing
-# the example vertical and forgetting to wire the replacement.
-def _wiring_registers_nothing(registration: Path, routers: Path) -> bool:
-    for path in (registration, routers):
-        tree = _parsed(path)
-        if path.is_file() and tree is None:
-            return False
-        if tree is None:
+# ATTRIBUTE: _ENDPOINTS_PACKAGE (str)
+# SUMMARY: The module prefix a directly-imported router comes from.
+_ENDPOINTS_PACKAGE = "project.infrastructure.api.endpoints."
+
+
+# FUNCTION: _visible_registry_keys
+# SUMMARY: The service keys a registration file spells out, and whether it hides any.
+# OUTPUT: (tuple[set[str], bool]): Keys read here, and False when something is out of reach.
+# NOTE: Read here rather than taken from the extractor, because the two disagree in ordinary code:
+# a registry held in a module-level constant is plain to read and invisible to an AST walk that
+# expects the literal inside the builder. Anything this cannot spell out — a call, a
+# comprehension, a `**` merge, an `.update()` — makes the whole set unknown, and an unknown set
+# means the rule below has nothing to check against and stands down.
+def _visible_registry_keys(registration: Path) -> tuple[set[str], bool]:
+    if not registration.is_file():
+        return set(), True
+    tree = _parsed(registration)
+    if tree is None:
+        return set(), False
+
+    inline: dict[str, ast.Dict] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    inline[target.id] = node.value
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.value, ast.Dict)
+            and isinstance(node.target, ast.Name)
+        ):
+            inline[node.target.id] = node.value
+
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "update"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in inline
+        ):
+            return set(), False
+
+    keys: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Return) or node.value is None:
             continue
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Return) and node.value is not None:
-                return False
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "include_router"
-            ):
+        mapping = node.value if isinstance(node.value, ast.Dict) else None
+        if mapping is None and isinstance(node.value, ast.Name):
+            mapping = inline.get(node.value.id)
+        if mapping is None:
+            return set(), False
+        for key in mapping.keys:
+            if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+                return set(), False
+            keys.add(key.value)
+    return keys, True
+
+
+# FUNCTION: _routers_are_fully_visible
+# SUMMARY: Report whether every router this file includes can be traced to an endpoint module.
+# NOTE: A router included through a helper the file calls by name, or imported from the package
+# rather than from its module, is a router this validator cannot name — and a project that wires
+# one vertical inline and the next one through a helper would otherwise have the second reported
+# as unwired while it is running.
+def _routers_are_fully_visible(routers: Path) -> bool:
+    if not routers.is_file():
+        return True
+    tree = _parsed(routers)
+    if tree is None:
+        return False
+
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(_ENDPOINTS_PACKAGE):
+            imported.update(alias.asname or alias.name for alias in node.names)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
+            return False
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "include_router":
+            argument = node.args[0] if node.args else None
+            if not isinstance(argument, ast.Name) or argument.id not in imported:
                 return False
     return True
 
@@ -586,11 +642,15 @@ def _wired_vertical_names(root_dir: Path) -> tuple[set[str], dict[str, str]] | N
                     singulars.setdefault(module[:-1], module)
     except Exception:
         return None
-    # **LOGIC_STEP**: Nothing read is not the same as nothing registered — but neither is it the
-    # same as nothing to read. Wiring this validator cannot follow is silence; wiring that plainly
-    # registers nothing is the mistake the rule exists for. _wiring_registers_nothing draws that
-    # line, and errs towards silence.
-    if not names and not _wiring_registers_nothing(registration, routers):
+    # **LOGIC_STEP**: The question is not whether anything was found but whether everything was.
+    # Asking the first one reported a correctly wired vertical the moment a project wired its
+    # second one through a helper module: the first vertical was found, so the set looked usable,
+    # and the second was missing from it. A set with anything hidden from it cannot say a vertical
+    # is unregistered, so the check stands down whenever the registry or the router inclusions
+    # hold something out of reach — which is most of the ways a growing project writes them.
+    visible, registry_is_whole = _visible_registry_keys(registration)
+    names.update(key.removesuffix("_service").removesuffix("_repository") for key in visible)
+    if not registry_is_whole or not _routers_are_fully_visible(routers):
         return None
     return names, singulars
 
