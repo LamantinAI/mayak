@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from project.domain.reference_task import ReferenceTask
+from project.core.logging.logger import get_logger
 from project.infrastructure.persistence.reference_task_repository import (
     _SELECT_BY_ID,
     _SELECT_BY_STATUS,
@@ -83,7 +84,11 @@ def _pool_returning(rows: list[dict[str, Any]]) -> tuple[Any, MagicMock]:
 
     connection = MagicMock()
     connection.cursor = _cursor
-    connection.execute = AsyncMock()
+    # **LOGIC_STEP**: `execute` answers with a cursor, because the write path reads `rowcount` off
+    # it to report what it wrote. A bare AsyncMock returns another mock, and a span asserting on
+    # its output then compares against a mock's repr.
+    connection.execute = AsyncMock(return_value=cursor)
+    cursor.rowcount = 1
 
     @asynccontextmanager
     async def _connection() -> AsyncIterator[MagicMock]:
@@ -377,6 +382,35 @@ class TestAnImpossibleIdIsAMiss:
 # returned the wrong rows rendered as `OK 200, 0 spans`, indistinguishable from a correct one. .agents/skills/add-vertical prescribes the same shape for every new vertical, so this is
 # the test that keeps the reference honest about what it prescribes.
 class TestEveryQueryGetsItsOwnSpan:
+    # FUNCTION: test_a_query_span_is_written_at_the_level_production_runs_at
+    # SUMMARY: Verify the database spans reach a log configured the way a deployment configures it.
+    # NOTE: This is what the class could not see until 2026-09-06: every test here set the logger to
+    # DEBUG, and a child span defaults to DEBUG, so the assertions passed against a level no
+    # deployment uses. With APP_DEBUG=false the level is INFO, the spans were filtered, and an
+    # operator reading a real trace saw the request with nothing inside it — the `0 spans` the
+    # module's own note says these spans exist to prevent. The other tests in this class now assert
+    # at INFO too; this one states the reason, so removing `level=logging.INFO` from the repository
+    # is a red gate rather than a quieter log.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_a_query_span_is_written_at_the_level_production_runs_at(
+        self, log_capture: list[dict], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        pool, _ = _pool_returning([])
+
+        # **LOGIC_STEP**: Inside a request span, which is what makes this test say anything. A
+        # repository call with no parent span is itself the root, and a root span is written at
+        # INFO whatever its own level — so the same assertion outside this block passes with or
+        # without the fix. In a served request the parent is `http_request`, and the query span is
+        # the child whose level decides whether an operator ever sees it.
+        with get_logger("tests.infrastructure.request").span("http_request", root=True):
+            await ReferenceTaskRepository(pool).get(str(uuid4()))
+
+        finish = _finish_event(log_capture, "db.reference_task.get")
+        assert finish["kwargs"]["level"] == logging.INFO
+        assert finish["kwargs"]["data"]["output"] == {"row_found": False}
+
     # FUNCTION: test_get_records_whether_a_row_was_found
     # SUMMARY: Verify `db.reference_task.get` reports the miss that a duration alone would hide.
     @pytest.mark.unit
@@ -385,7 +419,7 @@ class TestEveryQueryGetsItsOwnSpan:
         self, log_capture: list[dict], caplog: pytest.LogCaptureFixture
     ) -> None:
         caplog.set_level(
-            logging.DEBUG, logger="project.infrastructure.persistence.reference_task_repository"
+            logging.INFO, logger="project.infrastructure.persistence.reference_task_repository"
         )
         pool, _ = _pool_returning([])
 
@@ -402,7 +436,7 @@ class TestEveryQueryGetsItsOwnSpan:
         self, log_capture: list[dict], caplog: pytest.LogCaptureFixture
     ) -> None:
         caplog.set_level(
-            logging.DEBUG, logger="project.infrastructure.persistence.reference_task_repository"
+            logging.INFO, logger="project.infrastructure.persistence.reference_task_repository"
         )
         rows = [
             {
@@ -430,7 +464,7 @@ class TestEveryQueryGetsItsOwnSpan:
         self, log_capture: list[dict], caplog: pytest.LogCaptureFixture
     ) -> None:
         caplog.set_level(
-            logging.DEBUG, logger="project.infrastructure.persistence.reference_task_repository"
+            logging.INFO, logger="project.infrastructure.persistence.reference_task_repository"
         )
         pool, _ = _pool_returning([])
         task = ReferenceTask(
@@ -446,3 +480,7 @@ class TestEveryQueryGetsItsOwnSpan:
 
         finish = _finish_event(log_capture, "db.reference_task.add")
         assert finish["kwargs"]["data"]["task_id"] == str(UUID(int=9))
+        # **LOGIC_STEP**: What the write reported, not that it happened. A span that says nothing
+        # about its outcome reads identically whether the row landed or not — which is what
+        # `test.span_output_pinned` now refuses, and why this span gained an output at all.
+        assert finish["kwargs"]["data"]["output"] == {"rows_written": 1}

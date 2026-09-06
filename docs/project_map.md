@@ -180,6 +180,7 @@ Project Map: Mayak
 │   ├── application/
 │   │   ├── test_ai_query_router.py  ---  Unit tests for the ai_query router dispatcher.
 │   │   ├── test_ai_query_zone_lookup.py  ---  Unit tests for zone_for_path FILE_POLICY-first resolution and EDIT_ZONES fallback.
+│   │   ├── test_client_errors_are_not_service_errors.py  ---  A 4xx is the application working. This pins that it is recorded that way — at WARNING,
 │   │   ├── test_config.py  ---  Unit tests for configuration management and settings validation.
 │   │   ├── test_create_env_file.py  ---  Tests for the .env creation step — what it generates, what it copies, what it refuses to touch.
 │   │   ├── test_critical_event_trace_id.py  ---  Regression guard: the unhandled-exception record must carry the request's trace_id.

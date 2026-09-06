@@ -122,10 +122,10 @@ class TestChildSpanCostsNothingWhenFiltered:
         assert caller is not None
         assert Path(caller[0]).name == "test_logging_api.py"
 
-    # FUNCTION: test_a_filtered_child_span_is_still_counted_by_its_root
-    # SUMMARY: Verify child_span_count keeps counting spans whose own events were filtered out.
+    # FUNCTION: test_a_filtered_child_span_is_counted_apart_from_the_ones_a_reader_can_find
+    # SUMMARY: Verify the summary separates spans a reader can find from spans the filter swallowed.
     @pytest.mark.unit
-    def test_a_filtered_child_span_is_still_counted_by_its_root(
+    def test_a_filtered_child_span_is_counted_apart_from_the_ones_a_reader_can_find(
         self, log_capture: list[dict], caplog: pytest.LogCaptureFixture
     ) -> None:
         logger = get_logger("tests.application.test_logging_api.counted")
@@ -135,12 +135,22 @@ class TestChildSpanCostsNothingWhenFiltered:
             for _ in range(3):
                 with logger.span("db.reference_task.get", task_id="x"):
                     pass
+            with logger.span("db.reference_task.add", task_id="x", level=logging.INFO):
+                pass
 
         summaries = [
             event for event in log_capture if event["kwargs"].get("event_id") == "request.summary"
         ]
         assert len(summaries) == 1
-        assert summaries[0]["kwargs"]["data"]["child_span_count"] == 3
+        data = summaries[0]["kwargs"]["data"]
+        # **LOGIC_STEP**: `spans=` counts what the trace tree can show, because the tree is built
+        # from span.finish and span.error and the filtered three wrote neither. Until 2026-09-06
+        # they were counted here anyway, so a summary read `spans=3` over a tree with no children
+        # in it and a reader could not tell a suppressed span from a miscount. What the filter
+        # swallowed is reported beside it rather than folded in: "nothing happened" and "something
+        # happened below the level you are reading" are different answers.
+        assert data["child_span_count"] == 1
+        assert data["filtered_child_span_count"] == 3
 
 
 # CLASS: tests.application.test_logging_api.TestAnInterruptedSpanStillReportsItself

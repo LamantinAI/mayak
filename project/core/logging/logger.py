@@ -213,8 +213,15 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
         # Measured on this machine: a child span cost 7918 ns, of which 3668 ns was the two discarded
         # `log_event` calls and 948 ns the stack walk feeding them. That is what made wrapping every
         # repository method in a span too expensive to prescribe. Stats, timing, context and the
-        # error branch stay outside the guard: `child_span_count`, `error_count` and the ERROR-level
-        # `span.error` event are read by the root span's summary, which production does emit.
+        # error branch stay outside the guard: `error_count` and the ERROR-level `span.error` event
+        # are read by the root span's summary, which production does emit.
+        #
+        # `child_span_count` used to sit out here too, and that made the summary say things the log
+        # could not show: three filtered children produced `spans=3` over a tree with no children in
+        # it, and a reader had no way to tell a suppressed span from a miscount. Counted below
+        # instead, where each branch knows whether it wrote anything — and what the filter swallowed
+        # is reported separately rather than folded in, because "nothing happened" and "something
+        # happened at a level you are not reading" are different answers.
         emit_lifecycle = self.isEnabledFor(span_level)
         _caller = self._resolve_caller() if emit_lifecycle else None
         start_ns = time.perf_counter_ns()
@@ -224,8 +231,10 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
         stats_token = None
         if is_root_span:
             stats_token = init_span_stats()
-        else:
-            increment_span_stat("child_span_count")
+        elif not emit_lifecycle:
+            # **LOGIC_STEP**: Counted at open, because a span nobody will read has no later moment
+            # that knows it existed. The written ones are counted where they are written.
+            increment_span_stat("filtered_child_span_count")
 
         span_token, name_token = set_span(span_id, name)
 
@@ -255,6 +264,10 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             ctx.error_id = error_id
             error_id_token = set_current_error_id(error_id)
             increment_span_stat("error_count")
+            if not is_root_span:
+                # **LOGIC_STEP**: span.error is written whatever the span's own level, so a failed
+                # child is always in the tree and always counted.
+                increment_span_stat("child_span_count")
 
             already_logged = getattr(error, "_logged_with_traceback", False)
             # **LOGIC_STEP**: A span whose lifecycle events were filtered out never paid for the
@@ -342,6 +355,8 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                     duration_ms=round(duration_ms, 3),
                     name=name,
                 )
+                if not is_root_span:
+                    increment_span_stat("child_span_count")
 
             if is_root_span:
                 status_code = _extract_status_code(ctx.output)
@@ -398,6 +413,10 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             error_message=str(interruption),
             exception_type=type(interruption).__name__,
         )
+        if not is_root_span:
+            # **LOGIC_STEP**: Written at WARNING whatever the span's own level, so an interrupted
+            # child is in the tree and belongs in the count like a failed one.
+            increment_span_stat("child_span_count")
         if is_root_span:
             self._emit_request_summary(
                 name=name,
@@ -426,9 +445,16 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
         # **LOGIC_STEP**: Collect span stats and build summary payload.
         stats = get_span_stats() or {}
         child_span_count = stats.get("child_span_count", 0)
+        # **LOGIC_STEP**: What the level filter swallowed is reported next to what it kept, never
+        # folded into it. `spans=` now counts what a reader can actually find in the tree, and
+        # `filtered=` tells them the rest happened at a level they are not reading — which is a
+        # different fact from "nothing else happened", and the one that used to be lost.
+        filtered_child_span_count = stats.get("filtered_child_span_count", 0)
         error_count = stats.get("error_count", 0)
 
         summary_parts = [f"spans={child_span_count}"]
+        if filtered_child_span_count:
+            summary_parts.append(f"filtered={filtered_child_span_count}")
         if error_count:
             summary_parts.append(f"errors={error_count}")
 
@@ -456,6 +482,8 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             "child_span_count": child_span_count,
             "error_count": error_count,
         }
+        if filtered_child_span_count:
+            payload["filtered_child_span_count"] = filtered_child_span_count
         if status_code is not None:
             payload["status_code"] = status_code
         if llm_calls:
