@@ -35,6 +35,14 @@ EDIT_ZONES = {
         # entries above still win. Without it, before-edit refused every test outside
         # tests/application/ — including the functional suite the change protocol now requires.
         "tests/",
+        # Prose. Editing a document breaks nothing at runtime, and a reader who asks about one
+        # should be told that rather than met with `Unknown or unindexed file policy path` — the
+        # answer README.md, every ADR and docs/adr/README.md gave until now. The generated files
+        # under docs/ keep their own zone: the longest matching pattern wins.
+        "docs/",
+        "README.md",
+        "LICENSE",
+        "CODEOWNERS",
     ],
     "caution": [
         "project/infrastructure/api/dependencies.py",
@@ -60,6 +68,28 @@ EDIT_ZONES = {
         ".gitignore",
         ".github/workflows/",
         ".agents/skills/",
+        # The hand-written source CLAUDE.md and AGENTS.md are generated from. It reads like an
+        # ordinary document and is not one: an edit here is only half the change until
+        # `make refresh-agent-docs` runs, and the pre-commit hook overwrites the wrappers.
+        "docs/agent_rules.md",
+        # Every project created from this template starts from these values, and the settings
+        # models refuse some of them — a defaults file is not prose.
+        ".env.sample",
+        # Hooks, agent configuration and the runners that install them. A wrong line here changes
+        # what every later edit is allowed to do.
+        ".githooks/",
+        ".agents/",
+        ".codex/",
+        ".claude/",
+        "dev_setup.sh",
+        # Build and test configuration read by tools rather than by the application.
+        "alembic.ini",
+        "pytest.ini",
+        ".dockerignore",
+        ".python-version",
+        # Resolved by `uv lock`, not by hand, but a hand edit is a supply-chain change rather
+        # than a formatting slip, so it is called out rather than filed under generated.
+        "uv.lock",
         # Catch-all for the application package, mirroring the `tests/` and `scripts/` ones above.
         # Without it, 21 of 59 files under project/ — every config module, the launcher, the LLM
         # adapters — had no policy at all: before-edit exited 1 with `Unknown or unindexed file
@@ -86,6 +116,11 @@ EDIT_ZONES = {
     ],
     "generated_do_not_edit": [
         "CLAUDE.md",
+        # The Codex half of the same generated pair. `make print-generated-paths` has always
+        # listed it and the pre-edit guard has always refused writes to it, but this list named
+        # only its Claude counterpart — so `before-edit AGENTS.md` exited 1 rather than saying
+        # the one thing that matters about the file.
+        "AGENTS.md",
         "docs/ai_context_map.json",
         "docs/ai_change_map.json",
         "docs/architecture_rules.json",

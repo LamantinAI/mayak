@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -145,6 +146,36 @@ class TestEveryApplicationFileHasAPolicy:
 
         assert not unclassified, (
             "these files have no edit policy, so before-edit refuses to answer for them: "
+            f"{unclassified}. Add an EDIT_ZONES prefix or a FILE_POLICY_INDEX entry."
+        )
+
+    # FUNCTION: test_no_tracked_file_in_the_repository_is_unclassified
+    # SUMMARY: Walk every file git tracks and fail naming each one before-edit cannot answer for.
+    # NOTE: The walk above covers project/ only, and 29 tracked files sat outside it with no zone
+    # at all: README.md, every ADR, docs/agent_rules.md — the hand-written source both agent
+    # wrappers are generated from — .env.sample, the hooks, and AGENTS.md, which the pre-edit
+    # guard refuses writes to while before-edit could not say why. Asking about any of them
+    # exited 1. A tool that answers "unknown" for the file in front of you is not consulted twice.
+    @pytest.mark.unit
+    def test_no_tracked_file_in_the_repository_is_unclassified(self) -> None:
+        rules: dict[str, Any] = build_architecture_rules()
+        root = Path(__file__).parents[2]
+        tracked = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split("\0")
+
+        unclassified = [
+            path
+            for path in tracked
+            if path and zone_for_path(path, rules)["zone"] == "unclassified"
+        ]
+
+        assert not unclassified, (
+            "these tracked files have no edit policy, so before-edit refuses to answer for them: "
             f"{unclassified}. Add an EDIT_ZONES prefix or a FILE_POLICY_INDEX entry."
         )
 
