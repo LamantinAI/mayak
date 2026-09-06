@@ -535,6 +535,14 @@ def _wired_vertical_names(root_dir: Path) -> tuple[set[str], dict[str, str]] | N
             names.add(module)
             if module.endswith("s"):
                 singulars.setdefault(module[:-1], module)
+    # **LOGIC_STEP**: Nothing read is not the same as nothing registered. Both extractors read one
+    # file's syntax tree and follow no imports, so a project that has moved registry construction
+    # into a helper module — an ordinary refactor, and one the module-size budget pushes towards —
+    # yields an empty set from files that are plainly wiring up verticals. Reporting every active
+    # vertical as unregistered there would turn the gate red on correct work, and a rule that does
+    # that gets switched off rather than obeyed. Silence is the honest answer.
+    if not names:
+        return None
     return names, singulars
 
 

@@ -412,6 +412,35 @@ class TestAStatusIsCheckedAgainstTheWiring:
 
         assert collect_project_context_issues(tmp_path) == []
 
+    # FUNCTION: test_wiring_this_validator_cannot_read_is_silence_not_absence
+    # SUMMARY: Verify a registry built by an imported helper does not read as "nothing is wired".
+    # **LOGIC_STEP**: Both extractors read one file's syntax tree and follow no imports, so a
+    # project that moved registry construction into a helper module yields an empty set from files
+    # that are plainly wiring up verticals. Reporting every active vertical as unregistered there
+    # would turn the gate red on correct work, and a rule that does that gets switched off rather
+    # than obeyed. Found by an audit before this reached anyone's project.
+    @pytest.mark.unit
+    def test_wiring_this_validator_cannot_read_is_silence_not_absence(self, tmp_path: Path) -> None:
+        _write_context(tmp_path, _valid_skeleton())
+        core = tmp_path / "project" / "core"
+        core.mkdir(parents=True)
+        (core / "service_registration.py").write_text(
+            "from typing import Any\n\n"
+            "from project.core.builders.registry import build_registry\n\n\n"
+            "def build_reference_services() -> dict[str, Any]:\n"
+            "    services: dict[str, Any] = build_registry()\n"
+            "    return services\n",
+            encoding="utf-8",
+        )
+        api = tmp_path / "project" / "infrastructure" / "api"
+        api.mkdir(parents=True)
+        (api / "router_registration.py").write_text(
+            "def include_application_routers(app: object) -> None:\n    pass\n",
+            encoding="utf-8",
+        )
+
+        assert collect_project_context_issues(tmp_path) == []
+
     # FUNCTION: test_a_checkout_without_wiring_files_says_nothing_about_status
     # SUMMARY: Verify absent wiring is silence, not evidence that nothing is registered.
     @pytest.mark.unit

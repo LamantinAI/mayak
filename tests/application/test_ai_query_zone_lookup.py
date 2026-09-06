@@ -179,6 +179,30 @@ class TestEveryApplicationFileHasAPolicy:
             f"{unclassified}. Add an EDIT_ZONES prefix or a FILE_POLICY_INDEX entry."
         )
 
+    # FUNCTION: test_a_new_file_at_the_repository_root_is_answered_for
+    # SUMMARY: Verify an ordinary new root-level file gets a zone instead of a refusal.
+    # **LOGIC_STEP**: Every directory has a catch-all and the root had none, so a project adding
+    # its first CHANGELOG.md met a red gate and a message about EDIT_ZONES. A new top-level
+    # DIRECTORY is still unclassified on purpose: that is a decision worth making out loud, and
+    # the pair is asserted together so neither half can drift into the other.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("path", "expected_zone"),
+        [
+            ("CHANGELOG.md", "caution"),
+            (".editorconfig", "caution"),
+            ("frontend/app.tsx", "unclassified"),
+            ("README.md", "safe"),
+            ("AGENTS.md", "generated_do_not_edit"),
+        ],
+    )
+    def test_a_new_file_at_the_repository_root_is_answered_for(
+        self, path: str, expected_zone: str
+    ) -> None:
+        rules: dict[str, Any] = build_architecture_rules()
+
+        assert zone_for_path(path, rules)["zone"] == expected_zone
+
     # FUNCTION: test_the_most_specific_pattern_wins_over_a_broader_one
     # SUMMARY: A file under an expert prefix stays expert even though a caution prefix also matches.
     # NOTE: This is the regression the `project/` catch-all above would otherwise have caused.

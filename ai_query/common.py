@@ -588,7 +588,16 @@ def zone_for_path(path: str, architecture_rules: dict[str, object]) -> dict[str,
             if isinstance(edit_zone, str) and edit_zone in ZONE_RISK:
                 return {"zone": edit_zone, "risk": ZONE_RISK[edit_zone]}
     edit_zones = architecture_rules["edit_zones"]
-    return zone_via_edit_zones_patterns(normalized_path, edit_zones)
+    zone = zone_via_edit_zones_patterns(normalized_path, edit_zones)
+    if zone["zone"] != "unclassified" or "/" in normalized_path:
+        return zone
+    # **LOGIC_STEP**: A file at the repository root that nothing else claims. Every directory here
+    # has a catch-all, the root had none, and adding an ordinary CHANGELOG.md or .editorconfig
+    # therefore turned the gate red until somebody edited ai_context/constants.py — a papercut
+    # inherited by every project built on this template. Caution rather than safe because a root
+    # file usually configures the whole build. A new top-level DIRECTORY is deliberately still
+    # unclassified: that is a decision somebody should make once, out loud.
+    return {"zone": "caution", "risk": ZONE_RISK["caution"]}
 
 
 def annotate_paths(
