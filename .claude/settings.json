@@ -32,6 +32,8 @@
       "Bash(make run-local)",
       "Bash(make migrate)",
       "Bash(make smoke)",
+      "Bash(make db-up-worktree)",
+      "Bash(make db-down-worktree)",
       "Bash(make logs)",
       "Bash(make logs-raw)",
       "Bash(make format-trace *)",

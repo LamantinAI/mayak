@@ -258,6 +258,89 @@ class TestBanditResolvesNosecByLine:
         )
 
 
+# CLASS: tests.application.test_gate_recipes.TestTheWorktreeDatabaseIsThisWorktreesAlone
+# SUMMARY: Verify the per-worktree database targets cannot regress to sharing one container.
+# NOTE: No gate here starts Docker — `gate-tests` skips the functional suite — so this reads the
+# recipes and runs the naming formula itself. What it guards is the field defect: fifteen
+# worktrees of one project on a single PostgreSQL container, because Compose names a project
+# after the directory and every worktree's .env names the same port. Both halves of the fix are
+# checked, since either alone leaves the collision: a project name unique per checkout, and a
+# port that is not one shared default.
+class TestTheWorktreeDatabaseIsThisWorktreesAlone:
+    # FUNCTION: _make_variable
+    # SUMMARY: Read one `NAME := value` assignment out of the Makefile.
+    # INPUT: name (str): Variable name, without the assignment operator.
+    # OUTPUT: (str): The right-hand side, stripped.
+    @staticmethod
+    def _make_variable(name: str) -> str:
+        makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+        match = re.search(rf"(?m)^{re.escape(name)}\s*[:?]?=\s*(.+)$", makefile)
+        assert match is not None, f"{name} is not declared in the Makefile"
+        return match.group(1).strip()
+
+    # FUNCTION: test_the_project_name_is_derived_from_the_whole_path
+    # SUMMARY: Verify the Compose project name cannot collide between two same-named worktrees.
+    @pytest.mark.unit
+    def test_the_project_name_is_derived_from_the_whole_path(self) -> None:
+        # **LOGIC_STEP**: `notdir $(CURDIR)` — what SMOKE_PROJECT uses — is enough for a stack
+        # that lives inside one command, and not for two databases meant to run at once: two
+        # worktrees under different parents can share a basename. The digest of the full path is
+        # what makes the name unique, so a regression to the basename alone must fail here.
+        assert "$(CURDIR)" in self._make_variable("WORKTREE_HASH")
+        assert "$(WORKTREE_HASH)" in self._make_variable("WORKTREE_PROJECT")
+
+    # FUNCTION: test_two_worktrees_sharing_a_basename_get_different_projects_and_ports
+    # SUMMARY: Run the Makefile's own formula over two colliding paths and compare the results.
+    @pytest.mark.unit
+    def test_two_worktrees_sharing_a_basename_get_different_projects_and_ports(self) -> None:
+        def digest(path: str) -> int:
+            completed = run(
+                ["sh", "-c", f'printf %s "{path}" | cksum | cut -d" " -f1'],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return int(completed.stdout.strip())
+
+        first = digest("/home/dev/alpha/task-142")
+        second = digest("/home/dev/beta/task-142")
+
+        assert first != second
+        assert first % 10000 + 20000 != second % 10000 + 20000
+
+    # FUNCTION: test_the_port_is_not_one_shared_default
+    # SUMMARY: Verify the published port is folded from the digest, not a literal every checkout shares.
+    @pytest.mark.unit
+    def test_the_port_is_not_one_shared_default(self) -> None:
+        assert "$(WORKTREE_HASH)" in self._make_variable("WORKTREE_POSTGRES_PORT")
+
+    # FUNCTION: test_both_targets_scope_every_compose_call_to_this_project
+    # SUMMARY: Verify no compose call in either recipe runs without `-p`.
+    # **LOGIC_STEP**: One unscoped call is all it takes: Compose falls back to the directory name
+    # and the container, network or volume it touches belongs to whoever got there first.
+    @pytest.mark.unit
+    @pytest.mark.parametrize("target", ["db-up-worktree", "db-down-worktree"])
+    def test_both_targets_scope_every_compose_call_to_this_project(self, target: str) -> None:
+        compose_lines = [line for line in _recipe(target) if "docker compose" in line]
+
+        assert compose_lines, f"{target} runs no compose command at all"
+        for line in compose_lines:
+            assert "-p $(WORKTREE_PROJECT)" in line, line
+
+    # FUNCTION: test_bringing_one_up_does_not_rewrite_the_env_file
+    # SUMMARY: Verify the target reports the port it chose instead of editing .env.
+    # **LOGIC_STEP**: `make init-project` is idempotent by rule, and a target that rewrote .env
+    # would overwrite whatever a project put there. It reads the current value and says what to
+    # change; the developer decides.
+    @pytest.mark.unit
+    def test_bringing_one_up_does_not_rewrite_the_env_file(self) -> None:
+        recipe = "\n".join(_recipe("db-up-worktree"))
+
+        assert "POSTGRES_PORT=$(WORKTREE_POSTGRES_PORT)" in recipe
+        assert ">" not in recipe
+        assert "grep -E '^POSTGRES_PORT=' .env" in recipe
+
+
 # ATTRIBUTE: _CI_JOB_TO_LOCAL_COVER (dict[str, str])
 # SUMMARY: Every job in .github/workflows/ci.yml and the local command that covers it.
 # NOTE: The value is either a `make` target `ci-local` runs as one of its lanes, or the sentinel
