@@ -518,6 +518,90 @@ class TestASpanTestSaysWhatTheSpanReported:
 
         assert [issue.rule_id for issue in issues] == ["test.span_output_pinned"]
 
+    # FUNCTION: test_an_expectation_that_is_not_a_bare_literal_still_counts_as_pinning
+    # SUMMARY: Verify approx, a dataclass, an f-string and a parametrised value are accepted.
+    # **LOGIC_STEP**: Each of these states the expected output as plainly as a literal does, and
+    # an earlier version of the rule refused all four. A rule that fires on correct work is not a
+    # strict rule, it is a rule people learn to silence, so the shapes are listed here to keep
+    # them accepted.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "assertion",
+        [
+            "assert finish['data']['output']['latency'] == pytest.approx(1.2345)",
+            "assert finish['data']['output'] == SpanOutput(row_found=False)",
+            "assert finish['data']['output'] == f'row:{row_id}'",
+            "assert finish['data']['output'] == expected",
+        ],
+    )
+    def test_an_expectation_that_is_not_a_bare_literal_still_counts_as_pinning(
+        self, tmp_path: Path, assertion: str
+    ) -> None:
+        module = tmp_path / "test_span_expectation.py"
+        module.write_text(
+            "def _finish_event(captured, name):\n"
+            "    return [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "\n"
+            "def test_the_span_reports_the_write(log_capture, expected, row_id) -> None:\n"
+            "    finish = _finish_event(log_capture, 'db.thing.add')\n"
+            f"    {assertion}\n",
+            encoding="utf-8",
+        )
+
+        assert validate_test_module(module) == []
+
+    # FUNCTION: test_an_output_compared_against_itself_is_reported
+    # SUMMARY: Verify the one equality that states nothing is still refused.
+    @pytest.mark.unit
+    def test_an_output_compared_against_itself_is_reported(self, tmp_path: Path) -> None:
+        module = tmp_path / "test_span_tautology.py"
+        module.write_text(
+            "def _finish_event(captured, name):\n"
+            "    return [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "\n"
+            "def test_the_span_reports_what_it_reports(log_capture) -> None:\n"
+            "    finish = _finish_event(log_capture, 'db.thing.add')\n"
+            "    assert finish['data']['output'] == finish['data']['output']\n",
+            encoding="utf-8",
+        )
+
+        assert "test.span_output_pinned" in [
+            issue.rule_id for issue in validate_test_module(module)
+        ]
+
+    # FUNCTION: test_a_fixture_that_finds_the_span_is_read_like_a_helper
+    # SUMMARY: Verify moving the lookup into a fixture does not hide the test from the rule.
+    # **LOGIC_STEP**: A fixture arrives by name in the signature and is never called, so reading
+    # calls alone missed it: the whole rule was escapable by extracting the lookup into one. The
+    # pinning fixture is here beside it, because a rule that catches the escape by refusing the
+    # correct version too would be no better.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("assertion", "expected_issues"),
+        [
+            ("assert span_output is not None", ["test.span_output_pinned"]),
+            ("assert span_output == {'rows_written': 1}", []),
+        ],
+    )
+    def test_a_fixture_that_finds_the_span_is_read_like_a_helper(
+        self, tmp_path: Path, assertion: str, expected_issues: list[str]
+    ) -> None:
+        module = tmp_path / "test_span_fixture_lookup.py"
+        module.write_text(
+            "import pytest\n"
+            "\n"
+            "@pytest.fixture\n"
+            "def span_output(log_capture):\n"
+            "    finish = [e for e in log_capture if e['event_id'] == 'span.finish'][0]\n"
+            "    return finish['kwargs']['data']['output']\n"
+            "\n"
+            "def test_the_span_reports_the_write(span_output) -> None:\n"
+            f"    {assertion}\n",
+            encoding="utf-8",
+        )
+
+        assert [issue.rule_id for issue in validate_test_module(module)] == expected_issues
+
     # FUNCTION: test_membership_in_a_literal_set_still_counts_as_pinning
     # SUMMARY: Verify a value checked against a closed set of literals is accepted.
     @pytest.mark.unit
@@ -534,6 +618,82 @@ class TestASpanTestSaysWhatTheSpanReported:
         )
 
         assert validate_test_module(module) == []
+
+
+# CLASS: tests.application.test_validate_test_quality.TestASpanNobodyLooksAtIsReported
+# SUMMARY: Verify a span that records an outcome must be named by at least one test.
+# NOTE: The sibling rule reads tests and asks whether the one that found a span said what it
+# reported; it is blind by construction to a span no test mentions. That blindness shipped —
+# `db.reference_task.update` recorded whether the row was still there, no test named it, and
+# replacing that value with an unconditional True left every gate green on 2026-09-06.
+class TestASpanNobodyLooksAtIsReported:
+    # FUNCTION: _write_project
+    # SUMMARY: Build a throwaway checkout with one span writing an output and one test module.
+    @staticmethod
+    def _write_project(root: Path, test_body: str) -> None:
+        module = root / "project" / "infrastructure"
+        module.mkdir(parents=True)
+        (module / "store.py").write_text(
+            "def save(logger, row):\n"
+            "    with logger.span('db.thing.save') as span:\n"
+            "        span.output['row_written'] = row is not None\n",
+            encoding="utf-8",
+        )
+        tests = root / "tests" / "infrastructure"
+        tests.mkdir(parents=True)
+        (tests / "test_store.py").write_text(test_body, encoding="utf-8")
+
+    # FUNCTION: test_a_span_no_test_names_is_reported
+    # SUMMARY: Verify the rule fires when nothing under tests/ mentions the span.
+    @pytest.mark.unit
+    def test_a_span_no_test_names_is_reported(self, tmp_path: Path) -> None:
+        self._write_project(
+            tmp_path,
+            "def test_the_row_is_saved() -> None:\n    assert True is True\n",
+        )
+
+        issues = collect_test_quality_issues(tmp_path)
+
+        assert "test.span_output_unpinned" in [issue.rule_id for issue in issues]
+
+    # FUNCTION: test_a_span_a_test_names_is_left_to_the_sibling_rule
+    # SUMMARY: Verify naming the span satisfies this rule, whatever the test then asserts.
+    @pytest.mark.unit
+    def test_a_span_a_test_names_is_left_to_the_sibling_rule(self, tmp_path: Path) -> None:
+        self._write_project(
+            tmp_path,
+            "def _finish(captured):\n"
+            "    return [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "\n"
+            "def test_the_save_span_reports_the_write(log_capture) -> None:\n"
+            "    finish = _finish(log_capture)\n"
+            "    assert finish['name'] == 'db.thing.save'\n"
+            "    assert finish['data']['output'] == {'row_written': True}\n",
+        )
+
+        issues = collect_test_quality_issues(tmp_path)
+
+        assert [issue.rule_id for issue in issues if "span_output" in issue.rule_id] == []
+
+    # FUNCTION: test_a_span_that_records_nothing_is_not_demanded_of
+    # SUMMARY: Verify a span with no output is outside this rule entirely.
+    # **LOGIC_STEP**: Most spans carry only a name and a duration, and demanding a test for each
+    # would fire on every correct module in the repository.
+    @pytest.mark.unit
+    def test_a_span_that_records_nothing_is_not_demanded_of(self, tmp_path: Path) -> None:
+        module = tmp_path / "project" / "infrastructure"
+        module.mkdir(parents=True)
+        (module / "store.py").write_text(
+            "def save(logger, row):\n    with logger.span('db.thing.save'):\n        pass\n",
+            encoding="utf-8",
+        )
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        (tests / "test_store.py").write_text(
+            "def test_nothing() -> None:\n    assert 1 + 1 == 2\n", encoding="utf-8"
+        )
+
+        assert collect_test_quality_issues(tmp_path) == []
 
 
 class TestValidatorSurface:
@@ -556,6 +716,7 @@ class TestValidatorSurface:
             "test.call_assertion_without_arguments",
             "test.sql_constant_round_trip",
             "test.span_output_pinned",
+            "test.span_output_unpinned",
         ],
     )
     def test_every_rule_has_a_playbook(self, rule_id: str) -> None:

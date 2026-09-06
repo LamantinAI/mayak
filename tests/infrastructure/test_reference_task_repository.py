@@ -456,6 +456,62 @@ class TestEveryQueryGetsItsOwnSpan:
         finish = _finish_event(log_capture, "db.reference_task.list_by_status")
         assert finish["kwargs"]["data"]["output"] == {"row_count": 3}
 
+    # FUNCTION: test_update_records_whether_the_row_was_still_there
+    # SUMMARY: Verify `db.reference_task.update` reports which of the two outcomes it reached.
+    # **LOGIC_STEP**: Both outcomes, because this span is the one whose two answers mean the most
+    # different things: a write that landed, and a write that matched nothing because somebody
+    # else got there first. Until 2026-09-06 no test looked this span up at all, so
+    # `span.output["row_written"] = True` — the exact mutation the phase's own gate rule was
+    # written to catch — left every gate green. The rule cannot see a span nobody mentions; this
+    # test is what mentions it.
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("rows", "expected"),
+        [
+            (
+                [
+                    {
+                        "id": UUID(int=9),
+                        "title": "Changed",
+                        "details": None,
+                        "status": "pending",
+                        "created_at": datetime(2026, 8, 6, tzinfo=timezone.utc),
+                        "updated_at": datetime(2026, 8, 7, tzinfo=timezone.utc),
+                    }
+                ],
+                {"row_written": True},
+            ),
+            ([], {"row_written": False}),
+        ],
+    )
+    async def test_update_records_whether_the_row_was_still_there(
+        self,
+        log_capture: list[dict],
+        caplog: pytest.LogCaptureFixture,
+        rows: list[dict],
+        expected: dict,
+    ) -> None:
+        caplog.set_level(
+            logging.INFO, logger="project.infrastructure.persistence.reference_task_repository"
+        )
+        pool, _ = _pool_returning(rows)
+        task = ReferenceTask(
+            id=str(UUID(int=9)),
+            title="Changed",
+            details=None,
+            status="pending",
+            created_at=datetime(2026, 8, 6, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 8, 7, tzinfo=timezone.utc),
+        )
+
+        await ReferenceTaskRepository(pool).update(
+            task, expected_updated_at=datetime(2026, 8, 6, tzinfo=timezone.utc)
+        )
+
+        finish = _finish_event(log_capture, "db.reference_task.update")
+        assert finish["kwargs"]["data"]["output"] == expected
+
     # FUNCTION: test_add_opens_a_span_of_its_own
     # SUMMARY: Verify the write path is traced too, carrying the id it wrote.
     @pytest.mark.unit
