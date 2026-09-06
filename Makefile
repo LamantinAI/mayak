@@ -1,4 +1,4 @@
-.PHONY: print-generated-paths refresh-generated-unless-strict checksum-generated gate-lockfile gate-lint gate-format gate-types gate-tests help logs logs-raw init-project refresh-ai-context refresh-agent-docs refresh-project-map refresh-generated-docs ai-autofix quality-gates quality-gates-steps doctor doctor-json test test-all test-e2e diff-coverage smoke run-local migrate autogenerate-migration format-trace update-deps audit-deps security-scan ci-local
+.PHONY: print-generated-paths refresh-generated-unless-strict checksum-generated gate-lockfile gate-lint gate-format gate-types gate-tests help logs logs-raw init-project refresh-ai-context refresh-agent-docs refresh-project-map refresh-generated-docs ai-autofix quality-gates quality-gates-steps doctor doctor-json test test-all test-e2e diff-coverage smoke run-local migrate autogenerate-migration format-trace update-deps audit-deps security-scan ci-local db-up-worktree db-down-worktree
 
 # Auto-discover uv; override with UV=/path/to/uv if needed.
 UV := $(shell command -v uv 2>/dev/null || echo /opt/homebrew/bin/uv)
@@ -45,6 +45,36 @@ SMOKE_PROJECT = $(shell echo $(notdir $(CURDIR)) | tr '[:upper:]' '[:lower:]')-s
 # command line if these are taken too.
 SMOKE_APP_PORT ?= 18000
 SMOKE_POSTGRES_PORT ?= 15432
+
+# A database per worktree — `db-up-worktree` and `db-down-worktree` below. Measured in the field on
+# 2026-09-03: fifteen git worktrees of one project against a single PostgreSQL container, because
+# two things quietly agree on one socket. `.env.sample` ships POSTGRES_HOST=localhost and
+# POSTGRES_PORT=5432, and scripts/create_env_file.py randomises only the password — by design, a
+# host and a port are not secrets — so every worktree's own .env names the same address. And the
+# advice this Makefile itself prints when the database is unreachable (`docker compose ... up -d
+# db`, under `migrate` below) carries no `-p`, so Compose names the project after the directory and
+# whichever worktree ran it first owns the container everyone else reaches. What that costs is one
+# branch migrating the database and another meeting a revision its own alembic/versions/ has never
+# heard of — reproduced verbatim: `Can't locate revision identified by 'af0035d05498'`.
+#
+# The project name is a function of the worktree's own path, never of anything typed: two agents
+# never have to agree on a name, and the same worktree maps to the same project — and so the same
+# volume — across restarts. `notdir $(CURDIR)` alone, which SMOKE_PROJECT uses, is not enough here:
+# two worktrees under different parents can share a basename, and smoke gets away with that because
+# its stack lives and dies inside one command, while these are meant to run at the same time. The
+# basename stays for whoever reads `docker ps`; the digest is what makes it unique. `wt-` keeps the
+# name starting with a letter, which Compose requires.
+WORKTREE_HASH := $(shell printf '%s' "$(CURDIR)" | cksum | cut -d' ' -f1)
+WORKTREE_PROJECT := wt-$(shell basename "$(CURDIR)" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-')$(WORKTREE_HASH)
+
+# The published port is folded from the same digest rather than defaulted to one number, because
+# one number is the collision this exists to remove — two worktree databases are meant to be up at
+# once. Folding into 20000-29999 keeps clear of 5432 and 8000 (the app's defaults) and of smoke's
+# 15432/18000. A digest cannot promise the port is free: two paths can fold to the same bucket, or
+# something else may already hold it. That failure is loud — Docker says "port is already
+# allocated" — and the way past it is on the command line:
+#   make db-up-worktree WORKTREE_POSTGRES_PORT=25999
+WORKTREE_POSTGRES_PORT ?= $(shell echo $$(( $(WORKTREE_HASH) % 10000 + 20000 )))
 
 # Prints every target carrying a `## Group | description` annotation. The same annotations are the
 # only source of the command list in CLAUDE.md, so this and the wrapper can never disagree.
@@ -374,13 +404,55 @@ smoke: ## Run | Docker-based health check
 	$$compose exec -T app sh -c 'curl -fsS "http://localhost:$${SERVER_PORT:-8000}/health/"'; \
 	$$compose exec -T app sh -c 'curl -fsS "http://localhost:$${SERVER_PORT:-8000}/health/ready"'
 
+# Brings up only `db`: the app runs on the host through `make run-local`, which is the shape
+# `migrate` below already points people at. Both compose files are passed even though one service
+# is wanted, because docker-compose.postgres.yml only ADDS to the `app` service declared in the
+# other and carries no image of its own — Compose refuses to read it alone.
+#
+# POSTGRES_PORT is set for this invocation only, overriding whatever the caller's shell exported.
+# That is the opposite of what `smoke` does with `: "$${VAR:=default}"`, and deliberately so: an
+# inherited POSTGRES_PORT is exactly how two worktrees end up agreeing on one database again. The
+# override channel here is the make variable above, which is derived from this worktree.
+db-up-worktree: ## Run | Start a PostgreSQL container belonging to this worktree alone
+	@if [ ! -f .env ]; then \
+		echo ".env not found — run 'make init-project' first"; \
+		exit 2; \
+	fi
+	@if ! $(POSTGRES_ENABLED_CHECK); then \
+		echo "POSTGRES_ENABLED=false — this project declares no relational store, nothing to start."; \
+		exit 0; \
+	fi
+	@POSTGRES_PORT=$(WORKTREE_POSTGRES_PORT) docker compose -p $(WORKTREE_PROJECT) \
+		-f docker-compose.yml -f docker-compose.postgres.yml up -d --wait db
+	@echo "project $(WORKTREE_PROJECT) is up on port $(WORKTREE_POSTGRES_PORT)"
+	@current=$$(grep -E '^POSTGRES_PORT=' .env | tail -1 | cut -d= -f2); \
+	if [ "$$current" != "$(WORKTREE_POSTGRES_PORT)" ]; then \
+		echo "This worktree's .env still points at port $$current, so the app here would reach"; \
+		echo "whatever is listening there — possibly another worktree's database. Set in .env:"; \
+		echo "  POSTGRES_HOST=localhost"; \
+		echo "  POSTGRES_PORT=$(WORKTREE_POSTGRES_PORT)"; \
+		echo "Nothing rewrites an existing .env for you: init-project is idempotent on purpose."; \
+	fi
+
+# `down -v` can only reach what Compose namespaced under this project — the container, its network
+# and `$(WORKTREE_PROJECT)_postgres_data`. Never the plain `postgres_data`, and never another
+# worktree's. The volume goes with it on purpose: a worktree's database is thrown away with its
+# branch, and leaving it behind is how the next `db-up-worktree` inherits a schema from a branch
+# that no longer exists. Left alone: .env, the postgres image every worktree wants cached, and the
+# app container and its logs volume, which this never started.
+db-down-worktree: ## Run | Remove this worktree's own database, network and volume
+	@docker compose -p $(WORKTREE_PROJECT) \
+		-f docker-compose.yml -f docker-compose.postgres.yml down -v
+	@echo "removed project $(WORKTREE_PROJECT): container, network and volume"
+
 migrate: ## Run | Apply pending Alembic migrations
 	@if $(POSTGRES_ENABLED_CHECK); then \
 		if $(POSTGRES_REACHABLE_CHECK); then \
 			$(UV) run alembic upgrade head; \
 		else \
 			echo "PostgreSQL is not reachable with the credentials in .env."; \
-			echo "  start one:  docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d db"; \
+			echo "  start one for this checkout alone:  make db-up-worktree"; \
+			echo "  or one shared by every checkout here:  docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d db"; \
 			echo "  or declare this project needs none:  POSTGRES_ENABLED=false in .env"; \
 			exit 1; \
 		fi; \

@@ -132,6 +132,36 @@ the tree, so this stays one place.
    the static wiring in one file.
 9. `make quality-gates`, then `make test-e2e`.
 
+## Two branches, one migration history
+
+Two branches that each add a migration off the same parent produce two files naming the same
+`down_revision`. That is a fork, not a broken chain, and `scripts/validate_migrations.py` reports it
+from the files alone as `migrations.multiple_heads` — no database needed, so it turns up the moment
+both files sit in one checkout. See it yourself with `uv run alembic -c alembic.ini heads`: two
+lines means a fork, and `history` shows where the tree split.
+
+Merging the branches does not resolve it; it only puts both files in one directory. Two ways out.
+`uv run alembic -c alembic.ini merge heads -m describe_merge` writes a revision whose
+`down_revision` is both heads — nothing already-written changes, which is what makes it the right
+choice once either revision may have run against a database somewhere. Re-parenting — editing the
+newer file's `down_revision` to the true head, with a comment saying why — keeps one straight chain
+and is safe only while that revision has run nowhere anybody else can reach. Measured on
+2026-09-03 in a project built from this template: a customer vertical and an article vertical both
+built on the same parent, resolved by re-parenting because neither had reached a database yet.
+
+A third case looks like the first and is not. `alembic upgrade head` fails with `Can't locate
+revision identified by <id>` while your own `alembic/versions/` forms one clean chain: the database
+is stamped past your branch, because something else migrated it — nearly always another worktree
+of this repository whose branch has a revision yours has not merged. The gate reports this as
+`migrations.foreign_revision` before alembic is asked at all, precisely so the answer is not the
+one people reach for. **Do not recreate a database more than one checkout can reach.** It drops
+the tables another branch migrated, nobody asked it to, and the stamp comes back the moment that
+branch runs again. Catch up instead — merge the branch that owns the revision — or give this
+worktree a database of its own: `make db-up-worktree` starts one under a Compose project and port
+derived from this checkout's path, and `make db-down-worktree` removes exactly that one. Both are
+worth reaching for before the collision rather than after: fifteen worktrees against one container
+is what produced this rule.
+
 ## Two tests the vertical file must contain, beyond the rules
 
 `test_<name>_vertical.py` covers service rules, the HTTP surface and the wiring. That shape comes
