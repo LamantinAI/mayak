@@ -508,35 +508,48 @@ def _validate_business_rules(
 _RUNNING_STATUSES = frozenset({"active", "reference_implementation"})
 
 
-# FUNCTION: _registry_is_out_of_reach
-# SUMMARY: Report whether a registration file builds its registry somewhere this cannot follow.
-# OUTPUT: (bool): True when a function there returns a value that is not a mapping written inline.
-# NOTE: The discriminator is a returned value the extractor cannot read: `return build_registry()`
-# or `services = build_registry(); return services`. A file whose functions return nothing at all
-# is not out of reach — it registers nothing, which is a different fact and a reportable one.
-def _registry_is_out_of_reach(registration: Path) -> bool:
-    if not registration.is_file():
-        return False
+# FUNCTION: _parsed
+# SUMMARY: The syntax tree of a wiring file, or None when it cannot be read.
+def _parsed(path: Path) -> ast.Module | None:
+    if not path.is_file():
+        return None
     try:
-        tree = ast.parse(registration.read_text(encoding="utf-8"), filename=str(registration))
+        return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     except (OSError, SyntaxError, UnicodeDecodeError):
-        return True
-    inline: set[str] = {
-        target.id
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.Assign, ast.AnnAssign)) and isinstance(node.value, ast.Dict)
-        for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
-        if isinstance(target, ast.Name)
-    }
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Return) or node.value is None:
+        return None
+
+
+# FUNCTION: _wiring_registers_nothing
+# SUMMARY: Report whether the wiring files plainly register nothing at all.
+# OUTPUT: (bool): True when no function hands a value back and no router is included.
+# NOTE: This is the discriminator between the two ways a project can yield no vertical names, and
+# it is written as the narrow question rather than the broad one on purpose. The extractors read
+# one file's syntax tree and follow no imports, so a registry assembled anywhere else — a helper
+# module, a merged mapping, a module-level constant, a comprehension — is invisible to them, and
+# an earlier attempt to enumerate the readable shapes kept finding another one it had missed and
+# reporting a correctly wired project. Anything that hands a value back, or includes a router at
+# all, is therefore treated as wiring this validator cannot vouch for, and the check stands down.
+#
+# What is left is the shape that registers nothing under any reading: functions that return
+# nothing and no router inclusion. That is the ordinary mistake the rule exists for — replacing
+# the example vertical and forgetting to wire the replacement.
+def _wiring_registers_nothing(registration: Path, routers: Path) -> bool:
+    for path in (registration, routers):
+        tree = _parsed(path)
+        if path.is_file() and tree is None:
+            return False
+        if tree is None:
             continue
-        if isinstance(node.value, ast.Dict):
-            continue
-        if isinstance(node.value, ast.Name) and node.value.id in inline:
-            continue
-        return True
-    return False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Return) and node.value is not None:
+                return False
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "include_router"
+            ):
+                return False
+    return True
 
 
 # FUNCTION: _wired_vertical_names
@@ -559,23 +572,25 @@ def _wired_vertical_names(root_dir: Path) -> tuple[set[str], dict[str, str]] | N
 
     names: set[str] = set()
     singulars: dict[str, str] = {}
-    if registration.is_file():
-        for key in extract_service_registry_entries(registration, root_dir, "vertical"):
-            names.add(key.removesuffix("_service").removesuffix("_repository"))
-    if routers.is_file():
-        for module in extract_router_modules(routers):
-            names.add(module)
-            if module.endswith("s"):
-                singulars.setdefault(module[:-1], module)
+    # **LOGIC_STEP**: A wiring file that does not parse is somebody else's problem — ruff and the
+    # test run both report it, loudly and first. Here it raised out of a validator that is about
+    # a JSON document, which named the wrong thing and stopped the rest of this file's checks.
+    try:
+        if registration.is_file():
+            for key in extract_service_registry_entries(registration, root_dir, "vertical"):
+                names.add(key.removesuffix("_service").removesuffix("_repository"))
+        if routers.is_file():
+            for module in extract_router_modules(routers):
+                names.add(module)
+                if module.endswith("s"):
+                    singulars.setdefault(module[:-1], module)
+    except Exception:
+        return None
     # **LOGIC_STEP**: Nothing read is not the same as nothing registered — but neither is it the
-    # same as nothing to read. Both extractors read one file's syntax tree and follow no imports,
-    # so a project that moved registry construction into a helper module yields an empty set from
-    # a file that is plainly wiring verticals up, and reporting every active vertical as
-    # unregistered there would redden the gate on correct work. A registration file that hands
-    # back something this validator cannot follow is therefore silence. One that registers nothing
-    # at all is not: that is the ordinary mistake of replacing the example vertical and forgetting
-    # to wire the replacement, and it is what the rule exists for.
-    if not names and _registry_is_out_of_reach(registration):
+    # same as nothing to read. Wiring this validator cannot follow is silence; wiring that plainly
+    # registers nothing is the mistake the rule exists for. _wiring_registers_nothing draws that
+    # line, and errs towards silence.
+    if not names and not _wiring_registers_nothing(registration, routers):
         return None
     return names, singulars
 

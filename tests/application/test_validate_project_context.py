@@ -469,6 +469,58 @@ class TestAStatusIsCheckedAgainstTheWiring:
             "project_context.vertical_status_contradicts_wiring"
         ]
 
+    # FUNCTION: test_every_shape_of_registry_this_cannot_read_stays_silent
+    # SUMMARY: Verify the check stands down for each way a project can build a registry elsewhere.
+    # **LOGIC_STEP**: Listed rather than reasoned about, because an earlier version enumerated the
+    # shapes it could read and kept meeting another one it could not — each time reporting a
+    # correctly wired project. The question asked now is the narrow one: does anything here hand a
+    # value back or include a router at all.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "registration",
+        [
+            "from project.core.builders import build_registry\n\n\n"
+            "def build_reference_services() -> dict:\n    return build_registry()\n",
+            "def build_reference_services(a: dict, b: dict) -> dict:\n    return {**a, **b}\n",
+            'REGISTRY = {"orders_service": None}\n\n\n'
+            "def build_reference_services() -> dict:\n    return REGISTRY\n",
+            "def build_reference_services(items: list) -> dict:\n"
+            "    return {name: None for name in items}\n",
+            "def broken(:\n    pass\n",
+        ],
+    )
+    def test_every_shape_of_registry_this_cannot_read_stays_silent(
+        self, tmp_path: Path, registration: str
+    ) -> None:
+        _write_context(tmp_path, _valid_skeleton())
+        core = tmp_path / "project" / "core"
+        core.mkdir(parents=True)
+        (core / "service_registration.py").write_text(registration, encoding="utf-8")
+        api = tmp_path / "project" / "infrastructure" / "api"
+        api.mkdir(parents=True)
+        (api / "router_registration.py").write_text(
+            "def include_application_routers(app: object) -> None:\n    pass\n",
+            encoding="utf-8",
+        )
+
+        assert collect_project_context_issues(tmp_path) == []
+
+    # FUNCTION: test_a_router_included_under_an_unreadable_import_is_silence
+    # SUMMARY: Verify a vertical wired only through a router this cannot resolve is not reported.
+    @pytest.mark.unit
+    def test_a_router_included_under_an_unreadable_import_is_silence(self, tmp_path: Path) -> None:
+        _write_context(tmp_path, _valid_skeleton())
+        api = tmp_path / "project" / "infrastructure" / "api"
+        api.mkdir(parents=True)
+        (api / "router_registration.py").write_text(
+            "from project.infrastructure.api.endpoints import orders_router\n\n\n"
+            "def include_application_routers(app: object) -> None:\n"
+            "    app.include_router(orders_router)\n",
+            encoding="utf-8",
+        )
+
+        assert collect_project_context_issues(tmp_path) == []
+
     # FUNCTION: test_a_checkout_without_wiring_files_says_nothing_about_status
     # SUMMARY: Verify absent wiring is silence, not evidence that nothing is registered.
     @pytest.mark.unit
