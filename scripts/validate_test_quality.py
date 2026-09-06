@@ -712,9 +712,21 @@ def _wildcard_aliases(tree: ast.AST) -> set[str]:
             for imported in node.names:
                 if imported.name in _WILDCARD_NAMES and imported.asname:
                     aliases.add(imported.asname)
-        elif isinstance(node, ast.Assign) and isinstance(node.value, ast.Name):
-            if node.value.id in aliases:
-                aliases.update(target.id for target in node.targets if isinstance(target, ast.Name))
+    # **LOGIC_STEP**: To a fixpoint, for the reason the span alias chain needs one: ast.walk is
+    # breadth-first, so a rebinding nested one level deeper than its use is read out of order and
+    # the chain breaks at that link.
+    growing = True
+    while growing:
+        growing = False
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Name):
+                continue
+            if node.value.id not in aliases:
+                continue
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id not in aliases:
+                    aliases.add(target.id)
+                    growing = True
     return aliases
 
 
@@ -775,6 +787,16 @@ def _reads_the_output(expression: ast.AST, held: set[str]) -> bool:
     return any(isinstance(inner, ast.Name) and inner.id in held for inner in ast.walk(expression))
 
 
+# FUNCTION: _measures_length
+# SUMMARY: Report whether an expression is a call to len().
+def _measures_length(expression: ast.AST) -> bool:
+    return (
+        isinstance(expression, ast.Call)
+        and isinstance(expression.func, ast.Name)
+        and expression.func.id == "len"
+    )
+
+
 # FUNCTION: _pins_a_value
 # SUMMARY: Report whether an expression states what a value IS, rather than that it exists.
 # OUTPUT: (bool): True for an equality against anything stated, or membership in a literal set.
@@ -808,7 +830,11 @@ def _pins_a_value(
         if not isinstance(inner, ast.Compare):
             continue
         for operator, right in zip(inner.ops, inner.comparators):
-            if isinstance(operator, (ast.Eq, ast.NotEq)):
+            if isinstance(operator, (ast.Eq, ast.NotEq, ast.Is, ast.IsNot)):
+                # **LOGIC_STEP**: `is False` states a value; `is not None` states existence. The
+                # operator does not tell them apart, the other side does. An earlier version read
+                # only `==` and refused `is False`, an ordinary Python idiom for exactly the thing
+                # this rule asks for.
                 if _is_none(inner.left) or _is_none(right):
                     continue
                 if _is_a_wildcard(inner.left, wildcards) or _is_a_wildcard(right, wildcards):
@@ -816,7 +842,17 @@ def _pins_a_value(
                 if _reads_the_output(inner.left, held) and _reads_the_output(right, held):
                     continue
                 return True
-            if isinstance(operator, (ast.In, ast.NotIn)) and isinstance(right, collections):
+            if isinstance(operator, (ast.In, ast.NotIn)):
+                if isinstance(right, collections):
+                    return True
+                continue
+            # **LOGIC_STEP**: An ordering states a bound, which is a statement about the value —
+            # `output["row_count"] >= 1`, or a subset written as `{...}.items() <= output.items()`.
+            # The one ordering that states nothing is a length against a number, which is the
+            # existence check wearing a comparison.
+            if isinstance(operator, (ast.Lt, ast.LtE, ast.Gt, ast.GtE)):
+                if _measures_length(inner.left) or _measures_length(right):
+                    continue
                 return True
     return False
 
