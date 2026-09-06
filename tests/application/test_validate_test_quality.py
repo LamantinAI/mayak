@@ -582,6 +582,43 @@ class TestASpanTestSaysWhatTheSpanReported:
 
         assert validate_test_module(module) == []
 
+    # FUNCTION: test_a_value_carried_out_of_the_output_first_is_still_the_output
+    # SUMMARY: Verify a test that transforms the output before asserting is not reported.
+    # **LOGIC_STEP**: Requiring the word "output" inside the assert itself refused two ordinary
+    # styles: unpacking two fields into a namedtuple and comparing that, and collecting every
+    # span's output into a list and comparing the list. Both state exactly what the spans
+    # reported, one of them for a whole batch.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "    output = finish['data']['output']\n"
+            "    summary = Summary(found=output['row_found'])\n"
+            "    assert summary == Summary(found=False)",
+            "    outputs = [finish['data']['output']]\n"
+            "    assert outputs == [{'row_found': False}]",
+        ],
+    )
+    def test_a_value_carried_out_of_the_output_first_is_still_the_output(
+        self, tmp_path: Path, body: str
+    ) -> None:
+        module = tmp_path / "test_span_carried.py"
+        module.write_text(
+            "from collections import namedtuple\n"
+            "\n"
+            "Summary = namedtuple('Summary', 'found')\n"
+            "\n"
+            "def _finish_event(captured, name):\n"
+            "    return [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "\n"
+            "def test_the_span_reports_the_miss(log_capture) -> None:\n"
+            "    finish = _finish_event(log_capture, 'db.thing.get')\n"
+            f"{body}\n",
+            encoding="utf-8",
+        )
+
+        assert validate_test_module(module) == []
+
     # FUNCTION: test_an_output_compared_against_itself_is_reported
     # SUMMARY: Verify the one equality that states nothing is still refused.
     @pytest.mark.unit
@@ -780,6 +817,37 @@ class TestASpanNobodyLooksAtIsReported:
         issues = collect_test_quality_issues(tmp_path)
 
         assert "test.span_output_unpinned" in [issue.rule_id for issue in issues]
+
+    # FUNCTION: test_a_module_that_filters_the_other_way_round_still_counts
+    # SUMMARY: Verify selecting the finish event with != or `in` is recognised as a span lookup.
+    # **LOGIC_STEP**: Skipping everything that is not the finish event is the same act as
+    # selecting the one that is. Reading only `==` meant a module written the other way round
+    # never counted as being about spans, and the span it tested perfectly was reported untested.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "filter_body",
+        [
+            "    for event in captured:\n"
+            "        if event.get('event_id') != 'span.finish':\n"
+            "            continue\n"
+            "        finish = event\n",
+            "    finish = [e for e in captured if e.get('event_id') in {'span.finish'}][0]\n",
+        ],
+    )
+    def test_a_module_that_filters_the_other_way_round_still_counts(
+        self, tmp_path: Path, filter_body: str
+    ) -> None:
+        self._write_project(
+            tmp_path,
+            "def test_the_save_span_reports_the_write(captured) -> None:\n"
+            f"{filter_body}"
+            "    assert finish['name'] == 'db.thing.save'\n"
+            "    assert finish['data']['output'] == {'row_written': True}\n",
+        )
+
+        issues = collect_test_quality_issues(tmp_path)
+
+        assert [issue.rule_id for issue in issues if "span_output" in issue.rule_id] == []
 
     # FUNCTION: test_a_name_mentioned_outside_a_span_test_does_not_vouch_for_it
     # SUMMARY: Verify only a module that looks a span up can satisfy this rule.
