@@ -7,7 +7,8 @@
     "reference_task": {
       "description": "The one vertical the kernel ships, and it exists to be copied: domain model -> port -> psycopg repository -> application service -> DTOs -> endpoint -> unit tests -> functional tests, plus the three wiring edits. Storage-only on purpose; it touches no LLM. Routes are registered only when POSTGRES_ENABLED is true. Every file is named reference_task*, so a project deletes the example in one command once its own vertical works. See .agents/skills/add-vertical/SKILL.md.",
       "status": "active",
-      "domain_entities": ["ReferenceTask"]
+      "domain_entities": ["ReferenceTask"],
+      "business_rules": ["BR-001", "BR-002", "BR-003"]
     }
   },
   "integrations": {
@@ -20,7 +21,20 @@
       "description": "OpenAI-compatible API consumed by project.infrastructure.agents.LLMService. Default mode is mock (ADR-003); set AGENT_LLM_MODE=live and OPENAI_COMPATIBLE_API_KEY to call a real provider."
     }
   },
-  "business_rules": {},
+  "business_rules": {
+    "BR-001": {
+      "summary": "A task title is at most MAX_TITLE_LENGTH characters. The bound lives in project/domain/reference_task.py rather than in the request DTO, so a caller that never passes through FastAPI validation \u2014 a background job, a queue consumer, a test \u2014 is held to it too, instead of turning its own mistake into a database error surfacing as 500.",
+      "vertical": "reference_task"
+    },
+    "BR-002": {
+      "summary": "A task status is one of ALLOWED_STATUSES (pending, in_progress, done). The closed set is domain state, not a wire format, so the service enforces it for every caller and an unknown status is answered 422 rather than stored.",
+      "vertical": "reference_task"
+    },
+    "BR-003": {
+      "summary": "An update matches on id AND updated_at. A row somebody else wrote since this caller read it matches nothing, so the service answers 409 instead of silently overwriting that write. See docs/adr/ADR-007-autocommit-and-explicit-transactions.md.",
+      "vertical": "reference_task"
+    }
+  },
   "glossary": {
     "vertical": "A self-contained feature slice spanning domain, application, infrastructure, and test layers.",
     "composition_root": "The single location (project/core/composition_root.py) where shared services are constructed and injected into FastAPI's app.state.",

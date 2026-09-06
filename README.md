@@ -41,15 +41,21 @@ logging.
 
 ## Is this for you
 
-**A good fit** when you are starting a small-to-medium HTTP service in Python, you expect an agent to
-write most of it, and you would rather spend the first day copying a working example than assembling
-a stack. Five services have been built on it so far, each of them by copying that one vertical and
-deleting the original once its own worked.
+**A good fit** when the service will be changed for months by people and agents who were not there
+when it was written, and you would rather spend the first day copying a working example than
+assembling a stack. Everything here is built for that case: the validators, the comment convention,
+the one worked vertical. The payoff grows with the number of changes made by a stranger to the code,
+and with the number of agents making them at once.
 
-**A poor fit** when you need a framework rather than a starting point. Mayak has no plugin system, no
-generators beyond one skill, and no upgrade path: you clone it, and from then on the copy is yours.
-It also assumes hexagonal layering and will fail the build if you import across the layers the wrong
-way, which is the point but is not for everyone.
+**A poor fit** for a thin CRUD service you will write once and rarely touch. The template charges its
+tax before the first endpoint: hexagonal layering the build enforces, a comment header on every
+file, class, function and attribute, thirteen validators to satisfy, and a pull request per change.
+On a small MVP that tax is real and there is not enough change ahead of you to repay it. Write it by
+hand.
+
+**A poor fit** too when you need a framework rather than a starting point. Mayak has no plugin
+system, no generators beyond one skill, and no upgrade path: you clone it, and from then on the copy
+is yours.
 
 **Not included, by design:** authentication, background jobs, a message queue, caching, a vector
 store, metrics, tracing backends, or a business pipeline. Those are decisions your service should

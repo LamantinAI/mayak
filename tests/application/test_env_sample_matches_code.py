@@ -376,3 +376,125 @@ class TestReadmeListsEverySkill:
         missing = [name for name in skills if f"`{name}`" not in readme]
 
         assert missing == []
+
+
+# ATTRIBUTE: _NUMBER (re.Pattern[str])
+# SUMMARY: Any decimal number in a comment line.
+_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+
+
+# FUNCTION: _rejecting_bounds
+# SUMMARY: The numeric bounds of one settings field, minus the ones a reader would never test.
+# OUTPUT: (dict[str, float]): Constraint name -> value, for every ge/gt/le/lt that is not zero.
+# NOTE: Zero is excluded on purpose. `gt=0` on a token count or a pool size says "a positive
+# number", which is what a reader already assumes; a rule demanding that every such field spell
+# out "minimum 1" would fire on documentation that is already correct, and a rule that fires on
+# correct work teaches people to silence it. A non-zero bound is different: nothing about
+# OPENAI_COMPATIBLE_REQUEST_TIMEOUT suggests that 1 is refused, and the refusal happens at
+# startup, far from the line that chose the value.
+def _rejecting_bounds(field: Any) -> dict[str, float]:
+    bounds: dict[str, float] = {}
+    for constraint in field.metadata:
+        for name in ("ge", "gt", "le", "lt"):
+            value = getattr(constraint, name, None)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            if value != 0:
+                bounds[name] = float(value)
+    return bounds
+
+
+# FUNCTION: _documented_bounds
+# SUMMARY: Every number written in the .env.sample comment block above one variable.
+def _documented_bounds(path: Path, key: str) -> set[float]:
+    return {float(match.group()) for match in _NUMBER.finditer(_sample_comment_above(path, key))}
+
+
+# CLASS: tests.application.test_env_sample_matches_code.TestASampleSaysWhichValuesAreRefused
+# SUMMARY: Verify a bound that rejects plausible values is named where the value is chosen.
+# NOTE: OPENAI_COMPATIBLE_REQUEST_TIMEOUT carries `ge=5` and the sample said only "in seconds", so
+# a 2-second timeout — an ordinary thing to want while testing a retry path — was accepted by the
+# file, refused by Pydantic, and reported as a validation error during startup with no pointer
+# back to the sample that suggested it. The bound is read out of the model here, so raising or
+# lowering it in the code turns this test red until the sample agrees, rather than leaving a
+# second copy of the number to drift.
+class TestASampleSaysWhichValuesAreRefused:
+    # FUNCTION: test_every_non_zero_bound_is_named_in_the_sample_comment
+    # SUMMARY: Verify each ge/gt/le/lt that is not zero appears above its variable in .env.sample.
+    @pytest.mark.unit
+    def test_every_non_zero_bound_is_named_in_the_sample_comment(self) -> None:
+        sample = _REPO_ROOT / ".env.sample"
+        present = _sample_assignments(sample)
+        undocumented: list[str] = []
+
+        for model in _SETTINGS_MODELS:
+            prefix = _env_prefix(model)
+            for field_name, field in model.model_fields.items():
+                key = _env_key(prefix, field_name, field)
+                if key not in present:
+                    continue
+                bounds = _rejecting_bounds(field)
+                if not bounds:
+                    continue
+                written = _documented_bounds(sample, key)
+                for name, value in bounds.items():
+                    if value not in written:
+                        undocumented.append(f"{key}: {name}={value:g}")
+
+        assert not undocumented, "these bounds refuse values the sample invites: " + ", ".join(
+            sorted(undocumented)
+        )
+
+
+# ATTRIBUTE: _DETERMINERS (frozenset[str])
+# SUMMARY: Words that can precede "validators" without being a count.
+_DETERMINERS = frozenset({"the", "these", "those", "its", "all", "our", "and", "other"})
+
+# ATTRIBUTE: _NUMBER_WORDS (dict[str, int])
+# SUMMARY: Spelled-out counts README uses in prose, as far as any count here plausibly reaches.
+_NUMBER_WORDS = {
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
+    "twenty": 20,
+}
+
+
+# CLASS: tests.application.test_env_sample_matches_code.TestReadmeCountsTheValidatorsThatExist
+# SUMMARY: Verify the validator count README states matches the number of validators on disk.
+# NOTE: README says it twice, in prose, spelled out. Nothing regenerates README, so adding or
+# removing a validator left both sentences confidently wrong — and this is the number a reader
+# uses to decide whether the template's tax is worth paying, which the section above it now asks
+# them to weigh.
+class TestReadmeCountsTheValidatorsThatExist:
+    # FUNCTION: test_every_stated_validator_count_matches_the_scripts_directory
+    # SUMMARY: Verify each "<number> validators" in README equals the count of scripts/validate_*.py.
+    @pytest.mark.unit
+    def test_every_stated_validator_count_matches_the_scripts_directory(self) -> None:
+        actual = len(list((_REPO_ROOT / "scripts").glob("validate_*.py")))
+        readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
+        counted: list[str] = []
+        wrong: list[str] = []
+        for match in re.finditer(r"\b([A-Za-z0-9-]+) validators\b", readme):
+            word = match.group(1).lower()
+            if word in _DETERMINERS:
+                continue
+            counted.append(word)
+            value = int(word) if word.isdigit() else _NUMBER_WORDS.get(word, -1)
+            if value != actual:
+                wrong.append(word)
+
+        assert counted, "README no longer states a validator count this test could check"
+        assert wrong == [], (
+            f"README says {wrong} validators; scripts/ holds {actual}. "
+            "A spelling missing from _NUMBER_WORDS reads as wrong, which is the safe direction."
+        )
