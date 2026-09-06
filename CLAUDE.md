@@ -43,6 +43,8 @@ make logs-raw                # Dump the container's raw NDJSON under logs/
 
 # Run
 make smoke                   # Docker-based health check
+make db-up-worktree          # Start a PostgreSQL container belonging to this worktree alone
+make db-down-worktree        # Remove this worktree's own database, network and volume
 make migrate                 # Apply pending Alembic migrations
 make run-local               # Migrate, then start the app locally (needs a reachable PostgreSQL unless POSTGRES_ENABLED=false)
 

@@ -10,7 +10,7 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from ai_context.rendering import render_json
 from ai_context.validator_contract import build_validator_issue_payload
@@ -53,12 +53,14 @@ _MIGRATIONS_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
     },
     "migrations.upgrade_failure": {
         "meaning": (
-            "Alembic upgrade head failed against the local database. A previous revision is "
-            "broken, the database state is inconsistent, or required objects are missing."
+            "Alembic upgrade head failed against the local database. A revision's upgrade op is "
+            "broken, or the schema it expects to find is not the schema that is there."
         ),
         "suggested_fix": (
-            "Inspect the failing revision file, fix the upgrade op (or restore the database "
-            "to a consistent baseline), and rerun the validator."
+            "Read the traceback for the revision that failed, fix that revision's upgrade op, "
+            "and rerun the validator. If the failure is `Can't locate revision identified by`, "
+            "the database is ahead of this branch rather than broken — see "
+            "migrations.foreign_revision, which reports that case on its own."
         ),
         "read_first": [
             "alembic/versions/",
@@ -66,13 +68,47 @@ _MIGRATIONS_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
         ],
         "smallest_command_to_rerun": "uv run python scripts/validate_migrations.py",
         "likely_fix_shape": (
-            "Repair the failing Alembic revision or reset the local DB to a consistent state."
+            "Repair the failing revision. Recreating the database is not a fix here: on a "
+            "database more than one checkout can reach, it drops the schema those branches "
+            "migrated, and this rule's own cause survives it anyway."
         ),
         "next_checks": [
             "uv run python scripts/validate_migrations.py",
         ],
         "stop_widening_condition": (
             "Stop once `alembic upgrade head` succeeds against the local database."
+        ),
+    },
+    "migrations.foreign_revision": {
+        "meaning": (
+            "The database is stamped with a revision this branch's alembic/versions/ does not "
+            "contain. Something else migrated it — most often another worktree of this "
+            "repository, on a branch that has a revision this one has not merged yet. Alembic "
+            "cannot compute a path from a revision it has never seen, so `upgrade head` fails "
+            "with `Can't locate revision identified by` and says nothing about why."
+        ),
+        "suggested_fix": (
+            "Catch up rather than roll back. `git fetch` and merge the branch that owns the "
+            "revision named in the message, so your own alembic/versions/ contains it. If this "
+            "checkout needs a database nobody else is using, `make db-up-worktree` gives it one "
+            "on its own port and volume. To move this database back instead, `alembic downgrade "
+            "<a revision both branches share>` — and only when nothing else is using it."
+        ),
+        "read_first": [
+            "alembic/versions/",
+            ".env",
+        ],
+        "smallest_command_to_rerun": "uv run python scripts/validate_migrations.py",
+        "likely_fix_shape": (
+            "Merge the branch that owns the stamped revision, or give this worktree its own "
+            "database. Recreating the shared one destroys the schema another branch migrated."
+        ),
+        "next_checks": [
+            "uv run python scripts/validate_migrations.py",
+            "make quality-gates",
+        ],
+        "stop_widening_condition": (
+            "Stop once the stamped revision is one this branch's alembic/versions/ contains."
         ),
     },
     "migrations.database_unreachable": {
@@ -325,15 +361,13 @@ def _is_database_reachable() -> bool:
         return False
 
 
-# FUNCTION: _revision_heads
-# SUMMARY: Read the heads of the revision graph from the migration files alone, without a database.
-# INPUT: script_location (Path): The Alembic script directory; the repository's unless a test
-#        points at a temporary one.
-# OUTPUT: (list[str]): Every head revision id. One is healthy; two is a fork.
-# RAISES: Exception: Whatever Alembic raises when the files do not form a graph it can walk — a
-#         down_revision naming no revision surfaces as KeyError, a revision file that fails to
-#         import as its own error. _revision_graph_issue reports either without narrowing.
-def _revision_heads(script_location: Path = ROOT_DIR / "alembic") -> list[str]:
+# FUNCTION: _script_directory_at
+# SUMMARY: Build Alembic's view of a revision directory, or None when there is no such directory.
+# INPUT: script_location (Path): Directory holding the revision files.
+# OUTPUT: (Any): An alembic ScriptDirectory, typed loosely because alembic is imported lazily.
+# NOTE: One construction shared by every offline reader below, so the heads, the revision ids and
+# any future reader cannot end up walking two differently-configured views of the same directory.
+def _script_directory_at(script_location: Path) -> Any:
     # **LOGIC_STEP**: ScriptDirectory reads alembic/versions/ and nothing else — env.py is not
     # executed, so no connection is attempted and no .env is needed. Verified on 2026-09-02
     # under `env -i`. That is what lets this run ahead of the reachability skip.
@@ -348,10 +382,102 @@ def _revision_heads(script_location: Path = ROOT_DIR / "alembic") -> list[str]:
     # that declared POSTGRES_ENABLED=false and deleted alembic/ has nothing here to check, and
     # the database_disabled skip below is the answer it should get.
     if not script_location.is_dir():
-        return []
+        return None
     config = Config(str(ALEMBIC_INI_PATH))
     config.set_main_option("script_location", str(script_location))
-    return list(ScriptDirectory.from_config(config).get_heads())
+    return ScriptDirectory.from_config(config)
+
+
+# FUNCTION: _revision_heads
+# SUMMARY: Read the heads of the revision graph from the migration files alone, without a database.
+# INPUT: script_location (Path): The Alembic script directory; the repository's unless a test
+#        points at a temporary one.
+# OUTPUT: (list[str]): Every head revision id. One is healthy; two is a fork.
+# RAISES: Exception: Whatever Alembic raises when the files do not form a graph it can walk — a
+#         down_revision naming no revision surfaces as KeyError, a revision file that fails to
+#         import as its own error. _revision_graph_issue reports either without narrowing.
+def _revision_heads(script_location: Path = ROOT_DIR / "alembic") -> list[str]:
+    script = _script_directory_at(script_location)
+    return [] if script is None else list(script.get_heads())
+
+
+# FUNCTION: _revision_ids
+# SUMMARY: Every revision id this branch's migration files define, read without a database.
+# INPUT: script_location (Path): The Alembic script directory; the repository's unless a test
+#        points at a temporary one.
+# OUTPUT: (set[str]): Revision ids reachable from any head down to base, empty when there are none.
+# NOTE: Heads answer "does this branch have one chain"; this answers "does this branch know that
+# revision at all", which is the question a stamped database asks.
+def _revision_ids(script_location: Path = ROOT_DIR / "alembic") -> set[str]:
+    script = _script_directory_at(script_location)
+    if script is None:
+        return set()
+    return {revision.revision for revision in script.walk_revisions()}
+
+
+# FUNCTION: _stamped_revision_ids
+# SUMMARY: Read what the database says it has been migrated to, or nothing when it cannot say.
+# OUTPUT: (set[str]): Contents of alembic_version.version_num; empty for a database that is
+#         unreachable, never migrated, or answering anything this cannot read.
+# NOTE: Every failure reads as "nothing stamped", which is the quiet direction on purpose: a
+# connection that dies between the reachability probe and this read must not be reported as a
+# foreign revision. The real failure then surfaces where it always did, in `alembic upgrade`.
+def _stamped_revision_ids() -> set[str]:
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(ROOT_DIR / ".env")
+    except ImportError:
+        pass
+
+    user = os.environ.get("POSTGRES_USER", "")
+    if not user:
+        return set()
+    try:
+        import psycopg
+
+        with psycopg.connect(
+            host=os.environ.get("POSTGRES_HOST", "localhost"),
+            port=int(os.environ.get("POSTGRES_PORT", "5432")),
+            user=user,
+            password=os.environ.get("POSTGRES_PASSWORD", ""),
+            dbname=os.environ.get("POSTGRES_DB", ""),
+            connect_timeout=3,
+        ) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT version_num FROM alembic_version")
+                return {str(row[0]) for row in cursor.fetchall()}
+    except Exception:
+        return set()
+
+
+# FUNCTION: _foreign_revision_issue
+# SUMMARY: Report a database stamped with a revision this branch does not have.
+# OUTPUT: (MigrationIssue | None): An error-severity issue, or None when the two agree.
+def _foreign_revision_issue() -> MigrationIssue | None:
+    stamped = _stamped_revision_ids()
+    if not stamped:
+        return None
+    try:
+        known = _revision_ids()
+    except Exception:
+        # **LOGIC_STEP**: An unwalkable graph is already reported as migrations.broken_revision_
+        # graph; reporting it a second time under this rule would name the wrong cause.
+        return None
+    foreign = sorted(stamped - known)
+    if not foreign:
+        return None
+    return MigrationIssue(
+        rule_id="migrations.foreign_revision",
+        command_name="current",
+        message=(
+            f"the database is stamped with {', '.join(foreign)}, which this branch's "
+            "alembic/versions/ does not contain. Something else migrated it — most often "
+            "another worktree of this repository. `alembic upgrade head` would fail here with "
+            "`Can't locate revision identified by`, which says nothing about why."
+        ),
+        returncode=1,
+    )
 
 
 # FUNCTION: _revision_graph_issue
@@ -443,6 +569,13 @@ def _remediation_messages(command_name: str) -> list[str]:
         return [
             "The revision files under alembic/versions/ do not form a single chain.",
             "Run `uv run alembic -c alembic.ini heads` and `history`; no database is needed.",
+        ]
+    if command_name == "current":
+        return [
+            "This database was migrated by something whose revisions this branch does not have.",
+            "Merge the branch that owns the revision named above, or give this worktree its own "
+            "database with `make db-up-worktree`. Recreating the shared one destroys the schema "
+            "another branch migrated.",
         ]
     return [
         "Inspect the failing Alembic command output and correct the migration state before retrying."
@@ -537,6 +670,13 @@ def collect_migration_issues(
                 severity="info",
             )
         ]
+    # **LOGIC_STEP**: Asked before alembic runs, because alembic's own answer to this is
+    # `Can't locate revision identified by <id>` — true, useless, and the reason the advice
+    # people reached for was to recreate the database. Reported instead of the upgrade failure
+    # it would otherwise become, since the two want opposite moves.
+    foreign_issue = _foreign_revision_issue()
+    if foreign_issue is not None:
+        return [foreign_issue]
     try:
         for command in _build_commands():
             _run_command(command)
