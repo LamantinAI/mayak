@@ -581,7 +581,15 @@ class TestASpanTestSaysWhatTheSpanReported:
         [
             "    assert finish['data']['output'] == ANY",
             "    assert finish['data']['output'] == mock.ANY",
+            "    assert finish['data']['output'] == RENAMED",
+            "    sentinel = ANY\n    assert finish['data']['output'] == sentinel",
             "    expected = finish['data']['output']\n"
+            "    assert finish['data']['output'] == expected",
+            "    assert (out := finish['data']['output']) == out",
+            "    expected, _ = finish['data']['output'], None\n"
+            "    assert finish['data']['output'] == expected",
+            "    for expected in [finish['data']['output']]:\n"
+            "        pass\n"
             "    assert finish['data']['output'] == expected",
         ],
     )
@@ -592,6 +600,7 @@ class TestASpanTestSaysWhatTheSpanReported:
         module.write_text(
             "from unittest import mock\n"
             "from unittest.mock import ANY\n"
+            "from unittest.mock import ANY as RENAMED\n"
             "\n"
             "def _finish_event(captured, name):\n"
             "    return [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
@@ -711,6 +720,34 @@ class TestASpanNobodyLooksAtIsReported:
         issues = collect_test_quality_issues(tmp_path)
 
         assert [issue.rule_id for issue in issues if "span_output" in issue.rule_id] == []
+
+    # FUNCTION: test_an_alias_bound_in_a_branch_is_still_followed
+    # SUMMARY: Verify the alias chain is read to the end whatever depth its links sit at.
+    # **LOGIC_STEP**: ast.walk is breadth-first, so a single pass read `b = a` before `a = span`
+    # whenever the first link sat one level deeper, and the write through `b` disappeared. The
+    # chain is followed to a fixpoint now.
+    @pytest.mark.unit
+    def test_an_alias_bound_in_a_branch_is_still_followed(self, tmp_path: Path) -> None:
+        module = tmp_path / "project" / "infrastructure"
+        module.mkdir(parents=True)
+        (module / "store.py").write_text(
+            "def save(logger, row, flag):\n"
+            "    with logger.span('db.thing.save') as span:\n"
+            "        if flag:\n"
+            "            a = span\n"
+            "        b = a\n"
+            "        b.output['row_written'] = row is not None\n",
+            encoding="utf-8",
+        )
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        (tests / "test_store.py").write_text(
+            "def test_nothing() -> None:\n    assert 1 + 1 == 2\n", encoding="utf-8"
+        )
+
+        issues = collect_test_quality_issues(tmp_path)
+
+        assert "test.span_output_unpinned" in [issue.rule_id for issue in issues]
 
     # FUNCTION: test_a_name_mentioned_outside_a_span_test_does_not_vouch_for_it
     # SUMMARY: Verify only a module that looks a span up can satisfy this rule.

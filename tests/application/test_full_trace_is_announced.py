@@ -68,10 +68,17 @@ class TestTheServiceSaysWhatItIsRecording:
                 root.return_value.build_application.return_value = MagicMock()
                 main()
         finally:
+            # **LOGIC_STEP**: Put back what was there, rather than only taking away what main()
+            # added. setup_logging goes through dictConfig, which drops every existing root
+            # handler before installing its own — so by the time this runs the handlers this test
+            # inherited are already gone, and pruning alone would leave the process logging
+            # nowhere for every test that follows.
             for handler in list(root_logger.handlers):
+                root_logger.removeHandler(handler)
                 if handler not in handlers_before:
-                    root_logger.removeHandler(handler)
                     handler.close()
+            for handler in handlers_before:
+                root_logger.addHandler(handler)
             root_logger.setLevel(level_before)
 
         announced = "full_trace_records_content" in _warning_types(log_capture)
