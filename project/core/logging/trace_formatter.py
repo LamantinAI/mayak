@@ -108,6 +108,20 @@ def _parse_events(
     return filtered, meta
 
 
+# ATTRIBUTE: _ROUTINE_STATUSES (frozenset[str])
+# SUMMARY: request.summary outcomes that are not the application failing.
+# NOTE: A 4xx belongs here. Counting it as a failure put the ✗ of a 500 on a validation error and
+# reported a healthy log as one with errors in it — the confusion the WARNING level and the
+# `client_error.` event prefix exist to remove, one layer further out.
+_ROUTINE_STATUSES = frozenset(
+    {RequestOutcome.OK.value.upper(), "UNKNOWN", RequestOutcome.CLIENT_ERROR.value.upper()}
+)
+
+# ATTRIBUTE: _LEAF_MARKS (dict[str, str])
+# SUMMARY: The mark a failure-shaped leaf carries, keyed by its event-id prefix.
+_LEAF_MARKS = {"critical.": "✗✗", "client_error.": "⚠", "error.": "✗"}
+
+
 # ATTRIBUTE: _VENDOR_MARKERS (tuple[str, ...])
 # SUMMARY: Path fragments that mark a frame as somebody else's code.
 _VENDOR_MARKERS = ("site-packages", "/.venv/", "<frozen ")
@@ -208,7 +222,7 @@ def _build_tree(
                 )
             )
 
-        elif eid.startswith("critical.") or eid.startswith("error."):
+        elif eid.startswith(("critical.", "error.", "client_error.")):
             # **LOGIC_STEP**: These carry the actual cause of a failed request. Without this
             # branch they were parsed and then silently discarded while the tree still rendered,
             # so a reader saw a shaped trace with no reason in it. Attach them as leaves so the
@@ -216,7 +230,13 @@ def _build_tree(
             failure = data.get("failure_type") or data.get("error_type") or eid
             exception_type = data.get("exception_type", "")
             detail = data.get("exception_message") or data.get("message") or ""
-            mark = "✗✗" if eid.startswith("critical.") else "✗"
+            # **LOGIC_STEP**: A 4xx is the application working — it read a request it could
+            # not serve and said so — so it is marked apart from a failure rather than sharing
+            # the ✗ of one. It is rendered at all because the alternative, silence, is worse: the
+            # rejection's cause was the one thing a reader opened the trace for, and when these
+            # records moved to `client_error.` on 2026-09-06 they matched no branch here and were
+            # parsed and dropped.
+            mark = next(m for prefix, m in _LEAF_MARKS.items() if eid.startswith(prefix))
             head = f"{mark} {failure}"
             if exception_type:
                 head = f"{head} [{exception_type}]"
@@ -398,7 +418,7 @@ def format_trace_for_llm(
         ev.get("event_id", "").startswith(("critical.", "error."))
         or (ev.get("event_id") == "span.error" and ev.get("level") != "WARNING")
         for ev in events
-    ) or summary_status not in {RequestOutcome.OK.value.upper(), "UNKNOWN", cancelled_status}
+    ) or summary_status not in _ROUTINE_STATUSES | {cancelled_status}
     trace_cancelled = not trace_failed and summary_status == cancelled_status
 
     # Header
@@ -542,7 +562,10 @@ def trace_inventory(lines: Iterable[str]) -> tuple[list[str], set[str], set[str]
             status = _summary_status(data)
             if status == cancelled_status:
                 cancelled.add(tid)
-            elif status not in {RequestOutcome.OK.value.upper(), "UNKNOWN"}:
+            # **LOGIC_STEP**: The same split as format_trace_for_llm, one line further out:
+            # a 4xx is the application working, so a note saying "3 traces, 1 with errors"
+            # must not be counting requests a client got wrong.
+            elif status not in _ROUTINE_STATUSES:
                 failed.add(tid)
 
     return trace_ids, failed, cancelled - failed

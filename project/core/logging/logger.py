@@ -231,10 +231,6 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
         stats_token = None
         if is_root_span:
             stats_token = init_span_stats()
-        elif not emit_lifecycle:
-            # **LOGIC_STEP**: Counted at open, because a span nobody will read has no later moment
-            # that knows it existed. The written ones are counted where they are written.
-            increment_span_stat("filtered_child_span_count")
 
         span_token, name_token = set_span(span_id, name)
 
@@ -357,6 +353,14 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                 )
                 if not is_root_span:
                     increment_span_stat("child_span_count")
+            elif not is_root_span:
+                # **LOGIC_STEP**: Counted here rather than at open, so that each span is counted
+                # exactly once and in one counter. Counting the filter at open was speculative: a
+                # filtered span that then raised or was cancelled had its span.error written
+                # anyway — those are emitted whatever the span's own level — and was counted a
+                # second time in the error branch, so one span reported `spans=1, filtered=1` and
+                # a reader saw two.
+                increment_span_stat("filtered_child_span_count")
 
             if is_root_span:
                 status_code = _extract_status_code(ctx.output)

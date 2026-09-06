@@ -311,3 +311,93 @@ class TestCancelledIsNotFailed:
         assert "/orders" in rendered
         assert "/health" in rendered
         assert "unexpected_server_error" in rendered
+
+
+_REJECTED_TRACE = "dddddddd4444"
+
+
+# FUNCTION: _log_with_rejected_then_ok
+# SUMMARY: Build a log where the FIRST request was answered 4xx and the LAST one succeeded.
+# OUTPUT: (list[str]): NDJSON lines, shaped as the exception handlers write a rejection.
+def _log_with_rejected_then_ok() -> list[str]:
+    return [
+        _line(
+            seq=1,
+            trace_id=_REJECTED_TRACE,
+            event_id="span.start",
+            span_id="s4",
+            span_name="http_request",
+            parent_span_id=None,
+            data={"method": "POST", "path": "/reference-tasks"},
+        ),
+        _line(
+            seq=2,
+            trace_id=_REJECTED_TRACE,
+            level="WARNING",
+            event_id="client_error.validation_error",
+            span_id="s4",
+            data={
+                "error_type": "validation_error",
+                "exception_type": "ValidationError",
+                "message": "title must not be empty",
+            },
+        ),
+        _line(
+            seq=3,
+            trace_id=_REJECTED_TRACE,
+            event_id="span.finish",
+            span_id="s4",
+            span_name="http_request",
+            parent_span_id=None,
+            duration_ms=4.0,
+            data={"output": {"status_code": 422}},
+        ),
+        _line(
+            seq=4,
+            trace_id=_REJECTED_TRACE,
+            event_id="request.summary",
+            data={
+                "child_span_count": 0,
+                "error_count": 0,
+                "outcome": "client_error",
+                "status_code": 422,
+            },
+        ),
+        *_log_with_failed_then_ok()[4:],
+    ]
+
+
+# CLASS: tests.application.test_trace_formatter_failure_visibility.TestARejectionIsShownAndIsNotAFailure
+# SUMMARY: Verify a 4xx keeps its cause in the tree while losing the mark of a failed request.
+# NOTE: When these records moved from `error.*` to `client_error.*` the renderer stopped matching
+# them, so the one line naming why the request was rejected was parsed and dropped — the reader
+# was left with a shaped tree and no reason in it. The root line meanwhile still carried the ✗ of
+# a 500, because any outcome that was not ok, unknown or cancelled counted as a failure.
+class TestARejectionIsShownAndIsNotAFailure:
+    # FUNCTION: test_the_rejection_reason_appears_in_the_tree
+    # SUMMARY: Verify the client_error record is rendered as a leaf with its type and message.
+    @pytest.mark.unit
+    def test_the_rejection_reason_appears_in_the_tree(self) -> None:
+        rendered = format_trace_for_llm(_log_with_rejected_then_ok(), trace_id=_REJECTED_TRACE)
+
+        assert "validation_error" in rendered
+        assert "title must not be empty" in rendered
+
+    # FUNCTION: test_the_root_line_is_not_marked_failed
+    # SUMMARY: Verify a 4xx does not print the mark a 500 prints.
+    @pytest.mark.unit
+    def test_the_root_line_is_not_marked_failed(self) -> None:
+        rendered = format_trace_for_llm(_log_with_rejected_then_ok(), trace_id=_REJECTED_TRACE)
+        root_line = next(line for line in rendered.splitlines() if "http_request" in line)
+
+        assert "✗" not in root_line
+
+    # FUNCTION: test_the_inventory_does_not_count_a_rejection_among_the_failures
+    # SUMMARY: Verify the hidden-trace note does not report a rejected request as an error.
+    @pytest.mark.unit
+    def test_the_inventory_does_not_count_a_rejection_among_the_failures(self) -> None:
+        trace_ids, failed, cancelled = trace_inventory(_log_with_rejected_then_ok())
+
+        assert trace_ids == [_REJECTED_TRACE, _OK_TRACE]
+        assert failed == set()
+        assert cancelled == set()

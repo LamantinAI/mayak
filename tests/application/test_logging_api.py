@@ -2,6 +2,7 @@
 # SUMMARY: Unit tests for the semantic logging helper API surface.
 
 import asyncio
+import contextlib
 import inspect
 import logging
 from pathlib import Path
@@ -151,6 +152,36 @@ class TestChildSpanCostsNothingWhenFiltered:
         # happened below the level you are reading" are different answers.
         assert data["child_span_count"] == 1
         assert data["filtered_child_span_count"] == 3
+
+    # FUNCTION: test_a_filtered_span_that_fails_is_counted_once_where_it_can_be_read
+    # SUMMARY: Verify a filtered child that raises or is cancelled lands in one counter, not both.
+    @pytest.mark.unit
+    @pytest.mark.parametrize("interruption", [ValueError("boom"), asyncio.CancelledError()])
+    def test_a_filtered_span_that_fails_is_counted_once_where_it_can_be_read(
+        self,
+        log_capture: list[dict],
+        caplog: pytest.LogCaptureFixture,
+        interruption: BaseException,
+    ) -> None:
+        # **LOGIC_STEP**: span.error is written whatever the span's own level, so a filtered child
+        # that fails is in the tree — it belongs in `spans=` and nowhere else. Counting the filter
+        # at span open could not know that yet, so the same span was counted twice and one failed
+        # query read as two spans, one of them invisible.
+        logger = get_logger("tests.application.test_logging_api.failing")
+        caplog.set_level(logging.INFO, logger="tests.application.test_logging_api.failing")
+
+        with contextlib.suppress(BaseException):
+            with logger.span("http_request", root=True):
+                with logger.span("db.reference_task.get", task_id="x"):
+                    raise interruption
+
+        summaries = [
+            event for event in log_capture if event["kwargs"].get("event_id") == "request.summary"
+        ]
+        assert len(summaries) == 1
+        data = summaries[0]["kwargs"]["data"]
+        assert data["child_span_count"] == 1
+        assert data.get("filtered_child_span_count", 0) == 0
 
 
 # CLASS: tests.application.test_logging_api.TestAnInterruptedSpanStillReportsItself

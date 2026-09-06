@@ -61,7 +61,9 @@ _TEST_QUALITY_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
         "suggested_fix": (
             "Assert the value: `assert finish['kwargs']['data']['output'] == {'row_found': "
             "False}`. Pin the whole mapping rather than one key, so a field appearing or "
-            "disappearing is a failure too."
+            "disappearing is a failure too. `is not None`, a bare truthiness check, a length "
+            "and a comparison against a variable do not count — each of them stays green on a "
+            "span reporting the wrong answer, which is the defect this rule is about."
         ),
         "read_first": [
             "the test named in the message",
@@ -639,24 +641,64 @@ def _looks_up_a_span_finish(node: ast.AST) -> bool:
 # FUNCTION: _states_a_span_output
 # SUMMARY: Report whether a test asserts what a span said, not merely that it happened.
 # OUTPUT: (bool): True when some assertion in the test reads the `output` key.
+def _touches_the_output_key(expression: ast.AST) -> bool:
+    for inner in ast.walk(expression):
+        if isinstance(inner, ast.Subscript) and isinstance(inner.slice, ast.Constant):
+            if inner.slice.value == "output":
+                return True
+        if isinstance(inner, ast.Attribute) and inner.attr == "output":
+            return True
+        if (
+            isinstance(inner, ast.Call)
+            and isinstance(inner.func, ast.Attribute)
+            and inner.func.attr == "get"
+            and inner.args
+            and isinstance(inner.args[0], ast.Constant)
+            and inner.args[0].value == "output"
+        ):
+            return True
+    return False
+
+
+# FUNCTION: _is_none
+# SUMMARY: Report whether an expression is the literal None.
+def _is_none(expression: ast.AST) -> bool:
+    return isinstance(expression, ast.Constant) and expression.value is None
+
+
+# FUNCTION: _pins_a_value
+# SUMMARY: Report whether an expression states what a value IS, rather than that it exists.
+# OUTPUT: (bool): True for `== literal`, `!= literal`, or membership in a literal collection.
+# NOTE: `is not None`, a bare truthiness assert and `len(...) > 0` are all rejected here, and they
+# are the shapes that made the first version of this rule worthless: each one satisfies "the test
+# mentions output" while proving nothing about what the span reported, which is exactly the defect
+# the rule exists to catch. A comparison against a variable is rejected for the same reason
+# test.sql_constant_round_trip rejects one — the variable can be derived from the value under
+# test, and then both sides move together.
+def _pins_a_value(expression: ast.AST) -> bool:
+    collections = (ast.Dict, ast.List, ast.Tuple, ast.Set)
+    literals = (ast.Constant, *collections)
+    for inner in ast.walk(expression):
+        if not isinstance(inner, ast.Compare):
+            continue
+        for operator, right in zip(inner.ops, inner.comparators):
+            if isinstance(operator, (ast.Eq, ast.NotEq)):
+                if _is_none(inner.left) or _is_none(right):
+                    continue
+                if isinstance(inner.left, literals) or isinstance(right, literals):
+                    return True
+            elif isinstance(operator, (ast.In, ast.NotIn)) and isinstance(right, collections):
+                return True
+    return False
+
+
+# FUNCTION: _states_a_span_output
+# SUMMARY: Report whether one assertion both reads the span's output and says what it holds.
+# OUTPUT: (bool): True when the same assert touches `output` and pins a value in it.
 def _states_a_span_output(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     for child in ast.walk(node):
-        if not isinstance(child, ast.Assert):
-            continue
-        for inner in ast.walk(child.test):
-            if isinstance(inner, ast.Subscript) and isinstance(inner.slice, ast.Constant):
-                if inner.slice.value == "output":
-                    return True
-            if isinstance(inner, ast.Attribute) and inner.attr == "output":
-                return True
-            if (
-                isinstance(inner, ast.Call)
-                and isinstance(inner.func, ast.Attribute)
-                and inner.func.attr == "get"
-                and inner.args
-                and isinstance(inner.args[0], ast.Constant)
-                and inner.args[0].value == "output"
-            ):
+        if isinstance(child, ast.Assert) and _touches_the_output_key(child.test):
+            if _pins_a_value(child.test):
                 return True
     return False
 
@@ -687,16 +729,9 @@ def _reads_output_key(node: ast.AST) -> bool:
 # SUMMARY: Report whether some assertion states a concrete value rather than mere truthiness.
 # OUTPUT: (bool): True when an assert compares against a literal.
 def _compares_to_a_literal(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
-    literals = (ast.Constant, ast.Dict, ast.List, ast.Tuple, ast.Set)
-    for child in ast.walk(node):
-        if not isinstance(child, ast.Assert):
-            continue
-        for inner in ast.walk(child.test):
-            if isinstance(inner, ast.Compare) and any(
-                isinstance(side, literals) for side in (inner.left, *inner.comparators)
-            ):
-                return True
-    return False
+    return any(
+        isinstance(child, ast.Assert) and _pins_a_value(child.test) for child in ast.walk(node)
+    )
 
 
 # FUNCTION: _span_output_issues
@@ -739,8 +774,9 @@ def _span_output_issues(
             line=node.lineno,
             rule_id="test.span_output_pinned",
             message=(
-                f"Test '{node.name}' finds a span's finish event and never asserts its output. "
-                "A span that reports the wrong outcome passes this test."
+                f"Test '{node.name}' finds a span's finish event and never states what its "
+                "output holds. A span reporting the wrong outcome passes this test. An "
+                "existence check is not a statement: compare the output to a literal."
             ),
         )
     ]
