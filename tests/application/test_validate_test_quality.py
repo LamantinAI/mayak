@@ -386,6 +386,87 @@ class TestQueryConstantRoundTrip:
 
 # CLASS: tests.application.test_validate_test_quality.TestValidatorSurface
 # SUMMARY: Verify the repository is clean and the rule playbooks are complete.
+# CLASS: tests.application.test_validate_test_quality.TestASpanTestSaysWhatTheSpanReported
+# SUMMARY: Verify the rule fires on a test that finds a span and never reads its outcome, and
+# stays quiet on one that pins it — including through a helper that extracts `output` itself.
+# NOTE: Measured on 2026-09-03: mutating a repository span to report `row_written = True`
+# unconditionally left every gate green. The tests proved the span happened; none read what it
+# said, and a trace that can lie is worse than no trace because it is believed.
+class TestASpanTestSaysWhatTheSpanReported:
+    # FUNCTION: test_a_test_that_only_finds_the_span_is_reported
+    # SUMMARY: Verify a lookup with no assertion on output fails the rule.
+    @pytest.mark.unit
+    def test_a_test_that_only_finds_the_span_is_reported(self, tmp_path: Path) -> None:
+        module = tmp_path / "test_span_unpinned.py"
+        module.write_text(
+            "def _finish_event(captured, name):\n"
+            "    return [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "\n"
+            "def test_the_span_happens(log_capture) -> None:\n"
+            "    finish = _finish_event(log_capture, 'db.thing.add')\n"
+            "    assert finish['name'] == 'db.thing.add'\n",
+            encoding="utf-8",
+        )
+
+        issues = validate_test_module(module)
+
+        assert [issue.rule_id for issue in issues] == ["test.span_output_pinned"]
+
+    # FUNCTION: test_a_test_that_states_the_output_is_left_alone
+    # SUMMARY: Verify asserting the span's output satisfies the rule.
+    @pytest.mark.unit
+    def test_a_test_that_states_the_output_is_left_alone(self, tmp_path: Path) -> None:
+        module = tmp_path / "test_span_pinned.py"
+        module.write_text(
+            "def _finish_event(captured, name):\n"
+            "    return [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "\n"
+            "def test_the_span_reports_the_write(log_capture) -> None:\n"
+            "    finish = _finish_event(log_capture, 'db.thing.add')\n"
+            "    assert finish['data']['output'] == {'rows_written': 1}\n",
+            encoding="utf-8",
+        )
+
+        assert validate_test_module(module) == []
+
+    # FUNCTION: test_a_helper_that_extracts_the_output_counts_as_pinning_it
+    # SUMMARY: Verify a locator that narrows to `output` itself does not make its callers fail.
+    # **LOGIC_STEP**: Without this the rule fires on tests that pin the value perfectly well —
+    # they just never spell "output", because their helper already did. A rule that fires on
+    # correct code teaches people to reach for the opt-out marker, which is worse than no rule.
+    @pytest.mark.unit
+    def test_a_helper_that_extracts_the_output_counts_as_pinning_it(self, tmp_path: Path) -> None:
+        module = tmp_path / "test_span_via_helper.py"
+        module.write_text(
+            "def _span_outputs(captured):\n"
+            "    return [e['data']['output'] for e in captured "
+            "if e['event_id'] == 'span.finish']\n"
+            "\n"
+            "def test_the_response_shape_is_reported(log_capture) -> None:\n"
+            "    outputs = _span_outputs(log_capture)\n"
+            "    assert outputs[-1]['response_type'] == 'streaming'\n",
+            encoding="utf-8",
+        )
+
+        assert validate_test_module(module) == []
+
+    # FUNCTION: test_building_an_event_is_not_looking_one_up
+    # SUMMARY: Verify a fixture that constructs a span.finish line is not read as a span test.
+    @pytest.mark.unit
+    def test_building_an_event_is_not_looking_one_up(self, tmp_path: Path) -> None:
+        module = tmp_path / "test_span_fixture.py"
+        module.write_text(
+            "def _log_line():\n"
+            "    return {'event_id': 'span.finish', 'name': 'db.thing.add'}\n"
+            "\n"
+            "def test_the_formatter_renders_a_finish() -> None:\n"
+            "    assert _log_line()['name'] == 'db.thing.add'\n",
+            encoding="utf-8",
+        )
+
+        assert validate_test_module(module) == []
+
+
 class TestValidatorSurface:
     # FUNCTION: test_repository_has_no_unfailable_tests
     # SUMMARY: Verify the shipped suites satisfy the rule this validator enforces.
@@ -405,6 +486,7 @@ class TestValidatorSurface:
             "test.no_assertion",
             "test.call_assertion_without_arguments",
             "test.sql_constant_round_trip",
+            "test.span_output_pinned",
         ],
     )
     def test_every_rule_has_a_playbook(self, rule_id: str) -> None:

@@ -52,6 +52,34 @@ _ARGUMENTLESS_CALL_ASSERTIONS = frozenset(
 )
 
 _TEST_QUALITY_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
+    "test.span_output_pinned": {
+        "meaning": (
+            "A test finds a span's finish event and never states what the span said. Spans "
+            "carry the outcome an operator reads — row_found, row_count, row_written — and a "
+            "test that only proves the span happened passes while that outcome is wrong."
+        ),
+        "suggested_fix": (
+            "Assert the value: `assert finish['kwargs']['data']['output'] == {'row_found': "
+            "False}`. Pin the whole mapping rather than one key, so a field appearing or "
+            "disappearing is a failure too."
+        ),
+        "read_first": [
+            "the test named in the message",
+            "project/core/logging/logger.py",
+        ],
+        "smallest_command_to_rerun": "uv run python scripts/validate_test_quality.py",
+        "likely_fix_shape": (
+            "State the span's output in an assertion, or delete the span lookup if the test is "
+            "not about the span at all."
+        ),
+        "next_checks": [
+            "uv run python scripts/validate_test_quality.py",
+            "make quality-gates",
+        ],
+        "stop_widening_condition": (
+            "Stop once every test that looks up a span's finish event asserts its output."
+        ),
+    },
     "test.constant_assertion": {
         "meaning": (
             "A test makes an assertion that cannot fail — a constant (assert True, assert 1, "
@@ -564,6 +592,160 @@ def _query_round_trip_issues(
     return issues
 
 
+# ATTRIBUTE: _SPAN_FINISH_EVENT_ID (str)
+# SUMMARY: The event a span writes when it closes; the only one that ever carries `output`.
+_SPAN_FINISH_EVENT_ID = "span.finish"
+
+
+# FUNCTION: _reads_event_id
+# SUMMARY: Report whether an expression reads the `event_id` field off a captured log record.
+# OUTPUT: (bool): True for `entry.get("event_id")` and `entry["event_id"]`.
+def _reads_event_id(node: ast.expr) -> bool:
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "get"
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+    ):
+        return bool(node.args[0].value == "event_id")
+    if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
+        return bool(node.slice.value == "event_id")
+    return False
+
+
+# FUNCTION: _looks_up_a_span_finish
+# SUMMARY: Report whether a function body filters captured events down to a span's finish.
+# OUTPUT: (bool): True when it compares an event_id read against the span.finish literal.
+# NOTE: Deliberately shallow: a helper that CONSTRUCTS an event carrying that id — a fixture
+# building a log line for the trace formatter's tests — is not looking one up, and must not be
+# read as a test about a span.
+def _looks_up_a_span_finish(node: ast.AST) -> bool:
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Compare) or len(child.ops) != 1:
+            continue
+        if not isinstance(child.ops[0], ast.Eq):
+            continue
+        sides = (child.left, child.comparators[0])
+        reads_id = any(_reads_event_id(side) for side in sides)
+        names_finish = any(
+            isinstance(side, ast.Constant) and side.value == _SPAN_FINISH_EVENT_ID for side in sides
+        )
+        if reads_id and names_finish:
+            return True
+    return False
+
+
+# FUNCTION: _states_a_span_output
+# SUMMARY: Report whether a test asserts what a span said, not merely that it happened.
+# OUTPUT: (bool): True when some assertion in the test reads the `output` key.
+def _states_a_span_output(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Assert):
+            continue
+        for inner in ast.walk(child.test):
+            if isinstance(inner, ast.Subscript) and isinstance(inner.slice, ast.Constant):
+                if inner.slice.value == "output":
+                    return True
+            if isinstance(inner, ast.Attribute) and inner.attr == "output":
+                return True
+            if (
+                isinstance(inner, ast.Call)
+                and isinstance(inner.func, ast.Attribute)
+                and inner.func.attr == "get"
+                and inner.args
+                and isinstance(inner.args[0], ast.Constant)
+                and inner.args[0].value == "output"
+            ):
+                return True
+    return False
+
+
+# FUNCTION: _reads_output_key
+# SUMMARY: Report whether a function reads the `output` field of a captured event.
+# OUTPUT: (bool): True when it subscripts or gets "output" anywhere in its body.
+def _reads_output_key(node: ast.AST) -> bool:
+    for child in ast.walk(node):
+        if isinstance(child, ast.Subscript) and isinstance(child.slice, ast.Constant):
+            if child.slice.value == "output":
+                return True
+        if isinstance(child, ast.Attribute) and child.attr == "output":
+            return True
+        if (
+            isinstance(child, ast.Call)
+            and isinstance(child.func, ast.Attribute)
+            and child.func.attr == "get"
+            and child.args
+            and isinstance(child.args[0], ast.Constant)
+            and child.args[0].value == "output"
+        ):
+            return True
+    return False
+
+
+# FUNCTION: _compares_to_a_literal
+# SUMMARY: Report whether some assertion states a concrete value rather than mere truthiness.
+# OUTPUT: (bool): True when an assert compares against a literal.
+def _compares_to_a_literal(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    literals = (ast.Constant, ast.Dict, ast.List, ast.Tuple, ast.Set)
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Assert):
+            continue
+        for inner in ast.walk(child.test):
+            if isinstance(inner, ast.Compare) and any(
+                isinstance(side, literals) for side in (inner.left, *inner.comparators)
+            ):
+                return True
+    return False
+
+
+# FUNCTION: _span_output_issues
+# SUMMARY: Report tests that find a span and never say what it reported.
+# INPUT: helpers (dict[str, ast.FunctionDef | ast.AsyncFunctionDef]): Module-level functions, so a
+#        test calling a locator defined beside it counts as looking a span up.
+# OUTPUT: (list[TestQualityIssue]): One issue per unpinned test.
+# NOTE: A span's `output` is the only part of it an operator reads for an answer — whether a row
+# was found, how many came back, whether a write happened. Measured on 2026-09-03: mutating a
+# repository span to report `row_written = True` unconditionally left every gate green, because
+# the tests proved the span existed and never read what it said. A trace that can lie is worse
+# than no trace, because it is believed.
+def _span_output_issues(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    helpers: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
+    path: Path,
+) -> list[TestQualityIssue]:
+    looks_up = _looks_up_a_span_finish(node)
+    # **LOGIC_STEP**: A helper that already narrows to `output` hands the test the payload
+    # directly, so the test asserts on a plain name and mentions `output` nowhere. Reading the
+    # helper is what tells the two apart — without it this rule fires on tests that pin the value
+    # perfectly well, which is the fastest way to teach everyone to add the opt-out marker.
+    helper_extracts_output = False
+    for child in ast.walk(node):
+        if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
+            helper = helpers.get(child.func.id)
+            if helper is None:
+                continue
+            if _looks_up_a_span_finish(helper):
+                looks_up = True
+                if _reads_output_key(helper):
+                    helper_extracts_output = True
+    if not looks_up:
+        return []
+    if _states_a_span_output(node) or (helper_extracts_output and _compares_to_a_literal(node)):
+        return []
+    return [
+        TestQualityIssue(
+            path=path,
+            line=node.lineno,
+            rule_id="test.span_output_pinned",
+            message=(
+                f"Test '{node.name}' finds a span's finish event and never asserts its output. "
+                "A span that reports the wrong outcome passes this test."
+            ),
+        )
+    ]
+
+
 # FUNCTION: validate_test_module
 # SUMMARY: Inspect one test module for tests that cannot fail.
 # INPUT: path (Path): Absolute path of the test module.
@@ -609,6 +791,8 @@ def validate_test_module(path: Path, repo_root: Path | None = None) -> list[Test
                     ),
                 )
             )
+
+        issues.extend(_span_output_issues(node, helpers, path))
 
         states_expectation, weak_call = _verification_strength(node, helpers)
 

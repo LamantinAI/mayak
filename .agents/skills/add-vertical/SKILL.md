@@ -259,6 +259,19 @@ that uses a comfortable middle value — `"a title"` — cannot see the boundary
   a misplaced marker is a red gate in the loop you already run rather than a surprise from CI —
   and the five shipped markers in `project/` show the placement: each sits on the line carrying
   the value bandit flags, never on a bracket.
+- **A span an operator needs to see asks for its level; a child span defaults to DEBUG.** Which
+  means it exists, costs nothing, and shows nothing in production, where the level is INFO. The
+  repository's four spans pass `level=logging.INFO` for exactly that reason — copy it for a span
+  that answers a question someone will ask of a real trace, and leave the default for a genuinely
+  hot internal step. Measured on 2026-09-06: a filtered span costs 3.6 µs against 21.7 µs written,
+  so three per request at 1000 rps is 1.1 % of one core against 6.5 %. The request summary reports
+  both numbers — `spans=` for what a reader can find in the tree, `filtered=` for what the level
+  swallowed — so a trace never claims children it did not print.
+- **A span's test says what the span reported, not that it happened.** `scripts/validate_test_
+  quality.py` reports `test.span_output_pinned` on a test that looks up a span's finish event and
+  never reads its `output`. Measured in the field: mutating a repository span to report
+  `row_written = True` unconditionally kept every gate green, because the tests proved the span
+  existed. A trace that can lie is worse than no trace, because it is believed.
 - **Two fields of the same type, side by side, need two different values in the test.** A fixture
   that sets `subject="Changed"` and `description="Changed"` cannot tell "bound in the column order
   of the SET clause" from "bound the other way round": the tuple is identical either way, so
