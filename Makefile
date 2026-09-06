@@ -43,8 +43,11 @@ SMOKE_PROJECT = $(shell echo $(notdir $(CURDIR)) | tr '[:upper:]' '[:lower:]')-s
 # runs: a locally running PostgreSQL on 5432 made `make smoke` fail with "port is already
 # allocated" — a failure that says nothing about the service under test. Override on the
 # command line if these are taken too.
-SMOKE_APP_PORT ?= 18000
-SMOKE_POSTGRES_PORT ?= 15432
+# Folded from the worktree digest below for the same reason the worktree database's port is: two
+# checkouts smoking at once on one machine is ordinary, and a shared literal made the second one
+# fail with "port is already allocated" — a failure that says nothing about the service under test.
+SMOKE_APP_PORT ?= $(shell echo $$(( $(WORKTREE_HASH) % 1000 + 18000 )))
+SMOKE_POSTGRES_PORT ?= $(shell echo $$(( $(WORKTREE_HASH) % 1000 + 15000 )))
 
 # A database per worktree — `db-up-worktree` and `db-down-worktree` below. Measured in the field on
 # 2026-09-03: fifteen git worktrees of one project against a single PostgreSQL container, because

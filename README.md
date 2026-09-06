@@ -123,6 +123,13 @@ make run-local
 
 `make run-local` migrates before it serves, the same order the Docker image uses.
 
+That container is shared by every checkout of this repository on the machine: Compose names the
+project after the directory, and each git worktree's own `.env` names the same `localhost:5432`.
+Working in more than one branch at once, use `make db-up-worktree` instead — it starts a database
+under a project name and port derived from this checkout's path, prints the port to put in `.env`,
+and `make db-down-worktree` removes that one and nothing else. Sharing one is what leaves a branch
+facing a database migrated past it, which the gate now reports as `migrations.foreign_revision`.
+
 ---
 
 ## Your first vertical

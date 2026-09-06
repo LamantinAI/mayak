@@ -337,7 +337,7 @@ class TestTheWorktreeDatabaseIsThisWorktreesAlone:
         recipe = "\n".join(_recipe("db-up-worktree"))
 
         assert "POSTGRES_PORT=$(WORKTREE_POSTGRES_PORT)" in recipe
-        assert ">" not in recipe.replace("--no-print-directory", "")
+        assert ">" not in recipe
         assert "grep -E '^POSTGRES_PORT=' .env" in recipe
 
 

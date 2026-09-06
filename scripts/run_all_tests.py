@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import zlib
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -27,6 +28,20 @@ FUNCTIONAL_ENV_SAMPLE = FUNCTIONAL_DIR / ".env.sample"
 # ATTRIBUTE: FUNCTIONAL_ENV_FILE (Path)
 # SUMMARY: Active environment file consumed by the functional Docker Compose suite.
 FUNCTIONAL_ENV_FILE = FUNCTIONAL_DIR / ".env"
+
+
+# FUNCTION: functional_compose_project
+# SUMMARY: Name the functional stack's Compose project after this checkout, not its directory.
+# OUTPUT: (str): A Compose-legal project name unique to this worktree.
+# NOTE: Compose defaults to naming a project after the directory it runs in, which for every
+# checkout of this repository is `functional` — so two worktrees running `make test-e2e` at once
+# share containers, a volume and a database, and the second one's `down -v` removes the first's
+# stack mid-run. Same defect the Makefile's own db-up-worktree exists for, and the same fix: a
+# digest of this checkout's absolute path. Kept in step with the Makefile by name and by shape,
+# not by a shared implementation — a python script and a make recipe cannot import each other.
+def functional_compose_project() -> str:
+    digest = zlib.crc32(str(ROOT_DIR).encode("utf-8"))
+    return f"functional-{digest}"
 
 
 # DATACLASS: run_all_tests.TestStep
@@ -102,6 +117,8 @@ def _build_test_steps(
                 command=(
                     "docker",
                     "compose",
+                    "-p",
+                    functional_compose_project(),
                     "up",
                     "--build",
                     "--abort-on-container-exit",
@@ -214,7 +231,7 @@ def _run_command(step: TestStep) -> None:
 # SUMMARY: Stop and remove the functional Docker Compose stack after the functional suite finishes.
 def _cleanup_functional_stack() -> None:
     subprocess.run(
-        ("docker", "compose", "down", "-v"),
+        ("docker", "compose", "-p", functional_compose_project(), "down", "-v"),
         cwd=FUNCTIONAL_DIR,
         check=False,
     )
@@ -224,7 +241,7 @@ def _cleanup_functional_stack() -> None:
 # SUMMARY: Emit functional Docker Compose logs after a functional suite failure to aid agent debugging.
 def _show_functional_logs() -> None:
     subprocess.run(
-        ("docker", "compose", "logs"),
+        ("docker", "compose", "-p", functional_compose_project(), "logs"),
         cwd=FUNCTIONAL_DIR,
         check=False,
     )

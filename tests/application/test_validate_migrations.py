@@ -161,6 +161,9 @@ class TestValidateMigrations:
         import scripts.validate_migrations as validate_migrations
 
         monkeypatch.setattr(validate_migrations, "_is_database_reachable", lambda: True)
+        # **LOGIC_STEP**: Reachable is forced, so the stamp reader would otherwise open a real
+        # connection to whatever .env names — a unit test reaching a developer's database.
+        monkeypatch.setattr(validate_migrations, "_stamped_revision_ids", lambda: set())
 
         recorded_calls: list[tuple[tuple[str, ...], str]] = []
 
@@ -198,6 +201,9 @@ class TestValidateMigrations:
         import scripts.validate_migrations as validate_migrations
 
         monkeypatch.setattr(validate_migrations, "_is_database_reachable", lambda: True)
+        # **LOGIC_STEP**: Reachable is forced, so the stamp reader would otherwise open a real
+        # connection to whatever .env names — a unit test reaching a developer's database.
+        monkeypatch.setattr(validate_migrations, "_stamped_revision_ids", lambda: set())
 
         command_iter = iter(
             [
@@ -245,6 +251,9 @@ class TestValidateMigrations:
         import scripts.validate_migrations as validate_migrations
 
         monkeypatch.setattr(validate_migrations, "_is_database_reachable", lambda: True)
+        # **LOGIC_STEP**: Reachable is forced, so the stamp reader would otherwise open a real
+        # connection to whatever .env names — a unit test reaching a developer's database.
+        monkeypatch.setattr(validate_migrations, "_stamped_revision_ids", lambda: set())
 
         def fake_run(
             argv: tuple[str, ...],
@@ -315,6 +324,9 @@ class TestRulePlaybook:
         import scripts.validate_migrations as validate_migrations
 
         monkeypatch.setattr(validate_migrations, "_is_database_reachable", lambda: True)
+        # **LOGIC_STEP**: Reachable is forced, so the stamp reader would otherwise open a real
+        # connection to whatever .env names — a unit test reaching a developer's database.
+        monkeypatch.setattr(validate_migrations, "_stamped_revision_ids", lambda: set())
         # **LOGIC_STEP**: Make upgrade-head succeed and `check` fail.
         upgrade_argv = _build_commands()[0].argv
         check_argv = _build_commands()[1].argv
@@ -348,6 +360,9 @@ class TestRulePlaybook:
         import scripts.validate_migrations as validate_migrations
 
         monkeypatch.setattr(validate_migrations, "_is_database_reachable", lambda: True)
+        # **LOGIC_STEP**: Reachable is forced, so the stamp reader would otherwise open a real
+        # connection to whatever .env names — a unit test reaching a developer's database.
+        monkeypatch.setattr(validate_migrations, "_stamped_revision_ids", lambda: set())
         upgrade_argv = _build_commands()[0].argv
         check_argv = _build_commands()[1].argv
         alembic_stderr = (

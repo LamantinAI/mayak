@@ -464,6 +464,12 @@ def _foreign_revision_issue() -> MigrationIssue | None:
         # **LOGIC_STEP**: An unwalkable graph is already reported as migrations.broken_revision_
         # graph; reporting it a second time under this rule would name the wrong cause.
         return None
+    if not known:
+        # **LOGIC_STEP**: No revisions here at all — a checkout whose alembic/versions/ is empty or
+        # gone. Every stamped id is then "foreign" by arithmetic and by nothing else, and saying
+        # another branch migrated this database would be a guess about the wrong repository. The
+        # upgrade that follows reports the real problem, which is local.
+        return None
     foreign = sorted(stamped - known)
     if not foreign:
         return None
