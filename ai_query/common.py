@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 
 from ai_context.constants import (
@@ -819,16 +820,36 @@ def vertical_names_for_path(normalized_path: str) -> list[str]:
     return [name for name in names if len(name) >= _SHORTEST_VERTICAL_NAME]
 
 
-def vertical_test_candidates(normalized_path: str) -> list[str]:
+def registered_vertical_names(context_map: dict[str, object]) -> set[str]:
+    # **LOGIC_STEP**: The wiring is the authority on which verticals exist, the same source
+    # scripts/validate_project_context.py checks a declared status against. Reading it from the
+    # context map rather than from docs/project_context.json keeps this working in a project that
+    # has not filled that file in.
+    registry = context_map.get("service_registry", {})
+    if not isinstance(registry, dict):
+        return set()
+    names: set[str] = set()
+    for key, metadata in registry.items():
+        if isinstance(metadata, dict) and metadata.get("category") != "vertical":
+            continue
+        names.add(str(key).removesuffix("_service").removesuffix("_repository"))
+    return names
+
+
+def vertical_test_candidates(normalized_path: str, known_verticals: Iterable[str]) -> list[str]:
     # **LOGIC_STEP**: Named after the vertical, not spelled exactly like the file. Before this,
     # mapping was by exact stem, so `before-edit` on the shipped vertical's domain model and on
     # its endpoint module both answered with no tests at all, while four files named after that
     # vertical sat in tests/ — the tool was empty for the one vertical the template ships, and
     # would be empty for every vertical copied from it.
     #
-    # The match is on whole underscore-delimited segments, so `reference_task` finds
-    # `test_reference_task_vertical.py` without a three-letter stem sweeping in half the suite.
-    names = vertical_names_for_path(normalized_path)
+    # The name has to be one the project actually registered. Deriving it from the stem alone was
+    # enough to match a whole underscore-delimited segment of a test's name, and plenty of files
+    # are named after no vertical at all: `project/core/logging/context.py` answered with four
+    # tests for the unrelated ai_context tooling, and `dependencies.py` — a wiring hotspot — with
+    # the unit tests of the dependency-pinning validator. A wrong suggestion here is worse than
+    # none: the narrow loop runs it and reports that the change was exercised.
+    names = [name for name in vertical_names_for_path(normalized_path) if name in known_verticals]
     if not names:
         return []
     candidates: list[str] = []
@@ -1137,7 +1158,9 @@ def tests_for_file(
         integration_tests.extend(endpoint_test_candidates([module_name], route_service_keys))
 
     unit_tests.extend(name_matched_test_candidates(normalized_path))
-    unit_tests.extend(vertical_test_candidates(normalized_path))
+    unit_tests.extend(
+        vertical_test_candidates(normalized_path, registered_vertical_names(context_map))
+    )
     unit_tests.extend(changed_test_is_its_own_candidate(normalized_path))
 
     if normalized_path == "project/core/composition_root.py":

@@ -446,10 +446,6 @@ class TestASampleSaysWhichValuesAreRefused:
         )
 
 
-# ATTRIBUTE: _DETERMINERS (frozenset[str])
-# SUMMARY: Words that can precede "validators" without being a count.
-_DETERMINERS = frozenset({"the", "these", "those", "its", "all", "our", "and", "other"})
-
 # ATTRIBUTE: _NUMBER_WORDS (dict[str, int])
 # SUMMARY: Spelled-out counts README uses in prose, as far as any count here plausibly reaches.
 _NUMBER_WORDS = {
@@ -486,15 +482,20 @@ class TestReadmeCountsTheValidatorsThatExist:
         wrong: list[str] = []
         for match in re.finditer(r"\b([A-Za-z0-9-]+) validators\b", readme):
             word = match.group(1).lower()
-            if word in _DETERMINERS:
+            # **LOGIC_STEP**: Only a word that IS a count is checked. "the validators", "custom
+            # validators" and "community validators" claim no number, and failing on them would
+            # make an accurate sentence a red gate — the way to get a rule deleted. A count
+            # written in a spelling this map does not hold is invisible instead, which the
+            # assertion below catches as long as it is the only one in the file.
+            value = int(word) if word.isdigit() else _NUMBER_WORDS.get(word)
+            if value is None:
                 continue
             counted.append(word)
-            value = int(word) if word.isdigit() else _NUMBER_WORDS.get(word, -1)
             if value != actual:
                 wrong.append(word)
 
-        assert counted, "README no longer states a validator count this test could check"
-        assert wrong == [], (
-            f"README says {wrong} validators; scripts/ holds {actual}. "
-            "A spelling missing from _NUMBER_WORDS reads as wrong, which is the safe direction."
+        assert counted, (
+            "README states no validator count this test can read. Either it stopped naming one, "
+            f"or it names one in a spelling missing from _NUMBER_WORDS; scripts/ holds {actual}."
         )
+        assert wrong == [], f"README says {wrong} validators; scripts/ holds {actual}."

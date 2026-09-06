@@ -509,14 +509,15 @@ _RUNNING_STATUSES = frozenset({"active", "reference_implementation"})
 
 # FUNCTION: _wired_vertical_names
 # SUMMARY: The vertical names the wiring files actually register, or None when they are absent.
-# OUTPUT: (set[str] | None): Names derived from registered services and included routers.
+# OUTPUT: (tuple[set[str], dict[str, str]] | None): Names registered outright, and the singular
+# of each plural endpoint module mapped back to that module.
 # NOTE: Two sources, because a project can wire a vertical either way. The service key is what
 # router_registration.py keys the conditional include on, and the endpoint module is what an
 # unconditional include names. The endpoint module is conventionally plural, so its singular is
 # accepted too. Returns None rather than an empty set when the files are missing: a checkout
 # without them says nothing about the statuses, and treating silence as "nothing is wired" would
 # fail every project that keeps its wiring elsewhere.
-def _wired_vertical_names(root_dir: Path) -> set[str] | None:
+def _wired_vertical_names(root_dir: Path) -> tuple[set[str], dict[str, str]] | None:
     from ai_context.extraction import extract_router_modules, extract_service_registry_entries
 
     registration = root_dir / "project" / "core" / "service_registration.py"
@@ -525,6 +526,7 @@ def _wired_vertical_names(root_dir: Path) -> set[str] | None:
         return None
 
     names: set[str] = set()
+    singulars: dict[str, str] = {}
     if registration.is_file():
         for key in extract_service_registry_entries(registration, root_dir, "vertical"):
             names.add(key.removesuffix("_service").removesuffix("_repository"))
@@ -532,8 +534,8 @@ def _wired_vertical_names(root_dir: Path) -> set[str] | None:
         for module in extract_router_modules(routers):
             names.add(module)
             if module.endswith("s"):
-                names.add(module[:-1])
-    return names
+                singulars.setdefault(module[:-1], module)
+    return names, singulars
 
 
 # FUNCTION: _validate_vertical_wiring
@@ -541,13 +543,19 @@ def _wired_vertical_names(root_dir: Path) -> set[str] | None:
 def _validate_vertical_wiring(
     verticals: dict[str, object],
     wired: set[str],
+    singulars: dict[str, str],
 ) -> list[ProjectContextIssue]:
     issues: list[ProjectContextIssue] = []
     for name, entry in verticals.items():
         if not isinstance(entry, dict):
             continue
         status = entry.get("status")
-        registered = name in wired
+        # **LOGIC_STEP**: The singular of a plural endpoint module counts as that vertical only
+        # while the plural is not itself a declared vertical. A project with both `order` and
+        # `orders` has two verticals, and reading the router for `orders` as evidence that `order`
+        # is wired reported the planned one as already registered — a red gate on correct work.
+        plural = singulars.get(name)
+        registered = name in wired or (plural is not None and plural not in verticals)
         if status in _RUNNING_STATUSES and not registered:
             issues.append(
                 ProjectContextIssue(
@@ -659,9 +667,9 @@ def collect_project_context_issues(root_dir: Path) -> list[ProjectContextIssue]:
 
     if isinstance(verticals, dict):
         issues.extend(_validate_cross_references(verticals, business_rule_ids))
-        wired = _wired_vertical_names(root_dir)
-        if wired is not None:
-            issues.extend(_validate_vertical_wiring(verticals, wired))
+        registrations = _wired_vertical_names(root_dir)
+        if registrations is not None:
+            issues.extend(_validate_vertical_wiring(verticals, *registrations))
 
     return issues
 

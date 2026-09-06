@@ -390,6 +390,28 @@ class TestAStatusIsCheckedAgainstTheWiring:
 
         assert collect_project_context_issues(tmp_path) == []
 
+    # FUNCTION: test_a_singular_vertical_beside_its_plural_is_judged_on_its_own_wiring
+    # SUMMARY: Verify one vertical's router does not register a differently named neighbour.
+    # **LOGIC_STEP**: The singular of a plural endpoint module is accepted so that the
+    # conventional `orders.py` registers the `order` vertical. When a project declares both names
+    # they are two verticals, and reading one's router as the other's registration reported the
+    # planned one as already wired — the gate red on correct work, which is how a rule gets
+    # switched off.
+    @pytest.mark.unit
+    def test_a_singular_vertical_beside_its_plural_is_judged_on_its_own_wiring(
+        self, tmp_path: Path
+    ) -> None:
+        data = _valid_skeleton()
+        data["verticals"]["order"] = {
+            "description": "Not built yet",
+            "status": "planned",
+            "domain_entities": [],
+        }
+        _write_context(tmp_path, data)
+        _write_wiring(tmp_path, ["orders_service"], ["orders"])
+
+        assert collect_project_context_issues(tmp_path) == []
+
     # FUNCTION: test_a_checkout_without_wiring_files_says_nothing_about_status
     # SUMMARY: Verify absent wiring is silence, not evidence that nothing is registered.
     @pytest.mark.unit
@@ -447,6 +469,27 @@ class TestTheShippedFileShowsTheShape:
         }
         assert referenced, "no vertical references a rule, so the cross-reference is undemonstrated"
         assert referenced <= set(rules)
+
+    # FUNCTION: test_the_prose_and_the_json_agree_on_whether_rules_exist
+    # SUMMARY: Verify PROJECT.md names every rule the machine-readable file declares.
+    # **LOGIC_STEP**: PROJECT.md's own header calls docs/project_context.json its machine-readable
+    # counterpart, and nothing checked that they say the same thing. Filling the JSON in left the
+    # prose reading "No formal business rules in the kernel", so the file CLAUDE.md sends a reader
+    # to for domain context contradicted the file it points at. Ids only: the sentences are
+    # written for different readers and are meant to differ.
+    @pytest.mark.unit
+    def test_the_prose_and_the_json_agree_on_whether_rules_exist(self) -> None:
+        data = json.loads(
+            (_REPO_ROOT / "docs" / "project_context.json").read_text(encoding="utf-8")
+        )
+        prose = (_REPO_ROOT / "PROJECT.md").read_text(encoding="utf-8")
+
+        missing = [rule_id for rule_id in data["business_rules"] if rule_id not in prose]
+
+        assert missing == [], (
+            f"docs/project_context.json declares {missing} and PROJECT.md never mentions them, "
+            "though it calls that file its machine-readable counterpart"
+        )
 
     # FUNCTION: test_every_constant_a_shipped_rule_names_still_exists
     # SUMMARY: Verify a rule's summary does not describe a bound the code no longer has.

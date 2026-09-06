@@ -744,3 +744,36 @@ class TestEveryFileOfAVerticalFindsThatVerticalsTests:
             "these files of a vertical do not resolve to a test named after that vertical: "
             f"{missed}"
         )
+
+    # FUNCTION: test_a_file_named_after_no_vertical_pulls_in_no_verticals_tests
+    # SUMMARY: Verify the name match cannot reach a test belonging to something else.
+    # **LOGIC_STEP**: The test above can only prove recall, because it computes what it expects
+    # the same way the code does. This one states the answer by hand for three kernel files whose
+    # stems are ordinary English words. Before the derived name was required to be a registered
+    # vertical, `context.py` — ContextVars for the logger — answered with four tests for the
+    # ai_context tooling, and `dependencies.py`, one of the four wiring files, with the unit tests
+    # of the dependency-pinning validator. The narrow loop runs whatever is returned, so a wrong
+    # suggestion is worse than none: it reports the change as exercised.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("module", "forbidden"),
+        [
+            ("project/core/logging/context.py", "tests/application/test_query_ai_context.py"),
+            (
+                "project/infrastructure/api/dependencies.py",
+                "tests/application/test_validate_dependencies.py",
+            ),
+            ("project/core/config.py", "tests/application/test_validate_project_context.py"),
+        ],
+    )
+    def test_a_file_named_after_no_vertical_pulls_in_no_verticals_tests(
+        self, module: str, forbidden: str
+    ) -> None:
+        context_map, _, _ = query_common.context_bundle()
+
+        related = _tests_for(context_map, module)
+
+        assert forbidden not in related["likely_unit_tests"], (
+            f"{module} is named after no registered vertical, so {forbidden} — which tests "
+            "something else entirely — must not be suggested for it"
+        )
