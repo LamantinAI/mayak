@@ -29,6 +29,7 @@ from tenacity import (
 
 from project.core.config import Settings
 from project.core.logging import SemanticLogger
+from project.core.logging.redaction import redact_secrets
 from project.domain.exceptions import ExternalServiceError, UpstreamAuthenticationError
 
 
@@ -48,12 +49,17 @@ def _build_full_trace_extras(
 
     system_prompt = "\n\n".join(str(m.content) for m in messages if isinstance(m, SystemMessage))
     user_message = "\n\n".join(str(m.content) for m in messages if not isinstance(m, SystemMessage))
+    # **LOGIC_STEP**: The same scrubber every other free-text log path in this repository already
+    # runs, which this one skipped: a key or a token pasted into a prompt reached the file in
+    # full. It catches credential shapes and nothing else — a customer's email in a prompt is
+    # still recorded verbatim, which is what the startup warning is for. Redaction here is
+    # consistency, not a promise about personal data.
     extras: dict[str, Any] = {
-        "system_prompt": system_prompt,
-        "user_message": user_message,
+        "system_prompt": redact_secrets(system_prompt),
+        "user_message": redact_secrets(user_message),
     }
     if completion_text is not None:
-        extras["completion_text"] = completion_text
+        extras["completion_text"] = redact_secrets(completion_text)
     return extras
 
 

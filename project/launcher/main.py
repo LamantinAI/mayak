@@ -109,6 +109,23 @@ def main() -> None:
                         "full_trace": settings.observability.full_trace_enabled,
                         "model": settings.llm.model,
                     }
+                    if settings.observability.full_trace_enabled:
+                        # **LOGIC_STEP**: Said out loud, once, where an operator reading the boot
+                        # of a service will meet it. The flag records prompts and completions
+                        # verbatim; the scrubber on that path removes credential shapes and knows
+                        # nothing about a name, an address or an email a user typed. Nothing else
+                        # announced this, so a project turned it on to debug an agent and left it
+                        # on — which is how a customer's email address ended up in a log file.
+                        logger.log_warning(
+                            warning_type="full_trace_records_content",
+                            message=(
+                                "ENABLE_FULL_TRACE is on: prompts and completions are written to "
+                                "the log verbatim, and only credential shapes are scrubbed. Turn "
+                                "it off before this serves real users, or accept that their text "
+                                "is on disk" + (f" in {log_file_path}." if log_file_path else ".")
+                            ),
+                            affected_component="observability",
+                        )
                 except ValidationError as e:
                     raise ProjectError(f"Configuration validation failed: {e}") from e
                 except ValueError as e:

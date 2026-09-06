@@ -14,6 +14,48 @@ from project.core.logging.redaction import redact_secrets
 # CLASS: project.core.logging.logger_events_errors.SemanticLoggerIssueEventsMixin
 # SUMMARY: Mixin implementing error and critical issue helpers with causal-link metadata support.
 class SemanticLoggerIssueEventsMixin:
+    # FUNCTION: log_client_error
+    # SUMMARY: Log a rejection the caller caused — a 4xx — at WARNING, under its own event id.
+    # INPUT: error_type (str): Short slug describing the rejection, e.g. "http_exception".
+    # NOTE: Same shape as log_error and deliberately not the same level. A 404 or a 422 is the
+    # application working: it looked at a request it could not serve and said so. Recorded as
+    # `error.*` at ERROR, those lines made a healthy service read as a failing one — `make
+    # format-trace` counted them among a trace's errors, and an operator grepping ERROR met a
+    # client's typo. WARNING keeps them visible without claiming the service broke, and the
+    # `client_error.` prefix is what a reader filters on. ERROR stays for the failures that are
+    # this application's own, which is what CLAUDE.md already promised about `client_error`.
+    def log_client_error(
+        self: SemanticLoggerEventContract,
+        error_type: str,
+        message: str,
+        *,
+        exception: Optional[Exception] = None,
+        exc_info: bool = False,
+        caused_by: Optional[str] = None,
+        **extra: LogValue,
+    ) -> None:
+        _caller = self._resolve_caller()
+        message = redact_secrets(message)
+        payload: dict[str, Any] = {"error_type": error_type, "message": message}
+        if exception is not None:
+            payload["exception_type"] = type(exception).__name__
+            payload["exception_message"] = redact_secrets(str(exception))
+
+        related_id = caused_by or get_current_error_id()
+        if related_id:
+            payload["related_error_id"] = related_id
+
+        payload.update(extra)
+        self.log_event(
+            EventType.ISSUE_WARNING,
+            message,
+            level=logging.WARNING,
+            event_id=f"client_error.{error_type}",
+            exc_info=exc_info,
+            _caller=_caller,
+            data=payload,
+        )
+
     # FUNCTION: log_error
     # SUMMARY: Log error events with exception details, context information, and causal linking.
     # INPUT: exception (Optional[Exception]): Actual exception object if available.
