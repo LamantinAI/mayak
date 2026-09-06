@@ -466,6 +466,75 @@ class TestASpanTestSaysWhatTheSpanReported:
 
         assert validate_test_module(module) == []
 
+    # FUNCTION: test_a_test_that_only_proves_the_output_exists_is_reported
+    # SUMMARY: Verify existence, truthiness and length checks do not count as pinning a value.
+    # **LOGIC_STEP**: The first version of this rule asked only whether an assertion mentioned
+    # `output`, so every shape below satisfied it while stating nothing about what the span
+    # reported — the same mutation the rule was built to catch stayed green behind any of them.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "assertion",
+        [
+            "assert finish['data']['output'] is not None",
+            "assert finish['data']['output']",
+            "assert len(finish['data']['output']) > 0",
+            "assert 'rows_written' in finish['data']['output']",
+        ],
+    )
+    def test_a_test_that_only_proves_the_output_exists_is_reported(
+        self, tmp_path: Path, assertion: str
+    ) -> None:
+        module = tmp_path / "test_span_existence.py"
+        module.write_text(
+            "def _finish_event(captured, name):\n"
+            "    return [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "\n"
+            "def test_the_span_reports_something(log_capture) -> None:\n"
+            "    finish = _finish_event(log_capture, 'db.thing.add')\n"
+            f"    {assertion}\n",
+            encoding="utf-8",
+        )
+
+        issues = validate_test_module(module)
+
+        assert [issue.rule_id for issue in issues] == ["test.span_output_pinned"]
+
+    # FUNCTION: test_a_helper_path_that_only_proves_existence_is_reported_too
+    # SUMMARY: Verify the locator-helper exemption does not accept an existence check either.
+    @pytest.mark.unit
+    def test_a_helper_path_that_only_proves_existence_is_reported_too(self, tmp_path: Path) -> None:
+        module = tmp_path / "test_span_helper_existence.py"
+        module.write_text(
+            "def _span_output(captured):\n"
+            "    finish = [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "    return finish['data']['output']\n"
+            "\n"
+            "def test_the_span_reports_something(log_capture) -> None:\n"
+            "    assert _span_output(log_capture) is not None\n",
+            encoding="utf-8",
+        )
+
+        issues = validate_test_module(module)
+
+        assert [issue.rule_id for issue in issues] == ["test.span_output_pinned"]
+
+    # FUNCTION: test_membership_in_a_literal_set_still_counts_as_pinning
+    # SUMMARY: Verify a value checked against a closed set of literals is accepted.
+    @pytest.mark.unit
+    def test_membership_in_a_literal_set_still_counts_as_pinning(self, tmp_path: Path) -> None:
+        module = tmp_path / "test_span_membership.py"
+        module.write_text(
+            "def _finish_event(captured, name):\n"
+            "    return [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "\n"
+            "def test_the_span_reports_a_known_status(log_capture) -> None:\n"
+            "    finish = _finish_event(log_capture, 'db.thing.add')\n"
+            "    assert finish['data']['output']['status'] in {'pending', 'done'}\n",
+            encoding="utf-8",
+        )
+
+        assert validate_test_module(module) == []
+
 
 class TestValidatorSurface:
     # FUNCTION: test_repository_has_no_unfailable_tests
