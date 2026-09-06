@@ -569,6 +569,43 @@ class TestASpanTestSaysWhatTheSpanReported:
             issue.rule_id for issue in validate_test_module(module)
         ]
 
+    # FUNCTION: test_an_equality_that_states_nothing_is_still_reported
+    # SUMMARY: Verify a wildcard and a tautology routed through a variable are both refused.
+    # **LOGIC_STEP**: Widening the rule to accept any stated expectation opened two ways to state
+    # nothing: `== ANY` matches whatever the span reported, and `expected = finish[...]["output"]`
+    # one line above the assert makes both sides the same object while looking like two. Both were
+    # found by an audit of the widening itself.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "    assert finish['data']['output'] == ANY",
+            "    assert finish['data']['output'] == mock.ANY",
+            "    expected = finish['data']['output']\n"
+            "    assert finish['data']['output'] == expected",
+        ],
+    )
+    def test_an_equality_that_states_nothing_is_still_reported(
+        self, tmp_path: Path, body: str
+    ) -> None:
+        module = tmp_path / "test_span_wildcard.py"
+        module.write_text(
+            "from unittest import mock\n"
+            "from unittest.mock import ANY\n"
+            "\n"
+            "def _finish_event(captured, name):\n"
+            "    return [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "\n"
+            "def test_the_span_reports_the_write(log_capture) -> None:\n"
+            "    finish = _finish_event(log_capture, 'db.thing.add')\n"
+            f"{body}\n",
+            encoding="utf-8",
+        )
+
+        issues = [issue.rule_id for issue in validate_test_module(module)]
+
+        assert "test.span_output_pinned" in issues
+
     # FUNCTION: test_a_fixture_that_finds_the_span_is_read_like_a_helper
     # SUMMARY: Verify moving the lookup into a fixture does not hide the test from the rule.
     # **LOGIC_STEP**: A fixture arrives by name in the signature and is never called, so reading
@@ -674,6 +711,49 @@ class TestASpanNobodyLooksAtIsReported:
         issues = collect_test_quality_issues(tmp_path)
 
         assert [issue.rule_id for issue in issues if "span_output" in issue.rule_id] == []
+
+    # FUNCTION: test_a_name_mentioned_outside_a_span_test_does_not_vouch_for_it
+    # SUMMARY: Verify only a module that looks a span up can satisfy this rule.
+    # **LOGIC_STEP**: Matching every string under tests/ meant a span name in a docstring, or in a
+    # list kept for documentation, satisfied the rule while nothing exercised the span — the same
+    # silence the rule was added to break.
+    @pytest.mark.unit
+    def test_a_name_mentioned_outside_a_span_test_does_not_vouch_for_it(
+        self, tmp_path: Path
+    ) -> None:
+        self._write_project(
+            tmp_path,
+            "def test_something_else() -> None:\n"
+            '    """This module mentions db.thing.save in prose only."""\n'
+            "    assert 1 + 1 == 2\n",
+        )
+
+        issues = collect_test_quality_issues(tmp_path)
+
+        assert "test.span_output_unpinned" in [issue.rule_id for issue in issues]
+
+    # FUNCTION: test_an_output_written_through_an_alias_is_still_seen
+    # SUMMARY: Verify renaming the span variable does not hide the write from this rule.
+    @pytest.mark.unit
+    def test_an_output_written_through_an_alias_is_still_seen(self, tmp_path: Path) -> None:
+        module = tmp_path / "project" / "infrastructure"
+        module.mkdir(parents=True)
+        (module / "store.py").write_text(
+            "def save(logger, row):\n"
+            "    with logger.span('db.thing.save') as span:\n"
+            "        handle = span\n"
+            "        handle.output['row_written'] = row is not None\n",
+            encoding="utf-8",
+        )
+        tests = tmp_path / "tests"
+        tests.mkdir()
+        (tests / "test_store.py").write_text(
+            "def test_nothing() -> None:\n    assert 1 + 1 == 2\n", encoding="utf-8"
+        )
+
+        issues = collect_test_quality_issues(tmp_path)
+
+        assert "test.span_output_unpinned" in [issue.rule_id for issue in issues]
 
     # FUNCTION: test_a_span_that_records_nothing_is_not_demanded_of
     # SUMMARY: Verify a span with no output is outside this rule entirely.

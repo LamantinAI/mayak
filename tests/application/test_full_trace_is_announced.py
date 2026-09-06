@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -40,19 +41,38 @@ class TestTheServiceSaysWhatItIsRecording:
     @pytest.mark.unit
     @pytest.mark.parametrize("full_trace", [True, False])
     def test_the_warning_follows_the_flag(
-        self, log_capture: list[dict], test_settings: Any, tmp_path: Any, full_trace: bool
+        self,
+        log_capture: list[dict],
+        test_settings: Any,
+        tmp_path: Any,
+        monkeypatch: pytest.MonkeyPatch,
+        full_trace: bool,
     ) -> None:
-        test_settings.observability.full_trace_enabled = full_trace
-        test_settings.project.log_dir = str(tmp_path)
+        # **LOGIC_STEP**: monkeypatch rather than assignment, because `test_settings` is shared for
+        # the session and `main()` reconfigures the root logger against `log_dir`. Left as they
+        # were, both outlive the test: a later test writing a real log record would append into a
+        # torn-down tmp directory, and every log call after that prints a logging error to stderr.
+        monkeypatch.setattr(test_settings.observability, "full_trace_enabled", full_trace)
+        monkeypatch.setattr(test_settings.project, "log_dir", str(tmp_path))
+        root_logger = logging.getLogger()
+        handlers_before = list(root_logger.handlers)
+        level_before = root_logger.level
         log_capture.clear()
 
-        with (
-            patch("project.launcher.main.get_settings", return_value=test_settings),
-            patch("project.launcher.main.uvicorn.run", MagicMock()),
-            patch("project.launcher.main.CompositionRoot") as root,
-        ):
-            root.return_value.build_application.return_value = MagicMock()
-            main()
+        try:
+            with (
+                patch("project.launcher.main.get_settings", return_value=test_settings),
+                patch("project.launcher.main.uvicorn.run", MagicMock()),
+                patch("project.launcher.main.CompositionRoot") as root,
+            ):
+                root.return_value.build_application.return_value = MagicMock()
+                main()
+        finally:
+            for handler in list(root_logger.handlers):
+                if handler not in handlers_before:
+                    root_logger.removeHandler(handler)
+                    handler.close()
+            root_logger.setLevel(level_before)
 
         announced = "full_trace_records_content" in _warning_types(log_capture)
         assert announced is full_trace

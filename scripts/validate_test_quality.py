@@ -65,7 +65,7 @@ _TEST_QUALITY_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
         ),
         "read_first": [
             "the module and line named in the message",
-            "tests/infrastructure/test_reference_task_repository.py",
+            "any test that already asserts a span's output, for the shape",
         ],
         "smallest_command_to_rerun": "uv run python scripts/validate_test_quality.py",
         "likely_fix_shape": (
@@ -694,6 +694,53 @@ def _is_none(expression: ast.AST) -> bool:
     return isinstance(expression, ast.Constant) and expression.value is None
 
 
+# ATTRIBUTE: _WILDCARD_NAMES (frozenset[str])
+# SUMMARY: Objects that compare equal to anything, so an equality against one states nothing.
+_WILDCARD_NAMES = frozenset({"ANY"})
+
+
+# FUNCTION: _is_a_wildcard
+# SUMMARY: Report whether an expression is mock.ANY under any spelling.
+def _is_a_wildcard(expression: ast.AST) -> bool:
+    if isinstance(expression, ast.Name):
+        return expression.id in _WILDCARD_NAMES
+    if isinstance(expression, ast.Attribute):
+        return expression.attr in _WILDCARD_NAMES
+    return False
+
+
+# FUNCTION: _names_holding_the_output
+# SUMMARY: Local names a function assigned from the span's output.
+# OUTPUT: (set[str]): Every name bound to an expression that reads the output key.
+# NOTE: The tautology guard below compares the two sides of an equality, and a tautology survives
+# one `expected = finish[...]["output"]` line above the assert: neither side reads the key twice,
+# so a purely syntactic guard sees two different expressions. Following the assignment is what
+# makes the guard about the value rather than about the spelling.
+def _names_holding_the_output(node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    held: set[str] = set()
+    for child in ast.walk(node):
+        if isinstance(child, ast.Assign) and _touches_the_output_key(child.value):
+            for target in child.targets:
+                if isinstance(target, ast.Name):
+                    held.add(target.id)
+        elif (
+            isinstance(child, ast.AnnAssign)
+            and child.value is not None
+            and _touches_the_output_key(child.value)
+            and isinstance(child.target, ast.Name)
+        ):
+            held.add(child.target.id)
+    return held
+
+
+# FUNCTION: _reads_the_output
+# SUMMARY: Report whether an expression reads the span's output, directly or through a local name.
+def _reads_the_output(expression: ast.AST, held: set[str]) -> bool:
+    if _touches_the_output_key(expression):
+        return True
+    return any(isinstance(inner, ast.Name) and inner.id in held for inner in ast.walk(expression))
+
+
 # FUNCTION: _pins_a_value
 # SUMMARY: Report whether an expression states what a value IS, rather than that it exists.
 # OUTPUT: (bool): True for an equality against anything stated, or membership in a literal set.
@@ -704,10 +751,14 @@ def _is_none(expression: ast.AST) -> bool:
 # What is accepted is deliberately wide: `== pytest.approx(1.2)`, `== SpanOutput(row_found=False)`,
 # `== f"row:{row_id}"` and a value from a parametrize table are all explicit statements of the
 # expected output, and an earlier version that demanded a bare literal refused every one of them.
-# A rule that fires on correct work teaches people to reach for the opt-out marker. The one
-# equality still refused is the tautology — both sides reading the same span — which is the shape
-# test.sql_constant_round_trip refuses for the same reason: both sides move together.
-def _pins_a_value(expression: ast.AST) -> bool:
+# A rule that fires on correct work teaches people to reach for the opt-out marker.
+#
+# Two equalities are still refused, because neither states anything. `== ANY` compares equal to
+# whatever the span reported. And the tautology — both sides reading the same span, whether
+# spelled out twice or routed through a local name — is the shape test.sql_constant_round_trip
+# refuses for the same reason: both sides move together.
+def _pins_a_value(expression: ast.AST, held: set[str] | None = None) -> bool:
+    held = held or set()
     collections = (ast.Dict, ast.List, ast.Tuple, ast.Set)
     for inner in ast.walk(expression):
         if not isinstance(inner, ast.Compare):
@@ -716,7 +767,9 @@ def _pins_a_value(expression: ast.AST) -> bool:
             if isinstance(operator, (ast.Eq, ast.NotEq)):
                 if _is_none(inner.left) or _is_none(right):
                     continue
-                if _touches_the_output_key(inner.left) and _touches_the_output_key(right):
+                if _is_a_wildcard(inner.left) or _is_a_wildcard(right):
+                    continue
+                if _reads_the_output(inner.left, held) and _reads_the_output(right, held):
                     continue
                 return True
             if isinstance(operator, (ast.In, ast.NotIn)) and isinstance(right, collections):
@@ -728,9 +781,10 @@ def _pins_a_value(expression: ast.AST) -> bool:
 # SUMMARY: Report whether one assertion both reads the span's output and says what it holds.
 # OUTPUT: (bool): True when the same assert touches `output` and pins a value in it.
 def _states_a_span_output(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    held = _names_holding_the_output(node)
     for child in ast.walk(node):
         if isinstance(child, ast.Assert) and _touches_the_output_key(child.test):
-            if _pins_a_value(child.test):
+            if _pins_a_value(child.test, held):
                 return True
     return False
 
@@ -761,8 +815,10 @@ def _reads_output_key(node: ast.AST) -> bool:
 # SUMMARY: Report whether some assertion states a concrete value rather than mere truthiness.
 # OUTPUT: (bool): True when an assert compares against a literal.
 def _compares_to_a_literal(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    held = _names_holding_the_output(node)
     return any(
-        isinstance(child, ast.Assert) and _pins_a_value(child.test) for child in ast.walk(node)
+        isinstance(child, ast.Assert) and _pins_a_value(child.test, held)
+        for child in ast.walk(node)
     )
 
 
@@ -976,6 +1032,15 @@ def _spans_recording_an_outcome(tree: ast.AST) -> list[tuple[str, int]]:
         if opened is None:
             continue
         span_name, variable = opened
+        # **LOGIC_STEP**: The span's own name and any local alias of it, because `handle = span`
+        # one line down is an ordinary thing to write and the write through it is the same write.
+        aliases = {variable}
+        for child in ast.walk(node):
+            if isinstance(child, ast.Assign) and isinstance(child.value, ast.Name):
+                if child.value.id in aliases:
+                    aliases.update(
+                        target.id for target in child.targets if isinstance(target, ast.Name)
+                    )
         for child in ast.walk(node):
             if not isinstance(child, ast.Assign):
                 continue
@@ -985,14 +1050,19 @@ def _spans_recording_an_outcome(tree: ast.AST) -> list[tuple[str, int]]:
                     and isinstance(target.value, ast.Attribute)
                     and target.value.attr == "output"
                     and isinstance(target.value.value, ast.Name)
-                    and target.value.value.id == variable
+                    and target.value.value.id in aliases
                 ):
                     found.append((span_name, child.lineno))
     return found
 
 
 # FUNCTION: _span_names_named_by_tests
-# SUMMARY: Every span name that appears as a string literal anywhere under tests/.
+# SUMMARY: Span names written in a test module that also looks a span's finish event up.
+# NOTE: The module has to be about spans for its strings to count. Reading every string literal
+# under tests/ meant a span name mentioned in a docstring, or listed for documentation, satisfied
+# this rule while nothing exercised the span — the same silence the rule was added to break.
+# Still deliberately loose within such a module: the point here is to notice a span nobody thought
+# about, and test.span_output_pinned is what makes the test that names it prove something.
 def _span_names_named_by_tests(tests_dir: Path) -> set[str]:
     named: set[str] = set()
     for path in sorted(tests_dir.rglob("*.py")):
@@ -1001,6 +1071,8 @@ def _span_names_named_by_tests(tests_dir: Path) -> set[str]:
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        if not _looks_up_a_span_finish(tree):
             continue
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -1017,9 +1089,10 @@ def _span_names_named_by_tests(tests_dir: Path) -> set[str]:
 # green. Measured on 2026-09-06. This rule is the other half: production says which spans carry an
 # outcome, and each of them has to be named somewhere in tests/.
 #
-# Matching is by the span's literal name appearing anywhere under tests/, which is deliberately
-# loose — the point is to notice a span nobody thought about, and the sibling rule is what makes
-# the test that names it prove something. A span opened with a computed name is not seen here.
+# What this rule cannot see, stated rather than implied: a span opened under a computed name, and
+# an output written by a helper function called from inside the span rather than in the block
+# itself. Both need the write and the `with` in one place to be recognised. A write through a
+# local alias of the span variable is seen.
 def _unpinned_span_output_issues(repo_root: Path) -> list[TestQualityIssue]:
     project_dir = repo_root / PROJECT_DIRNAME
     tests_dir = repo_root / TESTS_DIRNAME
