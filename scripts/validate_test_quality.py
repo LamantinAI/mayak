@@ -654,15 +654,27 @@ def _looks_up_a_span_finish(node: ast.AST) -> bool:
     for child in ast.walk(node):
         if not isinstance(child, ast.Compare) or len(child.ops) != 1:
             continue
-        if not isinstance(child.ops[0], ast.Eq):
+        # **LOGIC_STEP**: Selecting the finish event and skipping everything else are the same
+        # act, so `!= "span.finish": continue` and `in {"span.finish"}` are lookups too. Reading
+        # only `==` meant a module that filters the other way round never counted as being about
+        # spans, and the span it tested perfectly was reported as untested.
+        if not isinstance(child.ops[0], (ast.Eq, ast.NotEq, ast.In, ast.NotIn)):
             continue
         sides = (child.left, child.comparators[0])
         reads_id = any(_reads_event_id(side) for side in sides)
-        names_finish = any(
-            isinstance(side, ast.Constant) and side.value == _SPAN_FINISH_EVENT_ID for side in sides
-        )
+        names_finish = any(_names_the_finish_event(side) for side in sides)
         if reads_id and names_finish:
             return True
+    return False
+
+
+# FUNCTION: _names_the_finish_event
+# SUMMARY: Report whether an expression is the span.finish id, alone or in a literal collection.
+def _names_the_finish_event(expression: ast.AST) -> bool:
+    if isinstance(expression, ast.Constant):
+        return bool(expression.value == _SPAN_FINISH_EVENT_ID)
+    if isinstance(expression, (ast.Set, ast.List, ast.Tuple)):
+        return any(_names_the_finish_event(element) for element in expression.elts)
     return False
 
 
@@ -758,24 +770,42 @@ def _bound_names(target: ast.AST) -> list[str]:
 # those is a guard anybody can walk around by accident.
 def _names_holding_the_output(node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
     held: set[str] = set()
-    for child in ast.walk(node):
-        if isinstance(child, ast.Assign) and _touches_the_output_key(child.value):
-            for target in child.targets:
-                held.update(_bound_names(target))
-        elif (
-            isinstance(child, ast.AnnAssign)
-            and child.value is not None
-            and _touches_the_output_key(child.value)
-        ):
-            held.update(_bound_names(child.target))
-        elif isinstance(child, ast.NamedExpr) and _touches_the_output_key(child.value):
-            held.update(_bound_names(child.target))
-        elif isinstance(child, (ast.For, ast.AsyncFor)) and _touches_the_output_key(child.iter):
-            held.update(_bound_names(child.target))
-        elif isinstance(child, (ast.With, ast.AsyncWith)):
-            for item in child.items:
-                if item.optional_vars is not None and _touches_the_output_key(item.context_expr):
-                    held.update(_bound_names(item.optional_vars))
+    # **LOGIC_STEP**: To a fixpoint and through any binding form, because the value keeps its
+    # meaning as it is passed along. A test that reads the output, builds a namedtuple out of two
+    # of its fields and compares that to an expected one is stating what the span reported as
+    # plainly as a dict comparison does — and the first version, which followed one plain
+    # assignment, reported it.
+    growing = True
+    while growing:
+        growing = False
+        for child in ast.walk(node):
+            bound: list[ast.AST] = []
+            value: ast.AST | None = None
+            if isinstance(child, ast.Assign):
+                bound, value = list(child.targets), child.value
+            elif isinstance(child, ast.AnnAssign) and child.value is not None:
+                bound, value = [child.target], child.value
+            elif isinstance(child, ast.NamedExpr):
+                bound, value = [child.target], child.value
+            elif isinstance(child, (ast.For, ast.AsyncFor)):
+                bound, value = [child.target], child.iter
+            elif isinstance(child, (ast.With, ast.AsyncWith)):
+                for item in child.items:
+                    if item.optional_vars is not None and _reads_the_output(
+                        item.context_expr, held
+                    ):
+                        for name in _bound_names(item.optional_vars):
+                            if name not in held:
+                                held.add(name)
+                                growing = True
+                continue
+            if value is None or not _reads_the_output(value, held):
+                continue
+            for target in bound:
+                for name in _bound_names(target):
+                    if name not in held:
+                        held.add(name)
+                        growing = True
     return held
 
 
@@ -866,7 +896,12 @@ def _states_a_span_output(
 ) -> bool:
     held = _names_holding_the_output(node)
     for child in ast.walk(node):
-        if isinstance(child, ast.Assert) and _touches_the_output_key(child.test):
+        # **LOGIC_STEP**: An assert about a name that holds the output is an assert about the
+        # output. Requiring the word "output" in the assert itself refused every test that pulled
+        # the value out first — `outputs = [f["data"]["output"] for f in finishes]` and then a
+        # comparison against the expected list, which is a complete statement about every span in
+        # a batch.
+        if isinstance(child, ast.Assert) and _reads_the_output(child.test, held):
             if _pins_a_value(child.test, held, wildcards):
                 return True
     return False
