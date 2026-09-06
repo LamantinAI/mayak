@@ -40,6 +40,26 @@ def _safe_validation_input(value: object) -> str | None:
     return type(value).__name__
 
 
+# FUNCTION: _project_error_status
+# SUMMARY: Map a domain error onto the status it answers with.
+# INPUT: exc (ProjectError): The raised domain error.
+# OUTPUT: (int): HTTP status code; 400 for a ProjectError subclass with no mapping of its own.
+# NOTE: Lifted out of the handler so the log line above can be chosen by the same answer the
+# response carries — a level decided separately from a status is a level that drifts from it.
+def _project_error_status(exc: ProjectError) -> int:
+    if isinstance(exc, ValidationError):
+        return int(status.HTTP_422_UNPROCESSABLE_CONTENT)
+    if isinstance(exc, NotFoundError):
+        return int(status.HTTP_404_NOT_FOUND)
+    if isinstance(exc, ConflictError):
+        return int(status.HTTP_409_CONFLICT)
+    if isinstance(exc, ExternalServiceError):
+        return int(status.HTTP_502_BAD_GATEWAY)
+    if isinstance(exc, AuthenticationError):
+        return int(status.HTTP_401_UNAUTHORIZED)
+    return int(status.HTTP_400_BAD_REQUEST)
+
+
 # CLASS: project.infrastructure.api.exception_handlers.ExceptionHandlerManager
 # SUMMARY: Manager class for registering exception handlers with FastAPI application.
 class ExceptionHandlerManager:
@@ -82,8 +102,13 @@ class ExceptionHandlerManager:
     # FUNCTION: _render_project_error
     # SUMMARY: Render ProjectError exceptions with domain-specific HTTP mapping.
     async def _render_project_error(self, request: Request, exc: ProjectError) -> JSONResponse:
-        # **LOGIC_STEP**: Log the project error with context.
-        logger.log_error(
+        # **LOGIC_STEP**: The status is decided before the log line, because the status is what
+        # decides the level. A 404 or a 422 is this application working — it read a request it
+        # could not serve and said so — and recording it at ERROR made a healthy service read as
+        # a failing one, in the log and in `make format-trace`'s error count.
+        status_code = _project_error_status(exc)
+        record = logger.log_error if status_code >= 500 else logger.log_client_error
+        record(
             error_type="project_error",
             message="Project error occurred",
             exception=exc,
@@ -91,22 +116,9 @@ class ExceptionHandlerManager:
             path=request.url.path,
             method=request.method,
             request_id=getattr(request.state, "request_id", None),
+            status_code=status_code,
             error_summary=summarize_exception_for_logging(exc),
         )
-
-        # **LOGIC_STEP**: Determine HTTP status code based on error subclass.
-        if isinstance(exc, ValidationError):
-            status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
-        elif isinstance(exc, NotFoundError):
-            status_code = status.HTTP_404_NOT_FOUND
-        elif isinstance(exc, ConflictError):
-            status_code = status.HTTP_409_CONFLICT
-        elif isinstance(exc, ExternalServiceError):
-            status_code = status.HTTP_502_BAD_GATEWAY
-        elif isinstance(exc, AuthenticationError):
-            status_code = status.HTTP_401_UNAUTHORIZED
-        else:
-            status_code = status.HTTP_400_BAD_REQUEST
 
         # **LOGIC_STEP**: Return structured error response.
         return JSONResponse(
@@ -133,7 +145,8 @@ class ExceptionHandlerManager:
     async def _render_http_exception(self, request: Request, exc: HTTPException) -> JSONResponse:
         # **LOGIC_STEP**: Log the HTTP exception with context.
         detail_text = str(exc.detail) if exc.detail is not None else ""
-        logger.log_error(
+        record = logger.log_error if exc.status_code >= 500 else logger.log_client_error
+        record(
             error_type="http_exception",
             message="HTTP exception encountered",
             exception=exc,
@@ -174,7 +187,8 @@ class ExceptionHandlerManager:
     ) -> JSONResponse:
         # **LOGIC_STEP**: Log the Starlette HTTP exception with context.
         detail_text = str(exc.detail) if exc.detail is not None else ""
-        logger.log_error(
+        record = logger.log_error if exc.status_code >= 500 else logger.log_client_error
+        record(
             error_type="starlette_http_exception",
             message="Starlette HTTP exception encountered",
             exception=exc,
@@ -227,7 +241,8 @@ class ExceptionHandlerManager:
         # `_safe_validation_input` reduces every value to its type and length. The comment here
         # said "including user input" until 2026-08-14, which described the opposite of what
         # the code does and read as permission to add the payload back.
-        logger.log_error(
+        # **LOGIC_STEP**: A 422 is the request being wrong, never the service.
+        logger.log_client_error(
             error_type="validation_error",
             message=f"Request validation failed with {len(log_errors)} errors",
             exc_info=False,

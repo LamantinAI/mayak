@@ -52,6 +52,64 @@ _ARGUMENTLESS_CALL_ASSERTIONS = frozenset(
 )
 
 _TEST_QUALITY_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
+    "test.span_output_unpinned": {
+        "meaning": (
+            "A span in project/ records an outcome under span.output, and no test anywhere names "
+            "that span. test.span_output_pinned only inspects tests that already look a span up, "
+            "so a span nobody looks up is invisible to it — and that is exactly where a span "
+            "reporting the wrong answer survives every gate."
+        ),
+        "suggested_fix": (
+            "Add a test that finds the span's finish event by name and asserts its output, once "
+            "per outcome the span can report. The sibling rule then keeps that assertion honest."
+        ),
+        "read_first": [
+            "the module and line named in the message",
+            "any test that already asserts a span's output, for the shape",
+        ],
+        "smallest_command_to_rerun": "uv run python scripts/validate_test_quality.py",
+        "likely_fix_shape": (
+            "One test per outcome, asserting finish['kwargs']['data']['output'] against the value "
+            "the span should report."
+        ),
+        "next_checks": [
+            "uv run python scripts/validate_test_quality.py",
+            "make quality-gates",
+        ],
+        "stop_widening_condition": (
+            "Every span that writes an output is named by at least one test."
+        ),
+    },
+    "test.span_output_pinned": {
+        "meaning": (
+            "A test finds a span's finish event and never states what the span said. Spans "
+            "carry the outcome an operator reads — row_found, row_count, row_written — and a "
+            "test that only proves the span happened passes while that outcome is wrong."
+        ),
+        "suggested_fix": (
+            "Assert the value: `assert finish['kwargs']['data']['output'] == {'row_found': "
+            "False}`. Pin the whole mapping rather than one key, so a field appearing or "
+            "disappearing is a failure too. `is not None`, a bare truthiness check, a length "
+            "and a comparison against a variable do not count — each of them stays green on a "
+            "span reporting the wrong answer, which is the defect this rule is about."
+        ),
+        "read_first": [
+            "the test named in the message",
+            "project/core/logging/logger.py",
+        ],
+        "smallest_command_to_rerun": "uv run python scripts/validate_test_quality.py",
+        "likely_fix_shape": (
+            "State the span's output in an assertion, or delete the span lookup if the test is "
+            "not about the span at all."
+        ),
+        "next_checks": [
+            "uv run python scripts/validate_test_quality.py",
+            "make quality-gates",
+        ],
+        "stop_widening_condition": (
+            "Stop once every test that looks up a span's finish event asserts its output."
+        ),
+    },
     "test.constant_assertion": {
         "meaning": (
             "A test makes an assertion that cannot fail — a constant (assert True, assert 1, "
@@ -564,6 +622,400 @@ def _query_round_trip_issues(
     return issues
 
 
+# ATTRIBUTE: _SPAN_FINISH_EVENT_ID (str)
+# SUMMARY: The event a span writes when it closes; the only one that ever carries `output`.
+_SPAN_FINISH_EVENT_ID = "span.finish"
+
+
+# FUNCTION: _reads_event_id
+# SUMMARY: Report whether an expression reads the `event_id` field off a captured log record.
+# OUTPUT: (bool): True for `entry.get("event_id")` and `entry["event_id"]`.
+def _reads_event_id(node: ast.expr) -> bool:
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "get"
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+    ):
+        return bool(node.args[0].value == "event_id")
+    if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant):
+        return bool(node.slice.value == "event_id")
+    return False
+
+
+# FUNCTION: _looks_up_a_span_finish
+# SUMMARY: Report whether a function body filters captured events down to a span's finish.
+# OUTPUT: (bool): True when it compares an event_id read against the span.finish literal.
+# NOTE: Deliberately shallow: a helper that CONSTRUCTS an event carrying that id — a fixture
+# building a log line for the trace formatter's tests — is not looking one up, and must not be
+# read as a test about a span.
+def _looks_up_a_span_finish(node: ast.AST) -> bool:
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Compare) or len(child.ops) != 1:
+            continue
+        # **LOGIC_STEP**: Selecting the finish event and skipping everything else are the same
+        # act, so `!= "span.finish": continue` and `in {"span.finish"}` are lookups too. Reading
+        # only `==` meant a module that filters the other way round never counted as being about
+        # spans, and the span it tested perfectly was reported as untested.
+        if not isinstance(child.ops[0], (ast.Eq, ast.NotEq, ast.In, ast.NotIn)):
+            continue
+        sides = (child.left, child.comparators[0])
+        reads_id = any(_reads_event_id(side) for side in sides)
+        names_finish = any(_names_the_finish_event(side) for side in sides)
+        if reads_id and names_finish:
+            return True
+    return False
+
+
+# FUNCTION: _names_the_finish_event
+# SUMMARY: Report whether an expression is the span.finish id, alone or in a literal collection.
+def _names_the_finish_event(expression: ast.AST) -> bool:
+    if isinstance(expression, ast.Constant):
+        return bool(expression.value == _SPAN_FINISH_EVENT_ID)
+    if isinstance(expression, (ast.Set, ast.List, ast.Tuple)):
+        return any(_names_the_finish_event(element) for element in expression.elts)
+    return False
+
+
+# FUNCTION: _touches_the_output_key
+# SUMMARY: Report whether an expression reads the `output` field of a captured span event.
+# OUTPUT: (bool): True for `event["output"]`, `event.output` and `event.get("output")`.
+def _touches_the_output_key(expression: ast.AST) -> bool:
+    for inner in ast.walk(expression):
+        if isinstance(inner, ast.Subscript) and isinstance(inner.slice, ast.Constant):
+            if inner.slice.value == "output":
+                return True
+        if isinstance(inner, ast.Attribute) and inner.attr == "output":
+            return True
+        if (
+            isinstance(inner, ast.Call)
+            and isinstance(inner.func, ast.Attribute)
+            and inner.func.attr == "get"
+            and inner.args
+            and isinstance(inner.args[0], ast.Constant)
+            and inner.args[0].value == "output"
+        ):
+            return True
+    return False
+
+
+# FUNCTION: _is_none
+# SUMMARY: Report whether an expression is the literal None.
+def _is_none(expression: ast.AST) -> bool:
+    return isinstance(expression, ast.Constant) and expression.value is None
+
+
+# ATTRIBUTE: _WILDCARD_NAMES (frozenset[str])
+# SUMMARY: Objects that compare equal to anything, so an equality against one states nothing.
+_WILDCARD_NAMES = frozenset({"ANY"})
+
+
+# FUNCTION: _wildcard_aliases
+# SUMMARY: Every local name in a module that refers to mock.ANY.
+# OUTPUT: (set[str]): "ANY" plus any name it was imported or assigned as.
+# NOTE: `from unittest.mock import ANY as WHATEVER` is visible right here in the module's imports,
+# so following it costs nothing. What is not followed is a wildcard arriving from another module
+# or built at runtime; the rule's note says so rather than claiming to catch every spelling.
+def _wildcard_aliases(tree: ast.AST) -> set[str]:
+    aliases = set(_WILDCARD_NAMES)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for imported in node.names:
+                if imported.name in _WILDCARD_NAMES and imported.asname:
+                    aliases.add(imported.asname)
+    # **LOGIC_STEP**: To a fixpoint, for the reason the span alias chain needs one: ast.walk is
+    # breadth-first, so a rebinding nested one level deeper than its use is read out of order and
+    # the chain breaks at that link.
+    growing = True
+    while growing:
+        growing = False
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Name):
+                continue
+            if node.value.id not in aliases:
+                continue
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id not in aliases:
+                    aliases.add(target.id)
+                    growing = True
+    return aliases
+
+
+# FUNCTION: _is_a_wildcard
+# SUMMARY: Report whether an expression is mock.ANY under a name this module gave it.
+def _is_a_wildcard(expression: ast.AST, aliases: set[str] | None = None) -> bool:
+    known = aliases or _WILDCARD_NAMES
+    if isinstance(expression, ast.Name):
+        return expression.id in known
+    if isinstance(expression, ast.Attribute):
+        return expression.attr in _WILDCARD_NAMES
+    return False
+
+
+# FUNCTION: _bound_names
+# SUMMARY: Every name a binding target introduces, including tuple and list unpacking.
+def _bound_names(target: ast.AST) -> list[str]:
+    return [node.id for node in ast.walk(target) if isinstance(node, ast.Name)]
+
+
+# FUNCTION: _names_holding_the_output
+# SUMMARY: Local names a function bound to the span's output, however they were bound.
+# OUTPUT: (set[str]): Every name that holds the value the span reported.
+# NOTE: The tautology guard below compares the two sides of an equality, and a tautology survives
+# one `expected = finish[...]["output"]` line above the assert: neither side reads the key twice,
+# so a purely syntactic guard sees two different expressions. Following the binding is what makes
+# the guard about the value rather than about the spelling — through an assignment, a walrus, a
+# loop variable, a `with ... as`, and unpacking, because a guard that covers only the first of
+# those is a guard anybody can walk around by accident.
+def _names_holding_the_output(node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    held: set[str] = set()
+    # **LOGIC_STEP**: To a fixpoint and through any binding form, because the value keeps its
+    # meaning as it is passed along. A test that reads the output, builds a namedtuple out of two
+    # of its fields and compares that to an expected one is stating what the span reported as
+    # plainly as a dict comparison does — and the first version, which followed one plain
+    # assignment, reported it.
+    growing = True
+    while growing:
+        growing = False
+        for child in ast.walk(node):
+            bound: list[ast.AST] = []
+            value: ast.AST | None = None
+            if isinstance(child, ast.Assign):
+                bound, value = list(child.targets), child.value
+            elif isinstance(child, ast.AnnAssign) and child.value is not None:
+                bound, value = [child.target], child.value
+            elif isinstance(child, ast.NamedExpr):
+                bound, value = [child.target], child.value
+            elif isinstance(child, (ast.For, ast.AsyncFor)):
+                bound, value = [child.target], child.iter
+            elif isinstance(child, (ast.With, ast.AsyncWith)):
+                for item in child.items:
+                    if item.optional_vars is not None and _reads_the_output(
+                        item.context_expr, held
+                    ):
+                        for name in _bound_names(item.optional_vars):
+                            if name not in held:
+                                held.add(name)
+                                growing = True
+                continue
+            if value is None or not _reads_the_output(value, held):
+                continue
+            for target in bound:
+                for name in _bound_names(target):
+                    if name not in held:
+                        held.add(name)
+                        growing = True
+    return held
+
+
+# FUNCTION: _reads_the_output
+# SUMMARY: Report whether an expression reads the span's output, directly or through a local name.
+def _reads_the_output(expression: ast.AST, held: set[str]) -> bool:
+    if _touches_the_output_key(expression):
+        return True
+    return any(isinstance(inner, ast.Name) and inner.id in held for inner in ast.walk(expression))
+
+
+# FUNCTION: _measures_length
+# SUMMARY: Report whether an expression is a call to len().
+def _measures_length(expression: ast.AST) -> bool:
+    return (
+        isinstance(expression, ast.Call)
+        and isinstance(expression.func, ast.Name)
+        and expression.func.id == "len"
+    )
+
+
+# FUNCTION: _pins_a_value
+# SUMMARY: Report whether an expression states what a value IS, rather than that it exists.
+# OUTPUT: (bool): True for an equality against anything stated, or membership in a literal set.
+# NOTE: What is refused here is the existence check — `is not None`, a bare truthiness assert,
+# `len(...) > 0`, a key `in` the mapping. Each satisfies "the test mentions output" while proving
+# nothing about what the span reported, which is the whole defect this rule exists to catch.
+#
+# What is accepted is deliberately wide: `== pytest.approx(1.2)`, `== SpanOutput(row_found=False)`,
+# `== f"row:{row_id}"` and a value from a parametrize table are all explicit statements of the
+# expected output, and an earlier version that demanded a bare literal refused every one of them.
+# A rule that fires on correct work teaches people to reach for the opt-out marker.
+#
+# Two equalities are still refused, because neither states anything. `== ANY` compares equal to
+# whatever the span reported, under any name this module gave it. And the tautology — both sides
+# reading the same span, whether spelled out twice or bound to a local name first — is the shape
+# test.sql_constant_round_trip refuses for the same reason: both sides move together.
+#
+# The refusals are read off this module's own syntax, so an assertion assembled elsewhere gets
+# through: a wildcard handed in by a fixture, an expected value computed by a helper out of the
+# same record, a comparison built at runtime. Those take deliberate work to write. This rule is a
+# check for the presence of a real assertion, the way test.sql_constant_round_trip is a check for
+# the presence of a trap — neither can tell you the assertion is the right one.
+def _pins_a_value(
+    expression: ast.AST,
+    held: set[str] | None = None,
+    wildcards: set[str] | None = None,
+) -> bool:
+    held = held or set()
+    collections = (ast.Dict, ast.List, ast.Tuple, ast.Set)
+    for inner in ast.walk(expression):
+        if not isinstance(inner, ast.Compare):
+            continue
+        for operator, right in zip(inner.ops, inner.comparators):
+            if isinstance(operator, (ast.Eq, ast.NotEq, ast.Is, ast.IsNot)):
+                # **LOGIC_STEP**: `is False` states a value; `is not None` states existence. The
+                # operator does not tell them apart, the other side does. An earlier version read
+                # only `==` and refused `is False`, an ordinary Python idiom for exactly the thing
+                # this rule asks for.
+                if _is_none(inner.left) or _is_none(right):
+                    continue
+                if _is_a_wildcard(inner.left, wildcards) or _is_a_wildcard(right, wildcards):
+                    continue
+                if _reads_the_output(inner.left, held) and _reads_the_output(right, held):
+                    continue
+                return True
+            if isinstance(operator, (ast.In, ast.NotIn)):
+                if isinstance(right, collections):
+                    return True
+                continue
+            # **LOGIC_STEP**: An ordering states a bound, which is a statement about the value —
+            # `output["row_count"] >= 1`, or a subset written as `{...}.items() <= output.items()`.
+            # The one ordering that states nothing is a length against a number, which is the
+            # existence check wearing a comparison.
+            if isinstance(operator, (ast.Lt, ast.LtE, ast.Gt, ast.GtE)):
+                if _measures_length(inner.left) or _measures_length(right):
+                    continue
+                return True
+    return False
+
+
+# FUNCTION: _states_a_span_output
+# SUMMARY: Report whether one assertion both reads the span's output and says what it holds.
+# OUTPUT: (bool): True when the same assert touches `output` and pins a value in it.
+def _states_a_span_output(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    wildcards: set[str] | None = None,
+) -> bool:
+    held = _names_holding_the_output(node)
+    for child in ast.walk(node):
+        # **LOGIC_STEP**: An assert about a name that holds the output is an assert about the
+        # output. Requiring the word "output" in the assert itself refused every test that pulled
+        # the value out first — `outputs = [f["data"]["output"] for f in finishes]` and then a
+        # comparison against the expected list, which is a complete statement about every span in
+        # a batch.
+        if isinstance(child, ast.Assert) and _reads_the_output(child.test, held):
+            if _pins_a_value(child.test, held, wildcards):
+                return True
+    return False
+
+
+# FUNCTION: _reads_output_key
+# SUMMARY: Report whether a function reads the `output` field of a captured event.
+# OUTPUT: (bool): True when it subscripts or gets "output" anywhere in its body.
+def _reads_output_key(node: ast.AST) -> bool:
+    for child in ast.walk(node):
+        if isinstance(child, ast.Subscript) and isinstance(child.slice, ast.Constant):
+            if child.slice.value == "output":
+                return True
+        if isinstance(child, ast.Attribute) and child.attr == "output":
+            return True
+        if (
+            isinstance(child, ast.Call)
+            and isinstance(child.func, ast.Attribute)
+            and child.func.attr == "get"
+            and child.args
+            and isinstance(child.args[0], ast.Constant)
+            and child.args[0].value == "output"
+        ):
+            return True
+    return False
+
+
+# FUNCTION: _compares_to_a_literal
+# SUMMARY: Report whether some assertion states a concrete value rather than mere truthiness.
+# OUTPUT: (bool): True when an assert compares against a literal.
+def _compares_to_a_literal(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    wildcards: set[str] | None = None,
+) -> bool:
+    held = _names_holding_the_output(node)
+    return any(
+        isinstance(child, ast.Assert) and _pins_a_value(child.test, held, wildcards)
+        for child in ast.walk(node)
+    )
+
+
+# FUNCTION: _argument_names
+# SUMMARY: Every parameter name of a function, including keyword-only ones.
+def _argument_names(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
+    arguments = node.args
+    return [
+        argument.arg
+        for argument in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs)
+    ]
+
+
+# FUNCTION: _span_output_issues
+# SUMMARY: Report tests that find a span and never say what it reported.
+# INPUT: helpers (dict[str, ast.FunctionDef | ast.AsyncFunctionDef]): Module-level functions, so a
+#        test calling a locator defined beside it counts as looking a span up.
+# OUTPUT: (list[TestQualityIssue]): One issue per unpinned test.
+# NOTE: A span's `output` is the only part of it an operator reads for an answer — whether a row
+# was found, how many came back, whether a write happened. Measured on 2026-09-03: mutating a
+# repository span to report `row_written = True` unconditionally left every gate green, because
+# the tests proved the span existed and never read what it said. A trace that can lie is worse
+# than no trace, because it is believed.
+def _span_output_issues(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    helpers: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
+    path: Path,
+    wildcards: set[str] | None = None,
+) -> list[TestQualityIssue]:
+    looks_up = _looks_up_a_span_finish(node)
+    # **LOGIC_STEP**: A helper that already narrows to `output` hands the test the payload
+    # directly, so the test asserts on a plain name and mentions `output` nowhere. Reading the
+    # helper is what tells the two apart — without it this rule fires on tests that pin the value
+    # perfectly well, which is the fastest way to teach everyone to add the opt-out marker.
+    helper_extracts_output = False
+    for child in ast.walk(node):
+        if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
+            helper = helpers.get(child.func.id)
+            if helper is None:
+                continue
+            if _looks_up_a_span_finish(helper):
+                looks_up = True
+                if _reads_output_key(helper):
+                    helper_extracts_output = True
+    # **LOGIC_STEP**: A fixture reaches the test by name in its signature, never as a call, so
+    # reading calls alone missed it entirely: moving the span lookup into a fixture and asserting
+    # `is not None` on what it returned passed this rule with nothing else changed. Fixtures
+    # declared in a conftest are still out of reach — this validator reads one module at a time —
+    # and the message says what the rule cannot see rather than implying it saw everything.
+    for argument in _argument_names(node):
+        fixture = helpers.get(argument)
+        if fixture is None or not _looks_up_a_span_finish(fixture):
+            continue
+        looks_up = True
+        if _reads_output_key(fixture):
+            helper_extracts_output = True
+    if not looks_up:
+        return []
+    if _states_a_span_output(node, wildcards) or (
+        helper_extracts_output and _compares_to_a_literal(node, wildcards)
+    ):
+        return []
+    return [
+        TestQualityIssue(
+            path=path,
+            line=node.lineno,
+            rule_id="test.span_output_pinned",
+            message=(
+                f"Test '{node.name}' finds a span's finish event and never states what its "
+                "output holds. A span reporting the wrong outcome passes this test. An "
+                "existence check is not a statement: compare the output to a literal."
+            ),
+        )
+    ]
+
+
 # FUNCTION: validate_test_module
 # SUMMARY: Inspect one test module for tests that cannot fail.
 # INPUT: path (Path): Absolute path of the test module.
@@ -581,6 +1033,7 @@ def validate_test_module(path: Path, repo_root: Path | None = None) -> list[Test
     source_lines = source.splitlines()
     issues: list[TestQualityIssue] = _query_round_trip_issues(tree, path, repo_root or ROOT_DIR)
     helpers = _module_functions(tree)
+    wildcards = _wildcard_aliases(tree)
 
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -609,6 +1062,8 @@ def validate_test_module(path: Path, repo_root: Path | None = None) -> list[Test
                     ),
                 )
             )
+
+        issues.extend(_span_output_issues(node, helpers, path, wildcards))
 
         states_expectation, weak_call = _verification_strength(node, helpers)
 
@@ -666,6 +1121,144 @@ def validate_test_module(path: Path, repo_root: Path | None = None) -> list[Test
     return issues
 
 
+# ATTRIBUTE: PROJECT_DIRNAME (str)
+# SUMMARY: The application package scanned for spans that record an outcome.
+PROJECT_DIRNAME = "project"
+
+
+# FUNCTION: _span_name_of
+# SUMMARY: The literal name a `with logger.span("...") as span:` statement opens.
+# OUTPUT: (tuple[str, str] | None): (span name, the variable it is bound to), or None.
+def _span_name_of(node: ast.With | ast.AsyncWith) -> tuple[str, str] | None:
+    for item in node.items:
+        call = item.context_expr
+        if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute):
+            continue
+        if call.func.attr != "span" or not call.args:
+            continue
+        name = call.args[0]
+        if not isinstance(name, ast.Constant) or not isinstance(name.value, str):
+            continue
+        if not isinstance(item.optional_vars, ast.Name):
+            continue
+        return name.value, item.optional_vars.id
+    return None
+
+
+# FUNCTION: _spans_recording_an_outcome
+# SUMMARY: Every span in one module that assigns to `span.output[...]`.
+# OUTPUT: (list[tuple[str, int]]): (span name, line of the assignment).
+def _spans_recording_an_outcome(tree: ast.AST) -> list[tuple[str, int]]:
+    found: list[tuple[str, int]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.With, ast.AsyncWith)):
+            continue
+        opened = _span_name_of(node)
+        if opened is None:
+            continue
+        span_name, variable = opened
+        # **LOGIC_STEP**: The span's own name and any local alias of it, because `handle = span`
+        # one line down is an ordinary thing to write and the write through it is the same write.
+        aliases = {variable}
+        # **LOGIC_STEP**: Repeated until it stops growing. ast.walk visits breadth-first, so a
+        # single pass missed `b = a` whenever `a = span` sat one level deeper — the chain was read
+        # out of order and the write through `b` disappeared.
+        growing = True
+        while growing:
+            growing = False
+            for child in ast.walk(node):
+                if not isinstance(child, ast.Assign) or not isinstance(child.value, ast.Name):
+                    continue
+                if child.value.id not in aliases:
+                    continue
+                for target in child.targets:
+                    if isinstance(target, ast.Name) and target.id not in aliases:
+                        aliases.add(target.id)
+                        growing = True
+        for child in ast.walk(node):
+            if not isinstance(child, ast.Assign):
+                continue
+            for target in child.targets:
+                if (
+                    isinstance(target, ast.Subscript)
+                    and isinstance(target.value, ast.Attribute)
+                    and target.value.attr == "output"
+                    and isinstance(target.value.value, ast.Name)
+                    and target.value.value.id in aliases
+                ):
+                    found.append((span_name, child.lineno))
+    return found
+
+
+# FUNCTION: _span_names_named_by_tests
+# SUMMARY: Span names written in a test module that also looks a span's finish event up.
+# NOTE: The module has to be about spans for its strings to count. Reading every string literal
+# under tests/ meant a span name mentioned in a docstring, or listed for documentation, satisfied
+# this rule while nothing exercised the span — the same silence the rule was added to break.
+# Still deliberately loose within such a module: the point here is to notice a span nobody thought
+# about, and test.span_output_pinned is what makes the test that names it prove something.
+def _span_names_named_by_tests(tests_dir: Path) -> set[str]:
+    named: set[str] = set()
+    for path in sorted(tests_dir.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        if not _looks_up_a_span_finish(tree):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                named.add(node.value)
+    return named
+
+
+# FUNCTION: _unpinned_span_output_issues
+# SUMMARY: Report a span that records an outcome no test ever looks at.
+# NOTE: test.span_output_pinned reads tests and asks whether the one that found a span said what
+# the span reported. It is blind by construction to a span no test mentions — and that blindness
+# shipped: `db.reference_task.update` recorded whether the row was still there, no test named it,
+# and replacing that value with an unconditional True left all thirteen validators and 1010 tests
+# green. Measured on 2026-09-06. This rule is the other half: production says which spans carry an
+# outcome, and each of them has to be named somewhere in tests/.
+#
+# What this rule cannot see, stated rather than implied: a span opened under a computed name, and
+# an output written by a helper function called from inside the span rather than in the block
+# itself. Both need the write and the `with` in one place to be recognised. A write through a
+# local alias of the span variable is seen.
+def _unpinned_span_output_issues(repo_root: Path) -> list[TestQualityIssue]:
+    project_dir = repo_root / PROJECT_DIRNAME
+    tests_dir = repo_root / TESTS_DIRNAME
+    if not project_dir.is_dir() or not tests_dir.is_dir():
+        return []
+
+    named = _span_names_named_by_tests(tests_dir)
+    issues: list[TestQualityIssue] = []
+    for path in sorted(project_dir.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        for span_name, line in _spans_recording_an_outcome(tree):
+            if span_name in named:
+                continue
+            issues.append(
+                TestQualityIssue(
+                    path=path,
+                    line=line,
+                    rule_id="test.span_output_unpinned",
+                    message=(
+                        f"Span '{span_name}' records an outcome under span.output and no test "
+                        "names it, so a span reporting the wrong answer passes every gate."
+                    ),
+                )
+            )
+    return issues
+
+
 # FUNCTION: collect_test_quality_issues
 # SUMMARY: Inspect every test module in the repository.
 # INPUT: repo_root (Path): Repository root containing the tests/ tree.
@@ -675,7 +1268,7 @@ def collect_test_quality_issues(repo_root: Path) -> list[TestQualityIssue]:
     if not tests_dir.is_dir():
         return []
 
-    issues: list[TestQualityIssue] = []
+    issues: list[TestQualityIssue] = _unpinned_span_output_issues(repo_root)
     for path in sorted(tests_dir.rglob("*.py")):
         if "__pycache__" in path.parts:
             continue

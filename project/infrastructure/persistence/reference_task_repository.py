@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any, Mapping
 
@@ -16,9 +17,19 @@ from project.domain.reference_task import ReferenceTask, normalize_task_id
 # SUMMARY: Module logger, used to give every database call its own span under the request.
 # NOTE: Without these spans the database is invisible to the trace. Measured on a live container:
 # a request whose query returned the wrong rows rendered as `OK 200, 0 spans` — indistinguishable
-# from a correct one. A child span costs 2784 ns in production, where its DEBUG events are filtered
-# before they are built (see the guard in project/core/logging/logger.py), against 12821 ns with
-# debug on. Three spans per request is 0.8 % of one core at 1000 rps.
+# from a correct one.
+#
+# `level=logging.INFO` on each of them is the second half of that, and it was missing until
+# 2026-09-06: a child span defaults to DEBUG, production runs at INFO, so these spans existed,
+# cost nothing, and showed nothing. An operator reading a real trace saw the request and no
+# database work inside it — the same `0 spans` the spans were added to prevent. A vertical's own
+# spans inherit that default; ask for the level when the span is something an operator needs to
+# see, which for a database call it is.
+#
+# The price, measured on this machine with a handler that writes nothing: 3639 ns per span
+# filtered against 21682 ns written. Three spans per request at 1000 rps is 1.1 % of one core
+# against 6.5 %. That is what visibility costs, and it is worth saying out loud rather than
+# discovering under load.
 logger = get_logger(__name__)
 
 # ATTRIBUTE: _COLUMNS (str)
@@ -106,9 +117,9 @@ class ReferenceTaskRepository:
     # SUMMARY: Insert a single task.
     # INPUT: task (ReferenceTask): Domain object to persist.
     async def add(self, task: ReferenceTask) -> None:
-        with logger.span("db.reference_task.add", task_id=task.id):
+        with logger.span("db.reference_task.add", task_id=task.id, level=logging.INFO) as span:
             async with self._pool.connection() as connection:
-                await connection.execute(
+                cursor = await connection.execute(
                     "INSERT INTO reference_tasks "
                     "(id, title, details, status, created_at, updated_at) "
                     "VALUES (%s, %s, %s, %s, %s, %s)",
@@ -121,6 +132,10 @@ class ReferenceTaskRepository:
                         task.updated_at,
                     ),
                 )
+                # **LOGIC_STEP**: What the driver says it wrote, not the fact that the call
+                # returned. The other three spans report their outcome and this one reported only
+                # that it happened, which reads the same in a trace whether a row landed or not.
+                span.output["rows_written"] = cursor.rowcount
 
     # FUNCTION: project/infrastructure/persistence/reference_task_repository/ReferenceTaskRepository/get
     # SUMMARY: Load one task by identifier.
@@ -138,7 +153,7 @@ class ReferenceTaskRepository:
         canonical_id = normalize_task_id(task_id)
         if canonical_id is None:
             return None
-        with logger.span("db.reference_task.get", task_id=canonical_id) as span:
+        with logger.span("db.reference_task.get", task_id=canonical_id, level=logging.INFO) as span:
             async with self._pool.connection() as connection:
                 async with connection.cursor(row_factory=dict_row) as cursor:
                     await cursor.execute(_SELECT_BY_ID, (canonical_id,))
@@ -153,7 +168,9 @@ class ReferenceTaskRepository:
     # SUMMARY: List tasks in one workflow status, newest first.
     # OUTPUT: (list[ReferenceTask]): Domain objects ordered by creation time descending.
     async def list_by_status(self, status: str, limit: int = 50) -> list[ReferenceTask]:
-        with logger.span("db.reference_task.list_by_status", status=status, limit=limit) as span:
+        with logger.span(
+            "db.reference_task.list_by_status", status=status, limit=limit, level=logging.INFO
+        ) as span:
             async with self._pool.connection() as connection:
                 async with connection.cursor(row_factory=dict_row) as cursor:
                     await cursor.execute(_SELECT_BY_STATUS, (status, limit))
@@ -174,7 +191,9 @@ class ReferenceTaskRepository:
         canonical_id = normalize_task_id(task.id)
         if canonical_id is None:
             return None
-        with logger.span("db.reference_task.update", task_id=canonical_id) as span:
+        with logger.span(
+            "db.reference_task.update", task_id=canonical_id, level=logging.INFO
+        ) as span:
             async with self._pool.connection() as connection:
                 async with connection.cursor(row_factory=dict_row) as cursor:
                     await cursor.execute(
