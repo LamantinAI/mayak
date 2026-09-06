@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -701,3 +702,78 @@ class TestWorksetFindsTestsNamedAfterTheFile:
         ]
 
         assert leaked == [], f"functional tests reached the narrow loop: {leaked}"
+
+
+# CLASS: tests.application.test_query_ai_context.TestEveryFileOfAVerticalFindsThatVerticalsTests
+# SUMMARY: Verify a vertical's files map to the tests named after the vertical, not after the file.
+# NOTE: Mapping was by exact stem, so it worked only where a test happened to be spelled like the
+# module. On the one vertical this template ships, `before-edit` on the domain model and on the
+# endpoint module each answered with no tests at all, while four files named after that vertical
+# sat in tests/ — and every vertical copied from the example would have inherited the same hole.
+# The vertical names are read from docs/project_context.json rather than hard-coded, so a project
+# that replaces the example is covered by this test without editing it.
+class TestEveryFileOfAVerticalFindsThatVerticalsTests:
+    # FUNCTION: test_a_verticals_modules_resolve_to_the_tests_named_after_it
+    # SUMMARY: Verify each module of a vertical returns every runnable test bearing its name.
+    @pytest.mark.unit
+    def test_a_verticals_modules_resolve_to_the_tests_named_after_it(self) -> None:
+        repo_root = Path(__file__).resolve().parents[2]
+        context_map, _, _ = query_common.context_bundle()
+        verticals = json.loads(
+            (repo_root / "docs" / "project_context.json").read_text(encoding="utf-8")
+        )["verticals"]
+        assert verticals, "no vertical declared, so this test would prove nothing"
+
+        missed: list[str] = []
+        for name in verticals:
+            expected = [
+                path.relative_to(repo_root).as_posix()
+                for suite in ("tests/application", "tests/infrastructure")
+                for path in sorted((repo_root / suite).rglob("test_*.py"))
+                if f"_{name}_" in f"_{path.stem.removeprefix('test_')}_"
+            ]
+            if not expected:
+                continue
+            for module in sorted((repo_root / "project").rglob(f"{name}*.py")):
+                related = _tests_for(context_map, module.relative_to(repo_root).as_posix())
+                for candidate in expected:
+                    if candidate not in related["likely_unit_tests"]:
+                        missed.append(f"{module.relative_to(repo_root).as_posix()} -> {candidate}")
+
+        assert missed == [], (
+            "these files of a vertical do not resolve to a test named after that vertical: "
+            f"{missed}"
+        )
+
+    # FUNCTION: test_a_file_named_after_no_vertical_pulls_in_no_verticals_tests
+    # SUMMARY: Verify the name match cannot reach a test belonging to something else.
+    # **LOGIC_STEP**: The test above can only prove recall, because it computes what it expects
+    # the same way the code does. This one states the answer by hand for three kernel files whose
+    # stems are ordinary English words. Before the derived name was required to be a registered
+    # vertical, `context.py` — ContextVars for the logger — answered with four tests for the
+    # ai_context tooling, and `dependencies.py`, one of the four wiring files, with the unit tests
+    # of the dependency-pinning validator. The narrow loop runs whatever is returned, so a wrong
+    # suggestion is worse than none: it reports the change as exercised.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("module", "forbidden"),
+        [
+            ("project/core/logging/context.py", "tests/application/test_query_ai_context.py"),
+            (
+                "project/infrastructure/api/dependencies.py",
+                "tests/application/test_validate_dependencies.py",
+            ),
+            ("project/core/config.py", "tests/application/test_validate_project_context.py"),
+        ],
+    )
+    def test_a_file_named_after_no_vertical_pulls_in_no_verticals_tests(
+        self, module: str, forbidden: str
+    ) -> None:
+        context_map, _, _ = query_common.context_bundle()
+
+        related = _tests_for(context_map, module)
+
+        assert forbidden not in related["likely_unit_tests"], (
+            f"{module} is named after no registered vertical, so {forbidden} — which tests "
+            "something else entirely — must not be suggested for it"
+        )

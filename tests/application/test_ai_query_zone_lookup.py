@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -147,6 +148,60 @@ class TestEveryApplicationFileHasAPolicy:
             "these files have no edit policy, so before-edit refuses to answer for them: "
             f"{unclassified}. Add an EDIT_ZONES prefix or a FILE_POLICY_INDEX entry."
         )
+
+    # FUNCTION: test_no_tracked_file_in_the_repository_is_unclassified
+    # SUMMARY: Walk every file git tracks and fail naming each one before-edit cannot answer for.
+    # NOTE: The walk above covers project/ only, and 29 tracked files sat outside it with no zone
+    # at all: README.md, every ADR, docs/agent_rules.md — the hand-written source both agent
+    # wrappers are generated from — .env.sample, the hooks, and AGENTS.md, which the pre-edit
+    # guard refuses writes to while before-edit could not say why. Asking about any of them
+    # exited 1. A tool that answers "unknown" for the file in front of you is not consulted twice.
+    @pytest.mark.unit
+    def test_no_tracked_file_in_the_repository_is_unclassified(self) -> None:
+        rules: dict[str, Any] = build_architecture_rules()
+        root = Path(__file__).parents[2]
+        tracked = subprocess.run(
+            ["git", "ls-files", "-z"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split("\0")
+
+        unclassified = [
+            path
+            for path in tracked
+            if path and zone_for_path(path, rules)["zone"] == "unclassified"
+        ]
+
+        assert not unclassified, (
+            "these tracked files have no edit policy, so before-edit refuses to answer for them: "
+            f"{unclassified}. Add an EDIT_ZONES prefix or a FILE_POLICY_INDEX entry."
+        )
+
+    # FUNCTION: test_a_new_file_at_the_repository_root_is_answered_for
+    # SUMMARY: Verify an ordinary new root-level file gets a zone instead of a refusal.
+    # **LOGIC_STEP**: Every directory has a catch-all and the root had none, so a project adding
+    # its first CHANGELOG.md met a red gate and a message about EDIT_ZONES. A new top-level
+    # DIRECTORY is still unclassified on purpose: that is a decision worth making out loud, and
+    # the pair is asserted together so neither half can drift into the other.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("path", "expected_zone"),
+        [
+            ("CHANGELOG.md", "caution"),
+            (".editorconfig", "caution"),
+            ("frontend/app.tsx", "unclassified"),
+            ("README.md", "safe"),
+            ("AGENTS.md", "generated_do_not_edit"),
+        ],
+    )
+    def test_a_new_file_at_the_repository_root_is_answered_for(
+        self, path: str, expected_zone: str
+    ) -> None:
+        rules: dict[str, Any] = build_architecture_rules()
+
+        assert zone_for_path(path, rules)["zone"] == expected_zone
 
     # FUNCTION: test_the_most_specific_pattern_wins_over_a_broader_one
     # SUMMARY: A file under an expert prefix stays expert even though a caution prefix also matches.

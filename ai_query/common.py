@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 
 from ai_context.constants import (
@@ -587,7 +588,16 @@ def zone_for_path(path: str, architecture_rules: dict[str, object]) -> dict[str,
             if isinstance(edit_zone, str) and edit_zone in ZONE_RISK:
                 return {"zone": edit_zone, "risk": ZONE_RISK[edit_zone]}
     edit_zones = architecture_rules["edit_zones"]
-    return zone_via_edit_zones_patterns(normalized_path, edit_zones)
+    zone = zone_via_edit_zones_patterns(normalized_path, edit_zones)
+    if zone["zone"] != "unclassified" or "/" in normalized_path:
+        return zone
+    # **LOGIC_STEP**: A file at the repository root that nothing else claims. Every directory here
+    # has a catch-all, the root had none, and adding an ordinary CHANGELOG.md or .editorconfig
+    # therefore turned the gate red until somebody edited ai_context/constants.py — a papercut
+    # inherited by every project built on this template. Caution rather than safe because a root
+    # file usually configures the whole build. A new top-level DIRECTORY is deliberately still
+    # unclassified: that is a decision somebody should make once, out loud.
+    return {"zone": "caution", "risk": ZONE_RISK["caution"]}
 
 
 def annotate_paths(
@@ -769,6 +779,98 @@ def name_matched_test_candidates(normalized_path: str) -> list[str]:
             f"tests/infrastructure/test_{stem}.py",
         ]
     )
+
+
+# ATTRIBUTE: _LAYER_SUFFIXES (tuple[str, ...])
+# SUMMARY: Suffixes a vertical's file carries to say which layer it belongs to.
+# NOTE: The order matters only in that the first match wins; no stem here ends in two of them.
+_LAYER_SUFFIXES = (
+    "_service",
+    "_repository",
+    "_repo",
+    "_dtos",
+    "_dto",
+    "_port",
+    "_ports",
+    "_models",
+    "_model",
+    "_endpoints",
+    "_adapter",
+    "_orm",
+)
+
+# ATTRIBUTE: _RUNNABLE_TEST_SUITES (tuple[str, ...])
+# SUMMARY: The suites the narrow loop is allowed to run — functional needs Docker and a database.
+_RUNNABLE_TEST_SUITES = ("tests/application", "tests/infrastructure")
+
+# ATTRIBUTE: _SHORTEST_VERTICAL_NAME (int)
+# SUMMARY: Below this a name is too generic to match test files by, so nothing is guessed.
+_SHORTEST_VERTICAL_NAME = 4
+
+
+def vertical_names_for_path(normalized_path: str) -> list[str]:
+    # **LOGIC_STEP**: The name of the thing, recovered from the file that implements one layer of
+    # it. `reference_task_service.py`, `reference_task_repository.py` and the plural endpoint
+    # module `reference_tasks.py` are all the `reference_task` vertical, and its tests are named
+    # after the vertical rather than after any one of those files. Both spellings are returned
+    # because the endpoint module is conventionally plural and the domain model is not.
+    if not normalized_path.startswith("project/"):
+        return []
+    stem = Path(normalized_path).stem
+    if not stem or stem.startswith("__"):
+        return []
+    for suffix in _LAYER_SUFFIXES:
+        if stem.endswith(suffix) and len(stem) > len(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    names = [stem]
+    if stem.endswith("s"):
+        names.append(stem[:-1])
+    return [name for name in names if len(name) >= _SHORTEST_VERTICAL_NAME]
+
+
+def registered_vertical_names(context_map: dict[str, object]) -> set[str]:
+    # **LOGIC_STEP**: The wiring is the authority on which verticals exist, the same source
+    # scripts/validate_project_context.py checks a declared status against. Reading it from the
+    # context map rather than from docs/project_context.json keeps this working in a project that
+    # has not filled that file in.
+    registry = context_map.get("service_registry", {})
+    if not isinstance(registry, dict):
+        return set()
+    names: set[str] = set()
+    for key, metadata in registry.items():
+        if isinstance(metadata, dict) and metadata.get("category") != "vertical":
+            continue
+        names.add(str(key).removesuffix("_service").removesuffix("_repository"))
+    return names
+
+
+def vertical_test_candidates(normalized_path: str, known_verticals: Iterable[str]) -> list[str]:
+    # **LOGIC_STEP**: Named after the vertical, not spelled exactly like the file. Before this,
+    # mapping was by exact stem, so `before-edit` on the shipped vertical's domain model and on
+    # its endpoint module both answered with no tests at all, while four files named after that
+    # vertical sat in tests/ — the tool was empty for the one vertical the template ships, and
+    # would be empty for every vertical copied from it.
+    #
+    # The name has to be one the project actually registered. Deriving it from the stem alone was
+    # enough to match a whole underscore-delimited segment of a test's name, and plenty of files
+    # are named after no vertical at all: `project/core/logging/context.py` answered with four
+    # tests for the unrelated ai_context tooling, and `dependencies.py` — a wiring hotspot — with
+    # the unit tests of the dependency-pinning validator. A wrong suggestion here is worse than
+    # none: the narrow loop runs it and reports that the change was exercised.
+    names = [name for name in vertical_names_for_path(normalized_path) if name in known_verticals]
+    if not names:
+        return []
+    candidates: list[str] = []
+    for suite in _RUNNABLE_TEST_SUITES:
+        directory = ROOT_DIR / suite
+        if not directory.is_dir():
+            continue
+        for test_file in sorted(directory.rglob("test_*.py")):
+            segments = f"_{test_file.stem.removeprefix('test_')}_"
+            if any(f"_{name}_" in segments for name in names):
+                candidates.append(str(test_file.relative_to(ROOT_DIR)))
+    return normalize_test_candidates(candidates)
 
 
 def changed_test_is_its_own_candidate(normalized_path: str) -> list[str]:
@@ -1065,6 +1167,9 @@ def tests_for_file(
         integration_tests.extend(endpoint_test_candidates([module_name], route_service_keys))
 
     unit_tests.extend(name_matched_test_candidates(normalized_path))
+    unit_tests.extend(
+        vertical_test_candidates(normalized_path, registered_vertical_names(context_map))
+    )
     unit_tests.extend(changed_test_is_its_own_candidate(normalized_path))
 
     if normalized_path == "project/core/composition_root.py":

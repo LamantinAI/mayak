@@ -54,6 +54,18 @@
       ".gitignore",
       ".github/workflows/",
       ".agents/skills/",
+      "docs/agent_rules.md",
+      ".env.sample",
+      ".githooks/",
+      ".agents/",
+      ".codex/",
+      ".claude/",
+      "dev_setup.sh",
+      "alembic.ini",
+      "pytest.ini",
+      ".dockerignore",
+      ".python-version",
+      "uv.lock",
       "project/"
     ],
     "expert": [
@@ -70,6 +82,7 @@
     ],
     "generated_do_not_edit": [
       "CLAUDE.md",
+      "AGENTS.md",
       "docs/ai_context_map.json",
       "docs/ai_change_map.json",
       "docs/architecture_rules.json",
@@ -81,7 +94,11 @@
       "tests/application/",
       "PROJECT.md",
       "docs/project_context.json",
-      "tests/"
+      "tests/",
+      "docs/",
+      "README.md",
+      "LICENSE",
+      "CODEOWNERS"
     ]
   },
   "endpoint_wiring_contract": {

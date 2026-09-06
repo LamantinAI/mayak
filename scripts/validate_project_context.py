@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -234,6 +235,30 @@ _PROJECT_CONTEXT_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
         ],
         "stop_widening_condition": (
             "Stop once every cross-reference resolves to an existing entry."
+        ),
+    },
+    "project_context.vertical_status_contradicts_wiring": {
+        "meaning": (
+            "A vertical's declared status disagrees with the wiring: it is described as running "
+            "while nothing registers it, or as planned while its service or router is already "
+            "wired in."
+        ),
+        "suggested_fix": (
+            "Change the status to the one the code implements, or finish/remove the wiring. The "
+            "code is the authority here; the status is a description of it."
+        ),
+        "read_first": [
+            "docs/project_context.json",
+            "project/core/service_registration.py",
+            "project/infrastructure/api/router_registration.py",
+        ],
+        "smallest_command_to_rerun": "uv run python scripts/validate_project_context.py",
+        "likely_fix_shape": (
+            "One word in docs/project_context.json, or the registration line the status promised."
+        ),
+        "next_checks": ["make quality-gates"],
+        "stop_widening_condition": (
+            "The declared status and the registration agree for every vertical."
         ),
     },
 }
@@ -478,6 +503,201 @@ def _validate_business_rules(
     return issues
 
 
+# ATTRIBUTE: _RUNNING_STATUSES (frozenset[str])
+# SUMMARY: Statuses that assert the vertical is wired into the running application.
+_RUNNING_STATUSES = frozenset({"active", "reference_implementation"})
+
+
+# FUNCTION: _parsed
+# SUMMARY: The syntax tree of a wiring file, or None when it cannot be read.
+def _parsed(path: Path) -> ast.Module | None:
+    if not path.is_file():
+        return None
+    try:
+        return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return None
+
+
+# ATTRIBUTE: _ENDPOINTS_PACKAGE (str)
+# SUMMARY: The module prefix a directly-imported router comes from.
+_ENDPOINTS_PACKAGE = "project.infrastructure.api.endpoints."
+
+
+# FUNCTION: _visible_registry_keys
+# SUMMARY: The service keys a registration file spells out, and whether it hides any.
+# OUTPUT: (tuple[set[str], bool]): Keys read here, and False when something is out of reach.
+# NOTE: Read here rather than taken from the extractor, because the two disagree in ordinary code:
+# a registry held in a module-level constant is plain to read and invisible to an AST walk that
+# expects the literal inside the builder. Anything this cannot spell out — a call, a
+# comprehension, a `**` merge, an `.update()` — makes the whole set unknown, and an unknown set
+# means the rule below has nothing to check against and stands down.
+def _visible_registry_keys(registration: Path) -> tuple[set[str], bool]:
+    if not registration.is_file():
+        return set(), True
+    tree = _parsed(registration)
+    if tree is None:
+        return set(), False
+
+    inline: dict[str, ast.Dict] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    inline[target.id] = node.value
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.value, ast.Dict)
+            and isinstance(node.target, ast.Name)
+        ):
+            inline[node.target.id] = node.value
+
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "update"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in inline
+        ):
+            return set(), False
+
+    keys: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Return) or node.value is None:
+            continue
+        mapping = node.value if isinstance(node.value, ast.Dict) else None
+        if mapping is None and isinstance(node.value, ast.Name):
+            mapping = inline.get(node.value.id)
+        if mapping is None:
+            return set(), False
+        for key in mapping.keys:
+            if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+                return set(), False
+            keys.add(key.value)
+    return keys, True
+
+
+# FUNCTION: _routers_are_fully_visible
+# SUMMARY: Report whether every router this file includes can be traced to an endpoint module.
+# NOTE: A router included through a helper the file calls by name, or imported from the package
+# rather than from its module, is a router this validator cannot name — and a project that wires
+# one vertical inline and the next one through a helper would otherwise have the second reported
+# as unwired while it is running.
+def _routers_are_fully_visible(routers: Path) -> bool:
+    if not routers.is_file():
+        return True
+    tree = _parsed(routers)
+    if tree is None:
+        return False
+
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith(_ENDPOINTS_PACKAGE):
+            imported.update(alias.asname or alias.name for alias in node.names)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
+            return False
+        if isinstance(node.func, ast.Attribute) and node.func.attr == "include_router":
+            argument = node.args[0] if node.args else None
+            if not isinstance(argument, ast.Name) or argument.id not in imported:
+                return False
+    return True
+
+
+# FUNCTION: _wired_vertical_names
+# SUMMARY: The vertical names the wiring files actually register, or None when they are absent.
+# OUTPUT: (tuple[set[str], dict[str, str]] | None): Names registered outright, and the singular
+# of each plural endpoint module mapped back to that module.
+# NOTE: Two sources, because a project can wire a vertical either way. The service key is what
+# router_registration.py keys the conditional include on, and the endpoint module is what an
+# unconditional include names. The endpoint module is conventionally plural, so its singular is
+# accepted too. Returns None rather than an empty set when the files are missing: a checkout
+# without them says nothing about the statuses, and treating silence as "nothing is wired" would
+# fail every project that keeps its wiring elsewhere.
+def _wired_vertical_names(root_dir: Path) -> tuple[set[str], dict[str, str]] | None:
+    from ai_context.extraction import extract_router_modules, extract_service_registry_entries
+
+    registration = root_dir / "project" / "core" / "service_registration.py"
+    routers = root_dir / "project" / "infrastructure" / "api" / "router_registration.py"
+    if not registration.is_file() and not routers.is_file():
+        return None
+
+    names: set[str] = set()
+    singulars: dict[str, str] = {}
+    # **LOGIC_STEP**: A wiring file that does not parse is somebody else's problem — ruff and the
+    # test run both report it, loudly and first. Here it raised out of a validator that is about
+    # a JSON document, which named the wrong thing and stopped the rest of this file's checks.
+    try:
+        if registration.is_file():
+            for key in extract_service_registry_entries(registration, root_dir, "vertical"):
+                names.add(key.removesuffix("_service").removesuffix("_repository"))
+        if routers.is_file():
+            for module in extract_router_modules(routers):
+                names.add(module)
+                if module.endswith("s"):
+                    singulars.setdefault(module[:-1], module)
+    except Exception:
+        return None
+    # **LOGIC_STEP**: The question is not whether anything was found but whether everything was.
+    # Asking the first one reported a correctly wired vertical the moment a project wired its
+    # second one through a helper module: the first vertical was found, so the set looked usable,
+    # and the second was missing from it. A set with anything hidden from it cannot say a vertical
+    # is unregistered, so the check stands down whenever the registry or the router inclusions
+    # hold something out of reach — which is most of the ways a growing project writes them.
+    visible, registry_is_whole = _visible_registry_keys(registration)
+    names.update(key.removesuffix("_service").removesuffix("_repository") for key in visible)
+    if not registry_is_whole or not _routers_are_fully_visible(routers):
+        return None
+    return names, singulars
+
+
+# FUNCTION: _validate_vertical_wiring
+# SUMMARY: Check each declared status against what the wiring files register.
+def _validate_vertical_wiring(
+    verticals: dict[str, object],
+    wired: set[str],
+    singulars: dict[str, str],
+) -> list[ProjectContextIssue]:
+    issues: list[ProjectContextIssue] = []
+    for name, entry in verticals.items():
+        if not isinstance(entry, dict):
+            continue
+        status = entry.get("status")
+        # **LOGIC_STEP**: The singular of a plural endpoint module counts as that vertical only
+        # while the plural is not itself a declared vertical. A project with both `order` and
+        # `orders` has two verticals, and reading the router for `orders` as evidence that `order`
+        # is wired reported the planned one as already registered — a red gate on correct work.
+        plural = singulars.get(name)
+        registered = name in wired or (plural is not None and plural not in verticals)
+        if status in _RUNNING_STATUSES and not registered:
+            issues.append(
+                ProjectContextIssue(
+                    rule_id="project_context.vertical_status_contradicts_wiring",
+                    field=f"verticals.{name}.status",
+                    message=(
+                        f"Status '{status}' says this vertical is running, but neither "
+                        "service_registration.py nor router_registration.py registers it."
+                    ),
+                )
+            )
+        elif status == "planned" and registered:
+            issues.append(
+                ProjectContextIssue(
+                    rule_id="project_context.vertical_status_contradicts_wiring",
+                    field=f"verticals.{name}.status",
+                    message=(
+                        "Status 'planned' says this vertical does not exist yet, but it is "
+                        "already registered in the wiring."
+                    ),
+                )
+            )
+    return issues
+
+
 # FUNCTION: _validate_cross_references
 # SUMMARY: Check that BR-ids referenced in verticals exist in business_rules.
 def _validate_cross_references(
@@ -564,6 +784,9 @@ def collect_project_context_issues(root_dir: Path) -> list[ProjectContextIssue]:
 
     if isinstance(verticals, dict):
         issues.extend(_validate_cross_references(verticals, business_rule_ids))
+        registrations = _wired_vertical_names(root_dir)
+        if registrations is not None:
+            issues.extend(_validate_vertical_wiring(verticals, *registrations))
 
     return issues
 

@@ -71,8 +71,16 @@ the project's domain. But it is copying, not invention.
 
 ## Business Rules
 
-_No formal business rules in the kernel. Verticals introduce them with `BR-NNN`
-identifiers when needed._
+The kernel itself has none. The three below belong to the `reference_task` vertical and are
+here as the shape to copy: an id, one sentence, and the vertical that owns it. The
+machine-readable copies, which the vertical references by id, are in
+`docs/project_context.json`; delete all three along with the example vertical.
+
+| Id | Rule |
+|----|------|
+| BR-001 | A task title is at most `MAX_TITLE_LENGTH` characters, enforced in the domain so a caller that never passes through FastAPI is held to it too. |
+| BR-002 | A task status is one of `ALLOWED_STATUSES`; an unknown one is answered 422 rather than stored. |
+| BR-003 | An update matches on `id` and `updated_at`, so a row somebody else wrote since this caller read it is answered 409 instead of overwritten. |
 
 ## Glossary
 
