@@ -550,6 +550,38 @@ class TestASpanTestSaysWhatTheSpanReported:
 
         assert validate_test_module(module) == []
 
+    # FUNCTION: test_an_ordinary_python_idiom_for_an_exact_value_is_accepted
+    # SUMMARY: Verify `is False`, a bound and a subset all count as stating what the span reported.
+    # **LOGIC_STEP**: An earlier version read only `==`, so `is False` — the idiom Python readers
+    # reach for on a boolean — was reported as an existence check, and the message told the author
+    # to compare the output to a literal, which is what they had just done. A rule whose message
+    # is wrong about correct code is worse than no rule.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "assertion",
+        [
+            "assert finish['data']['output']['row_found'] is False",
+            "assert finish['data']['output']['row_written'] is True",
+            "assert finish['data']['output']['row_count'] >= 1",
+            "assert {'row_count': 3}.items() <= finish['data']['output'].items()",
+        ],
+    )
+    def test_an_ordinary_python_idiom_for_an_exact_value_is_accepted(
+        self, tmp_path: Path, assertion: str
+    ) -> None:
+        module = tmp_path / "test_span_idiom.py"
+        module.write_text(
+            "def _finish_event(captured, name):\n"
+            "    return [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "\n"
+            "def test_the_span_reports_the_write(log_capture) -> None:\n"
+            "    finish = _finish_event(log_capture, 'db.thing.add')\n"
+            f"    {assertion}\n",
+            encoding="utf-8",
+        )
+
+        assert validate_test_module(module) == []
+
     # FUNCTION: test_an_output_compared_against_itself_is_reported
     # SUMMARY: Verify the one equality that states nothing is still refused.
     @pytest.mark.unit
