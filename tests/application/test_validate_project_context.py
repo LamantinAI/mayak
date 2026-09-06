@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -296,3 +297,173 @@ class TestProjectContextRulePlaybook:
     @pytest.mark.unit
     def test_unknown_rule_returns_none(self) -> None:
         assert get_project_context_rule_playbook("project_context.bogus_rule") is None
+
+
+# FUNCTION: _write_wiring
+# SUMMARY: Write the two wiring files a checkout registers its verticals in.
+# INPUT: service_keys (list[str]): Keys the vertical service registry returns.
+# INPUT: router_modules (list[str]): Endpoint modules router_registration.py imports.
+def _write_wiring(tmp_path: Path, service_keys: list[str], router_modules: list[str]) -> None:
+    core = tmp_path / "project" / "core"
+    core.mkdir(parents=True, exist_ok=True)
+    entries = ", ".join(f'"{key}": None' for key in service_keys)
+    (core / "service_registration.py").write_text(
+        "from __future__ import annotations\n"
+        "from typing import Any\n\n\n"
+        "def build_reference_services() -> dict[str, Any]:\n"
+        f"    services: dict[str, Any] = {{{entries}}}\n"
+        "    return services\n",
+        encoding="utf-8",
+    )
+    api = tmp_path / "project" / "infrastructure" / "api"
+    api.mkdir(parents=True, exist_ok=True)
+    imports = "\n".join(
+        f"from project.infrastructure.api.endpoints.{module} import router as {module}_router"
+        for module in router_modules
+    )
+    (api / "router_registration.py").write_text(
+        f"{imports}\n\n\ndef include_application_routers(app: object) -> None:\n    pass\n",
+        encoding="utf-8",
+    )
+
+
+# CLASS: tests.application.test_validate_project_context.TestAStatusIsCheckedAgainstTheWiring
+# SUMMARY: Verify a declared status has to agree with what the wiring files register.
+# NOTE: The status went stale three releases running, because nothing read it against the code.
+# Every other cross-reference in this file is internal to the JSON — this is the one that leaves
+# it, and it is one-directional on purpose: a router with no declared vertical is the kernel's
+# own health endpoint, not a defect.
+class TestAStatusIsCheckedAgainstTheWiring:
+    # FUNCTION: test_a_planned_vertical_that_is_already_wired_is_reported
+    # SUMMARY: Verify 'planned' plus a registered router or service reddens the gate.
+    @pytest.mark.unit
+    def test_a_planned_vertical_that_is_already_wired_is_reported(self, tmp_path: Path) -> None:
+        data = _valid_skeleton()
+        data["verticals"]["orders"]["status"] = "planned"
+        _write_context(tmp_path, data)
+        _write_wiring(tmp_path, ["orders_service"], ["orders"])
+
+        issues = collect_project_context_issues(tmp_path)
+
+        assert [issue.rule_id for issue in issues] == [
+            "project_context.vertical_status_contradicts_wiring"
+        ]
+        assert issues[0].field == "verticals.orders.status"
+
+    # FUNCTION: test_a_running_vertical_that_nothing_registers_is_reported
+    # SUMMARY: Verify 'active' with no registration anywhere reddens the gate.
+    @pytest.mark.unit
+    def test_a_running_vertical_that_nothing_registers_is_reported(self, tmp_path: Path) -> None:
+        _write_context(tmp_path, _valid_skeleton())
+        _write_wiring(tmp_path, ["billing_service"], ["billing"])
+
+        issues = collect_project_context_issues(tmp_path)
+
+        assert [issue.rule_id for issue in issues] == [
+            "project_context.vertical_status_contradicts_wiring"
+        ]
+
+    # FUNCTION: test_a_running_vertical_named_by_either_wiring_file_passes
+    # SUMMARY: Verify the service key alone, and the router import alone, each count as wired.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("service_keys", "router_modules"),
+        [(["orders_service"], []), ([], ["orders"]), (["orders_service"], ["orders"])],
+    )
+    def test_a_running_vertical_named_by_either_wiring_file_passes(
+        self, tmp_path: Path, service_keys: list[str], router_modules: list[str]
+    ) -> None:
+        _write_context(tmp_path, _valid_skeleton())
+        _write_wiring(tmp_path, service_keys, router_modules)
+
+        assert collect_project_context_issues(tmp_path) == []
+
+    # FUNCTION: test_a_plural_endpoint_module_registers_the_singular_vertical
+    # SUMMARY: Verify the conventional plural router module still names its vertical.
+    @pytest.mark.unit
+    def test_a_plural_endpoint_module_registers_the_singular_vertical(self, tmp_path: Path) -> None:
+        data = _valid_skeleton()
+        data["verticals"]["order"] = data["verticals"].pop("orders")
+        data["business_rules"]["BR-001"]["vertical"] = "order"
+        _write_context(tmp_path, data)
+        _write_wiring(tmp_path, [], ["orders"])
+
+        assert collect_project_context_issues(tmp_path) == []
+
+    # FUNCTION: test_a_checkout_without_wiring_files_says_nothing_about_status
+    # SUMMARY: Verify absent wiring is silence, not evidence that nothing is registered.
+    @pytest.mark.unit
+    def test_a_checkout_without_wiring_files_says_nothing_about_status(
+        self, tmp_path: Path
+    ) -> None:
+        _write_context(tmp_path, _valid_skeleton())
+
+        assert collect_project_context_issues(tmp_path) == []
+
+    # FUNCTION: test_the_new_rule_has_a_playbook
+    # SUMMARY: Verify the rule answers `query_ai_context.py failure rule` like every other.
+    @pytest.mark.unit
+    def test_the_new_rule_has_a_playbook(self) -> None:
+        playbook = get_project_context_rule_playbook(
+            "project_context.vertical_status_contradicts_wiring"
+        )
+
+        assert playbook is not None
+        read_first = playbook["read_first"]
+        assert isinstance(read_first, list)
+        assert "project/core/service_registration.py" in read_first
+
+
+# ATTRIBUTE: _CONSTANT (re.Pattern[str])
+# SUMMARY: An UPPER_SNAKE_CASE identifier written into a business-rule summary.
+_CONSTANT = re.compile(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b")
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+# CLASS: tests.application.test_validate_project_context.TestTheShippedFileShowsTheShape
+# SUMMARY: Verify the file every project copies demonstrates business_rules instead of leaving {}.
+# NOTE: The section shipped empty, so a project inheriting this file learned the key exists and
+# nothing about what goes in it — while the validator enforces a shape (summary, vertical, and a
+# cross-reference from the vertical) that has to be discovered by reading the validator's source.
+# The three shipped rules are the ones the reference vertical really enforces, and the constants
+# they name are read back out of the code here, so deleting one turns this red rather than leaving
+# a confident sentence about a bound that no longer exists.
+class TestTheShippedFileShowsTheShape:
+    # FUNCTION: test_the_shipped_context_demonstrates_a_business_rule
+    # SUMMARY: Verify the shipped file carries rules and references them from a vertical.
+    @pytest.mark.unit
+    def test_the_shipped_context_demonstrates_a_business_rule(self) -> None:
+        data = json.loads(
+            (_REPO_ROOT / "docs" / "project_context.json").read_text(encoding="utf-8")
+        )
+        rules = data["business_rules"]
+
+        assert rules, "business_rules is empty, so the shipped file shows no example of the shape"
+        referenced = {
+            rule_id
+            for vertical in data["verticals"].values()
+            for rule_id in vertical.get("business_rules", [])
+        }
+        assert referenced, "no vertical references a rule, so the cross-reference is undemonstrated"
+        assert referenced <= set(rules)
+
+    # FUNCTION: test_every_constant_a_shipped_rule_names_still_exists
+    # SUMMARY: Verify a rule's summary does not describe a bound the code no longer has.
+    @pytest.mark.unit
+    def test_every_constant_a_shipped_rule_names_still_exists(self) -> None:
+        data = json.loads(
+            (_REPO_ROOT / "docs" / "project_context.json").read_text(encoding="utf-8")
+        )
+        sources = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted((_REPO_ROOT / "project").rglob("*.py"))
+        )
+
+        missing: list[str] = []
+        for rule_id, rule in data["business_rules"].items():
+            for name in _CONSTANT.findall(str(rule["summary"])):
+                if f"{name} " not in sources and f"{name}\n" not in sources:
+                    missing.append(f"{rule_id} -> {name}")
+
+        assert missing == [], f"these rules name constants no longer in project/: {missing}"

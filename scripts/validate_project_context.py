@@ -236,6 +236,30 @@ _PROJECT_CONTEXT_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
             "Stop once every cross-reference resolves to an existing entry."
         ),
     },
+    "project_context.vertical_status_contradicts_wiring": {
+        "meaning": (
+            "A vertical's declared status disagrees with the wiring: it is described as running "
+            "while nothing registers it, or as planned while its service or router is already "
+            "wired in."
+        ),
+        "suggested_fix": (
+            "Change the status to the one the code implements, or finish/remove the wiring. The "
+            "code is the authority here; the status is a description of it."
+        ),
+        "read_first": [
+            "docs/project_context.json",
+            "project/core/service_registration.py",
+            "project/infrastructure/api/router_registration.py",
+        ],
+        "smallest_command_to_rerun": "uv run python scripts/validate_project_context.py",
+        "likely_fix_shape": (
+            "One word in docs/project_context.json, or the registration line the status promised."
+        ),
+        "next_checks": ["make quality-gates"],
+        "stop_widening_condition": (
+            "The declared status and the registration agree for every vertical."
+        ),
+    },
 }
 
 
@@ -478,6 +502,77 @@ def _validate_business_rules(
     return issues
 
 
+# ATTRIBUTE: _RUNNING_STATUSES (frozenset[str])
+# SUMMARY: Statuses that assert the vertical is wired into the running application.
+_RUNNING_STATUSES = frozenset({"active", "reference_implementation"})
+
+
+# FUNCTION: _wired_vertical_names
+# SUMMARY: The vertical names the wiring files actually register, or None when they are absent.
+# OUTPUT: (set[str] | None): Names derived from registered services and included routers.
+# NOTE: Two sources, because a project can wire a vertical either way. The service key is what
+# router_registration.py keys the conditional include on, and the endpoint module is what an
+# unconditional include names. The endpoint module is conventionally plural, so its singular is
+# accepted too. Returns None rather than an empty set when the files are missing: a checkout
+# without them says nothing about the statuses, and treating silence as "nothing is wired" would
+# fail every project that keeps its wiring elsewhere.
+def _wired_vertical_names(root_dir: Path) -> set[str] | None:
+    from ai_context.extraction import extract_router_modules, extract_service_registry_entries
+
+    registration = root_dir / "project" / "core" / "service_registration.py"
+    routers = root_dir / "project" / "infrastructure" / "api" / "router_registration.py"
+    if not registration.is_file() and not routers.is_file():
+        return None
+
+    names: set[str] = set()
+    if registration.is_file():
+        for key in extract_service_registry_entries(registration, root_dir, "vertical"):
+            names.add(key.removesuffix("_service").removesuffix("_repository"))
+    if routers.is_file():
+        for module in extract_router_modules(routers):
+            names.add(module)
+            if module.endswith("s"):
+                names.add(module[:-1])
+    return names
+
+
+# FUNCTION: _validate_vertical_wiring
+# SUMMARY: Check each declared status against what the wiring files register.
+def _validate_vertical_wiring(
+    verticals: dict[str, object],
+    wired: set[str],
+) -> list[ProjectContextIssue]:
+    issues: list[ProjectContextIssue] = []
+    for name, entry in verticals.items():
+        if not isinstance(entry, dict):
+            continue
+        status = entry.get("status")
+        registered = name in wired
+        if status in _RUNNING_STATUSES and not registered:
+            issues.append(
+                ProjectContextIssue(
+                    rule_id="project_context.vertical_status_contradicts_wiring",
+                    field=f"verticals.{name}.status",
+                    message=(
+                        f"Status '{status}' says this vertical is running, but neither "
+                        "service_registration.py nor router_registration.py registers it."
+                    ),
+                )
+            )
+        elif status == "planned" and registered:
+            issues.append(
+                ProjectContextIssue(
+                    rule_id="project_context.vertical_status_contradicts_wiring",
+                    field=f"verticals.{name}.status",
+                    message=(
+                        "Status 'planned' says this vertical does not exist yet, but it is "
+                        "already registered in the wiring."
+                    ),
+                )
+            )
+    return issues
+
+
 # FUNCTION: _validate_cross_references
 # SUMMARY: Check that BR-ids referenced in verticals exist in business_rules.
 def _validate_cross_references(
@@ -564,6 +659,9 @@ def collect_project_context_issues(root_dir: Path) -> list[ProjectContextIssue]:
 
     if isinstance(verticals, dict):
         issues.extend(_validate_cross_references(verticals, business_rule_ids))
+        wired = _wired_vertical_names(root_dir)
+        if wired is not None:
+            issues.extend(_validate_vertical_wiring(verticals, wired))
 
     return issues
 
