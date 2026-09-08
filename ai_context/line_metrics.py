@@ -6,12 +6,14 @@
 # ceiling before the dense one does, and the cheapest way back under the limit is to delete the
 # explanation — which is the opposite of what this kernel wants from an agent under a red gate.
 #
-# The effect is visible in this repository. Six modules here exceed 600 raw lines; five of them are
-# genuinely large and stay over the budget once documentation is subtracted, and one is not:
-# `project/core/logging/trace_formatter.py` is 646 raw lines and 423 executable ones, a third of it
-# prose. Under a raw limit that file is a violation to be trimmed. Under this one it is fine, and
-# the five that remain over are the ones actually worth splitting. Rerun the metric for current
-# figures — the point is the shape of the difference, not the particular numbers.
+# The effect is visible in this repository. Measured on 2026-09-08 over `project/`, which is the
+# only tree `scripts/validate_module_sizes.py` walks: the largest module is
+# `project/core/logging/logger.py` at 556 raw lines and 348 executable ones, and the next is
+# `project/core/logging/trace_formatter.py` at 460 and 293. Both are comfortably inside the 450
+# executable-line budget; both would be over a 450 raw one, and the cheapest way back under it
+# would have been to delete the paragraphs that say why the tree walk is shaped the way it is.
+# Rerun the metric for current figures — the point is the shape of the difference, not the
+# particular numbers, and this example moved once already when the trace renderer was split.
 
 from __future__ import annotations
 

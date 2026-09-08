@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from project.core.config import Settings
 from project.infrastructure.agents import llm_service_readiness as readiness_module
 from project.infrastructure.agents.llm_service import LLMService
 from tests.conftest import _FixtureSettings as FixtureSettings
@@ -375,3 +376,32 @@ class TestReadinessProbeCaching:
         probe.assert_not_called()
         assert readiness["status"] == "healthy"
         assert readiness["backend_mode"] == "mock"
+
+
+# CLASS: tests.application.test_llm_service.TestMockModeSurvivesTheOperatorsEnvironment
+# SUMMARY: Verify a service built from process-wide settings lands in mock mode, not the live path.
+# NOTE: This is the trap for tests/conftest.py::pin_llm_mode_toggle, and it is the only test here
+# that reads real settings instead of the fixture's. Every other test in this file patches
+# get_settings, so all of them stayed green on 2026-09-08 while an operator's own .env carried
+# AGENT_LLM_MODE=live and any test constructing LLMService() directly built a real provider client.
+# Delete the fixture and this goes red on that machine; it is green everywhere the environment is
+# silent, which is every fresh checkout and CI.
+class TestMockModeSurvivesTheOperatorsEnvironment:
+    # FUNCTION: test_settings_read_from_the_environment_select_mock_mode
+    # SUMMARY: Verify unpatched settings put the service in mock mode.
+    # OUTPUT: (None): None.
+    @pytest.mark.unit
+    def test_settings_read_from_the_environment_select_mock_mode(self) -> None:
+        # **LOGIC_STEP**: Settings() is built here rather than taken from get_settings() because
+        # that one is cached process-wide — a cached instance would answer for whatever the
+        # environment said the first time anything asked, which is not what this claims.
+        from_environment = Settings()
+
+        with patch(
+            "project.infrastructure.agents.llm_service.get_settings",
+            return_value=from_environment,
+        ):
+            service = LLMService()
+
+        assert from_environment.agent.llm_mode == "mock"
+        assert service.is_mock_mode() is True

@@ -632,7 +632,8 @@
       "before-edit file project/infrastructure/api/dependencies.py",
       "failure rule endpoint.no_depends_without_alias",
       "failure rule runtime_ownership.env_access_restricted",
-      "failure rule drift.agent_docs.outdated"
+      "failure rule drift.agent_docs.outdated",
+      "symbol AgentSettings"
     ]
   },
   "read_last_paths": [

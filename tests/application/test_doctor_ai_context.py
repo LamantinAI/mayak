@@ -13,6 +13,7 @@ import pytest
 from ai_context.errors import ContextBuildError, ContextIssue
 from scripts.doctor_ai_context import (
     LAYER_UNAVAILABLE_RULE_ID,
+    _migrations_not_verified_notice,
     diagnose,
     diagnose_full,
     main,
@@ -798,3 +799,62 @@ class TestDoctorSurvivesItsOwnTooling:
         assert exit_code == 1
         assert "fix: Run `make ai-autofix`." in printed
         assert printed.index("fix:") < printed.index("next:")
+
+
+# CLASS: tests.application.test_doctor_ai_context.TestDoctorRepeatsTheUnverifiedMigrationNotice
+# SUMMARY: Verify an "ok" doctor run still says when the migration check never reached a database.
+# NOTE: The skip is not an error, so it is filtered out of the blocking set and the doctor used to
+# report a clean run indistinguishable from a verified one. Measured in both projects of the
+# 2026-09-07 duel: a migration that dropped a column instead of renaming it passed every local
+# gate. The notice is read from validate_migrations.py's own issue rather than re-worded, so the
+# sentence is written once — this asserts both halves, that it is carried and that it is that one.
+class TestDoctorRepeatsTheUnverifiedMigrationNotice:
+    # FUNCTION: test_the_skip_is_pulled_out_of_the_issue_batch
+    # SUMMARY: Verify the skip's own message is what the doctor reports.
+    # OUTPUT: (None): None.
+    @pytest.mark.unit
+    def test_the_skip_is_pulled_out_of_the_issue_batch(self) -> None:
+        from scripts.validate_migrations import _NOT_VERIFIED_BANNER, MigrationIssue
+
+        skipped = MigrationIssue(
+            rule_id="migrations.database_unreachable",
+            command_name="upgrade-head",
+            message=f"{_NOT_VERIFIED_BANNER} — no database reachable, run `make db-up-worktree`.",
+            returncode=0,
+            severity="info",
+        )
+        other = MigrationIssue(
+            rule_id="migrations.multiple_heads",
+            command_name="heads",
+            message="two heads",
+            returncode=1,
+            severity="error",
+        )
+
+        notice = _migrations_not_verified_notice([other, skipped])
+
+        assert notice is not None
+        assert notice.startswith(_NOT_VERIFIED_BANNER)
+
+    # FUNCTION: test_a_verified_run_carries_no_notice
+    # SUMMARY: Verify nothing is announced when the database was actually reached.
+    # OUTPUT: (None): None.
+    @pytest.mark.unit
+    def test_a_verified_run_carries_no_notice(self) -> None:
+        from scripts.validate_migrations import MigrationIssue
+
+        assert _migrations_not_verified_notice([]) is None
+        assert (
+            _migrations_not_verified_notice(
+                [
+                    MigrationIssue(
+                        rule_id="migrations.multiple_heads",
+                        command_name="heads",
+                        message="x",
+                        returncode=1,
+                        severity="error",
+                    )
+                ]
+            )
+            is None
+        )

@@ -171,6 +171,7 @@ QUERY_COMMAND_NAMES = [
     "workset",
     "before-edit",
     "failure",
+    "symbol",
 ]
 
 QUERY_SUPPORTED_COMMANDS = [
@@ -181,6 +182,7 @@ QUERY_SUPPORTED_COMMANDS = [
     "failure rule endpoint.no_depends_without_alias",
     "failure rule runtime_ownership.env_access_restricted",
     "failure rule drift.agent_docs.outdated",
+    "symbol AgentSettings",
 ]
 
 ZONE_RISK = {
