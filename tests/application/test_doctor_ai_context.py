@@ -13,22 +13,20 @@ import pytest
 from ai_context.errors import ContextBuildError, ContextIssue
 from scripts.doctor_ai_context import (
     LAYER_UNAVAILABLE_RULE_ID,
-    _migrations_not_verified_notice,
-    diagnose,
-    diagnose_full,
-    main,
-    unavailable_validator_payload,
-)
-from scripts.doctor_layers import (
     SECURITY_LAYER,
     LATE_LAYER_NAMES,
     REENTRY_ENV_VAR,
     TESTS_LAYER,
     TOOL_LAYERS,
     ToolLayer,
+    _migrations_not_verified_notice,
+    diagnose,
     diagnose_early_layers,
+    diagnose_full,
     diagnose_tool_layer,
     get_doctor_layer_playbook,
+    main,
+    unavailable_validator_payload,
 )
 from scripts.validate_architecture import ArchitectureIssue
 from scripts.validate_cbm import ValidationIssue
@@ -383,11 +381,7 @@ class TestDoctorAIContext:
         # **LOGIC_STEP**: Stub the layers added by the validator-recovery bundle so the
         # OK path is reachable in this isolated test.
         monkeypatch.setattr(
-            "scripts.doctor_ai_context.collect_skills_frontmatter_issues",
-            lambda _root: [],
-        )
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.collect_project_context_issues",
+            "scripts.doctor_ai_context.collect_repository_metadata_issues",
             lambda _root: [],
         )
         monkeypatch.setattr(
@@ -408,7 +402,7 @@ class TestDoctorAIContext:
         assert payload["status"] == "ok"
         assert "context" in payload["checked_layers"]
         assert "module_size" in payload["checked_layers"]
-        assert "project_context" in payload["checked_layers"]
+        assert "repository_metadata" in payload["checked_layers"]
         assert "file_policy" in payload["checked_layers"]
         assert "agent_docs_drift" in payload["checked_layers"]
         assert payload["final_gate"] == "make quality-gates"
@@ -485,7 +479,7 @@ class TestExtendedCheckedLayers:
         if payload.get("status") == "ok":
             layers = set(payload.get("checked_layers", []))
             assert {
-                "project_context",
+                "repository_metadata",
                 "migrations",
                 "file_policy",
                 "agent_docs_drift",
@@ -500,8 +494,7 @@ class TestExtendedCheckedLayers:
                 "runtime_ownership",
                 "cbm",
                 "module_size",
-                "skills_frontmatter",
-                "project_context",
+                "repository_metadata",
                 "migrations",
                 "file_policy",
                 "agent_docs_drift",
@@ -559,10 +552,8 @@ class TestGateLayersAreModelled:
             "$(UV) run python scripts/validate_module_sizes.py": "module_size",
             "$(UV) run python scripts/validate_test_quality.py": "test_quality",
             "$(UV) run python scripts/validate_dependencies.py": "dependencies",
-            "$(UV) run python scripts/validate_skills_frontmatter.py": "skills_frontmatter",
-            "$(UV) run python scripts/validate_project_context.py": "project_context",
+            "$(UV) run python scripts/validate_repository_metadata.py": "repository_metadata",
             "$(UV) run python scripts/validate_file_policy.py": "file_policy",
-            "$(UV) run python scripts/validate_script_paths.py": "script_paths",
             "$(UV) run python scripts/validate_secrets.py": "secrets",
             "$(MAKE) --no-print-directory security-scan": "security",
             "$(UV) run python scripts/structure_builder.py --check": "project_map_drift",

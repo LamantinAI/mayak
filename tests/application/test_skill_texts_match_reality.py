@@ -1,26 +1,11 @@
 # FILE: tests/application/test_skill_texts_match_reality.py
 # SUMMARY: Guard the factual claims the skills make about this repository, so prose cannot drift
 # away from the code it instructs an agent to change.
-# NOTE: Every claim covered here was measured wrong once. The skill said one table ledger and
-# there are two — the unnamed one is what went red.
-# The skill's completeness sweep was case-sensitive and underscore-only, so it found neither
-# `ReferenceTaskORM` nor `/reference-tasks/`. And a checkout inherited memory tags nobody had told
-# the reader about. Prose fails no gate on its own; these are the gate.
-#
-# What each test can and cannot promise, because the distinction was overstated once already:
-#
-# - Three tests read the skill text and fail when it stops naming something real —
-#   `test_every_exact_table_set_assertion_is_named_in_the_skill`,
-#   `test_the_skill_prints_a_case_insensitive_separator_agnostic_sweep`,
-#   `test_step_seven_names_every_file_carrying_an_inherited_tag`. Even these check that a literal
-#   is PRESENT, not that the surrounding sentence is true; a substring buried in unrelated prose
-#   satisfies them. They catch a skill that has gone silent about a fact, not one that lies about it.
-# - The rest never open a SKILL.md. They pin the repository facts the prose rests on — that both
-#   ledgers still pin an exact set, that the detector recognises the spellings it claims to, that
-#   the narrow grep really does miss files. Replacing every skill with nonsense leaves them green,
-#   and that is correct: their subject is the code, not the sentence about it.
-#
-# No test here can verify that a sentence means what it says. That is what a reader is for.
+# NOTE: Some tests read a SKILL.md and fail when it stops naming something real — they check that a
+# literal is PRESENT, not that the surrounding sentence is true. The rest never open a SKILL.md at
+# all: they pin the repository facts the prose rests on (both ledgers still pin an exact set, the
+# detector recognises the spellings it claims to, the narrow grep really does miss files). No test
+# here can verify that a sentence means what it says — that is what a reader is for.
 
 from __future__ import annotations
 
@@ -51,7 +36,6 @@ _VERTICAL_NAIVE_SPELLING = re.compile(r"reference_task")
 
 # FUNCTION: _tracked_text_files
 # SUMMARY: Every tracked file that can be read as text, which is what any sweep sees.
-# OUTPUT: (list[Path]): Absolute paths.
 def _tracked_text_files() -> list[Path]:
     listed = run(
         ["git", "ls-files", "-z"], cwd=_REPO_ROOT, capture_output=True, text=True, check=True
@@ -61,8 +45,6 @@ def _tracked_text_files() -> list[Path]:
 
 # FUNCTION: _files_matching
 # SUMMARY: Repo-relative paths of tracked files whose text matches a pattern.
-# INPUT: pattern (re.Pattern[str]): Compiled pattern to search for.
-# OUTPUT: (set[str]): Repo-relative paths.
 def _files_matching(pattern: re.Pattern[str]) -> set[str]:
     found: set[str] = set()
     for path in _tracked_text_files():
@@ -92,8 +74,7 @@ _PYTHON_BLOCK = re.compile(r"```python\n(.*?)```", re.DOTALL)
 # SUMMARY: Map every class name the application package defines to its dotted module path.
 # OUTPUT: (dict[str, str]): Class name to module, e.g. ReferenceTaskService -> project.application....
 def _classes_defined_under_project() -> dict[str, str]:
-    # **LOGIC_STEP**: Read with ast rather than importing everything. Importing the whole package to
-    # find a name would run every module's import side effects for a documentation check.
+    # **LOGIC_STEP**: ast, not import — importing the whole package would run side effects.
     found: dict[str, str] = {}
     for path in sorted((_REPO_ROOT / "project").rglob("*.py")):
         module = ".".join(path.relative_to(_REPO_ROOT).with_suffix("").parts)
@@ -111,9 +92,7 @@ def _classes_defined_under_project() -> dict[str, str]:
 # SUMMARY: Reduce a call to what a signature can be checked against: how many positionals, which keywords.
 # OUTPUT: (tuple[int, list[str]] | None): Counts, or None when the call is not checkable.
 def _call_shape(node: ast.Call) -> tuple[int, list[str]] | None:
-    # **LOGIC_STEP**: `f(*args)` and `f(**kwargs)` hide the real shape from a static reader, so the
-    # call is skipped rather than guessed at. A documentation example that needs them is rare, and
-    # a false failure here would be worse than a missed one.
+    # **LOGIC_STEP**: `f(*args)`/`f(**kwargs)` hide the real shape, so skip rather than guess.
     if any(isinstance(argument, ast.Starred) for argument in node.args):
         return None
     if any(keyword.arg is None for keyword in node.keywords):
@@ -123,16 +102,12 @@ def _call_shape(node: ast.Call) -> tuple[int, list[str]] | None:
 
 # FUNCTION: signature_mismatches_in_skill_text
 # SUMMARY: Report calls in a skill's python examples that the real code would reject.
-# INPUT: text (str): Full markdown text of a skill.
 # INPUT: classes (dict[str, type] | None): Class map to check against; the application package's
-#        own classes when omitted. Tests pass their own so they do not depend on a vertical that
-#        every project is told to delete.
+#        own classes when omitted — tests pass their own so they do not depend on a vertical every
+#        project is told to delete.
 # OUTPUT: (list[str]): One human-readable line per mismatch; empty when every example would run.
-# NOTE: Measured on 10.08.2026. .agents/skills/add-vertical shipped `service.list_tasks(limit=7)` while the
-# method requires `status`, called `repository.list` where the port declares `list_by_status`, and
-# `service.create` where the service defines `create_task`. The example had never been executed —
-# not "had rotted". Everything else in this module checks that the prose NAMES a real thing; this
-# checks that the code it shows would actually run.
+# NOTE: Everything else in this module checks that the prose NAMES a real thing; this checks that
+# the code it shows would actually run.
 def signature_mismatches_in_skill_text(
     text: str, classes: dict[str, type] | None = None
 ) -> list[str]:
@@ -146,9 +121,8 @@ def signature_mismatches_in_skill_text(
         try:
             tree = ast.parse(block)
         except SyntaxError:
-            # **LOGIC_STEP**: Examples are fragments — a method body without its class parses fine,
-            # but a partial statement does not. An unparseable block is a documentation choice, not
-            # a signature error, and belongs to a reader rather than to this check.
+            # **LOGIC_STEP**: An unparseable fragment is a documentation choice, not a signature
+            # error — leave it to a reader rather than this check.
             continue
 
         bound: dict[str, type] = {}
@@ -205,8 +179,7 @@ def _mismatch(cls: type, method_name: str, node: ast.Call, rendered: str) -> lis
         parameters = signature(method)
     except (TypeError, ValueError):
         return []
-    # **LOGIC_STEP**: The signature is read off the class, so `self` is still in it. A stand-in is
-    # supplied for the instance the example calls the method on.
+    # **LOGIC_STEP**: `self` is still in the signature; supply a stand-in for it.
     takes_self = next(iter(parameters.parameters), None) in {"self", "cls"}
     arguments: list[object] = [None] * (positional + (1 if takes_self else 0))
     try:
@@ -218,7 +191,6 @@ def _mismatch(cls: type, method_name: str, node: ast.Call, rendered: str) -> lis
 
 # FUNCTION: _exact_table_set_assertions
 # SUMMARY: Find tests that compare the ORM metadata's table names against a fixed collection.
-# INPUT: path (Path): Test module to parse.
 # OUTPUT: (list[str]): Names of the test functions that make such an assertion.
 def _exact_table_set_assertions(path: Path) -> list[str]:
     tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -232,12 +204,9 @@ def _exact_table_set_assertions(path: Path) -> list[str]:
             if not any(isinstance(operator, ast.Eq) for operator in statement.ops):
                 continue
             # **LOGIC_STEP**: An exact-set ledger is an equality against metadata.tables, whichever
-            # side each operand is on. The first version of this detector also demanded a literal
-            # `{` in the unparsed text, which made three idiomatic spellings invisible:
-            # `== EXPECTED_TABLES` (a named constant), `== set([...])`, and
-            # `sorted(...) == [...]`. Equality alone is the right signal — a membership check
-            # (`in metadata.tables`) is deliberately not one, because it stays green when a table
-            # is added, which is the case these ledgers exist to catch.
+            # side each operand is on — a named constant, a set() call, a sorted list all count.
+            # `in metadata.tables` (membership) is deliberately not one: it stays green when a
+            # table is added, which is the case these ledgers exist to catch.
             if "metadata.tables" in ast.unparse(statement):
                 names.append(node.name)
                 break
@@ -247,111 +216,60 @@ def _exact_table_set_assertions(path: Path) -> list[str]:
 # CLASS: tests.application.test_skill_texts_match_reality.TestAddVerticalNamesEveryTableLedger
 # SUMMARY: Verify the skill names every test a new table has to be registered in.
 class TestAddVerticalNamesEveryTableLedger:
-    # FUNCTION: test_every_exact_table_set_assertion_is_named_in_the_skill
-    # SUMMARY: Verify no ledger exists that the skill fails to mention.
+    # FUNCTION: test_the_skill_names_the_one_ledger_and_no_second_one_exists
+    # SUMMARY: Verify no ledger exists that the skill fails to mention, and that the skill's one
+    # named ledger is the only one left in the tree — the same sentence pinned in two files at once
+    # cost two projects a red gate twice each.
     @pytest.mark.unit
-    def test_every_exact_table_set_assertion_is_named_in_the_skill(self) -> None:
-        # **LOGIC_STEP**: The skill promises to prevent "the gate fails on a file you never
-        # opened". It listed one ledger; the second one, TestORMRegistry, is the one that
-        # actually goes red the first time a new table is added.
+    def test_the_skill_names_the_one_ledger_and_no_second_one_exists(self) -> None:
         skill_text = _ADD_VERTICAL.read_text(encoding="utf-8")
-        unnamed: list[str] = []
-
-        # **LOGIC_STEP**: The whole tree, not two directories. A ledger under tests/functional or
-        # in a script would still turn a gate red, and the first version of this scan could not
-        # have seen it — the failure mode this test exists to prevent is precisely "the gate fails
-        # in a file nobody told you about".
-        for directory in _LEDGER_SCAN_DIRECTORIES:
-            for path in sorted((_REPO_ROOT / directory).rglob("*.py")):
-                if not _exact_table_set_assertions(path):
-                    continue
-                if path.name not in skill_text:
-                    unnamed.append(str(path.relative_to(_REPO_ROOT)))
-
-        assert unnamed == [], (
-            "these tests pin the exact table set but .agents/skills/add-vertical never names them: "
-            + ", ".join(unnamed)
-        )
-
-    # FUNCTION: test_the_detector_recognises_every_idiomatic_ledger_spelling
-    # SUMMARY: Verify the scan is not defeated by a named constant, a set() call, or a sorted list.
-    @pytest.mark.unit
-    @pytest.mark.parametrize(
-        "assertion",
-        [
-            'assert set(Base.metadata.tables.keys()) == {"a"}',
-            "assert set(Base.metadata.tables.keys()) == EXPECTED_TABLES",
-            'assert Base.metadata.tables.keys() == set(["a"])',
-            'assert sorted(Base.metadata.tables.keys()) == ["a"]',
-            'assert {"a"} == set(Base.metadata.tables)',
-        ],
-    )
-    def test_the_detector_recognises_every_idiomatic_ledger_spelling(
-        self, assertion: str, tmp_path: Path
-    ) -> None:
-        # **LOGIC_STEP**: The detector once required a literal `{` in the unparsed text, so three
-        # of these five spellings were invisible and a third ledger written that way would have
-        # slipped past the guard above without anyone noticing.
-        module = tmp_path / "test_probe.py"
-        module.write_text(f"def test_ledger() -> None:\n    {assertion}\n", encoding="utf-8")
-
-        assert _exact_table_set_assertions(module) == ["test_ledger"]
-
-    # FUNCTION: test_the_detector_ignores_a_membership_check
-    # SUMMARY: Verify a non-ledger assertion is not mistaken for one.
-    @pytest.mark.unit
-    def test_the_detector_ignores_a_membership_check(self, tmp_path: Path) -> None:
-        # **LOGIC_STEP**: `in metadata.tables` stays green when a table is added, so it is not a
-        # ledger and naming it in the skill would be wrong. Dropping the `{` requirement must not
-        # widen the detector this far.
-        module = tmp_path / "test_probe.py"
-        module.write_text(
-            'def test_membership() -> None:\n    assert "a" in Base.metadata.tables\n',
-            encoding="utf-8",
-        )
-
-        assert _exact_table_set_assertions(module) == []
-
-    # FUNCTION: test_the_one_ledger_still_pins_an_exact_set
-    # SUMMARY: Verify the single ledger the skill names has not quietly become a membership check.
-    # NOTE: This was parametrised over two paths until the duplicate in
-    # tests/infrastructure/test_persistence_models.py was removed. One ledger is the point: the
-    # second copy is what made a project's first table go red twice in a row.
-    @pytest.mark.unit
-    def test_the_one_ledger_still_pins_an_exact_set(self) -> None:
-        assert _exact_table_set_assertions(
-            _REPO_ROOT / "tests/application/test_validate_migrations.py"
-        )
-
-    # FUNCTION: test_no_second_ledger_has_appeared
-    # SUMMARY: Verify the duplicate has not grown back somewhere else in the tree.
-    @pytest.mark.unit
-    def test_no_second_ledger_has_appeared(self) -> None:
-        # **LOGIC_STEP**: The scan below is the same one the skill-naming test uses, so a ledger
-        # added in any directory is seen. Removing the duplicate is only worth doing if a third
-        # one cannot quietly take its place.
+        # **LOGIC_STEP**: The whole tree, not two directories — a ledger anywhere would turn a
+        # gate red, and "the gate fails in a file nobody told you about" is what this prevents.
         carriers = [
-            str(path.relative_to(_REPO_ROOT))
+            path
             for directory in _LEDGER_SCAN_DIRECTORIES
             for path in sorted((_REPO_ROOT / directory).rglob("*.py"))
             if _exact_table_set_assertions(path)
         ]
 
-        # **LOGIC_STEP**: The count, not the path. A project is free to keep its ledger wherever it
-        # likes — what cost two projects a red gate twice each was having the same sentence in two
-        # files at once, and that is what this pins.
-        assert len(carriers) == 1, (
-            "the exact table set must be pinned in exactly one place; found "
-            f"{len(carriers)}: " + ", ".join(carriers)
+        unnamed = [str(p.relative_to(_REPO_ROOT)) for p in carriers if p.name not in skill_text]
+        assert unnamed == [], (
+            f"these tests pin the exact table set but the skill never names: {unnamed}"
         )
+
+        relative = [str(p.relative_to(_REPO_ROOT)) for p in carriers]
+        assert relative == ["tests/application/test_validate_migrations.py"], (
+            f"the exact table set must be pinned in exactly this one place; found {relative}"
+        )
+
+    # FUNCTION: test_the_detector_recognises_every_idiomatic_ledger_spelling
+    # SUMMARY: Verify the scan is not defeated by a named constant, a set() call, or a sorted list —
+    # and that a membership check (`in metadata.tables`), which stays green when a table is added,
+    # is correctly not mistaken for a ledger.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("assertion", "detected"),
+        [
+            ('assert set(Base.metadata.tables.keys()) == {"a"}', True),
+            ("assert set(Base.metadata.tables.keys()) == EXPECTED_TABLES", True),
+            ('assert Base.metadata.tables.keys() == set(["a"])', True),
+            ('assert sorted(Base.metadata.tables.keys()) == ["a"]', True),
+            ('assert {"a"} == set(Base.metadata.tables)', True),
+            ('assert "a" in Base.metadata.tables', False),
+        ],
+    )
+    def test_the_detector_recognises_every_idiomatic_ledger_spelling(
+        self, assertion: str, detected: bool, tmp_path: Path
+    ) -> None:
+        module = tmp_path / "test_probe.py"
+        module.write_text(f"def test_ledger() -> None:\n    {assertion}\n", encoding="utf-8")
+
+        assert _exact_table_set_assertions(module) == (["test_ledger"] if detected else [])
 
 
 # CLASS: tests.application.test_skill_texts_match_reality._ProbeService
-# SUMMARY: Stand-in for a service, so the checker's own tests survive deleting the reference vertical.
-# NOTE: The first version of these tests called ReferenceTaskService by name. Delete the reference
-# vertical — which the skill tells every reader to do — and three kernel tests go red in a file the
-# developer never opened. That is the exact failure class this module exists to prevent,
-# reintroduced by the module itself.
+# SUMMARY: Stand-in for a service, so the checker's own tests survive deleting the reference
+# vertical — calling ReferenceTaskService by name here would go red the day it is deleted.
 class _ProbeService:
     # FUNCTION: __init__
     # SUMMARY: Accept a collaborator, the way a real service does.
@@ -378,77 +296,52 @@ class TestSkillExamplesWouldRun:
 
         assert problems == [], "skill examples that would not run:\n" + "\n".join(problems)
 
-    # FUNCTION: test_a_missing_required_argument_is_reported
-    # SUMMARY: Verify the exact defect measured on 10.08.2026 is caught.
+    # FUNCTION: test_the_checker_reports_and_clears_correctly
+    # SUMMARY: Verify a missing argument and a renamed method are reported, a correct example and a
+    # name the checker does not know both clear, and an unparseable fragment is a reader's problem.
     @pytest.mark.unit
-    def test_a_missing_required_argument_is_reported(self) -> None:
-        # **LOGIC_STEP**: list_items(self, status, limit=50). The example below omits `status` —
-        # the shape of what shipped in .agents/skills/add-vertical and what nothing caught.
-        text = "```python\nservice = ProbeService(repository)\nservice.list_items(limit=7)\n```\n"
+    def test_the_checker_reports_and_clears_correctly(self) -> None:
+        probe: dict[str, type] = {"ProbeService": _ProbeService}
 
-        problems = signature_mismatches_in_skill_text(text, {"ProbeService": _ProbeService})
-
-        assert len(problems) == 1
-        assert "list_items" in problems[0]
-        assert "status" in problems[0]
-
-    # FUNCTION: test_a_method_that_does_not_exist_is_reported
-    # SUMMARY: Verify a renamed method in an example is caught.
-    @pytest.mark.unit
-    def test_a_method_that_does_not_exist_is_reported(self) -> None:
-        text = "```python\nservice = ProbeService(repository)\nservice.create(title='x')\n```\n"
-
-        problems = signature_mismatches_in_skill_text(text, {"ProbeService": _ProbeService})
-
-        assert len(problems) == 1
-        assert "no attribute 'create'" in problems[0]
-
-    # FUNCTION: test_a_correct_example_is_accepted
-    # SUMMARY: Verify a call that would really run raises no complaint.
-    @pytest.mark.unit
-    def test_a_correct_example_is_accepted(self) -> None:
-        text = (
-            "```python\n"
-            "service = ProbeService(repository)\n"
-            'service.list_items(status="pending", limit=7)\n'
-            "```\n"
+        # **LOGIC_STEP**: list_items(self, status, limit=50); the example omits `status`.
+        missing = signature_mismatches_in_skill_text(
+            "```python\nservice = ProbeService(repository)\nservice.list_items(limit=7)\n```\n",
+            probe,
         )
+        assert len(missing) == 1 and "list_items" in missing[0] and "status" in missing[0]
 
-        assert signature_mismatches_in_skill_text(text, {"ProbeService": _ProbeService}) == []
-
-    # FUNCTION: test_a_name_the_checker_does_not_know_is_skipped
-    # SUMMARY: Verify a mock or a third-party object never produces a false failure.
-    @pytest.mark.unit
-    def test_a_name_the_checker_does_not_know_is_skipped(self) -> None:
-        # **LOGIC_STEP**: `repository` is an AsyncMock in every prescribed example, and any
-        # attribute on it is legitimate. Only names bound to a known class are checked, which is
-        # what keeps this from failing on the mocks the examples are built from.
-        text = (
-            "```python\n"
-            "repository = AsyncMock()\n"
-            "repository.anything_at_all.assert_awaited_once_with(1, 2, 3)\n"
-            "```\n"
+        no_attr = signature_mismatches_in_skill_text(
+            "```python\nservice = ProbeService(repository)\nservice.create(title='x')\n```\n", probe
         )
+        assert len(no_attr) == 1 and "no attribute 'create'" in no_attr[0]
 
-        assert signature_mismatches_in_skill_text(text, {"ProbeService": _ProbeService}) == []
+        correct = (
+            "```python\nservice = ProbeService(repository)\n"
+            'service.list_items(status="pending", limit=7)\n```\n'
+        )
+        assert signature_mismatches_in_skill_text(correct, probe) == []
 
-    # FUNCTION: test_a_fragment_that_does_not_parse_is_skipped
-    # SUMMARY: Verify a partial snippet is a reader's problem, not a failure.
-    @pytest.mark.unit
-    def test_a_fragment_that_does_not_parse_is_skipped(self) -> None:
+        # **LOGIC_STEP**: only names bound to a known class are checked, so a mock clears too.
+        unknown = (
+            "```python\nrepository = AsyncMock()\n"
+            "repository.anything_at_all.assert_awaited_once_with(1, 2, 3)\n```\n"
+        )
+        assert signature_mismatches_in_skill_text(unknown, probe) == []
+
         assert signature_mismatches_in_skill_text("```python\nfor item in\n```\n") == []
 
 
 # CLASS: tests.application.test_skill_texts_match_reality.TestDeletionSweepFindsEverything
 # SUMMARY: Verify the completeness sweep the skill prints cannot miss a spelling of the vertical.
 class TestDeletionSweepFindsEverything:
-    # FUNCTION: test_the_skill_prints_a_case_insensitive_separator_agnostic_sweep
-    # SUMMARY: Verify the runnable command is not the narrow one that missed two files.
+    # FUNCTION: test_the_skill_prints_a_sweep_the_narrow_pattern_cannot_match
+    # SUMMARY: Verify the runnable command is case-insensitive and separator-agnostic, not the
+    # narrow one that missed two files — and that the narrow pattern still really does miss files
+    # in this tree, so the prose reason for widening it still holds.
     @pytest.mark.unit
-    def test_the_skill_prints_a_case_insensitive_separator_agnostic_sweep(self) -> None:
-        # **LOGIC_STEP**: Only fenced blocks are checked. The prose quotes the narrow command
-        # inline, on purpose, to say what not to run — scanning prose would fail on the very
-        # sentence that documents the fix.
+    def test_the_skill_prints_a_sweep_the_narrow_pattern_cannot_match(self) -> None:
+        # **LOGIC_STEP**: Only fenced blocks — the prose also quotes the narrow command on purpose
+        # to say what not to run, and scanning prose would fail on that very sentence.
         fenced = "\n".join(
             re.findall(r"```[a-z]*\n(.*?)```", _ADD_VERTICAL.read_text("utf-8"), re.DOTALL)
         )
@@ -460,47 +353,18 @@ class TestDeletionSweepFindsEverything:
             assert flags.startswith("-") and "i" in flags, f"case-sensitive sweep: {command}"
             assert "reference[-_]?task" in command, f"separator-bound sweep: {command}"
 
-    # FUNCTION: test_the_narrow_pattern_really_does_miss_files
-    # SUMMARY: Verify the reason the command was widened still holds in this tree.
-    @pytest.mark.unit
-    def test_the_narrow_pattern_really_does_miss_files(self) -> None:
-        # **LOGIC_STEP**: This is the measurement the skill's prose rests on. If a future cleanup
-        # makes every spelling uniform, this test fails and the prose should be softened rather
-        # than the sweep re-narrowed.
         missed = _files_matching(_VERTICAL_ANY_SPELLING) - _files_matching(_VERTICAL_NAIVE_SPELLING)
-
         assert missed, "no file is spelled in a way the narrow pattern misses any more"
 
 
 # ATTRIBUTE: _DELETION_ACCOUNTING_EXEMPTIONS
-# SUMMARY: Path prefixes the deletion section's tables are allowed to cover as a category rather
-# than by naming every matching file, plus why each category is legitimate.
-# NOTE: Measured on 2026-09-08: the "Deleting the reference vertical" survivor table promised
-# "twelve files" and a second migration file plus seven comment/fixture files were not in it —
-# `alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py`, `ai_context/dynamic_
-# imports.py`, `ai_query/common.py`, and five files under `tests/application/`. The table was fixed
-# by naming those individually. What is exempted here is narrower than "the table" — the three
-# categories the skill's own prose explains it deliberately does not enumerate file-by-file, so a
-# project's own migrations or its own ADRs cannot make this test red for reasons the skill was never
-# wrong about.
+# SUMMARY: Path prefixes the deletion section's tables may cover as a category, not file-by-file,
+# plus why each category is legitimate — narrower than "the table": a project's own migrations or
+# its own ADRs must not make this test red for reasons the skill was never wrong about.
 _DELETION_ACCOUNTING_EXEMPTIONS: tuple[tuple[str, str], ...] = (
-    (
-        ".agents/skills/add-vertical/SKILL.md",
-        "the skill naming itself is not a fact it has to state about itself",
-    ),
-    (
-        "docs/adr/",
-        "an ADR is a decision record CLAUDE.md's own 'one fact, one place' rule already owns; "
-        "the skill points at ADR-007 once rather than re-explaining every ADR that happens to "
-        "mention the vertical while it explains a decision",
-    ),
-    (
-        "alembic/versions/",
-        "migration history is append-only and governed by 'Two branches, one migration history' "
-        "above; a project accumulates migrations the skill was never told about, so naming "
-        "filenames here is the kind of number that goes stale, the way the survivor table's own "
-        "count already has more than once",
-    ),
+    (".agents/skills/add-vertical/SKILL.md", "the skill need not name itself"),
+    ("docs/adr/", "an ADR is a decision record; the skill points at ADR-007 once, not every ADR"),
+    ("alembic/versions/", "migration history is append-only, governed by 'Two branches' above"),
 )
 
 
@@ -517,51 +381,32 @@ def _shared_basenames() -> set[str]:
 # FUNCTION: _skill_names
 # SUMMARY: Whether the skill's text mentions a tracked file, by its repo-relative path or — only
 # where that name belongs to one file in the whole repository — by its bare filename.
-# INPUT: path (str): Repo-relative path, as `git grep` prints it.
-# INPUT: skill_text (str): Full markdown text of the skill.
-# INPUT: shared_basenames (set[str]): Filenames carried by more than one tracked file.
 # OUTPUT: (bool): True when the skill names this file, not merely something called the same.
-# **LOGIC_STEP**: A bare filename is how the tables actually spell most survivors, so it has to
-# count — but two directories can carry one name, and then a mention of the other file vouches for
-# a file nobody has read. Measured on 2026-09-08: `tests/application/test_logging_api.py` is named
-# in the skill and `tests/infrastructure/test_logging_api.py` would have been accepted on its
-# strength alone. Where a basename is ambiguous the full path is required, which is also the only
-# spelling that tells a reader which file to open.
+# **LOGIC_STEP**: A bare filename is how most survivors are spelled, so it counts — but where two
+# directories share a basename, naming one file must not vouch for the other unread one, so the
+# full path is required when the basename is ambiguous.
 def _skill_names(path: str, skill_text: str, shared_basenames: set[str]) -> bool:
     if path in skill_text:
         return True
     name = Path(path).name
     if name in shared_basenames or name not in skill_text:
         return False
-    # **LOGIC_STEP**: And the mention has to be free. A skill naming `ai_query/common.py` contains
-    # the string `common.py`, so a file added at `tests/application/common.py` was vouched for by
-    # a path that is not its own — measured by a second review on 2026-09-08, with a file the
-    # tracked-collision set above cannot know about because it did not exist when the set was
-    # built. Any full path in the skill sharing this basename means the bare name is spoken for.
+    # **LOGIC_STEP**: The mention has to be free of a longer path — `ai_query/common.py` in the
+    # skill contains `common.py`, which must not vouch for `tests/application/common.py` too.
     return not re.search(rf"\S+/{re.escape(name)}", skill_text)
 
 
 # FUNCTION: _contains_wrapped
-# SUMMARY: Whether `phrase` appears in `text`, tolerant of the markdown soft-wrap that can insert a
-# newline and indentation between two of the phrase's words.
-# INPUT: phrase (str): The literal heading or sentence to look for, written with single spaces.
-# INPUT: text (str): Prose that may hold it, possibly wrapped across lines.
-# NOTE: A quoted section heading written inline in prose crosses this repository's ~88-column wrap
-# on its own line breaks, not word breaks — `re.sub` collapses every run of whitespace to one space
-# before the substring check runs, so a heading is found whether or not the wrap happened to fall in
-# the middle of it.
+# SUMMARY: Whether `phrase` (written with single spaces) appears in `text`, tolerant of the markdown
+# soft-wrap that can insert a newline and indentation between two of its words.
 def _contains_wrapped(phrase: str, text: str) -> bool:
     return phrase in re.sub(r"\s+", " ", text)
 
 
 # CLASS: tests.application.test_skill_texts_match_reality.TestDeletionAccountsForEveryMatch
 # SUMMARY: Verify every file currently carrying the vertical is named by the deletion section, or
-# falls into one of the three exempt categories above.
-# NOTE: This is a different claim from TestAddVerticalNamesEveryTableLedger above: that class checks
-# one specific fact (the exact-table-set ledgers) is named; this one checks the deletion section's
-# bookkeeping is complete against the actual sweep the skill tells a reader to run, so a new file
-# that starts mentioning the vertical — a fixture, a comment, a doc — cannot go unlisted the way the
-# eight files in the NOTE above did, silently, across three separate audits.
+# falls into one of the three exempt categories above — checking the actual sweep the skill tells a
+# reader to run, not merely the exact-table-set ledgers `TestAddVerticalNamesEveryTableLedger` names.
 class TestDeletionAccountsForEveryMatch:
     # FUNCTION: test_every_current_match_is_named_or_exempt
     @pytest.mark.unit
@@ -580,42 +425,26 @@ class TestDeletionAccountsForEveryMatch:
             "names them, individually or by one of its stated exemptions: " + ", ".join(unaccounted)
         )
 
-    # FUNCTION: test_a_file_the_skill_never_mentions_is_reported
-    # SUMMARY: Verify the check above is not vacuous — it can actually fail.
+    # FUNCTION: test_a_shared_basename_never_vouches_for_the_wrong_file
+    # SUMMARY: Verify the check above is not vacuous — a file the skill never mentions is reported —
+    # and that a bare filename cannot ride on a full path the skill names for a different file:
+    # `ai_query/common.py` must not vouch for `tests/application/common.py`, and a basename two
+    # directories both carry has to be spelled in full to count.
     @pytest.mark.unit
-    def test_a_file_the_skill_never_mentions_is_reported(self) -> None:
-        # **LOGIC_STEP**: A name this specific will not appear in the skill's own prose by
-        # coincidence, so this proves the substring check works rather than always passing.
+    def test_a_shared_basename_never_vouches_for_the_wrong_file(self) -> None:
         assert not _skill_names(
             "tests/application/test_a_file_this_skill_will_never_mention.py",
             _ADD_VERTICAL.read_text(encoding="utf-8"),
             _shared_basenames(),
         )
 
-    # FUNCTION: test_a_basename_already_spoken_for_by_a_path_does_not_vouch
-    # SUMMARY: Verify a bare filename cannot ride on a full path the skill names for another file.
-    # NOTE: The collision set is built from the files that exist now, so it cannot know about the
-    # file being added — which is the only file this check ever runs against in anger. Measured by
-    # a second review on 2026-09-08 with `tests/application/common.py`, vouched for by the skill's
-    # mention of `ai_query/common.py`.
-    @pytest.mark.unit
-    def test_a_basename_already_spoken_for_by_a_path_does_not_vouch(self) -> None:
-        skill_text = "the fixtures live in ai_query/common.py and nowhere else"
+        common = "the fixtures live in ai_query/common.py and nowhere else"
+        assert not _skill_names("tests/application/common.py", common, set())
+        assert _skill_names("ai_query/common.py", common, set())
 
-        assert not _skill_names("tests/application/common.py", skill_text, set())
-        assert _skill_names("ai_query/common.py", skill_text, set())
-
-    # FUNCTION: test_a_shared_basename_does_not_vouch_for_the_other_file
-    # SUMMARY: Verify a filename two directories both carry has to be spelled in full to count.
-    # NOTE: Measured on 2026-09-08: the skill names `tests/application/test_logging_api.py`, and a
-    # bare-basename match accepted `tests/infrastructure/test_logging_api.py` on its strength — a
-    # file nobody had read, vouched for by a different file with the same name.
-    @pytest.mark.unit
-    def test_a_shared_basename_does_not_vouch_for_the_other_file(self) -> None:
-        skill_text = "the deletion list names tests/application/probe_twin.py and nothing else"
-
-        assert _skill_names("tests/application/probe_twin.py", skill_text, {"probe_twin.py"})
-        assert not _skill_names("tests/infrastructure/probe_twin.py", skill_text, {"probe_twin.py"})
+        twin = "the deletion list names tests/application/probe_twin.py and nothing else"
+        assert _skill_names("tests/application/probe_twin.py", twin, {"probe_twin.py"})
+        assert not _skill_names("tests/infrastructure/probe_twin.py", twin, {"probe_twin.py"})
 
     # FUNCTION: test_the_exemption_prefixes_are_real_directories
     # SUMMARY: Verify each exempt category still matches at least one tracked file, so an exemption
@@ -630,68 +459,53 @@ class TestDeletionAccountsForEveryMatch:
         )
 
 
-# CLASS: tests.application.test_skill_texts_match_reality.TestConcurrencyAndForeignKeyGuidanceStays
-# SUMMARY: Verify the 2026-09-08 additions to ADR-007 and the skill still name each other.
-# NOTE: Both additions are prose — there is no code in this template a red/green pytest run could
-# exercise, because the reference vertical has no second row to conflict over and no ForeignKey to
-# leave bare. What CAN regress silently is the cross-reference itself: ADR-007 gaining a heading the
-# skill never points at, or the skill's pointer surviving a rewrite that drops the heading it names.
-# These tests pin both headings and both pointers as literal text, the same way the rest of this
-# module already pins the deletion section's other claims.
-class TestConcurrencyAndForeignKeyGuidanceStays:
-    # FUNCTION: test_adr_007_names_the_set_level_invariant_boundary
-    @pytest.mark.unit
-    def test_adr_007_names_the_set_level_invariant_boundary(self) -> None:
-        assert _contains_wrapped(
-            "Where the single-row token does not reach", _ADR_007.read_text(encoding="utf-8")
-        )
+# FUNCTION: _numbered_step
+# SUMMARY: Slice out one numbered item's text from the "Order of work" list, by position rather
+# than by the wording of its own heading — a rewritten step heading must not break this anchor.
+# OUTPUT: (str): The text between "\n<n>. " and "\n<n+1>. ".
+def _numbered_step(skill_text: str, n: int) -> str:
+    after = re.split(rf"\n{n}\. ", skill_text, maxsplit=1)[1]
+    return re.split(rf"\n{n + 1}\. ", after, maxsplit=1)[0]
 
-    # FUNCTION: test_adr_007_names_the_foreign_key_deletion_policy
+
+# CLASS: tests.application.test_skill_texts_match_reality.TestConcurrencyAndForeignKeyGuidanceStays
+# SUMMARY: Verify ADR-007's two prose additions and the skill's two step pointers still name each
+# other — nothing here is exercised by a red/green pytest run in the template itself, since the
+# reference vertical has no second row to conflict over and no ForeignKey to leave bare.
+class TestConcurrencyAndForeignKeyGuidanceStays:
+    # FUNCTION: test_adr_007_still_carries_both_claims
+    # SUMMARY: Verify both headings are present, and the load-bearing sentence under the foreign-key
+    # one — a heading alone can sit above prose that argues the opposite.
     @pytest.mark.unit
-    def test_adr_007_names_the_foreign_key_deletion_policy(self) -> None:
+    def test_adr_007_still_carries_both_claims(self) -> None:
         text = _ADR_007.read_text(encoding="utf-8")
+        assert _contains_wrapped("Where the single-row token does not reach", text)
         assert _contains_wrapped("A foreign key's deletion policy is a domain decision", text)
-        # **LOGIC_STEP**: And says the load-bearing thing under that heading. A heading alone can
-        # sit above prose that argues the opposite, which is what a second review demonstrated on
-        # 2026-09-08 by inverting the section and watching this test pass. These two claims are
-        # what a vertical author has to come away with; pin them as text, the same discipline this
-        # repository applies to a SQL clause.
         assert _contains_wrapped(
             "writes exactly the `ForeignKey(...)` the ORM model declares", text
         )
         assert _contains_wrapped("RESTRICT", text) and _contains_wrapped("CASCADE", text)
 
-    # FUNCTION: test_the_service_step_points_at_the_set_level_invariant_section
-    # SUMMARY: Verify step 6 (where the service is written) still points at ADR-007's boundary
-    # section, rather than repeating its reasoning inline.
+    # FUNCTION: test_the_order_of_work_steps_still_point_at_adr_007
+    # SUMMARY: Verify the step writing the service points at ADR-007's boundary section, and the
+    # step writing the ORM model points at its deletion-policy section — rather than either
+    # repeating the reasoning inline.
     @pytest.mark.unit
-    def test_the_service_step_points_at_the_set_level_invariant_section(self) -> None:
+    def test_the_order_of_work_steps_still_point_at_adr_007(self) -> None:
         skill_text = _ADD_VERTICAL.read_text(encoding="utf-8")
-        step_six = skill_text.split("6. Application service and DTOs.", 1)[1].split("\n7.", 1)[0]
 
-        assert _contains_wrapped("Where the single-row token does not reach", step_six)
-
-    # FUNCTION: test_the_orm_model_step_points_at_the_foreign_key_section
-    # SUMMARY: Verify step 2 (where a ForeignKey column is written) still points at ADR-007's
-    # deletion-policy section.
-    @pytest.mark.unit
-    def test_the_orm_model_step_points_at_the_foreign_key_section(self) -> None:
-        skill_text = _ADD_VERTICAL.read_text(encoding="utf-8")
-        step_two = skill_text.split("2. The ORM model in `orm_models.py`.", 1)[1].split("\n3.", 1)[
-            0
-        ]
-
-        assert _contains_wrapped("A foreign key's deletion policy is a domain decision", step_two)
+        assert _contains_wrapped(
+            "Where the single-row token does not reach", _numbered_step(skill_text, 6)
+        )
+        assert _contains_wrapped(
+            "A foreign key's deletion policy is a domain decision", _numbered_step(skill_text, 2)
+        )
 
 
 # CLASS: tests.application.test_skill_texts_match_reality.TestTheMemoryTagStaysGone
-# SUMMARY: Verify no `# MEM:` tag reappears in the kernel, and no text tells a project to write one.
-# NOTE: The integration these tags belonged to was removed on 2026-08-11. It had produced two tags
-# in the whole kernel, both about the kernel's own line budget, and the reference vertical an agent
-# copies carried none — so the shape was never demonstrated where it would be imitated. Worse, a
-# tag points into an external store, and a checkout without access to that store turns red on its
-# first ordinary edit with no working way out. One tag back brings the whole apparatus back, so
-# this is the guard.
+# SUMMARY: Verify no `# MEM:` tag reappears in the kernel, and no text tells a project to write one
+# — the external-memory integration these tags belonged to is gone, and a tag alone points at
+# nothing, turning a checkout without that store's access red on its first ordinary edit.
 class TestTheMemoryTagStaysGone:
     # FUNCTION: test_no_kernel_file_carries_a_memory_tag
     # SUMMARY: Verify the tag is absent from every Python file in the kernel.
@@ -707,12 +521,7 @@ class TestTheMemoryTagStaysGone:
             )
         )
 
-        assert carriers == [], (
-            "a `# MEM:` tag is back in the kernel: "
-            + ", ".join(carriers)
-            + ". The snapshot, anchors and rule ids that made it mean anything were removed; "
-            "the tag alone points at nothing. Put the reason in a comment instead."
-        )
+        assert carriers == [], f"a `# MEM:` tag is back in the kernel: {carriers}"
 
     # FUNCTION: test_no_removed_component_is_still_referenced
     # SUMMARY: Verify no prose still sends the reader to a file or command that no longer exists.
@@ -766,7 +575,6 @@ _MAKE_IN_A_BLOCK: re.Pattern[str] = re.compile(r"^make ([a-z][a-z0-9-]*)", re.MU
 
 # FUNCTION: _targets_declared_in_the_makefile
 # SUMMARY: Read the rule names the Makefile actually defines.
-# OUTPUT: (set[str]): Every target that can be invoked.
 def _targets_declared_in_the_makefile() -> set[str]:
     text = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
     return {match.group(1) for match in re.finditer(r"^([A-Za-z0-9_.-]+):", text, re.MULTILINE)}
@@ -787,31 +595,20 @@ def _targets_named_in_prose() -> dict[str, list[str]]:
 
 
 # CLASS: tests.application.test_skill_texts_match_reality.TestEveryCommandTheDocumentsNameExists
-# SUMMARY: Verify no document tells an agent to run a make target this repository does not define.
-# NOTE: `make refresh-commands` outlived the target it named. It sat in `docs/agent_rules.md` and,
-# through generation, in both wrappers and one skill — four places, all wrong, none of them failing
-# anything. An agent following the instruction gets "No rule to make target", which reads as a
-# broken checkout rather than a stale sentence.
+# SUMMARY: Verify no document tells an agent to run a make target this repository does not define —
+# a stale target reads as a broken checkout to an agent following the instruction, not as a typo.
 class TestEveryCommandTheDocumentsNameExists:
     # FUNCTION: test_no_document_names_a_target_the_makefile_does_not_define
-    # SUMMARY: Verify every `make X` in the agent-facing documents resolves to a real rule.
+    # SUMMARY: Verify every `make X` in the agent-facing documents resolves to a real rule, and that
+    # the collector is not vacuously returning an empty set — three commands every document repeats
+    # is what separates "no broken target" from "no target read".
     @pytest.mark.unit
     def test_no_document_names_a_target_the_makefile_does_not_define(self) -> None:
+        named = _targets_named_in_prose()
         declared = _targets_declared_in_the_makefile()
 
-        missing = {
-            target: documents
-            for target, documents in _targets_named_in_prose().items()
-            if target not in declared
-        }
-
+        missing = {target: docs for target, docs in named.items() if target not in declared}
         assert missing == {}, f"named in prose but absent from the Makefile: {missing}"
 
-    # FUNCTION: test_the_reader_finds_the_commands_the_documents_actually_carry
-    # SUMMARY: Verify the collector is not returning an empty set, which would make the guard vacuous.
-    # **LOGIC_STEP**: The test above passes for a reader that finds nothing at all. Naming three
-    # commands every document repeats is what separates "no broken target" from "no target read".
-    @pytest.mark.unit
-    @pytest.mark.parametrize("command", ["quality-gates", "init-project", "refresh-agent-docs"])
-    def test_the_reader_finds_the_commands_the_documents_actually_carry(self, command: str) -> None:
-        assert command in _targets_named_in_prose()
+        for command in ("quality-gates", "init-project", "refresh-agent-docs"):
+            assert command in named

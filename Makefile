@@ -130,7 +130,7 @@ ai-autofix: ## Validation | Auto-format + fix lint + CBM
 	$(UV) run python scripts/validate_cbm.py --fix
 
 # The five steps that run a tool rather than one of this repository's validators, each as its own
-# target. scripts/doctor_layers.py runs these same targets when diagnosing a failed gate, so the
+# target. scripts/doctor_ai_context.py runs these same targets when diagnosing a failed gate, so the
 # flags and the source lists have exactly one definition. The doctor used to model 14 of the 23
 # quality-gates steps and answered "doctor status: ok" while the suite was red on one of the nine
 # it did not model — copying `ruff check $(PYTHON_SOURCES)` into Python would have made that two
@@ -234,10 +234,8 @@ quality-gates-steps:
 	$(UV) run python scripts/validate_module_sizes.py
 	$(UV) run python scripts/validate_test_quality.py
 	$(UV) run python scripts/validate_dependencies.py
-	$(UV) run python scripts/validate_skills_frontmatter.py
-	$(UV) run python scripts/validate_project_context.py
+	$(UV) run python scripts/validate_repository_metadata.py
 	$(UV) run python scripts/validate_file_policy.py
-	$(UV) run python scripts/validate_script_paths.py
 	$(UV) run python scripts/validate_secrets.py
 	@$(MAKE) --no-print-directory security-scan
 	$(UV) run python scripts/structure_builder.py --check
@@ -311,22 +309,32 @@ security-scan: ## Validation | bandit security scan over project/
 # something. Each lane below corresponds to a job in .github/workflows/ci.yml; adding a job
 # there without adding it here puts the two back out of step, which is how a gate starts lying.
 #
-# There is no security lane either, since 2026-09-04: `quality-gates` runs bandit itself, and both
-# gate lanes below already invoke it, so a third invocation of the same command bought nothing.
-# `make security-scan` remains as a target for anyone who wants only that check.
+# There is no security lane either, since 2026-09-04: `quality-gates` runs bandit itself, so a
+# separate invocation here would buy nothing. `make security-scan` remains as a target for anyone
+# who wants only that check.
 #
 # There is no minimum-Python lane. requires-python and .python-version now name the same version,
 # so such a lane could only re-run the suite on the interpreter lane 1 already used — a gate that
 # cannot fail. Reinstate it the day the two numbers diverge again; ADR-002 says how.
-# STRICT_GENERATED=1 on both gate lanes: this command answers "would the pipeline pass?", and
+#
+# Lane 2 used to run the full `quality-gates` a second time with POSTGRES_ENABLED=false, re-running
+# every DB-independent step — lint, mypy, architecture, bandit, and the rest — for nothing: nothing
+# under that flag reads it except the test run, which pins POSTGRES_ENABLED=true for itself either
+# way (tests/conftest.py's pin_postgres_toggle), and validate_migrations.py, which treats the flag
+# as "no relational store, nothing to verify" and never opens a connection regardless. So lane 2
+# now runs only those two — `gate-tests` and the migration validator — under POSTGRES_ENABLED=false,
+# mirroring the `no-postgres-tests` CI job instead of the whole gate a second time.
+#
+# STRICT_GENERATED=1 stays on lane 1 only: that command answers "would the pipeline pass?", and
 # there a stale generated artifact is a failure, not something to fix on the fly. Plain
 # `make quality-gates` refreshes instead — by the time you reach ci-local the artifacts are
-# already fresh, so this lane only fires for someone who skipped the gate entirely.
-ci-local: ## Validation | Everything CI runs, locally: gates, both Postgres modes, audit, e2e
+# already fresh, so this lane only fires for someone who skipped the gate entirely. Lane 2 sets
+# nothing of the sort: `gate-tests` never touches a generated artifact, so there is nothing to guard.
+ci-local: ## Validation | Everything CI runs, locally: the full gate, the no-Postgres path, audit, e2e
 	@echo "===> 1/5 quality-gates"
 	@STRICT_GENERATED=1 $(MAKE) --no-print-directory quality-gates
-	@echo "===> 2/5 quality-gates without PostgreSQL"
-	@STRICT_GENERATED=1 POSTGRES_ENABLED=false $(MAKE) --no-print-directory quality-gates
+	@echo "===> 2/5 tests and migrations without PostgreSQL"
+	@POSTGRES_ENABLED=false $(MAKE) --no-print-directory gate-tests && POSTGRES_ENABLED=false $(UV) run python scripts/validate_migrations.py
 	@echo "===> 3/5 dependency audit"
 	@$(MAKE) --no-print-directory audit-deps
 	@echo "===> 4/5 diff coverage"

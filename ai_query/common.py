@@ -428,13 +428,13 @@ def _derived_file_policy(
 
 
 def failure_playbook(rule_id: str) -> dict[str, object]:
-    # **LOGIC_STEP**: Imported here rather than at module scope. scripts.doctor_layers pulls in
-    # the collectors for four validators, and importing that chain at the top of this module ties
-    # every `query_ai_context.py` invocation to it for the sake of five rule ids.
-    from scripts.doctor_layers import get_doctor_layer_playbook
+    # **LOGIC_STEP**: Imported here rather than at module scope. scripts.doctor_ai_context pulls in
+    # the collectors for every validator, and importing that chain at the top of this module ties
+    # every `query_ai_context.py` invocation to it for the sake of a handful of rule ids.
+    from scripts.doctor_ai_context import get_doctor_layer_playbook
 
-    # **LOGIC_STEP**: These three were missing while nothing printed their rule_ids, and became a
-    # live defect the moment the doctor grew layers for dependencies, test quality and secrets: it
+    # **LOGIC_STEP**: These were missing while nothing printed their rule_ids, and became a live
+    # defect the moment the doctor grew layers for dependencies, test quality and secrets: it
     # started naming ids on screen that `failure rule` answered "Unknown failure rule ID" for.
     # Covered by tests/application/test_doctor_ai_context.py, parametrised over every rule_id any
     # doctor layer can emit rather than over a list written by hand.
@@ -445,11 +445,9 @@ def failure_playbook(rule_id: str) -> dict[str, object]:
     from scripts.validate_file_policy import get_file_policy_rule_playbook
     from scripts.validate_migrations import get_migrations_rule_playbook
     from scripts.validate_module_sizes import get_module_size_playbook
-    from scripts.validate_project_context import get_project_context_rule_playbook
+    from scripts.validate_repository_metadata import get_repository_metadata_rule_playbook
     from scripts.validate_runtime_ownership import get_runtime_ownership_rule_playbook
-    from scripts.validate_script_paths import get_script_paths_rule_playbook
     from scripts.validate_secrets import get_secrets_rule_playbook
-    from scripts.validate_skills_frontmatter import get_skills_frontmatter_rule_playbook
     from scripts.validate_test_quality import get_test_quality_rule_playbook
 
     for getter in (
@@ -462,11 +460,9 @@ def failure_playbook(rule_id: str) -> dict[str, object]:
         get_runtime_ownership_rule_playbook,
         get_cbm_rule_playbook,
         get_module_size_playbook,
-        get_project_context_rule_playbook,
+        get_repository_metadata_rule_playbook,
         get_migrations_rule_playbook,
-        get_skills_frontmatter_rule_playbook,
         get_file_policy_rule_playbook,
-        get_script_paths_rule_playbook,
     ):
         playbook = getter(rule_id)
         if playbook is None:
@@ -841,10 +837,10 @@ def vertical_names_for_path(normalized_path: str) -> list[str]:
 
 
 def registered_vertical_names(context_map: dict[str, object]) -> set[str]:
-    # **LOGIC_STEP**: The wiring is the authority on which verticals exist, the same source
-    # scripts/validate_project_context.py checks a declared status against. Reading it from the
+    # **LOGIC_STEP**: The wiring is the authority on which verticals exist. Reading it from the
     # context map rather than from docs/project_context.json keeps this working in a project that
-    # has not filled that file in.
+    # has not filled that file in — and that file's declared status is a description, checked by
+    # nothing, since the rule comparing it against the wiring was removed.
     registry = context_map.get("service_registry", {})
     if not isinstance(registry, dict):
         return set()

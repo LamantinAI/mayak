@@ -21,21 +21,21 @@ from scripts.validate_migrations import _issue_to_payload as _migrations_issue_t
 from scripts.validate_module_sizes import MAX_CODE_LINES
 from scripts.validate_module_sizes import _issue_to_json as _module_size_issue_to_json
 from scripts.validate_module_sizes import collect_module_size_issues
-from scripts.validate_project_context import collect_project_context_issues
-from scripts.validate_project_context import (
-    _issue_to_payload as _project_context_issue_to_payload,
+from scripts.validate_repository_metadata import collect_project_context_issues
+from scripts.validate_repository_metadata import (
+    _project_context_issue_to_payload,
 )
 from scripts.validate_runtime_ownership import collect_runtime_ownership_issues
 from scripts.validate_runtime_ownership import (
     _issue_to_payload as _runtime_ownership_issue_to_payload,
 )
-from scripts.validate_script_paths import collect_script_path_issues
-from scripts.validate_script_paths import _issue_to_payload as _script_paths_issue_to_payload
-from scripts.validate_skills_frontmatter import collect_skills_frontmatter_issues
-from scripts.validate_skills_frontmatter import (
-    _issue_to_payload as _skills_frontmatter_issue_to_payload,
+from scripts.validate_repository_metadata import collect_script_path_issues
+from scripts.validate_repository_metadata import _script_paths_issue_to_payload
+from scripts.validate_repository_metadata import collect_skills_frontmatter_issues
+from scripts.validate_repository_metadata import (
+    _skills_frontmatter_issue_to_payload,
 )
-import scripts.validate_skills_frontmatter as validate_skills_frontmatter
+import scripts.validate_repository_metadata as validate_repository_metadata
 
 
 # ATTRIBUTE: _REQUIRED_KEYS (tuple[str, ...])
@@ -232,11 +232,11 @@ class TestValidatorErrorContract:
     def test_skills_frontmatter_issue_satisfies_contract(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(validate_skills_frontmatter, "ROOT_DIR", tmp_path)
+        monkeypatch.setattr(validate_repository_metadata, "ROOT_DIR", tmp_path)
         skills_dir = tmp_path / "skills" / "broken_skill"
         skills_dir.mkdir(parents=True)
         (skills_dir / "SKILL.md").write_text("# No frontmatter\n", encoding="utf-8")
-        monkeypatch.setattr(validate_skills_frontmatter, "SKILL_DIRS", [tmp_path / "skills"])
+        monkeypatch.setattr(validate_repository_metadata, "SKILL_DIRS", [tmp_path / "skills"])
 
         issues = collect_skills_frontmatter_issues(tmp_path)
         assert issues, "expected at least one forced skills_frontmatter violation"

@@ -64,7 +64,7 @@ class TestDiffCoverageAnnouncesWhatItCannotSee:
 
 # CLASS: tests.application.test_gate_recipes.TestToolStepsHaveOneDefinition
 # SUMMARY: Verify no caller re-spells a gate step instead of calling the target that owns it.
-# NOTE: scripts/doctor_layers.py runs these targets to diagnose a failed gate. A second spelling
+# NOTE: scripts/doctor_ai_context.py runs these targets to diagnose a failed gate. A second spelling
 # of `ruff check $(PYTHON_SOURCES)` anywhere means the doctor and the gate can disagree about what
 # the step is — which is the class of defect this repository keeps paying for.
 class TestToolStepsHaveOneDefinition:
@@ -98,10 +98,10 @@ class TestToolStepsHaveOneDefinition:
         )
 
     # FUNCTION: test_the_doctor_names_targets_that_exist
-    # SUMMARY: Verify every make target scripts/doctor_layers.py invokes is declared.
+    # SUMMARY: Verify every make target scripts/doctor_ai_context.py invokes is declared.
     @pytest.mark.unit
     def test_the_doctor_names_targets_that_exist(self) -> None:
-        source = (_REPO_ROOT / "scripts" / "doctor_layers.py").read_text(encoding="utf-8")
+        source = (_REPO_ROOT / "scripts" / "doctor_ai_context.py").read_text(encoding="utf-8")
         makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
         named = set(re.findall(r'"(gate-[a-z]+)"', source))
 
@@ -351,15 +351,15 @@ class TestTheWorktreeDatabaseIsThisWorktreesAlone:
 _INSIDE_THE_GATE_SUITE = "inside make quality-gates"
 _CI_JOB_TO_LOCAL_COVER: dict[str, str] = {
     "quality-gates": "quality-gates",
-    "quality-gates-without-postgres": "quality-gates",
+    # Not _INSIDE_THE_GATE_SUITE: this job no longer runs the gate at all, only the two
+    # DB-relevant steps (gate-tests, validate_migrations.py) under POSTGRES_ENABLED=false.
+    "no-postgres-tests": "gate-tests",
     "functional-tests": "test-e2e",
     "security": _INSIDE_THE_GATE_SUITE,
     "dependency-audit": "audit-deps",
     "diff-coverage": "diff-coverage",
     "secret-scan": _INSIDE_THE_GATE_SUITE,
     "type-check": _INSIDE_THE_GATE_SUITE,
-    "unit-tests": _INSIDE_THE_GATE_SUITE,
-    "infrastructure-tests": _INSIDE_THE_GATE_SUITE,
 }
 
 
@@ -446,7 +446,7 @@ class TestPipelineAndLocalCommandCoverTheSameGround:
         )
 
     # FUNCTION: test_both_gate_jobs_refuse_a_stale_generated_artifact
-    # SUMMARY: Verify the pipeline runs the gates in strict mode, as `ci-local` does.
+    # SUMMARY: Verify the pipeline runs the gate in strict mode, as `ci-local` does.
     @pytest.mark.unit
     def test_both_gate_jobs_refuse_a_stale_generated_artifact(self) -> None:
         # **LOGIC_STEP**: Locally the gate regenerates a stale artifact and prints a notice,
@@ -454,27 +454,31 @@ class TestPipelineAndLocalCommandCoverTheSameGround:
         # generator, so the same situation has to fail instead — otherwise "CI is green" and "the
         # local gate is green" stop meaning the same thing. Measured on 2026-08-14: the flag was
         # documented in the Makefile as something the pipeline sets, and the pipeline did not.
+        # **LOGIC_STEP**: Only one job runs `make quality-gates` now — `no-postgres-tests` calls
+        # `gate-tests` and the migration validator directly, neither of which touches a generated
+        # artifact, so there is nothing there for STRICT_GENERATED to guard.
         workflow = (_REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         strict_lanes = workflow.count('STRICT_GENERATED: "1"')
 
-        assert strict_lanes == 2, (
-            f"expected both quality-gates jobs to set STRICT_GENERATED, found {strict_lanes}"
+        assert strict_lanes == 1, (
+            f"expected the one full quality-gates job to set STRICT_GENERATED, found {strict_lanes}"
         )
 
 
 # CLASS: tests.application.test_gate_recipes.TestDocumentedTargetsRunWithoutAPrompt
 # SUMMARY: Verify every target the command list advertises is pre-approved in .claude/settings.json.
-# NOTE: `make migrate` was documented in the generated command list for months and missing from the
-# permission allowlist — the one target of nineteen that stopped an agent mid-task with a permission
-# prompt. Two lists of the same commands, kept in step by nobody, is the same defect class the
+# NOTE: `make migrate` carried a help annotation for months and was missing from the permission
+# allowlist — the one target of nineteen that stopped an agent mid-task with a permission prompt.
+# Two lists of the same commands, kept in step by nobody, is the same defect class the
 # GENERATED_PATHS list already fixed for the hooks.
 class TestDocumentedTargetsRunWithoutAPrompt:
     # FUNCTION: test_every_documented_target_is_pre_approved
     # SUMMARY: Verify the help annotations and the permission allowlist name the same targets.
     @pytest.mark.unit
     def test_every_documented_target_is_pre_approved(self) -> None:
-        # **LOGIC_STEP**: The help annotations are the source of the command list in CLAUDE.md, so
-        # this compares what an agent is told to run against what it may run without asking. A
+        # **LOGIC_STEP**: The help annotations are what `make help` prints, which is where the
+        # wrapper now sends the reader instead of carrying a second copy of the list. This compares
+        # what an agent is told to run against what it may run without asking. A
         # target that should stay behind a prompt belongs in the exemption tuple below with the
         # reason written down — not silently absent from one of the two lists.
         exempt_from_pre_approval: tuple[str, ...] = ()

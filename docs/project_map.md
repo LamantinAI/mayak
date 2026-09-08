@@ -73,6 +73,7 @@ Project Map: Mayak
 │   │   ├── ADR-007-autocommit-and-explicit-transactions.md
 │   │   ├── ADR-008-readiness-criticality.md
 │   │   ├── ADR-009-provider-errors-at-the-llm-boundary.md
+│   │   ├── ADR-010-what-the-gates-do-not-see.md
 │   │   └── README.md
 │   ├── agent_rules.md
 │   ├── ai_change_map.json
@@ -80,7 +81,8 @@ Project Map: Mayak
 │   ├── architecture_rules.json
 │   ├── llm_export_profile.json
 │   ├── project_context.json
-│   └── project_map.md
+│   ├── project_map.md
+│   └── tracing.md
 ├── project/
 │   ├── application/
 │   │   ├── __init__.py  ---  Application layer containing orchestration services and DTOs.
@@ -158,8 +160,7 @@ Project Map: Mayak
 ├── scripts/
 │   ├── __init__.py
 │   ├── create_env_file.py  ---  Create .env from .env.sample on a fresh checkout, replacing the sample's placeholder
-│   ├── doctor_ai_context.py
-│   ├── doctor_layers.py  ---  The gate layers `doctor_ai_context.py` did not model — the four tool steps that run
+│   ├── doctor_ai_context.py  ---  Diagnose the first blocking layer of `make quality-gates` — every tool step (lockfile,
 │   ├── generate_ai_context.py  ---  Generate or verify the AI-friendly repository context artifacts consumed by onboarding docs and query tooling.
 │   ├── query_ai_context.py  ---  Query the AI context artifacts through stable commands so agents can inspect wiring, impact, and validation guidance without broad repo scans.
 │   ├── run_all_tests.py  ---  Canonical test runner for AI agents and developers that executes the project's local and functional test suites through one entrypoint.
@@ -172,11 +173,9 @@ Project Map: Mayak
 │   ├── validate_file_policy.py  ---  Validate ai_context.file_policy.FILE_POLICY_INDEX entries for required keys, valid zones, and on-disk path correctness.
 │   ├── validate_migrations.py  ---  Quality gate that verifies Alembic migrations are up to date with the SQLAlchemy metadata.
 │   ├── validate_module_sizes.py  ---  Enforce a production-module budget measured in executable lines, so documentation never counts against a module's size.
-│   ├── validate_project_context.py  ---  Validate docs/project_context.json schema conformance and cross-reference consistency.
+│   ├── validate_repository_metadata.py  ---  Three repository-metadata validators merged into one module: skills/commands frontmatter,
 │   ├── validate_runtime_ownership.py  ---  Repository utility that enforces ownership boundaries for shared runtime resources, env access, and app.state service wiring.
-│   ├── validate_script_paths.py  ---  Walk scripts/*.py for path-shaped string literals (tests/X, project/Y, ...) and assert each exists on disk.
 │   ├── validate_secrets.py  ---  Scan tracked text files for credential-shaped literals so a key cannot reach a commit.
-│   ├── validate_skills_frontmatter.py  ---  Validate YAML frontmatter in skills and Claude Code commands for required fields and path correctness.
 │   └── validate_test_quality.py  ---  Quality gate rejecting tests that cannot fail — constant assertions and assertion-free test bodies.
 ├── tests/
 │   ├── application/
@@ -231,11 +230,9 @@ Project Map: Mayak
 │   │   ├── test_validate_file_policy.py  ---  Unit tests for the FILE_POLICY_INDEX schema validator.
 │   │   ├── test_validate_migrations.py  ---  Unit tests for the Alembic migration validation quality gate.
 │   │   ├── test_validate_module_sizes.py  ---  Unit tests for the production module budget validator, including the guarantee that documentation is not charged against the budget.
-│   │   ├── test_validate_project_context.py  ---  Tests for the project context validator ensuring schema and cross-reference checks work.
+│   │   ├── test_validate_repository_metadata.py  ---  Unit tests for the merged repository-metadata validator (skills/commands frontmatter,
 │   │   ├── test_validate_runtime_ownership.py  ---  Unit tests for the runtime ownership validator.
-│   │   ├── test_validate_script_paths.py  ---  Unit tests for the validate_script_paths harness validator.
 │   │   ├── test_validate_secrets.py  ---  Tests for the credential scanner: what it must catch, and what it must not shout about.
-│   │   ├── test_validate_skills_frontmatter.py  ---  Unit tests for the skills frontmatter validator.
 │   │   ├── test_validate_test_quality.py  ---  Unit tests for the validator that rejects tests which cannot fail.
 │   │   └── test_validator_error_contract.py  ---  Contract test (T4 validator-error-contract) proving every scripts/validate_*.py JSON converter — plus the generate_ai_context.py drift-issue producer — surfaces rule_id, suggested_fix, read_first, next_commands, and stop_widening_condition on every emitted issue. This is the red->green fixation for the audit finding that stop_widening_condition was 0/10 in actual CLI JSON output despite living in every validator's internal rule-playbook dict.
 │   ├── functional/

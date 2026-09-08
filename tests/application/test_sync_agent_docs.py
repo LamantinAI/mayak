@@ -11,14 +11,13 @@ from scripts.sync_agent_docs import (
     AGENTS_PATH,
     CLAUDE_PATH,
     DROPPED_SECTION_RULE_ID,
-    MAKEFILE_PATH,
+    ROOT_DIR,
     DroppedSectionError,
     WRAPPER_READERS,
     build_documents,
     dropped_section_headings,
     main,
     malformed_section_headings,
-    render_command_reference,
     render_python_versions,
 )
 
@@ -28,52 +27,32 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 # CLASS: tests.application.test_sync_agent_docs.TestCommandReference
-# SUMMARY: The Common Commands block must be derived from the Makefile, never hand-maintained.
+# SUMMARY: The command list is not rendered into the wrapper any more (regression guard below); the
+# two version numbers still are, and still must come from their own files rather than be typed.
 class TestCommandReference:
-    # FUNCTION: test_every_advertised_command_is_a_real_target
-    # SUMMARY: Guard against advertising a target that was renamed or deleted in the Makefile.
-    @pytest.mark.unit
-    def test_every_advertised_command_is_a_real_target(self) -> None:
-        makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
-        advertised = [
-            line.split()[1]
-            for line in render_command_reference().splitlines()
-            if line.startswith("make ")
-        ]
-
-        assert advertised, "the command reference rendered no targets at all"
-        for target in advertised:
-            assert f"\n{target}:" in makefile, (
-                f"CLAUDE.md advertises `make {target}`, which is gone"
-            )
-
-    # FUNCTION: test_annotated_targets_all_appear
-    # SUMMARY: A target annotated for documentation must not be silently dropped from the block.
-    @pytest.mark.unit
-    def test_annotated_targets_all_appear(self) -> None:
-        makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
-        annotated = {
-            line.split(":", 1)[0]
-            for line in makefile.splitlines()
-            if "##" in line and "|" in line and not line.startswith(("\t", " ", "#"))
-        }
-        rendered = render_command_reference()
-
-        for target in annotated:
-            assert f"make {target} " in rendered or f"make {target}\n" in rendered
-
     # FUNCTION: test_python_versions_come_from_their_own_files
     # SUMMARY: The two version numbers are read from pyproject.toml and .python-version, not typed.
     @pytest.mark.unit
     def test_python_versions_come_from_their_own_files(self) -> None:
         minimum, toolchain = render_python_versions()
 
-        assert f'requires-python = ">={minimum}"' in (
-            MAKEFILE_PATH.parent / "pyproject.toml"
-        ).read_text(encoding="utf-8")
-        assert (MAKEFILE_PATH.parent / ".python-version").read_text(
+        assert f'requires-python = ">={minimum}"' in (ROOT_DIR / "pyproject.toml").read_text(
             encoding="utf-8"
-        ).strip() == toolchain
+        )
+        assert (ROOT_DIR / ".python-version").read_text(encoding="utf-8").strip() == toolchain
+
+    # FUNCTION: test_no_static_command_catalogue_is_rendered
+    # SUMMARY: Regression guard: a hand-rendered "Common Commands" catalogue used to duplicate the
+    # Makefile's own annotations and could fall out of step with a renamed or deleted target
+    # (test_gate_recipes.py::TestDocumentedTargetsRunWithoutAPrompt reads the Makefile directly, not
+    # this wrapper, so it does not depend on this catalogue existing). `make help` reads the same
+    # annotations live and cannot drift, so the wrapper points at it instead of duplicating it.
+    @pytest.mark.unit
+    def test_no_static_command_catalogue_is_rendered(self) -> None:
+        claude_content = build_documents()[CLAUDE_PATH]
+
+        assert "## Common Commands" not in claude_content
+        assert "make help" in claude_content
 
 
 # CLASS: tests.application.test_sync_agent_docs.TestSyncAgentDocs
@@ -100,7 +79,7 @@ class TestSyncAgentDocs:
         claude_content = documents[CLAUDE_PATH]
         assert "Generated from `docs/agent_rules.md`" in claude_content
         assert "## Quick Start" in claude_content
-        assert "## Common Commands" in claude_content
+        assert "make help" in claude_content
         assert "## Tech Stack" in claude_content
         # **LOGIC_STEP**: An "Architecture Reference" section used to sit here, pointing at
         # ARCHITECTURE.md. That file was folded into docs/agent_rules.md on 2026-08-11, so the
@@ -160,7 +139,7 @@ class TestSyncAgentDocs:
         claude_content = build_documents()[CLAUDE_PATH]
 
         assert "- Copy the `invoice` vertical, all four files of it." in claude_content
-        assert "reference_task" not in claude_content.split("## Common Commands", 1)[0]
+        assert "reference_task" not in claude_content.split("## Working Notes", 1)[0]
         # **LOGIC_STEP**: Once, not twice. "Start here" sits in _SECTIONS_RENDERED_SEPARATELY, and
         # the day it was excluded from the generic pass nothing else rendered it — the section
         # reached no wrapper at all while the tuple claimed someone else was handling it.
@@ -418,9 +397,9 @@ class TestBothWrappersStayReadable:
         documents = build_documents()
 
         def fold(text: str) -> str:
-            # **LOGIC_STEP**: Every wrapper name, not just this file's own. The Common Commands
-            # block carries the Makefile line that names both, so folding one at a time would
-            # report a difference that is the same sentence in both files.
+            # **LOGIC_STEP**: Every wrapper name, not just this file's own — a future section could
+            # name the sibling wrapper, and folding only one side would then report a difference
+            # that is really the same sentence in both files.
             for path, reader in WRAPPER_READERS.items():
                 text = text.replace(reader, "READER").replace(path.name, "WRAPPER")
             return text

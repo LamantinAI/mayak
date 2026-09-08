@@ -11,10 +11,8 @@ validation_command: make quality-gates
 
 # Add Vertical
 
-This repository ships one worked vertical: `reference_task` while the template's own example is
-still here, your own once it has replaced it. Read those files before writing new ones — every
-constraint below is already satisfied in them, and copying is faster than rediscovering why each
-constraint exists.
+This repository ships one worked vertical, `reference_task`, purely to be copied. Read its files
+before writing your own — every constraint below is already satisfied in them.
 
 ## The eleven files of a vertical
 
@@ -32,46 +30,34 @@ constraint exists.
 | 10 | `tests/infrastructure/test_<name>_repository.py` | The row mapper and the parameterisation of every query, without a database. |
 | 11 | `tests/functional/src/test_<name>s_api.py` and `test_<name>_repository.py` | The same paths against real HTTP and a real database. |
 
-Every file in that table is type-checked. `MYPY_TARGETS` covers all four test suites, so a fake
-that drifts from the Protocol it is annotated with fails `make gate-types` — pytest cannot see that
-at all, which is how one drifted unnoticed until 2026-08-18. Copying the reference vertical keeps
-you clear of it: those files are annotated already. A stub written by hand is not, unless its
-methods carry the port's exact signature, keyword-only parameters included.
+Every file here is type-checked — `MYPY_TARGETS` covers all four test suites, so a hand-written fake
+that drifts from the Protocol fails `make gate-types` even though pytest cannot see the drift.
+Copying the reference vertical keeps you clear of it.
 
-Plus three wiring edits, all in the `caution` zone:
-`project/core/service_registration.py`, `project/infrastructure/api/dependencies.py`,
-`project/infrastructure/api/router_registration.py`.
+Plus three wiring edits, all in the `caution` zone: `project/core/service_registration.py`,
+`project/infrastructure/api/dependencies.py`, `project/infrastructure/api/router_registration.py`.
 
-Nothing in file 9 needs writing twice: `tests/conftest.py` already provides `app_without_postgres`,
-which assembles the application with `POSTGRES_ENABLED=false` so a vertical can prove its half of
-ADR-006 — routes absent, service key present and None. It lived inside a vertical's own test file
-until 2026-08-14, in two copies, which meant the second vertical copied it and deleting the first
-took the original away.
+`tests/conftest.py` already provides `app_without_postgres` for file 9 — assemble against it for
+ADR-006 (routes absent, service key present and `None`) instead of rebuilding the fixture.
 
-And **one** ledger asserting the **exact** set of tables in the SQLAlchemy metadata. A new table
-has to be listed there, in `tests/application/test_validate_migrations.py`, or the gate fails on a
-file you never opened.
-
-There used to be two, in two directories, and that is why a project's first table went red twice in
-a row on two different projects: the developer fixed the ledger the failure named, reran, and met
-the second copy of the same sentence. `tests/infrastructure/test_persistence_models.py` keeps only
-a membership check now — a different claim, and one that stays green when you add your own tables.
-A test in `test_skill_texts_match_reality.py` fails if a second exact-set ledger appears anywhere in
-the tree, so this stays one place.
+Exactly **one** ledger asserts the exact set of tables in the metadata:
+`tests/application/test_validate_migrations.py`. A new table has to be listed there or the gate
+fails on a file you never opened. `tests/infrastructure/test_persistence_models.py` keeps only a
+membership check — a weaker claim that stays green when you add tables of your own; don't turn it
+back into a second ledger. `test_skill_texts_match_reality.py` fails if a second one appears
+anywhere in the tree.
 
 ## Order of work
 
 1. Domain model and port.
-2. The ORM model in `orm_models.py`. It comes before the migration, not after: autogeneration
-   compares this metadata against the database, so running it first produces a migration whose
-   `upgrade()` is `pass` — valid Alembic, no table, and no error anywhere. A `ForeignKey(...)` gets
-   its `ondelete` chosen here, on the same line — autogenerate copies whatever the model says and
-   decides nothing on its own, so a bare `ForeignKey("parents.id")` autogenerates without complaint
-   and the missing policy used to surface only later, as a 500 from the driver instead of the
-   domain's own answer. `tests/infrastructure/test_persistence_models.py::TestForeignKeysDeclareOnDelete`
-   reports one now, in the ordinary unit suite. See `docs/adr/ADR-007-autocommit-and-explicit-transactions.md`, "A foreign key's deletion
-   policy is a domain decision".
-3. **A running database, brought to head, before you autogenerate.** In this order:
+2. The ORM model in `orm_models.py`. Before the migration, not after — autogeneration compares this
+   metadata against a database. Choose `ondelete` on every `ForeignKey(...)` here: autogenerate
+   copies whatever the model says and decides nothing on its own, so a bare `ForeignKey(...)` passes
+   silently and the missing policy used to surface only as a 500 from the driver.
+   `tests/infrastructure/test_persistence_models.py::TestForeignKeysDeclareOnDelete` reports one now.
+   See `docs/adr/ADR-007-autocommit-and-explicit-transactions.md`, "A foreign key's deletion policy
+   is a domain decision".
+3. **A running database, brought to head, before you autogenerate:**
 
    ```bash
    docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d db
@@ -79,104 +65,55 @@ the tree, so this stays one place.
    make autogenerate-migration MSG="add <name>"
    ```
 
-   Autogeneration is not an offline read of `orm_models.py`. `alembic revision --autogenerate`
-   connects, reflects the live schema, and compares the two — and it refuses to start when the
-   database is behind head: `FAILED: Target database is not up to date.`, exit 255. On a new
-   project that is the first thing you hit, because nothing has applied `001` to that database yet.
-   Then read the generated file before trusting it, `make migrate` again, and look at the table.
+   Refuses to start when the database is behind head. Read the generated file before trusting it,
+   `make migrate` again.
 
-   **Without a database** — no Docker on this machine, or none you are allowed to start —
-   autogeneration is not available, and nothing in the local gate stands in for it: the note on
-   `scripts/validate_migrations.py` in `docs/agent_rules.md` says why that gate stays green.
-   Write the revision by hand, modelled on
-   `alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py` — a `revision` id, a
-   `down_revision` naming the current head, an `upgrade()` and a `downgrade()` that undoes it —
-   and read what the two offline commands say before moving on:
-
-   ```bash
-   uv run alembic -c alembic.ini heads              # one head, and it is yours
-   uv run alembic -c alembic.ini upgrade head --sql # the SQL your revision would run
-   ```
-
-   Neither compares `orm_models.py` against a real schema: a wrong column type or a forgotten
-   index passes both. The revision stays unverified until `make test-e2e` or CI has run
-   `alembic upgrade head` and `alembic check` against PostgreSQL, so say that when you hand the
-   vertical over, rather than reporting the green local gate as proof.
-4. `make refresh-generated-docs`. Do this as soon as the first new file exists, not at the end:
-   adding or removing a file moves `docs/project_map.md`, `structure_builder.py --check` compares
-   it against the tree inside every gate, and until you regenerate, *every* validation command
-   fails on an artifact you produced rather than on your code. Not `refresh-ai-context` — the
-   narrow target leaves the map behind.
-5. Repository, then `tests/infrastructure/test_<name>_repository.py`, then its functional test. A
-   repository without the functional one is unverified — `make quality-gates` runs none of your
-   queries. Wrap each method in `with logger.span("db.<name>.<op>", ...)` the way
-   `reference_task_repository.py` does, and put the outcome in `span.output` — a row count, a
-   found/not-found flag. Without it a query that quietly matches the wrong rows renders as
-   `OK 200, 0 spans`, identical to a correct one. The span costs 2784 ns outside debug, where its
-   events are filtered before they are built.
-
-   **`span.output` only survives the success path.** When the body raises, `logger.span` emits
-   `span.error` instead of `span.finish`, carrying the span's opening metadata plus the exception
-   type and message — and not the output dict. A line like `span.output["conflict"] = True` written
-   just before a `raise` is dead code that reads like observability. The reference vertical never
-   raises inside a span, so it cannot show you this. For a repository that translates a driver error
-   into a domain one — a unique violation into a `ConflictError`, say — what the trace carries is
-   `span.error / ConflictError`, and that is what to assert on.
+   **Without a database** — write the revision by hand, modelled on
+   `alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py`, and check it offline with
+   `uv run alembic -c alembic.ini heads` and `... upgrade head --sql`. Neither compares
+   `orm_models.py` against a real schema — the revision stays unverified until `make test-e2e` or CI
+   runs `alembic upgrade head` and `alembic check` for real.
+4. `make refresh-generated-docs`, as soon as the first new file exists — a missing or extra file
+   moves `docs/project_map.md`, which every gate compares against the tree.
+5. Repository, then `tests/infrastructure/test_<name>_repository.py`, then its functional test —
+   `make quality-gates` runs none of your queries. Wrap each method in
+   `with logger.span("db.<name>.<op>", ...)` and put the outcome in `span.output` (a row count, a
+   found/not-found flag), which only survives the success path — a driver error translated into a
+   domain one is asserted on `span.error`, not on an output line before `raise`.
 6. Application service and DTOs. If the vertical has an update, copy
-   `ReferenceTaskService.update_task` whole rather than writing the obvious version: it carries the
-   two things a first attempt gets wrong — the conditional write that stops a concurrent patch from
-   erasing another one, and the `UNCHANGED` sentinel that lets a caller clear a nullable field
-   instead of `None` meaning both "absent" and "null". Both are explained in
-   `docs/adr/ADR-007-autocommit-and-explicit-transactions.md`. That token only ever protects the one
-   row it is read from — a rule spanning several rows ("no two overlapping bookings on one resource",
-   "no item sold twice") needs a different mechanism, in the same ADR under "Where the single-row
-   token does not reach".
+   `ReferenceTaskService.update_task` whole: the conditional write stops a concurrent patch erasing
+   another one, and the `UNCHANGED` sentinel lets a caller clear a nullable field instead of `None`
+   meaning both "absent" and "null" — see `docs/adr/ADR-007-autocommit-and-explicit-transactions.md`.
+   That token only protects the one row it is read from; a rule spanning several rows needs a
+   different mechanism, under "Where the single-row token does not reach" in the same ADR.
 7. **The endpoint and all three wiring files in the same step.** The endpoint's last import is the
-   typed alias, and that alias is defined in `dependencies.py`; writing the endpoint a step earlier
-   leaves an import resolving to nothing. `service_registration.py` and `router_registration.py`
-   belong here too, because the next step's `TestWiring` reads both — it runs the static extractor
-   over the registry and asserts the routes are mounted.
-8. Unit tests, the table ledger, and `make refresh-generated-docs` again. The unit tests come
-   after the endpoint because `test_<name>_vertical.py` covers service rules, the HTTP surface and
-   the static wiring in one file.
+   typed alias defined in `dependencies.py`. `service_registration.py` and `router_registration.py`
+   belong here too — the next step's `TestWiring` reads both.
+8. Unit tests, the table ledger, and `make refresh-generated-docs` again.
 9. `make quality-gates`, then `make test-e2e`.
 
 ## Two branches, one migration history
 
 Two branches that each add a migration off the same parent produce two files naming the same
-`down_revision`. That is a fork, not a broken chain, and `scripts/validate_migrations.py` reports it
-from the files alone as `migrations.multiple_heads` — no database needed, so it turns up the moment
-both files sit in one checkout. See it yourself with `uv run alembic -c alembic.ini heads`: two
-lines means a fork, and `history` shows where the tree split.
+`down_revision` — a fork, not a broken chain. `scripts/validate_migrations.py` reports it, files
+alone, as `migrations.multiple_heads`; `uv run alembic -c alembic.ini heads` shows it directly: two
+lines means a fork. Merging the branches does not resolve it, it only puts both files in one
+directory. Two ways out: `alembic merge heads -m describe_merge` writes a revision whose
+`down_revision` is both heads and changes nothing written already — right once either revision may
+have run against a database somewhere. Re-parenting (editing the newer file's `down_revision` to the
+true head) keeps one straight chain and is safe only while that revision has run nowhere else.
 
-Merging the branches does not resolve it; it only puts both files in one directory. Two ways out.
-`uv run alembic -c alembic.ini merge heads -m describe_merge` writes a revision whose
-`down_revision` is both heads — nothing already-written changes, which is what makes it the right
-choice once either revision may have run against a database somewhere. Re-parenting — editing the
-newer file's `down_revision` to the true head, with a comment saying why — keeps one straight chain
-and is safe only while that revision has run nowhere anybody else can reach. Measured on
-2026-09-03 in a project built from this template: a customer vertical and an article vertical both
-built on the same parent, resolved by re-parenting because neither had reached a database yet.
-
-A third case looks like the first and is not. `alembic upgrade head` fails with `Can't locate
-revision identified by <id>` while your own `alembic/versions/` forms one clean chain: the database
-is stamped past your branch, because something else migrated it — nearly always another worktree
-of this repository whose branch has a revision yours has not merged. The gate reports this as
-`migrations.foreign_revision` before alembic is asked at all, precisely so the answer is not the
-one people reach for. **Do not recreate a database more than one checkout can reach.** It drops
-the tables another branch migrated, nobody asked it to, and the stamp comes back the moment that
-branch runs again. Catch up instead — merge the branch that owns the revision — or give this
-worktree a database of its own: `make db-up-worktree` starts one under a Compose project and port
-derived from this checkout's path, and `make db-down-worktree` removes exactly that one. Both are
-worth reaching for before the collision rather than after: fifteen worktrees against one container
-is what produced this rule.
+A different failure looks like the first and is not: `alembic upgrade head` fails with `Can't locate
+revision identified by <id>` while your own `alembic/versions/` forms one clean chain — the database
+is stamped past your branch by another worktree of this repository. The gate reports this as
+`migrations.foreign_revision`. **Do not recreate a database more than one checkout can reach** — it
+drops the tables another branch migrated. Catch up instead, or give this worktree its own:
+`make db-up-worktree` / `make db-down-worktree`.
 
 ## Two tests the vertical file must contain, beyond the rules
 
-`test_<name>_vertical.py` covers service rules, the HTTP surface and the wiring. That shape comes
-from a mutation measurement: eight one-line mutations survived a full green suite at 83 % coverage,
-and five of them fell into two families the prescribed file did not cover. Both families are now
-part of it.
+`test_<name>_vertical.py` covers service rules, the HTTP surface and the wiring. Two shapes matter
+beyond the obvious happy path.
 
 **1. The arguments arrive.** Not "the repository was called" — *with what*.
 
@@ -191,11 +128,9 @@ async def test_the_callers_limit_reaches_the_repository(self) -> None:
     repository.list_by_status.assert_awaited_once_with("pending", 7)  # not assert_awaited_once()
 ```
 
-The mutation this catches: the service stops forwarding the caller's `limit` and always sends its
-own. Every test still passes, because the call still happens. `validate_test_quality.py` now
-reports the bare `assert_awaited_once()` as `test.call_assertion_without_arguments` — a collaborator
-that takes no arguments says so with the empty `_with()`, and a deliberate exception carries
-`# no-assert-ok: <reason>`.
+A bare `assert_awaited_once()` passes even when the service stops forwarding the caller's `limit`
+and always sends its own. `validate_test_quality.py` reports it as
+`test.call_assertion_without_arguments`; a deliberate exception carries `# no-assert-ok: <reason>`.
 
 **2. Both sides of every boundary.** One case exactly on the constant, one case a step past it.
 
@@ -216,183 +151,45 @@ async def test_a_title_one_character_over_the_limit_is_rejected(self) -> None:
         await service.create_task(title="x" * (MAX_TITLE_LENGTH + 1))
 ```
 
-The mutations this catches: `<` silently becoming `<=`, `>` becoming `>=`. Four of the eight
-survivors were exactly this, on a minimum amount, an item count and two date comparisons. A test
-that uses a comfortable middle value — `"a title"` — cannot see the boundary move by one.
+A test built from a comfortable middle value — `"a title"` — cannot see `<` silently become `<=`, or
+`>` become `>=`.
 
 ## The four constraints that are enforced, not advised
 
 1. **Conditional services are declared as `None` above the `if`, never in an `else`.**
    `ai_context/extraction.py` walks an `If` node as test → body → orelse, so an assignment in an
    `else` is processed last and overwrites the class metadata: the service degrades to
-   `class=null / confidence=low` and `docs/ai_context_map.json` starts lying. Measured twice —
-   on `db_pool` and on `reference_task_service`.
-
+   `class=null / confidence=low` and `docs/ai_context_map.json` starts lying.
 2. **The service key stays in the registry dict literal even when its value is `None`.**
    Extraction reads the literal to learn the service exists; dropping the key makes the dependency
    alias unresolvable and `validate_endpoint_wiring.py` reports `endpoint.alias_chain_invalid`.
-
 3. **Endpoints import DTOs, domain constants and typed aliases — nothing else.**
    Importing the service, calling `Depends(get_...)` inline, or annotating a parameter with the
    service type each has its own rule ID in `validate_endpoint_wiring.py`. The alias lives in
    `dependencies.py` as a getter returning `_get_service(request, "<key>", <Type>)` plus an
    `Annotated[...]` assignment; extraction recognises that exact shape and no other.
-
 4. **Application modules must not import `project.infrastructure`.**
-   `scripts/validate_architecture.py` fails the gate on it. This is what forces the service to
-   take the Protocol and what lets its unit tests run without a database.
-
-## Things the gates catch, listed so nobody learns them twice
-
-- `# **LOGIC_STEP**:` belongs inside a function body only. In a class body — `__table_args__` is
-  the one you will hit — `validate_cbm.py` fails with a line number and no explanation.
-- Two branches assigning differently shaped tuples to one variable need an explicit annotation:
-  mypy infers the first branch's shape for the whole variable.
-- `tests/functional/conftest.py` ships POST, GET, PUT, PATCH and DELETE helpers. A route needing a
-  verb that is missing gets its helper added to the conftest, not to one test module.
-- `tests/functional` is inside mypy's targets. A constructor call that forgets a new required
-  field fails there at check time instead of in `make test-e2e` twenty minutes later.
-- A query assertion that compares the executed SQL against the module constant is a tautology:
-  both sides move together, so the query can say anything and the test stays green. Pin the clause
-  as text — `assert _SELECT_BY_STATUS.split(" WHERE ", 1)[1] == "status = %s ORDER BY created_at
-  DESC LIMIT %s"` — the way the repository test of the worked vertical does. Measured on 2026-08-12:
-  without that line, reversing `DESC` to `ASC` kept every gate green and failed only `make
-  test-e2e`, two minutes later, in a suite that needs Docker. Since 2026-08-13 this is a gate, not
-  advice: `scripts/validate_test_quality.py` reports `test.sql_constant_round_trip` when a module
-  hands a query constant to the assertion that checks the query and pins no clause of it as text.
-  The gate cannot tell whether your SQL is right — it can tell that nothing here would notice.
-- **`# nosec` goes on the line bandit reports, which is the literal's own line.** A query built
-  as a parenthesised multi-line string reports at the line the f-string starts on; a marker parked
-  on the closing parenthesis suppresses nothing, and the finding stays. It looks handled in a
-  diff, which is the expensive part. `make quality-gates` runs bandit itself since 2026-09-04, so
-  a misplaced marker is a red gate in the loop you already run rather than a surprise from CI —
-  and the five shipped markers in `project/` show the placement: each sits on the line carrying
-  the value bandit flags, never on a bracket.
-- **A span an operator needs to see asks for its level; a child span defaults to DEBUG.** Which
-  means it exists, costs nothing, and shows nothing in production, where the level is INFO. The
-  repository's four spans pass `level=logging.INFO` for exactly that reason — copy it for a span
-  that answers a question someone will ask of a real trace, and leave the default for a genuinely
-  hot internal step. Measured on 2026-09-06: a filtered span costs 3.6 µs against 21.7 µs written,
-  so three per request at 1000 rps is 1.1 % of one core against 6.5 %. The request summary reports
-  both numbers — `spans=` for what a reader can find in the tree, `filtered=` for what the level
-  swallowed — so a trace never claims children it did not print.
-- **A span's test says what the span reported, not that it happened.** `scripts/validate_test_
-  quality.py` reports `test.span_output_pinned` on a test that looks up a span's finish event and
-  never reads its `output`. Measured in the field: mutating a repository span to report
-  `row_written = True` unconditionally kept every gate green, because the tests proved the span
-  existed. A trace that can lie is worse than no trace, because it is believed.
-- **Two fields of the same type, side by side, need two different values in the test.** A fixture
-  that sets `subject="Changed"` and `description="Changed"` cannot tell "bound in the column order
-  of the SET clause" from "bound the other way round": the tuple is identical either way, so
-  `assert_awaited_once_with` passes on both. Measured on 2026-09-03 in a project built from this
-  template: `PATCH /tickets/{id}` wrote the description into the subject column and the subject
-  into the description on every edit where the two differed — 200 OK, persisted, visible on the
-  next GET — and 1 150 unit tests stayed green, because the one test covering that method used
-  that fixture. Give neighbouring fields values that cannot be swapped unnoticed, and assert the
-  bound parameters at those positions individually rather than comparing the whole tuple at once.
-- An ORM model whose migration is missing passes `make quality-gates` — that gate skips itself
-  without a database — and fails in the functional lane, where
-  `tests/functional/src/test_migrations_match_models.py` runs `alembic upgrade head` and
-  `alembic check` against the real one. Run `make test-e2e` before calling a vertical done.
-- The shared pool in `composition_root.py` opens with `autocommit=True`. A method with one
-  statement needs nothing further; a method with two or more that must land together wraps them in
-  `async with connection.transaction():` inside the connection block it already opens, and is
-  proved with a functional test, not a unit test — see
-  `docs/adr/ADR-007-autocommit-and-explicit-transactions.md` for why and for the code shape.
-- **An update reads, changes and writes back, and a transaction does not make that safe.** Two
-  requests that read the same row and patch different fields both report success, and the later
-  write erases the earlier one. Copy `ReferenceTaskRepository.update` rather than writing the
-  obvious `WHERE id = %s`: it matches on `id AND updated_at`, returns `None` when the row moved, and
-  the service turns that into a `ConflictError` — 409. Measured on 2026-09-02, an agent that
-  followed this file when the reference vertical had no update wrote the blind form and passed all
-  876 tests. The unit suite can only check that the service passes the timestamp it read; the test
-  that watches two writers collide is in `tests/functional/`. Same ADR, section
-  "Read-modify-write across requests".
+   `scripts/validate_architecture.py` fails the gate on it. This is what forces the service to take
+   the Protocol and what lets its unit tests run without a database.
 
 ## A vertical whose adapter is a language model
 
-The shape is the same one the storage verticals use — a Protocol in `project/domain/ports.py`
-speaking domain types, an adapter in `project/infrastructure/agents/` that knows the provider, and
-an application service that has never heard of a message. `LLMPort` is for a vertical that sends a
-prompt and reads text back. A vertical that runs a tool loop declares its own port instead, taking
-and returning domain objects, so the loop lives entirely inside the adapter and the service can be
-unit-tested against a planner that returns a fixed answer.
-
-Two things the deterministic provider cannot tell you:
-
-- **Mock mode chooses the tool for you, and cannot invent its arguments.** Since 2026-09-08 it
-  walks every bound tool once, in binding order, before answering with a summary — a three-tool
-  loop runs in CI without a key, and `tests/application/test_mock_agent_multi_tool_loop.py` is the
-  worked example to copy. What it still cannot do is guess a tool's argument shape: the default is
-  `{"query": <last user message>}`, which satisfies a free-text tool and nothing else. A tool
-  taking a `Decimal`, a nested object or an enum needs its arguments written down —
-  `bound._mock_tool_args = {"price_order": {...}}` after `bind_tools(...)` — exactly as
-  `tests/support/scripted_llm.py` has you write down a scripted reply, because both are the caller
-  declaring what only the caller knows. What the functional suite can honestly assert is that the
-  loop ran and the tools executed, not that a model produced anything useful.
-- **The turn ceiling has to be measured against a live provider.** Mock mode spends exactly one
-  turn per bound tool and then finalises, so a loop's length in CI is a property of your binding
-  list rather than of the problem. A live model does not work that way: qwen3-next-80b, given a day with three pieces of work, spent one turn listing and then one
-  turn per booking. A ceiling of four cut the closing message off and a fourth item would have been
-  lost outright — with every gate green, because the gates never call a provider. Whatever ceiling
-  you pick, make the loop report that it hit it, in the trace and in the response.
-
-Three things to write down before the vertical is done, each from a field build that shipped
-without them (2026-09-03):
-
-- **The function that reads the model's answer gets its own tests, fed by hand.** Not through the
-  service — the service's unit test fakes the whole port, a fixed verdict in and a fixed error out,
-  which proves nothing about parsing. Not through the mock provider either: mock mode derives its
-  reply from the conversation, so the only bad answer it can produce is "this is not JSON at all".
-  A field build's parser had exactly that one case covered, by a functional test asserting 502, and
-  every other branch — a missing key, a value outside the enum, a number where a string belonged,
-  an id the tools never returned — was untested for as long as the suite stayed green. Feed the
-  parser each shape directly: it is a plain function taking text, so the test needs no event loop
-  and no double at all.
-- **`isinstance` before the enum check, always.** `value not in VALID_PRIORITIES` reads like a
-  type check and is not one: a `frozenset` hashes what it is asked about, so a JSON array or object
-  where a string was expected raises `TypeError: unhashable type` on that line — one line before
-  the `raise ExternalServiceError(...)` written to catch exactly this. `TypeError` is not a
-  `ProjectError`, so it reaches the client as 500 from the code whose whole purpose was to make it
-  a 502. The kernel's own `status not in ALLOWED_STATUSES` is safe for a different reason: its
-  input came through a Pydantic DTO typed `str | None`. Model output has no such guarantee. Write
-  `isinstance(value, str) and value in VALID_...`, and assert the domain type in the test, never
-  bare `Exception` — an assertion on `Exception` passes on both the fix and the defect.
-- **The loop's own bookkeeping needs a scripted model, not a fake port.** Which tool's results
-  count toward which rule, how the turn budget is spent, what happens when the same tool answers
-  twice: a fake port skips all of it, and mock mode has one fixed order and calls each tool once —
-  it cannot answer the same tool twice in one turn, or in any order but the binding one. A field
-  build regressed exactly there — ids from any list-shaped tool result were counted as "articles
-  the model saw", so a verdict could cite a sibling ticket as its source — and neither test layer
-  could have caught it. `tests/support/scripted_llm.py` is the layer that can: hand the real
-  adapter a `ScriptedLLMService` with a fixed sequence of turns (tool call, tool call, final
-  answer) and the real tools, and assert on what the adapter did with them. It raises when the loop
-  asks for one more turn than the script allows, which is how the ceiling gets tested at all.
-  **For that to be possible your adapter must take the model as a Protocol, not as `LLMService`.**
-  An adapter whose `__init__` is annotated with the concrete class type-checks against exactly one
-  model — the shipped one — and mypy rejects the double at the door, so the loop goes back to being
-  testable only through a fake of the whole adapter. Declare the one method you call, the way
-  `prompt_llm_adapter.py` declares `SupportsMessageCall`, and annotate against that; `LLMService`
-  satisfies it structurally and production wiring does not change.
-
-A provider error never reaches your vertical as a provider error: the adapter translates it. Catch
-`ExternalServiceError` for "the model failed", or `UpstreamAuthenticationError` first — a subclass
-— when a dead API key deserves a different page than a provider outage. Both answer 502. See
-ADR-009 for why a rejected key is not 401 and why a rejected request stays 500.
+Same shape as the storage verticals: a Protocol in `project/domain/ports.py`, an adapter in
+`project/infrastructure/agents/`, a service that has never heard of a message. `LLMPort` fits a
+prompt-in-text-out vertical; a tool-loop vertical declares its own port. Mock mode walks every bound
+tool once before summarising (`tests/application/test_mock_agent_multi_tool_loop.py`) but cannot
+invent a tool's argument shape (`bound._mock_tool_args = {...}` after `bind_tools(...)`). Test the
+answer parser, the `isinstance`-before-`in VALID_X` check (model output can be a list, not a string),
+and the loop's bookkeeping by hand — the last needs `tests/support/scripted_llm.py` and an adapter
+typed against a Protocol, as `prompt_llm_adapter.py` declares `SupportsMessageCall`. A provider error
+reaches your vertical translated: `ExternalServiceError` or `UpstreamAuthenticationError`, both 502.
+See ADR-009.
 
 ## Subsystems that can be off
 
-If the vertical needs PostgreSQL, it must survive `POSTGRES_ENABLED=false`, because `make ci-local`
-runs a second leg in that mode. Two shapes work:
-
-- **Routes absent** — what the reference vertical does. `service_registration.py` leaves the
-  service `None`, `router_registration.py` skips `include_router`, and handler bodies stay free of
-  "is my subsystem on?" branches.
-- **Routes present, answering 503** — declare the getter as `-> MyService | None` and check for
-  `None` in each handler. Extraction supports this shape too. Choose it when the route must stay
-  visible in OpenAPI.
-
-See `docs/adr/ADR-006-optional-postgres.md`.
+A vertical needing PostgreSQL must survive `POSTGRES_ENABLED=false` (`make ci-local` runs that leg
+too): either **routes absent** — what the reference vertical does — or **routes present, answering
+503** via `-> MyService | None`. See `docs/adr/ADR-006-optional-postgres.md`.
 
 ## Deleting the reference vertical
 
@@ -412,22 +209,16 @@ git rm project/domain/reference_task.py \
 ```
 
 Those nine are every file whose **name** carries the vertical. Do not use
-`find . -iname '*reference_task*'` as the completeness check: the references that break the build
-live in files named after something else, and the `find` sweep is exactly what misses them.
+`find . -iname '*reference_task*'` as the completeness check — the references that break the build
+live in files named after something else.
 
 `alembic/versions/001_initial_reference_tasks_schema.py` and
 `alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py` stay — both have run on every
-database created from this template. **Append** a drop
-migration — autogenerate it once the ORM model is gone, and let Alembic pick the revision id and
-the parent; it is `002` only for a project that deletes the example before adding a table of its
-own, and the usual order is the other way round — rather than folding the drop into 001 or
-deleting it: 001
-has already run on every database created from this template, and your own first migration names
-it as its parent. Rewriting history in an Alembic chain leaves those databases at a revision the
-repository no longer contains.
+database created from this template. **Append** a drop migration (autogenerate it once the ORM
+model is gone) rather than folding it into `001` or deleting `001` — your own first migration names
+`001` as its parent.
 
-Nine more files carry the vertical without naming it. Six are structural, one aborts collection,
-and two are the ones a name sweep never surfaces because they read as generic infrastructure:
+Nine more files carry the vertical without naming it:
 
 | File | What to remove |
 |------|----------------|
@@ -437,121 +228,66 @@ and two are the ones a name sweep never surfaces because they read as generic in
 | `project/domain/ports.py` | `ReferenceTaskRepositoryPort` and its `ReferenceTask` import |
 | `project/infrastructure/persistence/orm_models.py` | `ReferenceTaskORM` and its `MAX_TITLE_LENGTH` import |
 | `project/infrastructure/persistence/__init__.py` | the worked-example sentence in the docstring |
-| `tests/infrastructure/test_persistence_models.py` | the whole file — it imports `ReferenceTaskORM` |
+| `tests/infrastructure/test_persistence_models.py` | `TestReferenceTaskORMSchema`, `TestORMRegistry`, and the `ReferenceTaskORM` (plus `MAX_TITLE_LENGTH`) imports — **not the whole file**: `TestForeignKeysDeclareOnDelete` and its `_foreign_keys_missing_ondelete` helper guard every project's foreign keys, reference vertical or not, and stay |
 | `tests/application/test_validate_migrations.py` | the table ledger and the index assertion — **two red tests otherwise** |
 | `tests/application/test_ai_query_zone_lookup.py` | the vertical's paths in the parametrised control list |
 
-The collection one is not "a test fails". `pytest` aborts on the `ImportError`, so the entire unit
-and infrastructure run — 600-plus tests — never starts, and the failure names a file you were never
-told to touch. The ledger one behaves the same way from a distance: two failures in a file about
-migrations, hours after you deleted a model. There is one ledger now, not two — the duplicate that
-made this happen twice in a row was removed.
+Skip the `test_persistence_models.py` row and `pytest` aborts on `ImportError` before a single test
+runs. Skip the `test_validate_migrations.py` row and two tests go red in an unrelated suite.
 
-Then the prose. None of it fails a gate, and all of it tells the next agent to copy a vertical that
-is gone: `README.md`, `docs/agent_rules.md`, `PROJECT.md`, `docs/project_context.json`, the
+Then the prose: `README.md`, `docs/agent_rules.md`, `PROJECT.md`, `docs/project_context.json`, the
 docstring example in `tests/conftest.py::registered_paths`, the span-name example in
-`project/core/logging/logger.py` — it spells the `db.<vertical>.<operation>` convention as
-`db.reference_task.add` and points at the repository file that carries it, so both halves name a
-file you just deleted — and this file.
+`project/core/logging/logger.py` (`db.reference_task.add`), and this file.
 
-**Not `CLAUDE.md`, and not `AGENTS.md` either.** This list said to edit `CLAUDE.md` until 2026-08-14,
-and the pre-edit hook refuses the write: both are generated from `docs/agent_rules.md` by
-`scripts/sync_agent_docs.py` — one wrapper per agent, same source, same Quick Start bullets — and
-the first bullet of that file's `Start here:` list is the sentence that names the vertical. Edit the
-bullet, run `make refresh-agent-docs`, and both wrappers follow. Keep the file count in that bullet
-spelled the same way as the `## The … files of a vertical` heading above:
-`tests/application/test_sync_agent_docs.py` compares the two words and goes red when they drift,
-and it is the only coupling between these two documents that neither of them otherwise announces.
-Until the same day the wrapper's Quick Start was a literal inside `scripts/sync_agent_docs.py` and
-no edit anywhere could reach it, so the only way out was patching that generator — which forks the
-thing meant to be shared. If your checkout still carries a hardcoded Quick Start, that is the
-version you are on.
+**Not `CLAUDE.md`/`AGENTS.md`** — the pre-edit hook refuses the write; both are generated from
+`docs/agent_rules.md` by `scripts/sync_agent_docs.py`. Edit the bullet in `docs/agent_rules.md`'s
+`Start here:` list and run `make refresh-agent-docs`. Keep its file count spelled the same way as
+the `## The … files of a vertical` heading above — `tests/application/test_sync_agent_docs.py`
+compares the two. And update `minimal_read_set` in this file's own front matter — it names
+`project/application/reference_task_service.py`, and once that is gone
+`scripts/validate_repository_metadata.py` reports `skills_frontmatter.broken_path`.
 
-And one edit that fails a gate from inside this skill: `minimal_read_set` in the front matter above
-names `project/application/reference_task_service.py`. Once it is gone,
-`scripts/validate_skills_frontmatter.py` reports `skills_frontmatter.broken_path` and the finish
-command fails on the skill that told you to delete it. Point it at your own service.
-
-Finish with `make refresh-generated-docs && make quality-gates && make test-e2e`, then
-sweep. Not with `git grep -n reference_task`: that pattern is case-sensitive and assumes the
-underscore, so it misses `ReferenceTaskORM` and every `/reference-tasks/` path. Measured on this
-repository, it finds four of the six mentions in one file and none at all in two others. Use:
+Finish with `make refresh-generated-docs && make quality-gates && make test-e2e`, then sweep. Not
+with `git grep -n reference_task` — case-sensitive and underscore-only, it misses `ReferenceTaskORM`
+and every `/reference-tasks/` path. Use:
 
 ```bash
 git grep -inE 'reference[-_]?task'
 ```
 
-The sweep returns every survivor named in the table below, plus three categories it does not spell
-out file-by-file, because doing so would duplicate a fact this repository already states once
-elsewhere:
-
-- **ADR documents** (`docs/adr/*.md`) — the reasoning that made the reference vertical exist stays
-  in the ADR that made the decision. This file points at ADR-007 by name where it matters; it does
-  not re-justify every other ADR that happens to mention the vertical along the way.
-- **Migration history** (`alembic/versions/*`) — append-only, and governed by "Two branches, one
-  migration history" above. A project accumulates migrations this skill was never told about, so
-  naming filenames here is exactly the kind of number that goes stale — which the rest of this
-  section is a case study in.
-- **`CLAUDE.md` and `AGENTS.md`** — both clear themselves the moment `docs/agent_rules.md` is edited
-  and `make refresh-agent-docs` runs, per "Not `CLAUDE.md`, and not `AGENTS.md` either" below; between
-  that edit and this one they still match the sweep, which is why that section names both by hand
-  rather than leaving them for this table to enumerate.
+The sweep returns every survivor named below, plus three categories it does not spell out
+file-by-file: **ADR documents** (`docs/adr/*.md` — the reasoning stays with the decision),
+**migration history** (`alembic/versions/*` — append-only, see above), and **`CLAUDE.md` /
+`AGENTS.md`** (both clear once `docs/agent_rules.md` is edited and `make refresh-agent-docs` runs).
 
 `TestDeletionAccountsForEveryMatch` in `tests/application/test_skill_texts_match_reality.py` runs
 the same sweep against this checkout and fails the day a file outside those three categories carries
-the vertical without appearing below — trust that test, and the table it checks, over any count in
-this prose, including the one in the next sentence. At the time of writing the table holds
-**nineteen real files** (the twentieth row is the drop migration you have not appended yet). The
-number has moved before and will again: fourteen on 2026-08-13, three of them inside the
-`task-proof-loop` skill and its generated wrapper, which left the template on 2026-08-14; eleven
-after that, until an audit the same day found two files the table had never listed; twelve after
-that, until 2026-09-08 found the table short by eight more — a second migration file it had
-described the count of but not named, and seven comment or fixture files in `ai_context/`,
-`ai_query/` and `tests/application/` that no version of this table had ever listed. That audit is
-also what added the test above; re-measure with the command below rather than trusting this
-sentence, exactly as every earlier version of this paragraph already said, and now a red gate says
-so before the count needs saying twice.
+the vertical without appearing below — trust that test, and the table it checks, over this prose.
 
 | Survivor | Why it stays |
 |---|---|
 | `alembic/versions/001_initial_reference_tasks_schema.py` | history every database already ran |
-| `alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py` | history; the second migration every database created after 2026-09-02 already ran, for the update endpoint's optimistic-lock column |
-| the drop migration you just appended | the drop itself names what it drops |
-| `docs/project_map.md` | generated tree; shows every migration filename that still exists under `alembic/versions/` — currently the two rows above plus whichever drop migration you appended, not a fixed count this row can promise |
-| `.agents/skills/add-vertical/SKILL.md` | this file has to name what it deletes — but the prose step above still applies to it: its opening paragraph and its examples must point at your vertical, not the one that is gone |
-| `tests/application/test_skill_texts_match_reality.py` | it pins the sweep spelling as a regex, and runs the accounting check above, so it names the vertical on purpose |
+| `alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py` | history; the update endpoint's optimistic-lock column |
+| the drop migration you just appended | names what it drops |
+| `docs/project_map.md` | generated tree; shows the migration filenames that still exist |
+| `.agents/skills/add-vertical/SKILL.md` | this file has to name what it deletes |
+| `tests/application/test_skill_texts_match_reality.py` | pins the sweep spelling and runs this accounting check |
 | `tests/application/test_generate_ai_context.py` | synthetic `"reference_task_service"` fixture strings |
 | `tests/application/test_validate_architecture.py` | a synthetic source line containing `ReferenceTaskORM` |
-| `tests/application/test_trace_formatter_against_real_output.py` | six mentions inside recorded log fixtures — a path, a traceback, a function name |
+| `tests/application/test_trace_formatter_against_real_output.py` | mentions inside recorded log fixtures |
 | `tests/application/test_logging_api.py` | the span name `db.reference_task.get` in logging fixtures |
 | `tests/application/test_query_ai_context.py` | functional-test paths inside a fixture list |
-| `scripts/validate_test_quality.py` | one query in a comment, illustrating the rule about pinning a clause as text |
-| `tests/application/test_sync_agent_docs.py` | asserts the generated Quick Start does **not** name the vertical, so it has to spell it |
-| `ai_context/dynamic_imports.py` | a `# NOTE:` recording the exact line count of a 2026-09-02 measurement against `project/domain/reference_task.py`; the fact is dated and about that file, not a live import |
-| `ai_query/common.py` | a comment illustrating the vertical-name-from-path heuristic using `reference_task_service.py`, `reference_task_repository.py` and `reference_tasks.py` as the worked example |
-| `tests/application/test_client_errors_are_not_service_errors.py` | a fixture `POST /reference-tasks` used to prove a 422 is logged as a client error, not a server one |
-| `tests/application/test_functional_request_helpers.py` | a fixture `GET /reference-tasks/<uuid>` used to exercise a functional request helper without Docker |
-| `tests/application/test_gate_recipes.py` | a synthetic `SELECT ... FROM reference_tasks` string used to prove where a `# nosec` marker must sit |
-| `tests/application/test_trace_formatter_failure_visibility.py` | a fixture span name (`db.reference_task.get`) and a fixture path (`/reference-tasks`) inside recorded NDJSON lines |
-| `tests/application/test_validate_test_quality.py` | a `# NOTE:` naming the span (`db.reference_task.update`) a 2026-09-06 measurement mutated to prove a blind span is reported |
+| `scripts/validate_test_quality.py` | one query in a comment, illustrating a rule |
+| `tests/application/test_sync_agent_docs.py` | asserts the generated Quick Start does **not** name the vertical |
+| `ai_context/dynamic_imports.py` | a `# NOTE:` about `project/domain/reference_task.py`'s line count |
+| `ai_query/common.py` | a comment illustrating the vertical-name-from-path heuristic |
+| `tests/application/test_client_errors_are_not_service_errors.py` | a fixture `POST /reference-tasks` |
+| `tests/application/test_functional_request_helpers.py` | a fixture `GET /reference-tasks/<uuid>` |
+| `tests/application/test_gate_recipes.py` | a synthetic `SELECT ... FROM reference_tasks` string |
+| `tests/application/test_trace_formatter_failure_visibility.py` | a fixture span name and path in recorded NDJSON |
+| `tests/application/test_validate_test_quality.py` | a `# NOTE:` naming the span `db.reference_task.update` |
 
-Every one of those is fixture text about a vertical, or a document that has to name the thing it
-removes — not a use of the vertical. That is the whole reason the count keeps surprising: the narrow
-sweep hides them differently. It misses `test_validate_architecture.py` entirely (the only mention
-there is camelCase `ReferenceTaskORM`) and shows four of the six lines in
-`test_trace_formatter_against_real_output.py`, leaving the two hyphenated `/reference-tasks/` paths
-out of view.
-
-If your sweep shows a file that is not in the table and not one of the three categories above, it is
-the prose step above left unfinished: a document of your own that still tells the next agent to copy
-a vertical you deleted. Point it at your own vertical, then `make refresh-agent-docs` if it was
-`docs/agent_rules.md`, so the generated wrappers follow.
-
-This section said "exactly five" until 2026-08-13, and the nine unlisted files cost an hour of
-looking for a mistake that was not there. A match in `project/domain/ports.py` would be a real one:
-its `LLMPort` docstring used to name the shipped vertical while explaining where a service receives
-its adapter. It is generic now — but if your checkout still names a vertical there, that line is
-yours to rewrite, and no table above will tell you so.
-
-Keeping it costs one table and eleven files, and `make ci-local` keeps them green. Deleting it costs
-the hour above. Delete it once your own vertical is the better example.
+Every one of those is fixture text about a vertical, or a document that names the thing it removes —
+not a use of the vertical. A file outside the table and the three categories means the prose step
+above is unfinished — point it at your own vertical and `make refresh-agent-docs` if it was
+`docs/agent_rules.md`.

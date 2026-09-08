@@ -966,7 +966,7 @@ class TestEveryFileOfAVerticalFindsThatVerticalsTests:
                 "project/infrastructure/api/dependencies.py",
                 "tests/application/test_validate_dependencies.py",
             ),
-            ("project/core/config.py", "tests/application/test_validate_project_context.py"),
+            ("project/core/config.py", "tests/application/test_validate_repository_metadata.py"),
         ],
     )
     def test_a_file_named_after_no_vertical_pulls_in_no_verticals_tests(

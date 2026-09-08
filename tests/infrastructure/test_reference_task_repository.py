@@ -564,6 +564,7 @@ class TestEveryQueryGetsItsOwnSpan:
         finish = _finish_event(log_capture, "db.reference_task.add")
         assert finish["kwargs"]["data"]["task_id"] == str(UUID(int=9))
         # **LOGIC_STEP**: What the write reported, not that it happened. A span that says nothing
-        # about its outcome reads identically whether the row landed or not — which is what
-        # `test.span_output_pinned` now refuses, and why this span gained an output at all.
+        # about its outcome reads identically in the trace whether the row landed or not, so the
+        # operator reading it cannot tell success from silent failure — asserting the output here
+        # is what makes this span worth having.
         assert finish["kwargs"]["data"]["output"] == {"rows_written": 1}

@@ -47,7 +47,7 @@ nothing to do with what you were changing.
 
 | # | Where | What to change | What notices if you don't |
 |---|-------|----------------|---------------------------|
-| 1 | `docs/project_context.json` | `project_name`, `domain`, and `is_template: false` | `validate_project_context.py` — `project_context.template_identity_not_replaced`. The only one that fails a gate on its own. |
+| 1 | `docs/project_context.json` | `project_name`, `domain`, and `is_template: false` | `validate_repository_metadata.py` — `project_context.template_identity_not_replaced`. The only one that fails a gate on its own. |
 | 2 | `pyproject.toml` | `name` and `description` | `uv lock --check`, but only after step 4 above regenerates the lockfile. |
 | 3 | `.env` and `.env.sample` | `APP_NAME` | Nothing. It becomes the OpenAPI title at runtime — `f"{settings.project.name} API"` in `composition_root.py`. |
 | 4 | `project/core/config_settings_core.py` | the `default=` of `ProjectSettings.name` | `tests/application/test_config.py::test_default_values`, which compares it with #1. It is the fallback when `APP_NAME` is unset, so a deployment without that variable would otherwise serve the template's name. |

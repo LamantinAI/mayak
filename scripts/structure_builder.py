@@ -85,7 +85,7 @@ def load_export_profile_patterns(root_path: Path) -> list[str]:
 # RAISES: RuntimeError: If neither source yields a usable name.
 def resolve_project_name(root_path: Path) -> str:
     # **LOGIC_STEP**: Primary source — docs/project_context.json:project_name (schema-validated by
-    # scripts/validate_project_context.py, so this is expected to exist and be well-formed in every
+    # scripts/validate_repository_metadata.py, so this is expected to exist and be well-formed in every
     # real invocation).
     context_path = root_path / PROJECT_CONTEXT_PATH
     if context_path.exists():

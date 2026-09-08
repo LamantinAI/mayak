@@ -12,15 +12,12 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
-# Refresh generated onboarding and machine-readable artifacts
-echo "--- Pre-commit: refreshing generated docs ---"
-make refresh-generated-docs
-
-# Run the shared golden-path verification.
-# This used to call a `quality-gates-no-regen` twin, on the grounds that refresh-generated-docs
-# above had just written fresh outputs and re-checking them was wasted work. Those five `--check`
-# invocations were measured at 0.4 s together — not worth a hand-maintained second copy of a
-# twenty-step recipe, and the copy had already drifted from the original it claimed to mirror.
+# Run the shared golden-path verification. `make quality-gates` refreshes the generated artifacts
+# itself (`refresh-generated-unless-strict`, since this hook does not set STRICT_GENERATED) before
+# running the `--check` steps, so a separate `make refresh-generated-docs` call here regenerated
+# the same artifacts a second time for nothing. It used to also stand in for a `quality-gates-no-regen`
+# twin skipping those checks — measured at 0.4 s together, not worth a hand-maintained second copy
+# of a twenty-step recipe, and the copy had already drifted from the original it claimed to mirror.
 echo "--- Pre-commit: running quality gates ---"
 make quality-gates
 
