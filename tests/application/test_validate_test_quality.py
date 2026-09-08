@@ -383,6 +383,66 @@ class TestQueryConstantRoundTrip:
 
         assert validate_test_module(path, tmp_path) == []
 
+    # FUNCTION: test_an_identity_round_trip_without_a_pinned_clause_is_reported
+    # SUMMARY: Verify `sql is _CONSTANT` is caught as the same tautology `==` is — `is` states
+    # object identity, which the constant always has with itself, whatever its text says.
+    @pytest.mark.unit
+    def test_an_identity_round_trip_without_a_pinned_clause_is_reported(
+        self, tmp_path: Path
+    ) -> None:
+        repo_root = _write_repository_fixture(tmp_path)
+        path = _write_test_module(
+            tmp_path,
+            "from project.infrastructure.persistence.probe_repository import _SELECT_BY_ID\n"
+            "\n"
+            "def test_get_runs_the_query() -> None:\n"
+            "    sql = _SELECT_BY_ID\n"
+            "    assert sql is _SELECT_BY_ID\n",
+        )
+
+        issues = validate_test_module(path, repo_root)
+
+        assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
+        assert "_SELECT_BY_ID" in issues[0].message
+
+    # FUNCTION: test_a_pinned_clause_via_membership_clears_the_module
+    # SUMMARY: Verify `"clause text" in _CONSTANT` pins the constant the same way a sliced `==`
+    # does — the ordinary way to spell "this substring is really in there" without slicing first.
+    @pytest.mark.unit
+    def test_a_pinned_clause_via_membership_clears_the_module(self, tmp_path: Path) -> None:
+        repo_root = _write_repository_fixture(tmp_path)
+        path = _write_test_module(
+            tmp_path,
+            "from project.infrastructure.persistence.probe_repository import _SELECT_BY_ID\n"
+            "\n"
+            "def test_get_runs_the_query() -> None:\n"
+            "    cursor.execute.assert_awaited_once_with(_SELECT_BY_ID, ('id',))\n"
+            "    assert 'WHERE id = %s' in _SELECT_BY_ID\n",
+        )
+
+        assert validate_test_module(path, repo_root) == []
+
+    # FUNCTION: test_the_constant_on_the_left_of_in_does_not_count_as_pinned
+    # SUMMARY: Verify `_CONSTANT in something` — the constant as the haystack's member, not the
+    # text pin — is left exactly where it was: a round trip, not a pin. `in` only pins one way
+    # round, and this proves the branch does not fire on the direction that states nothing.
+    @pytest.mark.unit
+    def test_the_constant_on_the_left_of_in_does_not_count_as_pinned(self, tmp_path: Path) -> None:
+        repo_root = _write_repository_fixture(tmp_path)
+        path = _write_test_module(
+            tmp_path,
+            "from project.infrastructure.persistence.probe_repository import _SELECT_BY_ID\n"
+            "\n"
+            "def test_get_runs_the_query() -> None:\n"
+            "    cursor.execute.assert_awaited_once_with(_SELECT_BY_ID, ('id',))\n"
+            "    queries = [_SELECT_BY_ID]\n"
+            "    assert _SELECT_BY_ID in queries\n",
+        )
+
+        issues = validate_test_module(path, repo_root)
+
+        assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
+
 
 # CLASS: tests.application.test_validate_test_quality.TestValidatorSurface
 # SUMMARY: Verify the repository is clean and the rule playbooks are complete.
@@ -911,6 +971,65 @@ class TestASpanNobodyLooksAtIsReported:
         )
 
         assert collect_test_quality_issues(tmp_path) == []
+
+    # FUNCTION: test_a_span_named_only_through_an_imported_helper_is_left_alone
+    # SUMMARY: Verify a test module that names a span only by calling a shared tests/support helper
+    # is read as being about that span, instead of as a module nothing here mentions.
+    # NOTE: _looks_up_a_span_finish only reads the event_id == "span.finish" comparison written IN
+    # the module it is given. Factor that comparison out to a shared helper — the ordinary move
+    # once two test modules want the same lookup — and the comparison moves with it: the calling
+    # module stopped looking like it was about spans while still asserting on one. Prototyped
+    # 08.09.2026; re-measured here on 2026-09-08 rather than trusted.
+    @pytest.mark.unit
+    def test_a_span_named_only_through_an_imported_helper_is_left_alone(
+        self, tmp_path: Path
+    ) -> None:
+        self._write_project(
+            tmp_path,
+            "from tests.support.spans import assert_span_finished\n"
+            "\n"
+            "def test_the_save_span_reports_the_write(log_capture) -> None:\n"
+            "    assert_span_finished(log_capture, 'db.thing.save', {'row_written': True})\n",
+        )
+        support = tmp_path / "tests" / "support"
+        support.mkdir(parents=True)
+        (support / "__init__.py").write_text("", encoding="utf-8")
+        (support / "spans.py").write_text(
+            "def assert_span_finished(captured, name, output):\n"
+            "    finish = [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "    assert finish['name'] == name\n"
+            "    assert finish['data']['output'] == output\n",
+            encoding="utf-8",
+        )
+
+        issues = collect_test_quality_issues(tmp_path)
+
+        assert [issue.rule_id for issue in issues if "span_output" in issue.rule_id] == []
+
+    # FUNCTION: test_an_unrelated_helper_import_does_not_vouch_for_the_span
+    # SUMMARY: Verify importing from tests/support does not, by itself, satisfy this rule — only an
+    # import whose OWN module looks a span finish up does. The other direction of the same trap:
+    # widening the check to "imports anything from tests." would silence the rule for every module
+    # that imports an ordinary fixture helper, whether or not it says anything about spans.
+    @pytest.mark.unit
+    def test_an_unrelated_helper_import_does_not_vouch_for_the_span(self, tmp_path: Path) -> None:
+        self._write_project(
+            tmp_path,
+            "from tests.support.factories import make_row\n"
+            "\n"
+            "def test_something_else() -> None:\n"
+            "    assert make_row() is not None\n",
+        )
+        support = tmp_path / "tests" / "support"
+        support.mkdir(parents=True)
+        (support / "__init__.py").write_text("", encoding="utf-8")
+        (support / "factories.py").write_text(
+            "def make_row():\n    return {'id': 1}\n", encoding="utf-8"
+        )
+
+        issues = collect_test_quality_issues(tmp_path)
+
+        assert "test.span_output_unpinned" in [issue.rule_id for issue in issues]
 
 
 class TestValidatorSurface:

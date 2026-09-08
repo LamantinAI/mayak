@@ -551,7 +551,11 @@ def _query_constant_round_trips(tree: ast.AST, constants: set[str]) -> dict[str,
             continue
         if not isinstance(node, ast.Compare) or len(node.ops) != 1:
             continue
-        if not isinstance(node.ops[0], ast.Eq):
+        # **LOGIC_STEP**: `is` states the identical tautology `==` does — both sides are the same
+        # object, so the comparison passes for any query text. Reading only ast.Eq here meant
+        # `assert sql is _SELECT_BY_STATUS` sailed through as an unrecognised comparison instead of
+        # the round trip it is; measured 2026-09-08 against exactly that line.
+        if not isinstance(node.ops[0], (ast.Eq, ast.Is)):
             continue
         (right,) = node.comparators
         for expression, other in ((node.left, right), (right, node.left)):
@@ -572,12 +576,21 @@ def _query_constants_pinned_as_text(tree: ast.AST, constants: set[str]) -> set[s
     for node in ast.walk(tree):
         if not isinstance(node, ast.Compare) or len(node.ops) != 1:
             continue
-        if not isinstance(node.ops[0], ast.Eq):
-            continue
+        op = node.ops[0]
         (right,) = node.comparators
-        for expression, other in ((node.left, right), (right, node.left)):
-            if isinstance(other, ast.Constant) and isinstance(other.value, str):
-                pinned |= _referenced_names(expression) & constants
+        if isinstance(op, ast.Eq):
+            for expression, other in ((node.left, right), (right, node.left)):
+                if isinstance(other, ast.Constant) and isinstance(other.value, str):
+                    pinned |= _referenced_names(expression) & constants
+        elif isinstance(op, ast.In):
+            # **LOGIC_STEP**: `"WHERE id = %s" in _SELECT_BY_ID` pins the same fact a sliced `==`
+            # does, and used to count for nothing: only ast.Eq was read here, so this exact
+            # assertion — a correct pin, just spelled with `in` — left its constant reported as an
+            # unpinned round trip. Only one direction makes sense for `in`: the literal is the
+            # (necessarily shorter) needle, never the query itself, so this is not mirrored the way
+            # `==` is above.
+            if isinstance(node.left, ast.Constant) and isinstance(node.left.value, str):
+                pinned |= _referenced_names(right) & constants
     return pinned
 
 
@@ -1190,14 +1203,49 @@ def _spans_recording_an_outcome(tree: ast.AST) -> list[tuple[str, int]]:
     return found
 
 
+# FUNCTION: _imports_a_span_finish_helper
+# SUMMARY: Report whether a test module imports a local helper whose own module looks a span's
+# finish event up, so the lookup living one file away still counts as this module being about spans.
+# INPUT: repo_root (Path): Repository root, used to resolve a `tests.` import to its source file.
+# OUTPUT: (bool): True when an imported name's defining module contains the event_id ==
+# "span.finish" comparison itself.
+# NOTE: _looks_up_a_span_finish only reads the comparison written IN this module. A test that calls
+# a shared `assert_span_finished(...)` factored into tests/support/ never writes that comparison
+# itself, so before this the helper's own module read as "not about spans" and every span name the
+# call asserted was reported as unpinned — a false positive confirmed again 2026-09-08 against a
+# prototype from 08.09. Resolving the import and asking the same question of the helper's file is
+# the same trick _imported_sql_constants already plays for query constants, aimed at tests/ instead
+# of project/.
+def _imports_a_span_finish_helper(tree: ast.AST, repo_root: Path) -> bool:
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.module is None or node.level:
+            continue
+        if not node.module.startswith(f"{TESTS_DIRNAME}."):
+            continue
+        module_path = repo_root.joinpath(*node.module.split(".")).with_suffix(".py")
+        if not module_path.is_file():
+            continue
+        try:
+            helper_tree = ast.parse(
+                module_path.read_text(encoding="utf-8"), filename=str(module_path)
+            )
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        if _looks_up_a_span_finish(helper_tree):
+            return True
+    return False
+
+
 # FUNCTION: _span_names_named_by_tests
-# SUMMARY: Span names written in a test module that also looks a span's finish event up.
+# SUMMARY: Span names written in a test module that also looks a span's finish event up, itself or
+# through an imported helper that does.
+# INPUT: repo_root (Path): Repository root, passed through to resolve helper imports.
 # NOTE: The module has to be about spans for its strings to count. Reading every string literal
 # under tests/ meant a span name mentioned in a docstring, or listed for documentation, satisfied
 # this rule while nothing exercised the span — the same silence the rule was added to break.
 # Still deliberately loose within such a module: the point here is to notice a span nobody thought
 # about, and test.span_output_pinned is what makes the test that names it prove something.
-def _span_names_named_by_tests(tests_dir: Path) -> set[str]:
+def _span_names_named_by_tests(tests_dir: Path, repo_root: Path) -> set[str]:
     named: set[str] = set()
     for path in sorted(tests_dir.rglob("*.py")):
         if "__pycache__" in path.parts:
@@ -1206,7 +1254,7 @@ def _span_names_named_by_tests(tests_dir: Path) -> set[str]:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         except (OSError, SyntaxError, UnicodeDecodeError):
             continue
-        if not _looks_up_a_span_finish(tree):
+        if not _looks_up_a_span_finish(tree) and not _imports_a_span_finish_helper(tree, repo_root):
             continue
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -1233,7 +1281,7 @@ def _unpinned_span_output_issues(repo_root: Path) -> list[TestQualityIssue]:
     if not project_dir.is_dir() or not tests_dir.is_dir():
         return []
 
-    named = _span_names_named_by_tests(tests_dir)
+    named = _span_names_named_by_tests(tests_dir, repo_root)
     issues: list[TestQualityIssue] = []
     for path in sorted(project_dir.rglob("*.py")):
         if "__pycache__" in path.parts:

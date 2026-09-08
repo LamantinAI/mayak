@@ -26,32 +26,55 @@ from project.infrastructure.persistence.reference_task_repository import (
 
 
 # CLASS: tests.infrastructure.test_reference_task_repository.TestRowToReferenceTask
-# SUMMARY: Verify driver-native values are normalized to the types the domain declares.
+# SUMMARY: Verify the mapper's whole output equals a domain object built straight from the row.
+# NOTE: Rewritten 2026-09-08 after the 2026-09-02 template experiment: the prior version asserted
+# `task.id` and two `isinstance` checks, and its fixture gave every other field a value
+# indistinguishable from its neighbour — most sharply, created_at and updated_at were the SAME
+# datetime. A mapper that read the wrong column (`title=row["details"]`), returned a constant
+# instead of the row's value (`status="pending"` always), or swapped created_at and updated_at
+# passed that test unchanged, because nothing compared the object as a whole and no two fields
+# could tell a swap apart. This is the file `.agents/skills/add-vertical` tells every new vertical
+# to copy, so the blind spot was copied with it. Confirmed by mutating row_to_reference_task all
+# three ways below and watching test_row_maps_to_the_expected_domain_object fail each time, then
+# reverting — see the PR description for the transcript.
 class TestRowToReferenceTask:
-    # FUNCTION: test_uuid_identifier_becomes_string
-    # SUMMARY: Verify a uuid.UUID from the driver is converted, not passed through.
+    # FUNCTION: test_row_maps_to_the_expected_domain_object
+    # SUMMARY: Verify every field lands from its own column, unchanged, in the right slot — not a
+    # neighbour's column, not a hardcoded constant, not another field's value.
     @pytest.mark.unit
-    def test_uuid_identifier_becomes_string(self) -> None:
+    def test_row_maps_to_the_expected_domain_object(self) -> None:
         identifier = UUID("11111111-2222-3333-4444-555555555555")
-        created_at = datetime(2026, 8, 5, 12, 0, tzinfo=timezone.utc)
+        # **LOGIC_STEP**: created_at and updated_at differ on purpose — a mapper that swaps them
+        # returns a structurally valid ReferenceTask, so only distinguishable timestamps make that
+        # swap visible to the equality check below.
+        created_at = datetime(2024, 3, 1, 6, 0, 0, tzinfo=timezone.utc)
+        updated_at = datetime(2025, 11, 20, 18, 30, 45, tzinfo=timezone.utc)
+        row = {
+            "id": identifier,
+            "title": "Migrate the billing job",
+            "details": "Runbook step 4 needs a retry budget",
+            "status": "in_progress",
+            "created_at": created_at,
+            "updated_at": updated_at,
+        }
 
-        task = row_to_reference_task(
-            {
-                "id": identifier,
-                "title": "Reference task",
-                "details": None,
-                "status": "pending",
-                "created_at": created_at,
-                "updated_at": created_at,
-            }
+        task = row_to_reference_task(row)
+
+        # **LOGIC_STEP**: The whole object against a domain instance built from the same row, not
+        # field-by-field. A per-field assert list is exactly as blind as this test used to be if
+        # the fixture behind it does not force every field apart from every other.
+        assert task == ReferenceTask(
+            id=str(identifier),
+            title="Migrate the billing job",
+            details="Runbook step 4 needs a retry budget",
+            status="in_progress",
+            created_at=created_at,
+            updated_at=updated_at,
         )
 
-        assert isinstance(task, ReferenceTask)
-        assert task.id == "11111111-2222-3333-4444-555555555555"
-        assert isinstance(task.id, str)
-
     # FUNCTION: test_optional_details_survive_as_none
-    # SUMMARY: Verify a NULL details column stays None rather than becoming the string "None".
+    # SUMMARY: Verify a NULL details column stays None rather than becoming the string "None" — the
+    # one case the fixture above cannot exercise, since it deliberately gives details a real value.
     @pytest.mark.unit
     def test_optional_details_survive_as_none(self) -> None:
         task = row_to_reference_task(
@@ -61,7 +84,7 @@ class TestRowToReferenceTask:
                 "details": None,
                 "status": "done",
                 "created_at": datetime(2026, 8, 5, tzinfo=timezone.utc),
-                "updated_at": datetime(2026, 8, 5, tzinfo=timezone.utc),
+                "updated_at": datetime(2026, 8, 6, tzinfo=timezone.utc),
             }
         )
 

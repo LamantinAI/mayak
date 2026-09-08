@@ -48,6 +48,7 @@ Project Map: Mayak
 │   │   ├── bootstrap.py  ---  Session cold-start payload: what to read first, in what order of authority, and where the wiring lives.
 │   │   ├── failure.py
 │   │   ├── overview.py  ---  Repository root used to read the hand-maintained project context.
+│   │   ├── symbol.py
 │   │   └── workset.py
 │   ├── __init__.py  ---  Query helpers for the Mayak AI context CLI.
 │   ├── common.py
@@ -106,7 +107,8 @@ Project Map: Mayak
 │   │   │   ├── logger_events_state.py  ---  Semantic logging mixin implementing state, data, decision, and validation helper methods.
 │   │   │   ├── logger_types.py  ---  Shared structured payload aliases and span context types used across semantic logging modules.
 │   │   │   ├── redaction.py  ---  Safe logging summaries for user-provided text payloads and request-like structures.
-│   │   │   └── trace_formatter.py  ---  NDJSON-to-text tree transformer for LLM-friendly trace visualization.
+│   │   │   ├── trace_formatter.py  ---  NDJSON-to-text tree transformer for LLM-friendly trace visualization.
+│   │   │   └── trace_tree.py  ---  Parses NDJSON trace events into the SpanNode/LeafEvent tree trace_formatter.py renders.
 │   │   ├── __init__.py  ---  Core infrastructure containing configuration, dependency injection, and logging.
 │   │   ├── composition_root.py  ---  Composition Root that creates and links all dependencies, creating adapters and injecting them into Core services for FastAPI application.
 │   │   ├── config.py  ---  Stable facade that re-exports configuration builders, settings models, and runtime helpers.
@@ -201,6 +203,7 @@ Project Map: Mayak
 │   │   ├── test_logging_api.py  ---  Unit tests for the semantic logging helper API surface.
 │   │   ├── test_logging_redaction.py  ---  Unit tests for safe logging summary helpers.
 │   │   ├── test_middleware.py  ---  Tests for the logging middleware — query-parameter masking and inbound request-id resolution.
+│   │   ├── test_mock_agent_multi_tool_loop.py  ---  The sample ADR-003 promises and the kernel did not ship: a real agent loop over three
 │   │   ├── test_optional_postgres.py  ---  Guards for POSTGRES_ENABLED — the kernel must assemble, report ready and stay
 │   │   ├── test_prompt_llm_adapter.py  ---  Tests that PromptLLMAdapter really satisfies the domain's LLMPort contract.
 │   │   ├── test_query_ai_context.py  ---  Unit tests for the AI context query CLI helpers.
@@ -218,6 +221,7 @@ Project Map: Mayak
 │   │   ├── test_trace_file_gate.py  ---  Verify the NDJSON trace file is switched on by its own setting and never by debug mode.
 │   │   ├── test_trace_formatter_against_real_output.py  ---  The renderer must work on the event shape THIS application emits, and on the shape it
 │   │   ├── test_trace_formatter_failure_visibility.py  ---  Regression guards proving a failed request is visible in the rendered trace tree.
+│   │   ├── test_trace_formatter_span_semantics.py  ---  Regression guards for the three trace_formatter.py changes made alongside logger.py and
 │   │   ├── test_trace_formatter_summary.py  ---  The trace renderer must tell the truth about logs written before the outcome field existed.
 │   │   ├── test_validate_architecture.py  ---  Unit tests for the repository architecture boundary validator.
 │   │   ├── test_validate_cbm.py  ---  Unit tests for strict Code-Base Markup validation rules.
