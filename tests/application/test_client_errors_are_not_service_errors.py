@@ -17,7 +17,9 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
+from project.core.logging import get_logger
 from project.domain.exceptions import (
+    ConflictError,
     ExternalServiceError,
     NotFoundError,
     ValidationError,
@@ -52,7 +54,11 @@ class TestAClientErrorReadsAsOne:
     @pytest.mark.integration
     @pytest.mark.parametrize(
         ("exception", "expected_status"),
-        [(NotFoundError("missing"), 404), (ValidationError("bad input"), 422)],
+        [
+            (NotFoundError("missing"), 404),
+            (ValidationError("bad input"), 422),
+            (ConflictError("duplicate name"), 409),
+        ],
     )
     async def test_a_domain_error_answered_4xx_is_a_client_error(
         self,
@@ -109,3 +115,68 @@ class TestAClientErrorReadsAsOne:
         issues = [event for event in _events_from(log_capture) if "error" in event[0]]
         assert issues, "a rejected body was not recorded at all"
         assert all(event_id.startswith("client_error.") for event_id, _ in issues), issues
+
+
+# CLASS: tests.application.test_client_errors_are_not_service_errors.TestARejectionInsideANestedSpanIsNotAFailure
+# SUMMARY: The hole the class above did not cover: exception_handlers.py has judged 4xx-vs-5xx
+# correctly since 2026-09-06, but a ConflictError raised INSIDE a nested span — a repository call,
+# an application-layer span; see project/infrastructure/persistence/reference_task_repository.py
+# for the copyable pattern every vertical's own db.* span follows — never reached that handler
+# first. project.core.logging.logger.span()'s own `except Exception` branch saw it, and until
+# 2026-09-08 judged every exception the same way: ERROR level, full traceback, whatever it was
+# going to become. Two independent agents building real projects on this template each lost the
+# live-run stage of their session to that trace — a duplicate-name 409 that read exactly like a
+# crash. No vertical shipped by this template raises a ConflictError from inside a span yet, so
+# this test wires the shape by hand, the same way it appears in a project that copied the pattern.
+class TestARejectionInsideANestedSpanIsNotAFailure:
+    # FUNCTION: test_a_conflict_raised_inside_a_span_carries_no_error_level_and_no_traceback
+    # SUMMARY: A request that ends 409 must show no ERROR-level record and no captured traceback.
+    @pytest.mark.integration
+    async def test_a_conflict_raised_inside_a_span_carries_no_error_level_and_no_traceback(
+        self,
+        fastapi_app: FastAPI,
+        async_client: AsyncClient,
+        log_capture: list[dict],
+    ) -> None:
+        probe_logger = get_logger(
+            "tests.application.test_client_errors_are_not_service_errors.probe"
+        )
+
+        # **LOGIC_STEP**: Mirrors db.reference_task.add: a span around one unit of work that turns
+        # out to conflict with what is already stored, and raises from inside the `with` block —
+        # not after it, which is the shape that put the exception in front of span()'s own except
+        # clause before exception_handlers.py ever saw it.
+        async def _raise_conflict_inside_a_span() -> dict[str, str]:
+            with probe_logger.span("db.probe.add"):
+                raise ConflictError("a task with this name already exists")
+
+        fastapi_app.add_api_route(
+            "/__test_conflict_inside_span", _raise_conflict_inside_a_span, methods=["GET"]
+        )
+        log_capture.clear()
+
+        response = await async_client.get("/__test_conflict_inside_span")
+
+        assert response.status_code == 409
+        span_error_events = [
+            event["kwargs"]
+            for event in log_capture
+            if event["kwargs"].get("event_id") == "span.error"
+        ]
+        assert span_error_events, "the nested span's rejection was not recorded at all"
+        # **LOGIC_STEP**: The two facts a reader actually greps for — ERROR level and a captured
+        # traceback (exc_info) — asserted directly, not inferred from a mark elsewhere.
+        assert all(kwargs.get("level") != logging.ERROR for kwargs in span_error_events), (
+            span_error_events
+        )
+        assert all(not kwargs.get("exc_info") for kwargs in span_error_events), span_error_events
+        # **LOGIC_STEP**: The field trace_formatter.py reads to render this WARNING as a rejection
+        # rather than as a cancelled/interrupted span — see SpanNode.client_rejection there.
+        assert all(kwargs.get("client_rejection") is True for kwargs in span_error_events), (
+            span_error_events
+        )
+        # **LOGIC_STEP**: No event of ANY kind for this request carries ERROR — not the span, not
+        # whatever exception_handlers.py writes once the exception reaches it a moment later.
+        assert all(event["kwargs"].get("level") != logging.ERROR for event in log_capture), (
+            log_capture
+        )

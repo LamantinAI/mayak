@@ -57,6 +57,26 @@ def get_client_safe_message(error: Exception) -> str:
     return SAFE_INTERNAL_ERROR_MESSAGE
 
 
+# FUNCTION: is_client_rejection
+# SUMMARY: Report whether `error` is a domain exception this application answers with a 4xx, as
+# opposed to one it answers with a 5xx or one outside the ProjectError hierarchy altogether.
+# OUTPUT: (bool): True for every ProjectError subclass except ExternalServiceError — the one
+# subclass exception_handlers.py's _project_error_status maps onto 502.
+# NOTE: Consumed by project.core.logging.logger.span(): a nested span — a repository call
+# translating a duplicate-name insert into ConflictError, an application-layer span enforcing a
+# precondition — used to log whatever it caught exactly like a real failure: ERROR level, full
+# traceback. The very same exception reaches exception_handlers.py a moment later and is answered
+# 409/404/422/401, routine and logged at WARNING with no traceback — so a duplicate name produced
+# two records that disagreed about whether anything had gone wrong, and the ERROR one, with its
+# stack trace, was the one that looked worth investigating. Two independent agents building real
+# projects on this template lost a full session stage to that trace before the cause turned out to
+# be a domain rejection, not a crash. This function is the one place both call sites judge an
+# exception by, so they cannot drift the way _project_error_status's own status numbers already can
+# (ExternalServiceError maps to 502 there too — a second copy of the same fact, not fixed here).
+def is_client_rejection(error: Exception) -> bool:
+    return isinstance(error, ProjectError) and not isinstance(error, ExternalServiceError)
+
+
 # FUNCTION: summarize_exception_for_logging
 # SUMMARY: Build a sanitized structured summary for exception logging without exposing raw messages.
 def summarize_exception_for_logging(error: Exception) -> dict[str, Any]:

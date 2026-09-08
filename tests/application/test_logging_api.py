@@ -12,6 +12,7 @@ import pytest
 from project.core.logging import get_logger
 from project.core.logging.enums import EventType
 from project.core.logging.logger import SemanticLogger
+from project.domain.exceptions import ConflictError
 
 
 # CLASS: tests.application.test_logging_api.TestLoggingApi
@@ -280,3 +281,121 @@ class TestAnInterruptedSpanStillReportsItself:
                 raise raised
 
         assert excinfo.value is raised
+
+
+# CLASS: tests.application.test_logging_api.TestASpanThatRejectsIsNotReportedAsAFailure
+# SUMMARY: A ConflictError/NotFoundError/etc. raised inside a span is the application working, not
+# failing — the same fact exception_handlers.py already acts on, applied here to the span itself.
+# NOTE: Until 2026-09-08 span() judged every exception the same way: ERROR, full traceback. A
+# nested span that raised a domain rejection — a repository call translating a duplicate name, an
+# application-layer span checking a precondition — wrote a record indistinguishable from a real
+# crash, moments before exception_handlers.py wrote the correct one for the very same exception.
+# The integration-level version of this guard is
+# tests/application/test_client_errors_are_not_service_errors.py's
+# TestARejectionInsideANestedSpanIsNotAFailure, which drives a real request end to end; this class
+# is the unit-level one, isolating span() the way TestAnInterruptedSpanStillReportsItself above
+# isolates the interruption branch.
+class TestASpanThatRejectsIsNotReportedAsAFailure:
+    # FUNCTION: test_a_conflict_error_is_warning_with_no_traceback_and_is_marked_a_rejection
+    # SUMMARY: Verify level, exc_info, event_type, and the client_rejection field all move together.
+    @pytest.mark.unit
+    def test_a_conflict_error_is_warning_with_no_traceback_and_is_marked_a_rejection(
+        self, log_capture: list[dict], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        logger = get_logger("tests.application.test_logging_api.rejecting")
+        caplog.set_level(logging.INFO, logger="tests.application.test_logging_api.rejecting")
+
+        # **LOGIC_STEP**: pytest.raises wraps only the nested span, not the root — exactly the
+        # shape production has, where exception_handlers.py (standing in for pytest.raises here)
+        # stops the exception before it ever reaches the root http_request span. Wrapping the root
+        # too would make the SAME exception object cross two spans, and root's own except branch
+        # would write a second span.error alongside the one this test means to isolate.
+        with logger.span("http_request", root=True):
+            log_capture.clear()
+            with pytest.raises(ConflictError):
+                with logger.span("db.probe.add"):
+                    raise ConflictError("duplicate name")
+
+        errors = [event for event in log_capture if event["kwargs"].get("event_id") == "span.error"]
+        assert len(errors) == 1
+        record = errors[0]["kwargs"]
+        assert record["level"] == logging.WARNING
+        assert record["exc_info"] is False
+        assert record["client_rejection"] is True
+        assert errors[0]["event_type"] is EventType.ISSUE_WARNING
+
+    # FUNCTION: test_an_unrelated_exception_is_still_an_error_with_a_traceback
+    # SUMMARY: Verify the new branch did not quieten the failures that ARE the application's own.
+    @pytest.mark.unit
+    def test_an_unrelated_exception_is_still_an_error_with_a_traceback(
+        self, log_capture: list[dict], caplog: pytest.LogCaptureFixture
+    ) -> None:
+        logger = get_logger("tests.application.test_logging_api.still_failing")
+        caplog.set_level(logging.INFO, logger="tests.application.test_logging_api.still_failing")
+
+        with logger.span("http_request", root=True):
+            log_capture.clear()
+            with pytest.raises(ValueError):
+                with logger.span("db.probe.add"):
+                    raise ValueError("query blew up")
+
+        errors = [event for event in log_capture if event["kwargs"].get("event_id") == "span.error"]
+        record = errors[0]["kwargs"]
+        assert record["level"] == logging.ERROR
+        assert record["exc_info"] is True
+        assert record["client_rejection"] is False
+
+
+# CLASS: tests.application.test_logging_api.TestATruncatedLLMCallIsAWarning
+# SUMMARY: log_llm_call escalates a `length` finish_reason to WARNING even though success=True.
+# NOTE: Complements tests/application/test_llm_service_retry.py, which pins that
+# llm_service_live.py READS finish_reason off response_metadata and passes it through; this class
+# pins what log_llm_call DOES with it once it arrives — the escalation llm_service_live.py itself
+# has no part in and should not have to know about.
+class TestATruncatedLLMCallIsAWarning:
+    # FUNCTION: test_a_normal_completion_stays_info
+    # SUMMARY: Verify finish_reason="stop" (or none at all) does not touch the level.
+    @pytest.mark.unit
+    @pytest.mark.parametrize("finish_reason", ["stop", "tool_calls", None])
+    def test_a_normal_completion_stays_info(
+        self, log_capture: list[dict], finish_reason: str | None
+    ) -> None:
+        logger = get_logger("tests.application.test_logging_api.llm_ok")
+
+        logger.log_llm_call("gpt-test", duration_ms=12.0, success=True, finish_reason=finish_reason)
+
+        record = log_capture[-1]["kwargs"]
+        assert record["level"] == logging.INFO
+        assert record["data"]["finish_reason"] == finish_reason
+
+    # FUNCTION: test_a_length_truncated_completion_is_a_warning
+    # SUMMARY: Verify finish_reason="length" raises the level even though success stayed True.
+    @pytest.mark.unit
+    def test_a_length_truncated_completion_is_a_warning(self, log_capture: list[dict]) -> None:
+        logger = get_logger("tests.application.test_logging_api.llm_truncated")
+
+        logger.log_llm_call("gpt-test", duration_ms=12.0, success=True, finish_reason="length")
+
+        entry = log_capture[-1]
+        record = entry["kwargs"]
+        assert record["level"] == logging.WARNING
+        assert record["data"]["finish_reason"] == "length"
+        assert record["data"]["success"] is True
+        # **LOGIC_STEP**: Visible without opening the structured payload — an operator scanning
+        # the raw message text sees why this one is a WARNING and not just that it is one. `msg`
+        # is log_event's second positional argument, so log_capture holds it at the top level of
+        # the entry, not inside `kwargs` alongside `level` and `data`.
+        assert "truncated" in entry["msg"]
+
+    # FUNCTION: test_a_failed_call_stays_a_warning_regardless_of_finish_reason
+    # SUMMARY: Verify the pre-existing success=False path is untouched by this change.
+    @pytest.mark.unit
+    def test_a_failed_call_stays_a_warning_regardless_of_finish_reason(
+        self, log_capture: list[dict]
+    ) -> None:
+        logger = get_logger("tests.application.test_logging_api.llm_failed")
+
+        logger.log_llm_call("gpt-test", duration_ms=12.0, success=False, error="timed out")
+
+        record = log_capture[-1]["kwargs"]
+        assert record["level"] == logging.WARNING
