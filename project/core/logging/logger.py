@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from types import FrameType
 from typing import Any, Optional, cast
 
+from project.domain.exceptions import is_client_rejection
 from project.core.logging.context import (
     get_current_context,
     get_current_span,
@@ -175,6 +176,20 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
         finally:
             reset_context(token)
 
+    # NOTE: Span-naming conventions. `name` has no enforced grammar — anything is a valid span —
+    # but two dotted prefixes carry meaning to the rest of this package and to
+    # trace_formatter.py's compact renderer, so a vertical that wants the behavior below copies the
+    # prefix, not just the idea:
+    #   `db.<vertical>.<operation>` — one repository call, e.g. `db.reference_task.add`. Documented
+    #   by example in project/infrastructure/persistence/reference_task_repository.py, which is the
+    #   copyable original.
+    #   `agent.tool.<tool_name>` — one tool call inside an agent loop, e.g.
+    #   `agent.tool.search_docs`. Added 2026-09-08: two independent projects built on this template
+    #   each wrapped their own tool calls by hand to see which tool ran and with what arguments,
+    #   because the compact trace showed neither — a generic span name and nothing else, the tool
+    #   itself invisible next to the LLM call that requested it. Name the span this way and pass the
+    #   tool's arguments as `input_params` (below) and the compact renderer shows both: see
+    #   trace_formatter.py's `_TOOL_SPAN_PREFIX` and the NOTE beside it.
     # FUNCTION: span
     # SUMMARY: Context manager for execution tracing with automatic timing, hierarchy, and request summary events.
     # INPUT: root (bool): Start a new trace root, ignoring whatever span is ambient. See below.
@@ -259,7 +274,15 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             error_id = uuid.uuid4().hex
             ctx.error_id = error_id
             error_id_token = set_current_error_id(error_id)
-            increment_span_stat("error_count")
+            rejection = is_client_rejection(error)
+            # **LOGIC_STEP**: A routine 409 is not an error in the count either. Levels alone were
+            # fixed first and the counter was left behind, so `request.summary` still reported
+            # error_count=1 and `make format-trace` still printed `errors=1` for a request the
+            # same trace calls a client_error — the healthy service reading as a failing one,
+            # one field further down. The span.error record survives at WARNING with
+            # client_rejection=True; what stops is calling it a failure twice.
+            if not rejection:
+                increment_span_stat("error_count")
             if not is_root_span:
                 # **LOGIC_STEP**: span.error is written whatever the span's own level, so a failed
                 # child is always in the tree and always counted.
@@ -273,11 +296,24 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             # tests/application/test_logging_api.py pins that.
             if _caller is None:
                 _caller = self._resolve_caller()
+
+            # **LOGIC_STEP**: A ConflictError raised by a repository span, a NotFoundError from an
+            # application-layer span checking a precondition — every one of them used to be judged
+            # the same way every real failure is: ERROR, full traceback. exception_handlers.py
+            # answers the identical exception 409/404/422/401 a moment later, at WARNING with none,
+            # because it IS this application working, not failing. Until this check existed the two
+            # records disagreed, and the ERROR one — the one carrying a stack trace — read as the
+            # incident. is_client_rejection is the function exception_handlers.py itself asks a
+            # moment later, kept beside the exception hierarchy in project.domain.exceptions so
+            # this call site and that one cannot drift apart — TestBothCallSitesJudgeAlike pins
+            # that they answer alike.
+            event_level = logging.WARNING if rejection else logging.ERROR
+            write_traceback = not rejection and not already_logged
             self.log_event(
-                EventType.ISSUE_ERROR,
-                f"Span failed: {name} ({type(error).__name__})",
-                level=logging.ERROR,
-                exc_info=not already_logged,
+                EventType.ISSUE_WARNING if rejection else EventType.ISSUE_ERROR,
+                f"Span {'rejected' if rejection else 'failed'}: {name} ({type(error).__name__})",
+                level=event_level,
+                exc_info=write_traceback,
                 event_id="span.error",
                 _caller=_caller,
                 data=metadata,
@@ -288,9 +324,14 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                 name=name,
                 error_message=str(error),
                 exception_type=type(error).__name__,
+                # **LOGIC_STEP**: An explicit field rather than leaving trace_formatter.py to infer
+                # this from the level alone — WARNING already means "an interruption" there
+                # (_emit_interrupted_span), and reusing that mark for a routine domain rejection
+                # would have rendered a 409 with the "cut short" symbol a cancelled request gets.
+                client_rejection=rejection,
             )
 
-            if not already_logged:
+            if write_traceback:
                 setattr(error, "_logged_with_traceback", True)
 
             if is_root_span:

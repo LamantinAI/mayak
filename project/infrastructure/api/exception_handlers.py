@@ -15,6 +15,7 @@ from project.core.logging import get_logger
 from project.core.logging.context import get_trace_id, reset_trace_id, set_trace_id
 from project.core.logging.redaction import summarize_text
 from project.domain.exceptions import (
+    is_client_rejection,
     ProjectError,
     ValidationError,
     NotFoundError,
@@ -102,12 +103,16 @@ class ExceptionHandlerManager:
     # FUNCTION: _render_project_error
     # SUMMARY: Render ProjectError exceptions with domain-specific HTTP mapping.
     async def _render_project_error(self, request: Request, exc: ProjectError) -> JSONResponse:
-        # **LOGIC_STEP**: The status is decided before the log line, because the status is what
-        # decides the level. A 404 or a 422 is this application working — it read a request it
-        # could not serve and said so — and recording it at ERROR made a healthy service read as
-        # a failing one, in the log and in `make format-trace`'s error count.
+        # **LOGIC_STEP**: A 404 or a 422 is this application working — it read a request it could
+        # not serve and said so — and recording it at ERROR made a healthy service read as a
+        # failing one, in the log and in `make format-trace`'s error count. The level is asked of
+        # `is_client_rejection`, which is also what `logger.span()` asks a moment earlier about the
+        # very same exception. Deriving it here from `status_code >= 500` instead gave the same
+        # answers, but as a second copy of the rule: the two could drift, and a nested span and its
+        # handler disagreeing about whether anything went wrong is the exact confusion this pair of
+        # call sites exists to avoid.
         status_code = _project_error_status(exc)
-        record = logger.log_error if status_code >= 500 else logger.log_client_error
+        record = logger.log_client_error if is_client_rejection(exc) else logger.log_error
         record(
             error_type="project_error",
             message="Project error occurred",

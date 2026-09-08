@@ -484,18 +484,41 @@ format-trace: ## Reading a running service | Render a local NDJSON file: ARGS="<
 # exited 0 — the same answer as a service that logged nothing. Measured on 2026-09-02 with
 # COMPOSE_FILE=nonexistent.yml. `set -o pipefail` would be the one-line fix, and the /bin/sh
 # that make uses is dash on Debian and Ubuntu, where that is an illegal option.
+# Which Compose project the two recipes below read. Three projects appear in this Makefile and
+# they are not interchangeable: `$(SMOKE_PROJECT)` (ephemeral, torn down by `make smoke` itself),
+# `$(WORKTREE_PROJECT)` (what `db-up-worktree` starts the database under), and Compose's own
+# directory-derived default (what a bare `docker compose up -d` from README uses).
+# The default here is the worktree's, because that is where the app actually runs once a checkout
+# has a worktree database: measured on 2026-09-07, two agents each built a project on this
+# template and both ended up with `wt-<checkout>-<digest>-app-1`, having extended
+# `db-up-worktree`'s own `-p` to the whole stack. Without any `-p`, `docker compose logs` falls
+# back to the directory-derived name — the exact collision `db-up-worktree`'s comment documents
+# for `up`: two worktrees agree on one name, so this read whichever project owned it, another
+# checkout's container or nothing at all, silently.
+# Started the stack the README way instead? Name that project:
+#   make logs LOGS_PROJECT=$$(basename "$$PWD" | tr '[:upper:]' '[:lower:]')
+LOGS_PROJECT ?= $(WORKTREE_PROJECT)
 logs: ## Reading a running service | Render the container's semantic log as a trace tree
 	@tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
-	docker compose logs --no-color --no-log-prefix --tail $(or $(LINES),2000) app > "$$tmp" && \
+	docker compose -p $(LOGS_PROJECT) logs --no-color --no-log-prefix --tail $(or $(LINES),2000) app > "$$tmp" && \
 	$(UV) run python -c "from project.core.logging.trace_formatter import _cli; _cli()" "$$tmp" $(ARGS)
 
-# Same source, unrendered, for grepping. Writes to logs/container-<timestamp>.ndjson.
+# Where logs-raw writes. `?=` so an environment variable overrides it — make imports the
+# environment before reading the makefile, and a conditional assignment leaves an already-set
+# variable alone. tests/application/test_gate_recipes.py::TestLogTargetsReportAFailedCompose uses
+# exactly that: pointing LOGS_DIR at a tmp_path keeps those tests from reading this checkout's own
+# logs/, which whatever container is actually running writes into concurrently — a before/after
+# glob compared against the shared directory went red whenever that happened mid-test, for a
+# reason that had nothing to do with the recipe under test.
+LOGS_DIR ?= logs
+
+# Same source, unrendered, for grepping. Writes to $(LOGS_DIR)/container-<timestamp>.ndjson.
 # A failed compose call removes the file it was writing and exits non-zero; before 2026-09-02 the
 # recipe went on to print the path of an empty file and exit 0.
-logs-raw: ## Reading a running service | Dump the container's raw NDJSON under logs/
-	@mkdir -p logs
-	@out="logs/container-$$(date -u +%Y-%m-%dT%H-%M-%S).ndjson"; \
-	docker compose logs --no-color --no-log-prefix --tail $(or $(LINES),2000) app > "$$out" \
+logs-raw: ## Reading a running service | Dump the container's raw NDJSON under $(LOGS_DIR)
+	@mkdir -p $(LOGS_DIR)
+	@out="$(LOGS_DIR)/container-$$(date -u +%Y-%m-%dT%H-%M-%S).ndjson"; \
+	docker compose -p $(LOGS_PROJECT) logs --no-color --no-log-prefix --tail $(or $(LINES),2000) app > "$$out" \
 		|| { rm -f "$$out"; exit 1; }; \
 	echo "$$out"
 

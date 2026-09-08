@@ -73,9 +73,11 @@ naming the template they came from. Leave them alone.
 
 Two places used to belong on this list and no longer do, because carrying a name that can go
 stale was the defect: `project/__init__.py`'s SUMMARY and the temporary file `make audit-deps`
-writes are both generic now.
-`tests/application/test_template_neutrality.py` fails if a project name reappears anywhere under
-`project/` outside the documented default in #4, so this list cannot silently grow again.
+writes are both generic now. `tests/application/test_template_neutrality.py` still checks the
+operational contract's heading and the audit-deps temp path. It no longer forbids the project's
+own name elsewhere under `project/` — a project is free to name itself in its own prompt file and
+in code comments; only the fallback default in #4 is pinned, by
+`tests/application/test_config.py::test_default_values`.
 
 ## Expected output
 

@@ -13,6 +13,7 @@ import pytest
 from ai_context.errors import ContextBuildError, ContextIssue
 from scripts.doctor_ai_context import (
     LAYER_UNAVAILABLE_RULE_ID,
+    _migrations_not_verified_notice,
     diagnose,
     diagnose_full,
     main,
@@ -798,3 +799,125 @@ class TestDoctorSurvivesItsOwnTooling:
         assert exit_code == 1
         assert "fix: Run `make ai-autofix`." in printed
         assert printed.index("fix:") < printed.index("next:")
+
+
+# CLASS: tests.application.test_doctor_ai_context.TestDoctorRepeatsTheUnverifiedMigrationNotice
+# SUMMARY: Verify an "ok" doctor run still says when the migration check never reached a database.
+# NOTE: The skip is not an error, so it is filtered out of the blocking set and the doctor used to
+# report a clean run indistinguishable from a verified one. Measured in both projects of the
+# 2026-09-07 duel: a migration that dropped a column instead of renaming it passed every local
+# gate. The notice is read from validate_migrations.py's own issue rather than re-worded, so the
+# sentence is written once — this asserts both halves, that it is carried and that it is that one.
+class TestDoctorRepeatsTheUnverifiedMigrationNotice:
+    # FUNCTION: test_the_skip_is_pulled_out_of_the_issue_batch
+    # SUMMARY: Verify the skip's own message is what the doctor reports.
+    # OUTPUT: (None): None.
+    @pytest.mark.unit
+    def test_the_skip_is_pulled_out_of_the_issue_batch(self) -> None:
+        from scripts.validate_migrations import _NOT_VERIFIED_BANNER, MigrationIssue
+
+        skipped = MigrationIssue(
+            rule_id="migrations.database_unreachable",
+            command_name="upgrade-head",
+            message=f"{_NOT_VERIFIED_BANNER} — no database reachable, run `make db-up-worktree`.",
+            returncode=0,
+            severity="info",
+        )
+        other = MigrationIssue(
+            rule_id="migrations.multiple_heads",
+            command_name="heads",
+            message="two heads",
+            returncode=1,
+            severity="error",
+        )
+
+        notice = _migrations_not_verified_notice([other, skipped])
+
+        assert notice is not None
+        assert notice.startswith(_NOT_VERIFIED_BANNER)
+
+    # FUNCTION: test_a_verified_run_carries_no_notice
+    # SUMMARY: Verify nothing is announced when the database was actually reached.
+    # OUTPUT: (None): None.
+    @pytest.mark.unit
+    def test_a_verified_run_carries_no_notice(self) -> None:
+        from scripts.validate_migrations import MigrationIssue
+
+        assert _migrations_not_verified_notice([]) is None
+        assert (
+            _migrations_not_verified_notice(
+                [
+                    MigrationIssue(
+                        rule_id="migrations.multiple_heads",
+                        command_name="heads",
+                        message="x",
+                        returncode=1,
+                        severity="error",
+                    )
+                ]
+            )
+            is None
+        )
+
+    # FUNCTION: test_main_prints_the_notice_carried_by_an_ok_payload
+    # SUMMARY: Verify the print survives — an "ok" payload holding the notice says so on stdout.
+    # NOTE: The two tests above pin `_migrations_not_verified_notice` alone, which an independent
+    # review of this branch pointed out on 2026-09-08 is only a third of the path: deleting the
+    # print in `main()` or the call in `diagnose()` would have left them green and `make doctor`
+    # silent again — the exact silence this change exists to end. This covers the print, and the
+    # test below covers the call.
+    @pytest.mark.unit
+    def test_main_prints_the_notice_carried_by_an_ok_payload(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        from scripts.validate_migrations import _NOT_VERIFIED_BANNER
+
+        monkeypatch.setattr(
+            "scripts.doctor_ai_context.diagnose",
+            lambda: {
+                "status": "ok",
+                "checked_layers": ["migrations"],
+                "final_gate": "make quality-gates",
+                "migrations_notice": f"{_NOT_VERIFIED_BANNER} — no database reachable.",
+            },
+        )
+        monkeypatch.setattr(sys, "argv", ["scripts/doctor_ai_context.py"])
+
+        exit_code = main()
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert "doctor status: ok" in captured.out
+        assert _NOT_VERIFIED_BANNER in captured.out
+
+    # FUNCTION: test_diagnose_attaches_the_notice_to_its_ok_payload
+    # SUMMARY: Verify the skip reaches the payload, not only the helper that can find it.
+    # NOTE: Skips on a working tree that is failing some other layer, the same way
+    # TestExtendedCheckedLayers does — there is no "ok" payload to read then, and stubbing every
+    # other layer to manufacture one would test the stubs.
+    @pytest.mark.unit
+    def test_diagnose_attaches_the_notice_to_its_ok_payload(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from scripts.validate_migrations import _NOT_VERIFIED_BANNER, MigrationIssue
+
+        monkeypatch.setattr(
+            "scripts.doctor_ai_context.collect_migration_issues",
+            lambda _root: [
+                MigrationIssue(
+                    rule_id="migrations.database_unreachable",
+                    command_name="upgrade-head",
+                    message=f"{_NOT_VERIFIED_BANNER} — no database reachable.",
+                    returncode=0,
+                    severity="info",
+                )
+            ],
+        )
+
+        payload = diagnose()
+
+        if payload.get("status") != "ok":
+            pytest.skip("working tree is not clean enough to read an OK payload")
+        assert _NOT_VERIFIED_BANNER in str(payload["migrations_notice"])

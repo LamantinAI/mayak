@@ -13,6 +13,7 @@ from ai_query.handlers.bootstrap import query_bootstrap
 from ai_query.handlers.before_edit import query_before_edit
 from ai_query.handlers.failure import query_failure
 from ai_query.handlers.overview import query_overview
+from ai_query.handlers.symbol import query_symbol
 from ai_query.handlers.workset import query_workset
 from ai_query.rendering import render_json as _render_json
 from ai_query.rendering import render_text as _render_text
@@ -26,6 +27,7 @@ _query_overview = query_overview
 _query_before_edit = query_before_edit
 _query_failure = query_failure
 _query_workset = query_workset
+_query_symbol = query_symbol
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -76,6 +78,12 @@ def build_parser() -> argparse.ArgumentParser:
     failure_subparsers = failure_parser.add_subparsers(dest="subject_kind", required=True)
     failure_rule = failure_subparsers.add_parser("rule", help="Remediation for a rule ID.")
     failure_rule.add_argument("rule_id")
+
+    symbol_parser = subparsers.add_parser(
+        "symbol",
+        help="Show the file and line of a function, class or field by exact name, without a repo-wide grep.",
+    )
+    symbol_parser.add_argument("name")
 
     return parser
 

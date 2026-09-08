@@ -338,3 +338,57 @@ class TestTokenAccounting:
         kwargs = instance._logger.log_llm_call.call_args.kwargs
         assert kwargs["input_tokens"] is None
         assert kwargs["total_tokens"] is None
+
+
+# CLASS: tests.application.test_llm_service_retry.TestFinishReasonReachesTheLog
+# SUMMARY: finish_reason must survive from the raw provider reply to the log_llm_call call site.
+# NOTE: Added 2026-09-04. `llm.call` used to log nothing about WHY the model stopped — a reply cut
+# off by the output-token or tool-schema limit (finish_reason="length") carried success=True and
+# looked identical to a complete answer. An agent debugging a live run against this template spent
+# the whole live-run stage of a session on a tool-argument Decimal field the model never finished
+# writing, because nothing in the log said the response was truncated. langchain-openai puts
+# finish_reason in AIMessage.response_metadata on every reply; this class pins that
+# _call_llm_with_retry reads it from there. What log_llm_call DOES with the value (WARNING
+# escalation) is tests/application/test_logging_api.py::TestATruncatedLLMCallIsAWarning — a
+# different fact, tested where it is implemented.
+class TestFinishReasonReachesTheLog:
+    # FUNCTION: test_finish_reason_is_read_from_response_metadata
+    # SUMMARY: A "length" finish_reason on the reply reaches log_llm_call unchanged.
+    @pytest.mark.unit
+    async def test_finish_reason_is_read_from_response_metadata(
+        self, test_settings: FixtureSettings
+    ) -> None:
+        reply = AIMessage(content="ok", response_metadata={"finish_reason": "length"})
+        instance = _build_instance(test_settings, return_value=reply)
+
+        await instance._call_llm_with_retry([HumanMessage(content="hi")])
+
+        kwargs = instance._logger.log_llm_call.call_args.kwargs
+        assert kwargs["finish_reason"] == "length"
+
+    # FUNCTION: test_a_normal_stop_reason_reaches_the_log_too
+    # SUMMARY: The field is not special-cased to only the truncated value — every reply carries it.
+    @pytest.mark.unit
+    async def test_a_normal_stop_reason_reaches_the_log_too(
+        self, test_settings: FixtureSettings
+    ) -> None:
+        reply = AIMessage(content="ok", response_metadata={"finish_reason": "stop"})
+        instance = _build_instance(test_settings, return_value=reply)
+
+        await instance._call_llm_with_retry([HumanMessage(content="hi")])
+
+        kwargs = instance._logger.log_llm_call.call_args.kwargs
+        assert kwargs["finish_reason"] == "stop"
+
+    # FUNCTION: test_a_reply_with_no_response_metadata_logs_finish_reason_none
+    # SUMMARY: A mock runnable or a future provider that omits response_metadata must not crash.
+    @pytest.mark.unit
+    async def test_a_reply_with_no_response_metadata_logs_finish_reason_none(
+        self, test_settings: FixtureSettings
+    ) -> None:
+        instance = _build_instance(test_settings, return_value=AIMessage(content="ok"))
+
+        await instance._call_llm_with_retry([HumanMessage(content="hi")])
+
+        kwargs = instance._logger.log_llm_call.call_args.kwargs
+        assert kwargs["finish_reason"] is None

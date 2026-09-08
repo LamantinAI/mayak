@@ -91,7 +91,56 @@ class TestValidateMigrations:
         output = capsys.readouterr().out
 
         assert exit_code == 0
-        assert "Database is not reachable" in output
+        assert "MIGRATIONS NOT VERIFIED" in output
+
+    # FUNCTION: test_not_verified_banner_appears_only_when_the_gate_actually_skipped
+    # SUMMARY: The banner marks an unverified skip and only an unverified skip — never a real pass.
+    # **LOGIC_STEP**: This is the trap for the 2026-09-07 finding: the old skip message read
+    # like every other passing line in a `make quality-gates` run, so a migration that dropped a
+    # column instead of renaming it cleared every local gate on both projects the audit built from
+    # this template. The banner text has to be present on the skip path and absent on the path
+    # where alembic actually ran — either half missing reopens exactly that gap.
+    @pytest.mark.unit
+    def test_not_verified_banner_appears_only_when_the_gate_actually_skipped(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        import scripts.validate_migrations as validate_migrations
+
+        monkeypatch.delenv("CI", raising=False)
+        monkeypatch.delenv("MIGRATIONS_ALLOW_SKIP", raising=False)
+        monkeypatch.setenv("POSTGRES_ENABLED", "true")
+
+        # Skipped: database unreachable, nothing verified.
+        monkeypatch.setattr(validate_migrations, "_is_database_reachable", lambda: False)
+        skip_exit_code = main()
+        skip_output = capsys.readouterr().out
+
+        # Verified: database reachable, both alembic steps actually ran and passed.
+        # **LOGIC_STEP**: The commands are recorded, not merely swallowed. Asserting only the exit
+        # code and the absent banner left this green when `_build_commands()` returned nothing at
+        # all — a run that verifies neither `upgrade head` nor `check` and reports a clean pass,
+        # which is the very state the banner exists to make visible. Found by a second independent
+        # review on 2026-09-08.
+        commands: list[list[str]] = []
+
+        def _record(argv: list[str], *args: object, **kwargs: object) -> None:
+            commands.append(list(argv))
+
+        monkeypatch.setattr(validate_migrations, "_is_database_reachable", lambda: True)
+        monkeypatch.setattr(validate_migrations, "_stamped_revision_ids", lambda: set())
+        monkeypatch.setattr(subprocess, "run", _record)
+        verified_exit_code = main()
+        verified_output = capsys.readouterr().out
+
+        assert skip_exit_code == 0
+        assert verified_exit_code == 0
+        assert "MIGRATIONS NOT VERIFIED" in skip_output
+        assert "MIGRATIONS NOT VERIFIED" not in verified_output
+        alembic_steps = [argv for argv in commands if "alembic" in " ".join(argv)]
+        assert any("upgrade" in " ".join(argv) for argv in alembic_steps), commands
+        assert any("check" in " ".join(argv) for argv in alembic_steps), commands
 
     # FUNCTION: test_main_fails_when_database_unreachable_in_ci
     # SUMMARY: Ensure CI cannot silently skip the gate, which is how broken revisions reached main.

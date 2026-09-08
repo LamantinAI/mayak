@@ -383,6 +383,138 @@ class TestQueryConstantRoundTrip:
 
         assert validate_test_module(path, tmp_path) == []
 
+    # FUNCTION: test_an_identity_round_trip_without_a_pinned_clause_is_reported
+    # SUMMARY: Verify `sql is _CONSTANT` is caught as the same tautology `==` is — `is` states
+    # object identity, which the constant always has with itself, whatever its text says.
+    @pytest.mark.unit
+    def test_an_identity_round_trip_without_a_pinned_clause_is_reported(
+        self, tmp_path: Path
+    ) -> None:
+        repo_root = _write_repository_fixture(tmp_path)
+        path = _write_test_module(
+            tmp_path,
+            "from project.infrastructure.persistence.probe_repository import _SELECT_BY_ID\n"
+            "\n"
+            "def test_get_runs_the_query() -> None:\n"
+            "    sql = _SELECT_BY_ID\n"
+            "    assert sql is _SELECT_BY_ID\n",
+        )
+
+        issues = validate_test_module(path, repo_root)
+
+        assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
+        assert "_SELECT_BY_ID" in issues[0].message
+
+    # FUNCTION: test_a_pinned_clause_via_membership_clears_the_module
+    # SUMMARY: Verify `"clause text" in _CONSTANT` pins the constant the same way a sliced `==`
+    # does — the ordinary way to spell "this substring is really in there" without slicing first.
+    @pytest.mark.unit
+    def test_a_pinned_clause_via_membership_clears_the_module(self, tmp_path: Path) -> None:
+        repo_root = _write_repository_fixture(tmp_path)
+        path = _write_test_module(
+            tmp_path,
+            "from project.infrastructure.persistence.probe_repository import _SELECT_BY_ID\n"
+            "\n"
+            "def test_get_runs_the_query() -> None:\n"
+            "    cursor.execute.assert_awaited_once_with(_SELECT_BY_ID, ('id',))\n"
+            "    assert 'WHERE id = %s' in _SELECT_BY_ID\n",
+        )
+
+        assert validate_test_module(path, repo_root) == []
+
+    # FUNCTION: test_the_constant_on_the_left_of_in_does_not_count_as_pinned
+    # SUMMARY: Verify `_CONSTANT in something` — the constant as the haystack's member, not the
+    # text pin — is left exactly where it was: a round trip, not a pin. `in` only pins one way
+    # round, and this proves the branch does not fire on the direction that states nothing.
+    @pytest.mark.unit
+    def test_the_constant_on_the_left_of_in_does_not_count_as_pinned(self, tmp_path: Path) -> None:
+        repo_root = _write_repository_fixture(tmp_path)
+        path = _write_test_module(
+            tmp_path,
+            "from project.infrastructure.persistence.probe_repository import _SELECT_BY_ID\n"
+            "\n"
+            "def test_get_runs_the_query() -> None:\n"
+            "    cursor.execute.assert_awaited_once_with(_SELECT_BY_ID, ('id',))\n"
+            "    queries = [_SELECT_BY_ID]\n"
+            "    assert _SELECT_BY_ID in queries\n",
+        )
+
+        issues = validate_test_module(path, repo_root)
+
+        assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
+
+    # FUNCTION: test_a_one_word_needle_does_not_count_as_pinned
+    # SUMMARY: Verify `assert "SELECT" in _CONSTANT` — true of every query — pins nothing.
+    # NOTE: Measured on 2026-09-08 by a second independent review: with a one-word needle accepted,
+    # reversing `WHERE id = %s` to `WHERE status = %s` left the module reported clean, where the
+    # version before the `in` branch existed had reported it. A widening that makes a rule easier
+    # to silence than it was is a regression even when the widening itself was right.
+    @pytest.mark.unit
+    def test_a_one_word_needle_does_not_count_as_pinned(self, tmp_path: Path) -> None:
+        repo_root = _write_repository_fixture(tmp_path)
+        path = _write_test_module(
+            tmp_path,
+            "from project.infrastructure.persistence.probe_repository import _SELECT_BY_ID\n"
+            "\n"
+            "def test_get_runs_the_query() -> None:\n"
+            "    cursor.execute.assert_awaited_once_with(_SELECT_BY_ID, ('id',))\n"
+            "    assert 'SELECT' in _SELECT_BY_ID\n",
+        )
+
+        issues = validate_test_module(path, repo_root)
+
+        assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
+
+    # FUNCTION: test_an_empty_needle_does_not_count_as_pinned
+    # SUMMARY: Verify `assert "" in _CONSTANT` — true of every string — pins nothing.
+    # NOTE: Found by an independent review of this branch on 2026-09-08, right after the `in`
+    # branch was added: the shortest possible way to silence the rule for a whole module was one
+    # assertion that cannot fail.
+    @pytest.mark.unit
+    def test_an_empty_needle_does_not_count_as_pinned(self, tmp_path: Path) -> None:
+        repo_root = _write_repository_fixture(tmp_path)
+        path = _write_test_module(
+            tmp_path,
+            "from project.infrastructure.persistence.probe_repository import _SELECT_BY_ID\n"
+            "\n"
+            "def test_get_runs_the_query() -> None:\n"
+            "    cursor.execute.assert_awaited_once_with(_SELECT_BY_ID, ('id',))\n"
+            "    assert '' in _SELECT_BY_ID\n"
+            "    assert '   ' in _SELECT_BY_ID\n",
+        )
+
+        issues = validate_test_module(path, repo_root)
+
+        assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
+
+    # FUNCTION: test_the_constant_used_as_a_lookup_key_does_not_count_as_pinned
+    # SUMMARY: Verify a constant that appears only as a dictionary key states nothing about the
+    # SQL and does not silence the rule for the module.
+    # NOTE: Both branches used to ask `_referenced_names` whether the expression mentions the
+    # constant at all, which `results[_SELECT_BY_ID]` does — as the key doing the looking-up, with
+    # no claim about the query text anywhere. One such assertion marked the constant pinned and
+    # the rule went quiet for the whole module, which is the silence it exists to break. Found by
+    # an independent review of this branch on 2026-09-08.
+    @pytest.mark.unit
+    def test_the_constant_used_as_a_lookup_key_does_not_count_as_pinned(
+        self, tmp_path: Path
+    ) -> None:
+        repo_root = _write_repository_fixture(tmp_path)
+        path = _write_test_module(
+            tmp_path,
+            "from project.infrastructure.persistence.probe_repository import _SELECT_BY_ID\n"
+            "\n"
+            "def test_get_runs_the_query() -> None:\n"
+            "    cursor.execute.assert_awaited_once_with(_SELECT_BY_ID, ('id',))\n"
+            "    results = {_SELECT_BY_ID: 'ok'}\n"
+            "    assert results[_SELECT_BY_ID] == 'ok'\n"
+            "    assert 'ok' in results[_SELECT_BY_ID]\n",
+        )
+
+        issues = validate_test_module(path, repo_root)
+
+        assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
+
 
 # CLASS: tests.application.test_validate_test_quality.TestValidatorSurface
 # SUMMARY: Verify the repository is clean and the rule playbooks are complete.
@@ -911,6 +1043,130 @@ class TestASpanNobodyLooksAtIsReported:
         )
 
         assert collect_test_quality_issues(tmp_path) == []
+
+    # FUNCTION: test_a_span_named_only_through_an_imported_helper_is_left_alone
+    # SUMMARY: Verify a test module that names a span only by calling a shared tests/support helper
+    # is read as being about that span, instead of as a module nothing here mentions.
+    # NOTE: _looks_up_a_span_finish only reads the event_id == "span.finish" comparison written IN
+    # the module it is given. Factor that comparison out to a shared helper — the ordinary move
+    # once two test modules want the same lookup — and the comparison moves with it: the calling
+    # module stopped looking like it was about spans while still asserting on one. Prototyped
+    # 08.09.2026; re-measured here on 2026-09-08 rather than trusted.
+    @pytest.mark.unit
+    def test_a_span_named_only_through_an_imported_helper_is_left_alone(
+        self, tmp_path: Path
+    ) -> None:
+        self._write_project(
+            tmp_path,
+            "from tests.support.spans import assert_span_finished\n"
+            "\n"
+            "def test_the_save_span_reports_the_write(log_capture) -> None:\n"
+            "    assert_span_finished(log_capture, 'db.thing.save', {'row_written': True})\n",
+        )
+        support = tmp_path / "tests" / "support"
+        support.mkdir(parents=True)
+        (support / "__init__.py").write_text("", encoding="utf-8")
+        (support / "spans.py").write_text(
+            "def assert_span_finished(captured, name, output):\n"
+            "    finish = [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "    assert finish['name'] == name\n"
+            "    assert finish['data']['output'] == output\n",
+            encoding="utf-8",
+        )
+
+        issues = collect_test_quality_issues(tmp_path)
+
+        assert [issue.rule_id for issue in issues if "span_output" in issue.rule_id] == []
+
+    # FUNCTION: test_an_unrelated_helper_import_does_not_vouch_for_the_span
+    # SUMMARY: Verify importing from tests/support does not, by itself, satisfy this rule — only an
+    # import whose OWN module looks a span finish up does. The other direction of the same trap:
+    # widening the check to "imports anything from tests." would silence the rule for every module
+    # that imports an ordinary fixture helper, whether or not it says anything about spans.
+    @pytest.mark.unit
+    def test_an_unrelated_helper_import_does_not_vouch_for_the_span(self, tmp_path: Path) -> None:
+        self._write_project(
+            tmp_path,
+            "from tests.support.factories import make_row\n"
+            "\n"
+            "def test_something_else() -> None:\n"
+            "    assert make_row() is not None\n",
+        )
+        support = tmp_path / "tests" / "support"
+        support.mkdir(parents=True)
+        (support / "__init__.py").write_text("", encoding="utf-8")
+        (support / "factories.py").write_text(
+            "def make_row():\n    return {'id': 1}\n", encoding="utf-8"
+        )
+
+        issues = collect_test_quality_issues(tmp_path)
+
+        assert "test.span_output_unpinned" in [issue.rule_id for issue in issues]
+
+    # FUNCTION: test_a_sibling_symbol_from_the_span_helpers_module_does_not_vouch
+    # SUMMARY: Verify only the name that does the looking-up counts, not any name that happens to
+    # live in the same file as one.
+    # NOTE: The rule resolved the import to its module and asked whether the MODULE contained a
+    # span lookup. A test importing `make_row` from a module that also defines
+    # `assert_span_finished` therefore read as a span test, and every span name it mentioned in a
+    # string counted as covered while it asserted nothing. Found by an independent review of this
+    # branch on 2026-09-08 — the mutation it named was exactly this fixture.
+    @pytest.mark.unit
+    def test_a_sibling_symbol_from_the_span_helpers_module_does_not_vouch(
+        self, tmp_path: Path
+    ) -> None:
+        self._write_project(
+            tmp_path,
+            "from tests.support.spans import make_row\n"
+            "\n"
+            "def test_something_else() -> None:\n"
+            "    assert make_row() is not None\n"
+            "    assert 'db.thing.save' is not None\n",
+        )
+        support = tmp_path / "tests" / "support"
+        support.mkdir(parents=True)
+        (support / "__init__.py").write_text("", encoding="utf-8")
+        (support / "spans.py").write_text(
+            "def make_row():\n"
+            "    return {'id': 1}\n"
+            "\n"
+            "def assert_span_finished(captured, name):\n"
+            "    finish = [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "    assert finish['name'] == name\n",
+            encoding="utf-8",
+        )
+
+        issues = collect_test_quality_issues(tmp_path)
+
+        assert "test.span_output_unpinned" in [issue.rule_id for issue in issues]
+
+    # FUNCTION: test_importing_the_span_helper_itself_still_vouches
+    # SUMMARY: Verify the tightening did not take the legitimate case with it.
+    @pytest.mark.unit
+    def test_importing_the_span_helper_itself_still_vouches(self, tmp_path: Path) -> None:
+        self._write_project(
+            tmp_path,
+            "from tests.support.spans import assert_span_finished\n"
+            "\n"
+            "def test_the_span_reports(log_capture) -> None:\n"
+            "    assert_span_finished(log_capture, 'db.thing.save')\n",
+        )
+        support = tmp_path / "tests" / "support"
+        support.mkdir(parents=True)
+        (support / "__init__.py").write_text("", encoding="utf-8")
+        (support / "spans.py").write_text(
+            "def make_row():\n"
+            "    return {'id': 1}\n"
+            "\n"
+            "def assert_span_finished(captured, name):\n"
+            "    finish = [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "    assert finish['output']['row_written'] is True\n",
+            encoding="utf-8",
+        )
+
+        issues = collect_test_quality_issues(tmp_path)
+
+        assert "test.span_output_unpinned" not in [issue.rule_id for issue in issues]
 
 
 class TestValidatorSurface:

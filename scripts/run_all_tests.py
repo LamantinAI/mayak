@@ -29,6 +29,12 @@ FUNCTIONAL_ENV_SAMPLE = FUNCTIONAL_DIR / ".env.sample"
 # SUMMARY: Active environment file consumed by the functional Docker Compose suite.
 FUNCTIONAL_ENV_FILE = FUNCTIONAL_DIR / ".env"
 
+# ATTRIBUTE: COVERAGE_FLOOR_PERCENT (int)
+# SUMMARY: Total-coverage floor the full local run is held to, and the only place it is written.
+# NOTE: It lives here rather than in pytest.ini because a floor in `addopts` is applied to every
+# pytest invocation, narrow ones included, where a total is meaningless.
+COVERAGE_FLOOR_PERCENT = 60
+
 
 # FUNCTION: functional_compose_project
 # SUMMARY: Name the functional stack's Compose project after this checkout, not its directory.
@@ -105,6 +111,14 @@ def _build_test_steps(
                     "tests/infrastructure",
                     "tests/integration",
                     "-q",
+                    # **LOGIC_STEP**: The floor is asked for here rather than in pytest.ini's
+                    # addopts, where it used to live. addopts reach every pytest invocation, so
+                    # `uv run pytest tests/one_file.py` measured the whole of project/ against a
+                    # suite that ran three tests and exited red on total coverage while every test
+                    # it ran passed. An agent that meets that twice learns to read red as noise,
+                    # which is the opposite of what a floor is for. Only the full run can honestly
+                    # be held to a total, and this is the full run.
+                    f"--cov-fail-under={COVERAGE_FLOOR_PERCENT}",
                 ),
                 cwd=ROOT_DIR,
             )

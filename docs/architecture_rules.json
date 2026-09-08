@@ -791,7 +791,8 @@
       "uv run python scripts/query_ai_context.py before-edit file project/infrastructure/api/dependencies.py",
       "uv run python scripts/query_ai_context.py failure rule endpoint.no_depends_without_alias",
       "uv run python scripts/query_ai_context.py failure rule runtime_ownership.env_access_restricted",
-      "uv run python scripts/query_ai_context.py failure rule drift.agent_docs.outdated"
+      "uv run python scripts/query_ai_context.py failure rule drift.agent_docs.outdated",
+      "uv run python scripts/query_ai_context.py symbol AgentSettings"
     ],
     "path": "scripts/query_ai_context.py",
     "recommended_first_step": "uv run python scripts/query_ai_context.py bootstrap",

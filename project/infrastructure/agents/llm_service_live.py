@@ -220,6 +220,22 @@ class LLMServiceLiveMixin:
                         response_content = getattr(response, "content", "")
                         response_chars = len(str(response_content))
 
+                        # **LOGIC_STEP**: langchain-openai puts `finish_reason` in
+                        # `response_metadata` on every reply, success or not — it is how the
+                        # provider says WHY it stopped, and "it hit the output-token or
+                        # tool-schema limit" (`finish_reason == "length"`) looks identical to a
+                        # normal reply everywhere else on this object: `success=True`, content
+                        # present, no exception. Without this the log had no way to tell a
+                        # complete answer from one truncated mid-JSON. A response_metadata that is
+                        # missing or not a dict — a mock runnable in a test, a future provider that
+                        # omits it — reports finish_reason=None rather than raising.
+                        response_metadata = getattr(response, "response_metadata", None)
+                        finish_reason = (
+                            response_metadata.get("finish_reason")
+                            if isinstance(response_metadata, dict)
+                            else None
+                        )
+
                         full_trace = self._settings.observability.full_trace_enabled
                         extras = _build_full_trace_extras(
                             full_trace, messages, str(response_content)
@@ -235,6 +251,7 @@ class LLMServiceLiveMixin:
                             system_prompt_chars=system_prompt_chars,
                             messages_count=len(messages),
                             response_chars=response_chars,
+                            finish_reason=finish_reason,
                             **extras,
                         )
                         return response

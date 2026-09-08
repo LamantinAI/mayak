@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from scripts.run_all_tests import (
+    COVERAGE_FLOOR_PERCENT,
     FUNCTIONAL_ENV_FILE,
     FUNCTIONAL_ENV_SAMPLE,
     ROOT_DIR,
@@ -214,3 +215,42 @@ class TestRunAllTests:
     def test_functional_env_paths_point_to_repository_suite(self) -> None:
         assert FUNCTIONAL_ENV_SAMPLE == ROOT_DIR / "tests" / "functional" / ".env.sample"
         assert FUNCTIONAL_ENV_FILE == ROOT_DIR / "tests" / "functional" / ".env"
+
+
+# CLASS: tests.application.test_run_all_tests.TestCoverageFloorAppliesToTheFullRunOnly
+# SUMMARY: Verify the total-coverage floor is asked for by the full run and by nothing else.
+# NOTE: The floor used to sit in pytest.ini's `addopts`, which pytest applies to every invocation.
+# Measured on 2026-09-08 in both projects of the duel: `uv run pytest tests/one_file.py` reported
+# every test passing and then exited 1 on total coverage, because three tests cannot cover
+# project/. A red exit that says nothing about the tests that ran teaches the reader to stop
+# reading red exits, so the floor now belongs to the one run that can honestly carry it.
+class TestCoverageFloorAppliesToTheFullRunOnly:
+    # FUNCTION: test_pytest_ini_does_not_impose_a_total_on_every_invocation
+    # SUMMARY: Verify no coverage floor reaches a narrow run through pytest.ini's addopts.
+    # OUTPUT: (None): None.
+    @pytest.mark.unit
+    def test_pytest_ini_does_not_impose_a_total_on_every_invocation(self) -> None:
+        addopts = [
+            line
+            for line in (ROOT_DIR / "pytest.ini").read_text(encoding="utf-8").splitlines()
+            if line.startswith("addopts")
+        ]
+
+        assert addopts, "pytest.ini has no addopts line — the assertion below would pass vacuously"
+        assert "--cov-fail-under" not in addopts[0]
+
+    # FUNCTION: test_the_full_local_run_asks_for_the_floor_itself
+    # SUMMARY: Verify the local-suites step carries the floor the addopts line no longer does.
+    # OUTPUT: (None): None.
+    @pytest.mark.unit
+    def test_the_full_local_run_asks_for_the_floor_itself(self) -> None:
+        local = next(
+            step for step in _build_test_steps(skip_functional=True, functional_only=False)
+        )
+
+        # **LOGIC_STEP**: The number is written out here rather than interpolated from the constant
+        # the command is built from. Interpolating it moves both sides together — lowering the
+        # floor to 0 would have kept this green while switching the protection off, which is the
+        # same tautology `test.sql_constant_round_trip` exists to forbid one directory away.
+        assert "--cov-fail-under=60" in local.command
+        assert COVERAGE_FLOOR_PERCENT == 60

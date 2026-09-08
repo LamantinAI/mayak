@@ -9,6 +9,18 @@ from project.core.logging.enums import EventType
 from project.core.logging.logger_events_base import SemanticLoggerEventContract
 from project.core.logging.logger_types import LogPayload, LogValue
 
+# ATTRIBUTE: _TRUNCATED_FINISH_REASONS (frozenset[str])
+# SUMMARY: finish_reason values meaning the provider stopped because it hit a limit, not because
+# it was done — a completion cut off mid-JSON by the output-token or tool-schema cap.
+# NOTE: Added 2026-09-08. A response truncated this way used to read as an ordinary successful
+# `llm.call`: `success=True`, INFO level, nothing distinguishing it from a normal reply — the
+# response_metadata langchain hands back on every call already carries `finish_reason`, and nothing
+# read it. An agent in a live-run experiment on this template spent the whole stage of that run
+# diagnosing a tool-argument Decimal field the model never finished writing, because the log said
+# the call succeeded. "length" is the one OpenAI-compatible value this means; the others
+# (`stop`, `tool_calls`, `content_filter`, `function_call`) are normal completions and stay INFO.
+_TRUNCATED_FINISH_REASONS = frozenset({"length"})
+
 
 # CLASS: project.core.logging.logger_events_operational.SemanticLoggerOperationalEventsMixin
 # SUMMARY: Mixin implementing operational logging helpers for API, database, system, and LLM telemetry.
@@ -181,10 +193,34 @@ class SemanticLoggerOperationalEventsMixin:
             payload["error"] = error
         payload.update(extra)
 
-        level = logging.INFO if success else logging.WARNING
+        # **LOGIC_STEP**: `finish_reason` travels in through `**extra` (llm_service_live.py reads
+        # it off the response's `response_metadata`) rather than as its own keyword, because a mock
+        # response and any provider that answers without one must not be forced to pass None
+        # through a required argument. Reading it back out of `payload` — after `extra` has been
+        # folded in — is what lets this one check cover a truncated call whatever else the caller
+        # sent alongside it.
+        # **LOGIC_STEP**: `extra` is typed LogValue, which admits a list and a dict, and a
+        # membership test against a frozenset raises TypeError on an unhashable one — a provider
+        # returning a malformed `finish_reason` would then crash the logging call rather than the
+        # request it was describing. Only a string can name a stop reason, so anything else is
+        # simply not one.
+        finish_reason = payload.get("finish_reason")
+        truncated = (
+            success
+            and isinstance(finish_reason, str)
+            and finish_reason in _TRUNCATED_FINISH_REASONS
+        )
+
+        level = logging.WARNING if (not success or truncated) else logging.INFO
+        msg = f"LLM call to {model}: {'ok' if success else 'failed'} in {round(duration_ms, 1)}ms"
+        if truncated:
+            # **LOGIC_STEP**: Visible in the message itself, not only in a field a reader has to
+            # know to look for — the whole point is that this stopped reading as an ordinary
+            # success.
+            msg = f"{msg} (truncated: finish_reason={finish_reason})"
         self.log_event(
             EventType.LLM_CALL,
-            f"LLM call to {model}: {'ok' if success else 'failed'} in {round(duration_ms, 1)}ms",
+            msg,
             level=level,
             event_id="llm.call",
             _caller=_caller,

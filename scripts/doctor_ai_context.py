@@ -6,6 +6,7 @@ import argparse
 import subprocess
 import sys
 from pathlib import Path
+from typing import Sequence
 
 from ai_context.errors import ContextBuildError
 from ai_context.rendering import render_json
@@ -117,6 +118,28 @@ def unavailable_validator_payload(detail: str) -> dict[str, object]:
             }
         ],
     }
+
+
+# FUNCTION: _migrations_not_verified_notice
+# SUMMARY: Pull the unreachable-database skip message out of a batch of migration issues.
+# INPUT: issues (Sequence[object]): Everything collect_migration_issues(ROOT_DIR) returned —
+#        errors, skips and disabled-store informational issues alike, unfiltered by severity.
+# OUTPUT: (str | None): The skip's own message (carrying the MIGRATIONS NOT VERIFIED banner), or
+#         None when migrations were actually verified, POSTGRES_ENABLED=false, or a real error
+#         already short-circuited diagnose() before reaching the "ok" payload this feeds.
+# NOTE: Read from validate_migrations.py's own issue rather than re-worded here, so the wording
+# an agent sees under `make doctor` and under `make quality-gates` is the same sentence, sourced
+# once — see the module-level `_NOT_VERIFIED_BANNER` comment there for why it says what it says.
+def _migrations_not_verified_notice(issues: Sequence[object]) -> str | None:
+    for issue in issues:
+        if getattr(issue, "rule_id", None) == "migrations.database_unreachable":
+            # **LOGIC_STEP**: `message` is read the same defensive way `rule_id` is. The batch is
+            # typed as Sequence[object] precisely because this function must not assume the shape
+            # of what a future validator hands it, and reading one attribute defensively while
+            # reaching straight for the next is the half-measure that raises AttributeError on the
+            # first object that does not match.
+            return str(getattr(issue, "message", ""))
+    return None
 
 
 # FUNCTION: _fix_shape_for
@@ -365,10 +388,12 @@ def diagnose() -> dict[str, object]:
         }
 
     # **LOGIC_STEP**: Filter informational issues (e.g., DB unreachable skip) by severity rather than
-    # by rule_id literal. See `docs/agent_rules.md` "Validator authoring conventions".
-    migration_issues = [
-        issue for issue in collect_migration_issues(ROOT_DIR) if issue.severity == "error"
-    ]
+    # by rule_id literal. See `docs/agent_rules.md` "Validator authoring conventions". The
+    # unfiltered list is kept in `all_migration_issues` (not discarded) so the "ok" payload built
+    # at the end of this function can still say a skip happened — see
+    # `_migrations_not_verified_notice` below.
+    all_migration_issues = collect_migration_issues(ROOT_DIR)
+    migration_issues = [issue for issue in all_migration_issues if issue.severity == "error"]
     if migration_issues:
         issue = migration_issues[0]
         playbook = get_migrations_rule_playbook(issue.rule_id)
@@ -455,7 +480,7 @@ def diagnose() -> dict[str, object]:
     if drift_check is not None:
         return drift_check
 
-    return {
+    ok_payload: dict[str, object] = {
         "status": "ok",
         "checked_layers": [
             "context",
@@ -474,6 +499,15 @@ def diagnose() -> dict[str, object]:
         ],
         "final_gate": "make quality-gates",
     }
+    # **LOGIC_STEP**: "migrations" is checked_layers-clean here whenever the database was simply
+    # unreachable — that skip is not an error (see the filter above) and must not make "ok" a lie
+    # either. Without this an "ok" doctor run and a genuinely-verified one were indistinguishable,
+    # which is the same silence `_NOT_VERIFIED_BANNER` in validate_migrations.py exists to end for
+    # `make quality-gates`'s own output.
+    migrations_notice = _migrations_not_verified_notice(all_migration_issues)
+    if migrations_notice is not None:
+        ok_payload["migrations_notice"] = migrations_notice
+    return ok_payload
 
 
 # FUNCTION: diagnose_full
@@ -598,6 +632,13 @@ def main() -> int:
             print(f"  to check everything: unset {REENTRY_ENV_VAR} and re-run `make doctor`")
         else:
             print("doctor status: ok")
+        # **LOGIC_STEP**: Printed whether or not skipped_layers fired above — this is a different
+        # gap. skipped_layers means the doctor itself ran fewer layers; this means every layer ran
+        # and one of them, migrations, could not actually verify anything. Both are "ok is not the
+        # whole story", and neither is optional to show once true.
+        migrations_notice = payload.get("migrations_notice")
+        if isinstance(migrations_notice, str) and migrations_notice:
+            print(f"  note: {migrations_notice}")
         print("final_gate: make quality-gates")
     else:
         print("doctor status: error")

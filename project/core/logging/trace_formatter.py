@@ -1,112 +1,26 @@
 # FILE: project/core/logging/trace_formatter.py
 # SUMMARY: NDJSON-to-text tree transformer for LLM-friendly trace visualization.
+# NOTE: The parsing side — SpanNode, LeafEvent, _parse_events, _build_tree — moved to
+# project.core.logging.trace_tree on 2026-09-08 to stay under scripts/validate_module_sizes.py's
+# per-module budget; see that module's own header for why. Nothing downstream of this file's public
+# functions changed, and every name below is re-exported at the same spot it used to be defined so
+# an existing `from project.core.logging.trace_formatter import SpanNode` (or `_build_tree`, for a
+# test reaching past the public API) keeps working.
 
 from __future__ import annotations
 
 import json
 import sys
-from collections import defaultdict
-from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 from project.core.logging.enums import RequestOutcome
-
-
-# ==================== DATA STRUCTURES ====================
-
-
-# CLASS: SpanNode
-# SUMMARY: A finished or errored span with optional children forming a trace tree.
-@dataclass
-class SpanNode:
-    span_id: str
-    name: str
-    duration_ms: float | None = None
-    parent_span_id: str | None = None
-    output: dict[str, Any] = field(default_factory=dict)
-    error: str | None = None
-    error_site: str | None = None
-    # ATTRIBUTE: interrupted (bool)
-    # SUMMARY: The span.error arrived at WARNING — a cancellation, not the application's failure.
-    interrupted: bool = False
-    seq: int = 0
-    children: list[SpanNode | LeafEvent] = field(default_factory=list)
-
-
-# CLASS: LeafEvent
-# SUMMARY: A non-span event (llm.call, metric, api.call) attached to a parent span.
-@dataclass
-class LeafEvent:
-    span_id: str
-    summary: str
-    seq: int = 0
-
-
-# ==================== PARSING ====================
-
-
-# FUNCTION: _parse_events
-# SUMMARY: Parse NDJSON lines, filter by trace_id, and return structured event dicts.
-# INPUT: trace_id (str | None): Optional trace filter; if None, auto-detect first HTTP trace.
-# OUTPUT: (tuple): (filtered_events, trace_meta) where trace_meta has header info.
-def _parse_events(
-    lines: Iterable[str],
-    trace_id: str | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    all_events: list[dict[str, Any]] = []
-    auto_trace_id: str | None = trace_id
-
-    for raw in lines:
-        raw = raw.strip()
-        if not raw:
-            continue
-        try:
-            ev = json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        tid = ev.get("trace_id")
-        if not tid:
-            continue
-
-        # Auto-detect: track the last trace that has an http_request span.start
-        if trace_id is None:
-            eid = ev.get("event_id", "")
-            if eid == "span.start" and ev.get("span_name") == "http_request":
-                auto_trace_id = tid
-
-        all_events.append(ev)
-
-    if auto_trace_id is None and all_events:
-        # Fallback: use the last trace_id seen
-        auto_trace_id = all_events[-1].get("trace_id")
-
-    # Filter to target trace
-    filtered = [ev for ev in all_events if ev.get("trace_id") == auto_trace_id]
-
-    # Extract header metadata from the trace's first span.start event.
-    # **LOGIC_STEP**: Second place that assumed the root has no parent. It does have one — the
-    # application_lifecycle span — so the method and path never reached the header and every
-    # rendered trace was identified only by a hex id. The first span.start of a filtered trace is
-    # its root by construction: everything above it was dropped for having no trace_id.
-    meta: dict[str, Any] = {"trace_id": auto_trace_id or ""}
-    for ev in filtered:
-        if ev.get("event_id") == "span.start":
-            meta["session_id"] = ev.get("session_id", "")
-            meta["user_id"] = ev.get("user_id", "")
-            data = ev.get("data", {})
-            # **LOGIC_STEP**: Third mismatch with what the emitter writes. middleware.py nests the
-            # request facts under data.input_params; this read expected them at the top level, so
-            # even a correctly-rooted trace rendered without its method and path. Both spellings
-            # are accepted so a span that logs them flat still works.
-            params = (
-                data.get("input_params", {}) if isinstance(data.get("input_params"), dict) else {}
-            )
-            meta["method"] = data.get("method") or params.get("method", "")
-            meta["path"] = data.get("path") or params.get("path", "")
-            break
-
-    return filtered, meta
-
+from project.core.logging.trace_tree import (
+    LeafEvent,
+    SpanNode,
+    _build_tree,
+    _parse_events,
+    _TOOL_SPAN_PREFIX,
+)
 
 # ATTRIBUTE: _ROUTINE_STATUSES (frozenset[str])
 # SUMMARY: request.summary outcomes that are not the application failing.
@@ -117,207 +31,30 @@ _ROUTINE_STATUSES = frozenset(
     {RequestOutcome.OK.value.upper(), "UNKNOWN", RequestOutcome.CLIENT_ERROR.value.upper()}
 )
 
-# ATTRIBUTE: _LEAF_MARKS (dict[str, str])
-# SUMMARY: The mark a failure-shaped leaf carries, keyed by its event-id prefix.
-_LEAF_MARKS = {"critical.": "✗✗", "client_error.": "⚠", "error.": "✗"}
-
-
-# ATTRIBUTE: _VENDOR_MARKERS (tuple[str, ...])
-# SUMMARY: Path fragments that mark a frame as somebody else's code.
-_VENDOR_MARKERS = ("site-packages", "/.venv/", "<frozen ")
-
-
-# FUNCTION: _last_own_frame
-# SUMMARY: Reduce a traceback to the deepest frame belonging to this repository.
-# INPUT: traceback_text (str | None): Value of the span.error event's `exc_traceback` field.
-# OUTPUT: (str | None): "path/to/file.py:LINE in func", or None when there is no own frame.
-def _last_own_frame(traceback_text: str | None) -> str | None:
-    # **LOGIC_STEP**: The whole traceback is in the log and none of it reached the reader — the
-    # rendered tree named the exception type and left the location out, so an agent had the word
-    # "KeyError" and 24 frames to grep for. One frame is what it needs: the deepest one that is
-    # not vendored. Twenty-four frames in the measured case, six of them ours.
-    if not traceback_text:
-        return None
-
-    site: str | None = None
-    for raw in traceback_text.splitlines():
-        line = raw.strip()
-        if not line.startswith('File "'):
-            continue
-        if any(marker in line for marker in _VENDOR_MARKERS):
-            continue
-        try:
-            path = line.split('"')[1]
-            rest = line.split(", line ", 1)[1]
-            number, _, func = rest.partition(", in ")
-        except IndexError:
-            continue
-        # **LOGIC_STEP**: Absolute paths make the line unusable as a grep target on another
-        # machine; keep the repository-relative tail.
-        if "/project/" in path:
-            path = "project/" + path.split("/project/", 1)[1]
-        site = f"{path}:{number.strip()}" + (f" in {func.strip()}" if func else "")
-    return site
-
-
-# ==================== TREE BUILDING ====================
-
-
-# FUNCTION: _build_tree
-# SUMMARY: Construct span tree from parsed events and attach leaf events.
-# OUTPUT: (tuple): (root_spans, summary_event) where root_spans are top-level SpanNodes.
-def _build_tree(
-    events: list[dict[str, Any]],
-) -> tuple[list[SpanNode], dict[str, Any] | None]:
-    spans: dict[str, SpanNode] = {}
-    leaves: list[LeafEvent] = []
-    summary: dict[str, Any] | None = None
-
-    for ev in events:
-        eid = ev.get("event_id", "")
-        data = ev.get("data", {}) if isinstance(ev.get("data"), dict) else {}
-        seq = ev.get("seq", 0)
-
-        if eid == "span.finish":
-            sid = ev.get("span_id", "")
-            node = spans.get(sid)
-            if node is None:
-                node = SpanNode(span_id=sid, name=ev.get("span_name", "?"))
-                spans[sid] = node
-            node.duration_ms = ev.get("duration_ms")
-            node.parent_span_id = ev.get("parent_span_id")
-            node.output = data.get("output", {}) if isinstance(data.get("output"), dict) else {}
-            node.seq = seq
-
-        elif eid == "span.error":
-            sid = ev.get("span_id", "")
-            node = spans.get(sid)
-            if node is None:
-                node = SpanNode(span_id=sid, name=ev.get("span_name", "?"))
-                spans[sid] = node
-            node.duration_ms = ev.get("duration_ms")
-            node.parent_span_id = ev.get("parent_span_id")
-            node.error = data.get("exception_type", data.get("error_message", "error"))
-            node.error_site = _last_own_frame(ev.get("exc_traceback"))
-            # **LOGIC_STEP**: logger.span writes an interruption — CancelledError at uvicorn's
-            # shutdown timeout, KeyboardInterrupt — as span.error at WARNING, an application
-            # failure at ERROR. The level is the one field that tells them apart here.
-            node.interrupted = ev.get("level") == "WARNING"
-            node.seq = seq
-
-        elif eid == "request.summary":
-            summary = ev
-
-        elif eid == "llm.call":
-            model = data.get("model", "?")
-            dur = ev.get("duration_ms", data.get("duration_ms"))
-            ok = data.get("success", True)
-            mark = "✓" if ok else "✗"
-            dur_str = f"({dur}ms) " if dur is not None else ""
-            leaves.append(
-                LeafEvent(
-                    span_id=ev.get("span_id", ""),
-                    summary=f"llm.call {model} {dur_str}{mark}",
-                    seq=seq,
-                )
-            )
-
-        elif eid.startswith(("critical.", "error.", "client_error.")):
-            # **LOGIC_STEP**: These carry the actual cause of a failed request. Without this
-            # branch they were parsed and then silently discarded while the tree still rendered,
-            # so a reader saw a shaped trace with no reason in it. Attach them as leaves so the
-            # exception type and message appear where the failure happened.
-            failure = data.get("failure_type") or data.get("error_type") or eid
-            exception_type = data.get("exception_type", "")
-            detail = data.get("exception_message") or data.get("message") or ""
-            # **LOGIC_STEP**: A 4xx is the application working — it read a request it could
-            # not serve and said so — so it is marked apart from a failure rather than sharing
-            # the ✗ of one. It is rendered at all because the alternative, silence, is worse: the
-            # rejection's cause was the one thing a reader opened the trace for, and when these
-            # records moved to `client_error.` on 2026-09-06 they matched no branch here and were
-            # parsed and dropped.
-            mark = next(m for prefix, m in _LEAF_MARKS.items() if eid.startswith(prefix))
-            head = f"{mark} {failure}"
-            if exception_type:
-                head = f"{head} [{exception_type}]"
-            leaves.append(
-                LeafEvent(
-                    span_id=ev.get("span_id", ""),
-                    summary=f"{head}: {detail}" if detail else head,
-                    seq=seq,
-                )
-            )
-
-        elif eid.startswith("metric."):
-            name = data.get("metric_name", eid)
-            val = data.get("value", "?")
-            unit = data.get("unit", "")
-            leaves.append(
-                LeafEvent(
-                    span_id=ev.get("span_id", ""),
-                    summary=f"metric {name}={val}{unit}",
-                    seq=seq,
-                )
-            )
-
-        elif eid.startswith("api.call."):
-            # Extract HTTP method from event_id (api.call.POST.http://...) or data
-            eid_tail = eid[len("api.call.") :]  # "POST.http://..."
-            method = eid_tail.split(".")[0] if eid_tail else data.get("method", "?")
-            endpoint = data.get("endpoint", "")
-            # Use short service name from last URL path segment
-            service = endpoint.rsplit("/", 1)[-1] if "/" in endpoint else endpoint
-            status = data.get("status_code", "?")
-            dur = ev.get("duration_ms", data.get("duration_ms"))
-            dur_str = f"({dur}ms) " if dur is not None else ""
-            leaves.append(
-                LeafEvent(
-                    span_id=ev.get("span_id", ""),
-                    summary=f"api.call {method} {service} {dur_str}→ {status}",
-                    seq=seq,
-                )
-            )
-
-    # Attach leaves to their parent span
-    leaf_by_span: dict[str, list[LeafEvent]] = defaultdict(list)
-    for leaf in leaves:
-        leaf_by_span[leaf.span_id].append(leaf)
-
-    # Build parent-child relationships
-    roots: list[SpanNode] = []
-    for node in spans.values():
-        # Attach leaf events as children
-        if node.span_id in leaf_by_span:
-            node.children.extend(leaf_by_span[node.span_id])
-
-        # **LOGIC_STEP**: A span whose parent is not in this trace is a root of it. Requiring
-        # parent_span_id to be None made every real log render as "(no spans found)": the
-        # application's http_request span is a child of application_lifecycle, and that parent
-        # carries no trace_id, so _parse_events drops it one step earlier. The span then matched
-        # neither branch and disappeared — no roots, no tree, and prepend_trace_summary returning
-        # False on every shutdown without saying so. Measured on a live NDJSON with four traces.
-        if node.parent_span_id is None or node.parent_span_id not in spans:
-            roots.append(node)
-        else:
-            spans[node.parent_span_id].children.append(node)
-
-    roots.sort(key=lambda n: n.seq)
-
-    # **LOGIC_STEP**: Attach orphan leaves — events logged outside any span, which is exactly
-    # where the unhandled-exception record lands: the span has already closed by the time the
-    # framework's exception handler runs. Dropping them hid the cause of every 500.
-    orphans = [leaf for leaf in leaves if leaf.span_id not in spans]
-    if orphans and roots:
-        roots[0].children.extend(orphans)
-
-    # Sort children by seq for correct ordering
-    for node in spans.values():
-        node.children.sort(key=lambda c: c.seq)
-
-    return roots, summary
-
 
 # ==================== RENDERING ====================
+
+
+# ATTRIBUTE: _MAX_ARG_CHARS (int)
+# SUMMARY: How much of one string tool argument the compact tree prints before cutting it.
+_MAX_ARG_CHARS = 80
+
+
+# FUNCTION: _clipped
+# SUMMARY: Make one string argument safe to put on a tree line: single-line, and short.
+# INPUT: value (str): The argument as the span recorded it.
+# OUTPUT: (str): The value with its line breaks escaped, cut to _MAX_ARG_CHARS with the remaining
+#         length stated, so the reader knows something was cut and by how much.
+# NOTE: Escaping comes before cutting, and it is not cosmetic. This renderer draws a tree
+# with box-drawing characters, one node per line, and a tool argument is attacker-reachable input —
+# a prompt, a pasted page, a search query. A value containing "\n└── db.thing.delete ✓" printed
+# raw becomes a second physical line that reads exactly like a span that never happened. A trace
+# that can be forged is worse than no trace, for the same reason a trace that can lie is.
+def _clipped(value: str) -> str:
+    flattened = value.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r")
+    if len(flattened) <= _MAX_ARG_CHARS:
+        return flattened
+    return f"{flattened[:_MAX_ARG_CHARS]}… (+{len(flattened) - _MAX_ARG_CHARS} chars)"
 
 
 # FUNCTION: _render_span_line
@@ -326,9 +63,17 @@ def _render_span_line(node: SpanNode) -> str:
     sid = f"[{node.span_id[:8]}] " if node.span_id else ""
     dur = f"({node.duration_ms}ms)" if node.duration_ms is not None else ""
     if node.error:
-        # **LOGIC_STEP**: ⊘ for a span that was stopped, ✗ for one that failed. The same mark
-        # on both put a cancelled request next to a 500 with nothing to tell them apart.
-        suffix = f" {'⊘' if node.interrupted else '✗'} {node.error}"
+        # **LOGIC_STEP**: Three marks, not two: ⊘ for a span that was stopped, ⚠ for one that
+        # raised a routine domain rejection heading for a 4xx, ✗ for one that actually failed.
+        # Collapsing the first two into one mark put a cancelled request next to a 500 with
+        # nothing to tell them apart; collapsing the last two put a duplicate-name 409 there too.
+        if node.interrupted:
+            mark = "⊘"
+        elif node.client_rejection:
+            mark = "⚠"
+        else:
+            mark = "✗"
+        suffix = f" {mark} {node.error}"
         if node.error_site:
             suffix = f"{suffix} at {node.error_site}"
     else:
@@ -339,7 +84,24 @@ def _render_span_line(node: SpanNode) -> str:
             elif isinstance(v, str):
                 out_parts.append(f'{k}="{v}"')
         suffix = f" → {', '.join(out_parts)}" if out_parts else ""
-    return f"{sid}{node.name} {dur}{suffix}".strip()
+
+    # **LOGIC_STEP**: agent.tool.* is the one span whose call arguments belong in the compact
+    # view — see _TOOL_SPAN_PREFIX. Same scalars-only rule as `output` above, for the same reason:
+    # this renderer is "compact" by design, and a list or nested dict argument would defeat that.
+    # A string is capped for the same reason: a tool argument is routinely a document, a prompt or
+    # a pasted page, and one of those printed whole turns a tree meant to be skimmed into a wall.
+    args_suffix = ""
+    if node.name.startswith(_TOOL_SPAN_PREFIX) and node.input_params:
+        arg_parts = []
+        for k, v in node.input_params.items():
+            if isinstance(v, (int, float, bool)):
+                arg_parts.append(f"{k}={v}")
+            elif isinstance(v, str):
+                arg_parts.append(f'{k}="{_clipped(v)}"')
+        if arg_parts:
+            args_suffix = f" ({', '.join(arg_parts)})"
+
+    return f"{sid}{node.name}{args_suffix} {dur}{suffix}".strip()
 
 
 # FUNCTION: _render_tree
@@ -444,7 +206,19 @@ def format_trace_for_llm(
         # **LOGIC_STEP**: Child spans render their error text via _render_span_line; the root
         # printed a bare ✗ and swallowed it, so a failed request showed the mark and nothing else.
         if root.error:
-            mark = f" {'⊘' if root.interrupted else '✗'} {root.error}"
+            # **LOGIC_STEP**: Same three-way mark as _render_span_line — see the comment there.
+            # A root does not reach this branch for an HTTP request's own 4xx (ExceptionMiddleware
+            # answers it below AILoggingMiddleware, so the span never sees the exception; that
+            # case is the `elif trace_failed` branch below instead), but a non-HTTP root — a
+            # background job's own span — can raise a domain rejection directly, and this keeps
+            # that case consistent with every nested one.
+            if root.interrupted:
+                root_mark = "⊘"
+            elif root.client_rejection:
+                root_mark = "⚠"
+            else:
+                root_mark = "✗"
+            mark = f" {root_mark} {root.error}"
             # **LOGIC_STEP**: The root is where a failed request's exception lands, so this is the
             # one line that must carry the location. Duplicated from _render_span_line rather than
             # shared because the root has no connector prefix — the same reason the error text
@@ -550,12 +324,20 @@ def trace_inventory(lines: Iterable[str]) -> tuple[list[str], set[str], set[str]
             trace_ids.append(tid)
             seen.add(tid)
 
-        # **LOGIC_STEP**: The same split as format_trace_for_llm: a span.error at WARNING is an
-        # interruption, and a summary saying `cancelled` is not a failure. A trace that both
-        # failed and was cancelled counts as failed — the failure is the older, more useful fact.
-        if eid == "span.error" and ev.get("level") == "WARNING":
-            cancelled.add(tid)
-        elif eid == "span.error" or eid.startswith("critical.") or eid.startswith("error."):
+        # **LOGIC_STEP**: The same split as format_trace_for_llm: a span.error at WARNING is
+        # either an interruption or a routine domain rejection, and neither is a failure — a
+        # summary saying `cancelled` is not one either. A trace that both failed and was cancelled
+        # counts as failed — the failure is the older, more useful fact. `client_rejection` is
+        # what tells the two WARNING cases apart; missing on older logs, which read as an
+        # interruption exactly as they did before this field existed.
+        if eid == "span.error":
+            error_data = ev.get("data", {}) if isinstance(ev.get("data"), dict) else {}
+            if ev.get("level") == "WARNING":
+                if not error_data.get("client_rejection"):
+                    cancelled.add(tid)
+            else:
+                failed.add(tid)
+        elif eid.startswith("critical.") or eid.startswith("error."):
             failed.add(tid)
         elif eid == "request.summary":
             data = ev.get("data", {}) if isinstance(ev.get("data"), dict) else {}

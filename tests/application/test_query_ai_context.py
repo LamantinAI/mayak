@@ -18,15 +18,23 @@ from scripts.query_ai_context import (
     _query_before_edit,
     _query_failure,
     _query_overview,
+    _query_symbol,
     _query_workset,
     main,
 )
 
 
+# FUNCTION: tests.application.test_query_ai_context._architecture_rules
+# SUMMARY: The rules bundle tests_for_file needs to decide whether a path is finished by e2e.
+def _architecture_rules() -> dict[str, Any]:
+    _context_map, _change_map, architecture_rules = query_common.context_bundle()
+    return architecture_rules
+
+
 # FUNCTION: tests.application.test_query_ai_context._tests_for
 # SUMMARY: Narrow the tests_for_file payload to Any so assertions can index its heterogeneous values.
 def _tests_for(context_map: dict[str, Any], path: str) -> dict[str, Any]:
-    return query_common.tests_for_file(context_map, path)
+    return query_common.tests_for_file(context_map, path, _architecture_rules())
 
 
 # CLASS: tests.application.test_query_ai_context.TestQueryAIContext
@@ -274,6 +282,128 @@ class TestQueryAIContext:
         assert payload["recommended_diff_style"] == "minimal-diff"
         assert payload["read_first"][0] == "CLAUDE.md"
 
+    # FUNCTION: test_query_workset_diff_recommends_e2e_for_a_persistence_change
+    # SUMMARY: Verify final_gate adds `make test-e2e` when the diff touches persistence.
+    # NOTE: docs/agent_rules.md states this rule in prose — "Finish with `make quality-gates`,
+    # and with `make test-e2e` as well when the diff touched persistence, endpoints, or wiring" —
+    # but final_gate was hardcoded to ["make quality-gates"] regardless of what changed_files
+    # named, so `workset diff` on a persistence-only change never surfaced the one gate that runs
+    # real queries against the database. requires_e2e_gate/final_gate_for_paths is the fix.
+    @pytest.mark.unit
+    def test_query_workset_diff_recommends_e2e_for_a_persistence_change(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        outputs = {
+            ("git", "diff", "--name-only", "--cached"): (
+                "project/infrastructure/persistence/reference_task_repository.py\n"
+            ),
+            ("git", "diff", "--name-only"): "",
+            ("git", "ls-files", "--others", "--exclude-standard"): "",
+        }
+
+        def fake_run(
+            argv: list[str],
+            cwd: str,
+            check: bool,
+            capture_output: bool,
+            text: bool,
+        ) -> subprocess.CompletedProcess[str]:
+            del cwd, check, capture_output, text
+            return subprocess.CompletedProcess(argv, 0, stdout=outputs[tuple(argv)], stderr="")
+
+        monkeypatch.setattr(query_common.subprocess, "run", fake_run)
+
+        result = _query_workset("diff", [])
+        payload: dict[str, Any] = result.payload
+
+        assert payload["final_gate"] == ["make quality-gates", "make test-e2e"]
+
+    # FUNCTION: test_before_edit_on_a_persistence_file_recommends_e2e_too
+    # SUMMARY: Verify the per-file answer names the same final gate `workset diff` does.
+    # NOTE: `workset diff` learned this on 2026-09-08 and `before-edit file` did not — its payload
+    # kept a hardcoded ["make quality-gates"], and it is the more misleading of the two: it is
+    # asked about one file, usually immediately before that file is edited. Found by an independent
+    # review of this branch.
+    @pytest.mark.unit
+    def test_before_edit_on_a_persistence_file_recommends_e2e_too(self) -> None:
+        context_map, _change_map, _rules = query_common.context_bundle()
+
+        payload = _tests_for(
+            context_map, "project/infrastructure/persistence/reference_task_repository.py"
+        )
+        docs_only = _tests_for(context_map, "docs/agent_rules.md")
+
+        assert payload["final_gate"] == ["make quality-gates", "make test-e2e"]
+        assert docs_only["final_gate"] == ["make quality-gates"]
+
+    # FUNCTION: test_query_workset_diff_recommends_e2e_for_a_migration
+    # SUMMARY: Verify a revision under alembic/versions/ also asks for the gate that runs it.
+    # NOTE: A migration is the one change `make quality-gates` cannot check at all without a
+    # database: with none reachable `scripts/validate_migrations.py` announces the skip and stays
+    # green, and `make test-e2e` is the only local gate that executes the revision. Added after an
+    # independent review of this branch pointed out the prefix list stopped at persistence and
+    # endpoints on 2026-09-08.
+    @pytest.mark.unit
+    def test_query_workset_diff_recommends_e2e_for_a_migration(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        outputs = {
+            ("git", "diff", "--name-only", "--cached"): (
+                "alembic/versions/9f1c2b3d4e5f_add_a_column.py\n"
+            ),
+            ("git", "diff", "--name-only"): "",
+            ("git", "ls-files", "--others", "--exclude-standard"): "",
+        }
+
+        def fake_run(
+            argv: list[str],
+            cwd: str,
+            check: bool,
+            capture_output: bool,
+            text: bool,
+        ) -> subprocess.CompletedProcess[str]:
+            del cwd, check, capture_output, text
+            return subprocess.CompletedProcess(argv, 0, stdout=outputs[tuple(argv)], stderr="")
+
+        monkeypatch.setattr(query_common.subprocess, "run", fake_run)
+
+        result = _query_workset("diff", [])
+        payload: dict[str, Any] = result.payload
+
+        assert payload["final_gate"] == ["make quality-gates", "make test-e2e"]
+
+    # FUNCTION: test_query_workset_diff_does_not_recommend_e2e_for_a_docs_only_change
+    # SUMMARY: Verify final_gate stays quality-gates-only when nothing touched needs a live database.
+    @pytest.mark.unit
+    def test_query_workset_diff_does_not_recommend_e2e_for_a_docs_only_change(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        outputs = {
+            ("git", "diff", "--name-only", "--cached"): "README.md\n",
+            ("git", "diff", "--name-only"): "",
+            ("git", "ls-files", "--others", "--exclude-standard"): "",
+        }
+
+        def fake_run(
+            argv: list[str],
+            cwd: str,
+            check: bool,
+            capture_output: bool,
+            text: bool,
+        ) -> subprocess.CompletedProcess[str]:
+            del cwd, check, capture_output, text
+            return subprocess.CompletedProcess(argv, 0, stdout=outputs[tuple(argv)], stderr="")
+
+        monkeypatch.setattr(query_common.subprocess, "run", fake_run)
+
+        result = _query_workset("diff", [])
+        payload: dict[str, Any] = result.payload
+
+        assert payload["final_gate"] == ["make quality-gates"]
+
     # FUNCTION: test_query_workset_diff_resolves_git_worktree_changes
     # SUMMARY: Verify workset diff queries merge staged, unstaged, and untracked git paths into one aggregated payload.
     @pytest.mark.unit
@@ -420,6 +550,58 @@ class TestQueryAIContext:
             "uv run python scripts/validate_runtime_ownership.py"
         )
 
+    # FUNCTION: test_query_symbol_finds_a_class_by_exact_name
+    # SUMMARY: Verify symbol queries locate a class definition without a repo-wide grep.
+    # NOTE: `symbol` did not exist before 2026-09-08 — mapping a name to its file and line meant
+    # falling back to grep, which `before-edit file <path>` and `workset diff` cannot help with
+    # since both key off a file path, not a name. This command is deliberately narrow: an exact
+    # `ast` name match over first-party sources, not a fuzzy or substring search.
+    @pytest.mark.unit
+    def test_query_symbol_finds_a_class_by_exact_name(self) -> None:
+        result = _query_symbol("AgentSettings")
+        payload: dict[str, Any] = result.payload
+
+        assert payload["name"] == "AgentSettings"
+        assert payload["truncated"] is False
+        assert {
+            "file": "project/core/config_settings_agent.py",
+            "kind": "class",
+            "line": 17,
+        } in payload["matches"]
+
+    # FUNCTION: test_query_symbol_finds_a_field_by_exact_name
+    # SUMMARY: Verify symbol queries locate a class-body field ("field" in the item's own wording),
+    # not only a def/class — llm_mode is a pydantic Field on AgentSettings, not a function.
+    @pytest.mark.unit
+    def test_query_symbol_finds_a_field_by_exact_name(self) -> None:
+        result = _query_symbol("llm_mode")
+        payload: dict[str, Any] = result.payload
+
+        matches = [match for match in payload["matches"] if match["kind"] == "attribute"]
+        assert any(match["file"] == "project/core/config_settings_agent.py" for match in matches)
+
+    # FUNCTION: test_query_symbol_ignores_a_local_variable
+    # SUMMARY: Verify a name bound inside a function body is not reported as a field.
+    # NOTE: The walk reached every scope, so `symbol result` answered with 75 matches, 24 of them
+    # ordinary locals labelled `attribute` — noise, and a different claim than "function, class or
+    # field". Measured by a second independent review on 2026-09-08. A definition is still found
+    # wherever it sits, nested helpers included; only bindings are scoped.
+    @pytest.mark.unit
+    def test_query_symbol_ignores_a_local_variable(self) -> None:
+        payload: dict[str, Any] = _query_symbol("result").payload
+
+        assert payload["matches"] == []
+
+    # FUNCTION: test_query_symbol_reports_no_matches_for_an_unknown_name
+    # SUMMARY: Verify an unmatched name returns an empty list rather than raising.
+    @pytest.mark.unit
+    def test_query_symbol_reports_no_matches_for_an_unknown_name(self) -> None:
+        result = _query_symbol("NoSuchSymbolAnywhereInTheKernel")
+        payload: dict[str, Any] = result.payload
+
+        assert payload["matches"] == []
+        assert payload["truncated"] is False
+
     # FUNCTION: test_main_reports_unknown_query_targets
     # SUMMARY: Verify the CLI exits with a non-zero code when the requested target does not exist.
     @pytest.mark.unit
@@ -500,6 +682,27 @@ class TestQueryAIContext:
         captured = capsys.readouterr()
         assert exit_code == 0
         assert '"subject_kind": "diff"' in captured.out
+
+    # FUNCTION: test_main_supports_symbol_command
+    # SUMMARY: Verify the CLI parser and router accept the new symbol command and render JSON output.
+    @pytest.mark.unit
+    def test_main_supports_symbol_command(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["scripts/query_ai_context.py", "symbol", "AgentSettings"],
+        )
+
+        exit_code = main()
+
+        captured = capsys.readouterr()
+        assert exit_code == 0
+        assert '"name": "AgentSettings"' in captured.out
+        assert '"kind": "class"' in captured.out
 
     # FUNCTION: test_main_renders_failure_text_output
     # SUMMARY: Verify new failure queries keep the high-signal remediation summary in text mode.
@@ -776,4 +979,25 @@ class TestEveryFileOfAVerticalFindsThatVerticalsTests:
         assert forbidden not in related["likely_unit_tests"], (
             f"{module} is named after no registered vertical, so {forbidden} — which tests "
             "something else entirely — must not be suggested for it"
+        )
+
+    # FUNCTION: test_agentic_file_shapes_strip_to_the_vertical_name
+    # SUMMARY: Verify an agentic vertical's _agent/_mock/_tools/_verdict files resolve to its name.
+    # NOTE: The kernel ships no agentic vertical, so the recall test above — which globs the
+    # project/ tree for files already present — never exercised these four shapes. Reproduced on
+    # an agentic vertical built from this template in the 2026-09 audit: `triage_agent.py` kept
+    # its suffix through vertical_names_for_path, "triage_agent" was never a registered vertical
+    # name, and `workset diff`'s "each vertical file finds its own tests" gate reported no likely
+    # tests for it. _LAYER_SUFFIXES in ai_query/common.py is the fix; this states the four
+    # shapes by hand rather than depending on a vertical this template does not ship.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "filename",
+        ["triage_agent.py", "triage_mock.py", "triage_tools.py", "triage_verdict.py"],
+    )
+    def test_agentic_file_shapes_strip_to_the_vertical_name(self, filename: str) -> None:
+        names = query_common.vertical_names_for_path(f"project/triage/{filename}")
+
+        assert "triage" in names, (
+            f"project/triage/{filename} did not strip to 'triage' — got {names}"
         )
