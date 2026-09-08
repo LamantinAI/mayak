@@ -349,7 +349,7 @@ _SCAN_PREFIXES: tuple[str, ...] = (
 )
 
 _PATH_PATTERN: re.Pattern[str] = re.compile(
-    r"^(?:tests|project|docs|alembic|skills|ai_context|ai_query|\.github|\.githooks)/[\w./\-]+$"
+    r"^(?:tests|project|docs|alembic|skills|ai_context|ai_query|\.github|\.githooks|\.agents/skills)/[\w./\-]+$"
 )
 
 # ATTRIBUTE: _ALLOWLIST (frozenset[str])
@@ -402,10 +402,13 @@ def collect_script_path_issues(
     if not base.exists():
         return []
     issues: list[ScriptPathIssue] = []
-    own_path = Path(__file__).resolve()
     for source_path in sorted(base.rglob("*.py")):
-        if source_path.resolve() == own_path:
-            continue  # Skip this validator's own source — its allowlist/regex literals are not paths.
+        # **LOGIC_STEP**: This file is scanned like any other. Merging three validators into one
+        # turned a narrow exemption — the script-path checker skipping its own regex and allowlist
+        # literals — into a blanket skip of every literal in all three, so a typo in a playbook's
+        # `read_first` path stopped being reported. Nothing here needs the exemption: a bare prefix
+        # like `tests/` fails _PATH_PATTERN for want of anything after the slash, and the one
+        # genuine non-file, `project/core/config`, is in _ALLOWLIST.
         for literal, line in _extract_string_literals(source_path):
             if not _is_path_shaped(literal) or (root_dir / literal).exists():
                 continue

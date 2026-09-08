@@ -1464,9 +1464,9 @@ def _symbol_search_files() -> Iterator[Path]:
 # in AgentSettings, say) — `self.x = ...` binds an `ast.Attribute` instead, so instance attributes
 # set in `__init__` are excluded without a special case. Bindings are read from module and class
 # bodies only, never from inside a function: `ast.walk` reaches every local variable too, and a
-# common name pays for it — on this repository, `symbol result` returns 75 matches, 24 of them
-# locals reported as `attribute`, which is both noise and a different claim than the one this
-# command makes. A definition, by contrast, is worth finding wherever it sits, nested helpers
+# common name pays for it — without this scoping, `symbol result` returned 75 matches on this
+# repository, 24 of them locals reported as `attribute`, which is both noise and a different claim
+# than the one this command makes. A definition, by contrast, is worth finding wherever it sits, nested helpers
 # included, so classes and functions are still walked in full.
 def _symbol_matches_in_file(path: Path, name: str) -> list[dict[str, object]]:
     try:

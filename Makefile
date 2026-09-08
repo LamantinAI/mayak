@@ -311,7 +311,7 @@ security-scan: ## Validation | bandit security scan over project/
 # cannot fail. Reinstate it the day the two numbers diverge again; ADR-002 says how.
 #
 # Lane 2 runs only `gate-tests` and the migration validator under POSTGRES_ENABLED=false, mirroring
-# the `no-postgres-tests` CI job rather than the whole gate a second time: nothing else under that
+# the `no-postgres-path` CI job rather than the whole gate a second time: nothing else under that
 # flag reads it — the test run pins POSTGRES_ENABLED=true for itself either way
 # (tests/conftest.py's pin_postgres_toggle), and validate_migrations.py treats the flag as "no
 # relational store, nothing to verify" and never opens a connection regardless. Re-running every

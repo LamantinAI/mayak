@@ -492,9 +492,9 @@ def validate_python_source(path: Path, repo_root: Path) -> list[ArchitectureIssu
         ]
     issues: list[ArchitectureIssue] = []
 
-    # **LOGIC_STEP**: Written imports and called ones are checked the same way — an
-    # `importlib.import_module("psycopg")` call in a domain module bypasses the gate as surely as
-    # a written import. See ai_context/dynamic_imports.py for the measurement, for why the call's
+    # **LOGIC_STEP**: Written imports and called ones are checked the same way, so an
+    # `importlib.import_module("psycopg")` call in a domain module is caught as surely as a written
+    # import is. Collecting only the written kind left the call free of every gate. See ai_context/dynamic_imports.py for the measurement, for why the call's
     # names are resolved against this file's own imports, and for what still escapes.
     imported: list[tuple[str, int]] = []
     for node in ast.walk(tree):

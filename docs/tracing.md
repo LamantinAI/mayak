@@ -36,7 +36,7 @@ tool call is legible without a wrapper of the project's own.
 ## A routine rejection is not a crash
 
 A `ProjectError` caught inside a `logger.span(...)` is judged the way `exception_handlers.py` judges
-it a moment later: `project.core.error_utils.is_client_rejection` separates ERROR with a traceback
+it a moment later: `project.domain.exceptions.is_client_rejection` separates ERROR with a traceback
 from WARNING without one. A routine 409 raised inside a `db.*` span used to read exactly like a
 crash, and in both projects of a duel the real errors drowned in those tracebacks. The compact
 renderer marks it `⚠`, distinct from `⊘` (cancelled) and `✗` (a genuine error).
@@ -53,5 +53,5 @@ which cost one duel agent its whole live-run stage. Check `finish_reason` before
 
 - `project/core/logging/trace_formatter.py` — the compact renderer: outcome coloring, the `⚠`/`⊘`/`✗`
   markers, and the `agent.tool.` `input_params` inline rendering.
-- `project/core/error_utils.py` — `is_client_rejection`.
+- `project/domain/exceptions.py` — `is_client_rejection`.
 - `Makefile` — `format-trace`, `logs`, `logs-raw`.

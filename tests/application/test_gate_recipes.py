@@ -353,7 +353,7 @@ _CI_JOB_TO_LOCAL_COVER: dict[str, str] = {
     "quality-gates": "quality-gates",
     # Not _INSIDE_THE_GATE_SUITE: this job no longer runs the gate at all, only the two
     # DB-relevant steps (gate-tests, validate_migrations.py) under POSTGRES_ENABLED=false.
-    "no-postgres-tests": "gate-tests",
+    "no-postgres-path": "gate-tests",
     "functional-tests": "test-e2e",
     "security": _INSIDE_THE_GATE_SUITE,
     "dependency-audit": "audit-deps",
@@ -422,12 +422,11 @@ class TestPipelineAndLocalCommandCoverTheSameGround:
     @pytest.mark.unit
     def test_every_announced_lane_actually_runs_something(self) -> None:
         # **LOGIC_STEP**: The test above cannot see a deleted lane whose target name still appears
-        # elsewhere in the recipe — `quality-gates` runs twice, once per Postgres mode, so
-        # removing the first invocation leaves the name behind and every assertion green. What no
-        # substring check can fake is the arithmetic: the recipe announces `===> i/N` for each
-        # lane, so N banners must be matched by N commands.
+        # elsewhere in the recipe, so removing one invocation can leave the name behind and every
+        # assertion green. What no substring check can fake is the arithmetic: the recipe announces
+        # `===> i/N` for each lane, so N banners must be matched by N commands.
         # **LOGIC_STEP**: `_recipe` strips the leading `@`, so a banner arrives as
-        # `echo "===> 1/6 quality-gates"`.
+        # `echo "===> 1/5 quality-gates"`.
         lines = [line for line in _recipe("ci-local") if line]
         banners = re.findall(r'echo "===> (\d+)/(\d+) ', "\n".join(lines))
         commands = [line for line in lines if not line.startswith("echo ")]
@@ -445,16 +444,16 @@ class TestPipelineAndLocalCommandCoverTheSameGround:
             f"ci-local announces {len(banners)} lanes and runs {len(commands)} commands"
         )
 
-    # FUNCTION: test_both_gate_jobs_refuse_a_stale_generated_artifact
+    # FUNCTION: test_the_gate_job_refuses_a_stale_generated_artifact
     # SUMMARY: Verify the pipeline runs the gate in strict mode, as `ci-local` does.
     @pytest.mark.unit
-    def test_both_gate_jobs_refuse_a_stale_generated_artifact(self) -> None:
+    def test_the_gate_job_refuses_a_stale_generated_artifact(self) -> None:
         # **LOGIC_STEP**: Locally the gate regenerates a stale artifact and prints a notice,
         # because the fix is always the same command. In the pipeline there is nobody to rerun the
         # generator, so the same situation has to fail instead — otherwise "CI is green" and "the
         # local gate is green" stop meaning the same thing. The flag was documented in the
         # Makefile as something the pipeline sets, while the pipeline itself did not set it.
-        # **LOGIC_STEP**: Only one job runs `make quality-gates` now — `no-postgres-tests` calls
+        # **LOGIC_STEP**: Only one job runs `make quality-gates` now — `no-postgres-path` calls
         # `gate-tests` and the migration validator directly, neither of which touches a generated
         # artifact, so there is nothing there for STRICT_GENERATED to guard.
         workflow = (_REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")

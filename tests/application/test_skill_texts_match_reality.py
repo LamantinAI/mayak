@@ -425,6 +425,36 @@ class TestDeletionAccountsForEveryMatch:
             "names them, individually or by one of its stated exemptions: " + ", ".join(unaccounted)
         )
 
+    # FUNCTION: test_every_file_the_tables_name_still_carries_the_vertical
+    # SUMMARY: Verify the other direction — a row naming a file that no longer carries
+    # `reference_task` is a stale instruction, and the check above cannot see one.
+    # NOTE: The forward check only asks whether every matching file is named. A row for a file that
+    # stopped matching stays green there forever: the row for
+    # `tests/application/test_validate_test_quality.py` survived the deletion of the span rules that
+    # put `reference_task` in it, and pointed a reader at a file with no trace of the vertical left.
+    @pytest.mark.unit
+    def test_every_file_the_tables_name_still_carries_the_vertical(self) -> None:
+        skill_text = _ADD_VERTICAL.read_text(encoding="utf-8")
+        # **LOGIC_STEP**: Only rows whose first cell is a backticked, placeholder-free path that
+        # exists on disk. `project/domain/<name>.py` is a shape, not a file, and a row about a
+        # directory is not a claim about any one file's text.
+        named = {
+            match.group(1)
+            for match in re.finditer(r"(?m)^\| `([^`<>]+\.[a-z]+)` \|", skill_text)
+            if (_REPO_ROOT / match.group(1)).is_file()
+        }
+        stale = sorted(
+            path
+            for path in named
+            if not _VERTICAL_ANY_SPELLING.search((_REPO_ROOT / path).read_text(encoding="utf-8"))
+        )
+
+        assert stale == [], (
+            "these files are named by a table in .agents/skills/add-vertical/SKILL.md, but no "
+            "longer carry `reference_task` at all, so the row is a stale instruction: "
+            + ", ".join(stale)
+        )
+
     # FUNCTION: test_a_shared_basename_never_vouches_for_the_wrong_file
     # SUMMARY: Verify the check above is not vacuous — a file the skill never mentions is reported —
     # and that a bare filename cannot ride on a full path the skill names for a different file:

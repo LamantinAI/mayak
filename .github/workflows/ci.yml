@@ -75,7 +75,7 @@ jobs:
   # minutes. This job runs only those two, under POSTGRES_ENABLED=false, so the "declares no
   # relational store" branch of validate_migrations.py still gets exercised in the pipeline and
   # not only by its own unit test.
-  no-postgres-tests:
+  no-postgres-path:
     runs-on: ubuntu-latest
     env:
       POSTGRES_ENABLED: "false"
@@ -96,7 +96,12 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen
 
-      - name: Run unit and integration tests with no relational store declared
+      # Not "the suite under POSTGRES_ENABLED=false": tests/conftest.py's autouse
+      # pin_postgres_toggle sets the flag back to true for every test, and the handful that
+      # exercise the disabled path set it to false themselves. What this step does prove is that
+      # collection, settings construction and every import survive the flag being off in the
+      # environment — which happens before any fixture runs.
+      - name: Collect and run the suite with the flag off in the environment
         run: make gate-tests
 
       - name: Verify the migration gate treats POSTGRES_ENABLED=false as informational
@@ -292,7 +297,7 @@ jobs:
 # above and run only on the default branch, e.g.:
 #
 #   deploy:
-#     needs: [quality-gates, unit-tests]
+#     needs: [quality-gates, functional-tests]
 #     if: github.ref == 'refs/heads/main'
 #     runs-on: ubuntu-latest
 #     steps: ...

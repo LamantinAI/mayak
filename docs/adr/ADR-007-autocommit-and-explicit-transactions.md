@@ -185,6 +185,17 @@ a malformed one — and `make test-e2e` only catches it if some test actually de
 child present and asserts the domain's answer rather than accepting whatever the driver happens to
 raise.
 
+## Two fields of the same type, side by side
+
+A fixture that sets `subject="Changed"` and `description="Changed"` cannot tell "bound in the column
+order of the SET clause" from "bound the other way round": the tuple is identical either way, so
+`assert_awaited_once_with` passes on both. Measured in a project built from this template: `PATCH
+/tickets/{id}` wrote the description into the subject column and the subject into the description on
+every edit where the two differed — 200 OK, persisted, visible on the next GET — and 1 150 unit tests
+stayed green, because the one test covering that method used that fixture. Give neighbouring fields
+of the same type values that cannot be swapped unnoticed, and assert the bound parameters at those
+positions individually rather than comparing the whole tuple at once.
+
 ## Proving the fix
 
 A unit test against a fake repository has no transaction to roll back, so it cannot see a partial

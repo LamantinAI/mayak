@@ -6,9 +6,10 @@ Accepted (2026-09-08)
 
 ## Decision
 
-`make quality-gates` runs no query against a database, so it cannot see a defect in SQL — a query
-is only caught if some test pins its clause as literal text. A migration is only really verified by
-running it against a database; without one the migration gate downgrades to an informational skip.
+`make quality-gates` runs none of the repository's own queries, so it cannot see a defect in SQL —
+a query is only caught if some test pins its clause as literal text. The one step that opens a
+connection is the migration gate below, and it asks the database about Alembic's state, not
+yours; with no database it downgrades to an informational skip.
 `CLAUDE.md` states the two consequences and nothing else: finish with `make quality-gates`, and add
 `make test-e2e` when the diff touches persistence, endpoints, wiring, or a migration. The measurements
 below are why those two sentences are load-bearing rather than routine advice.
@@ -24,8 +25,8 @@ That assertion is the trap, not `scripts/validate_test_quality.py`: run the vali
 the same reversal and it still exits 0. Its `test.sql_constant_round_trip` rule only checks that some
 module pins a clause of a query constant as literal text *somewhere* — it proves the trap exists, not
 that the pinned text is correct. `assert sql is _CONSTANT` counts as the same tautology as `==`, and
-`"clause text" in _CONSTANT` counts as a pin, so a substring trap is legitimate; a span assertion
-factored into `tests/support/` and imported still counts as pinned. A query with such a pinned test is
+`"clause text" in _CONSTANT` counts as a pin, so a substring trap is legitimate, and a constant
+imported from a `project.` module is the only kind the rule reads. A query with such a pinned test is
 caught by the ordinary gate; a query without one stays invisible to every gate.
 
 ## Measured: the saving is the database, not the clock

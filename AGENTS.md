@@ -36,6 +36,7 @@ Run `make help` for the full grouped command list — it reads the Makefile dire
 - A write to a generated path is refused by `.agents/hooks/pre-edit-guard.sh`, naming the file — the list is `make print-generated-paths`, shared with the pre-commit hook and both agents.
 - Finish with `make quality-gates`, and with `make test-e2e` as well when the diff touched persistence, endpoints, wiring, or a migration — a migration is the one change the gates cannot check at all without a database.
 - Read a trace with `make format-trace ARGS="<logfile>"` or `make logs` (a running container); see `docs/tracing.md` for span names, outcome filtering, and two silent-failure traps.
+- Repeatable workflows belong in a versioned skill under `.agents/skills/`, not in this file.
 - `before-edit file <path>` returns the FILE_POLICY entry plus `derived: bool`. An unindexed path needs an explicit entry in `ai_context/file_policy.py`; add one, then `make refresh-ai-context`.
 - `AGENTS.md` is a generated file and must not be edited directly. Edit `docs/agent_rules.md` instead, then run `make refresh-agent-docs`.
 
@@ -44,7 +45,7 @@ Run `make help` for the full grouped command list — it reads the Makefile dire
 - Dependency direction is `domain -> application -> infrastructure`, enforced by `scripts/validate_architecture.py`: the domain is an allowlist (stdlib plus `project.domain`); application and infrastructure are blacklists. `docs/architecture_rules.json` gives each rule one of three levels — `runtime_enforced`, `guidance_only`, `not_enforced_in_validator` (unchecked outside the domain) — check which.
 - Four files carry every wiring edit: `project/core/composition_root.py`, `project/core/service_registration.py`, `project/infrastructure/api/router_registration.py`, `project/infrastructure/api/dependencies.py`.
 - The kernel ships exactly one vertical, `reference_task`, meant to be copied — a second worked example would be a duplicate or a guess about your domain.
-- The kernel ships no business pipeline. LLM access is `project/infrastructure/agents/llm_service.py`; `bind_tools` returns a bound copy — keep the return value. Mock mode replays every bound tool once before the summary — ADR-003. A provider failure becomes a domain error at the adapter boundary — ADR-009.
+- The kernel ships no business pipeline. LLM access is `project/infrastructure/agents/llm_service.py`; `bind_tools` returns a bound copy — keep the return value. Mock mode replays every bound tool once before the summary — ADR-003. A provider failure becomes a domain error at the adapter boundary — ADR-009. Prompts live in `project/prompts/`; the kernel only checks at startup that the directory and the named file exist — loading them is the vertical's job.
 - Heavy async resources open in the FastAPI lifespan and close via `cleanup_services()`; `scripts/validate_runtime_ownership.py` guards resource ownership, `app.state.services` writes, and env access.
 - `/health/ready` reports every dependency but only some decide the verdict: services always, the database when used (ADR-006), LLM readiness only when `AGENT_LLM_READINESS_CRITICAL=true` (ADR-008, off by default).
 - The Python version policy is ADR-002, its numbers in `pyproject.toml` and `.python-version`. Concurrency across rows and a foreign key's deletion policy are ADR-007.

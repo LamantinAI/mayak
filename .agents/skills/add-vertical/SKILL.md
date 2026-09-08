@@ -98,7 +98,7 @@ Two branches that each add a migration off the same parent produce two files nam
 `down_revision` — a fork, not a broken chain. `scripts/validate_migrations.py` reports it, files
 alone, as `migrations.multiple_heads`; `uv run alembic -c alembic.ini heads` shows it directly: two
 lines means a fork. Merging the branches does not resolve it, it only puts both files in one
-directory. Two ways out: `alembic merge heads -m describe_merge` writes a revision whose
+directory. Two ways out: `uv run alembic -c alembic.ini merge heads -m describe_merge` writes a revision whose
 `down_revision` is both heads and changes nothing written already — right once either revision may
 have run against a database somewhere. Re-parenting (editing the newer file's `down_revision` to the
 true head) keeps one straight chain and is safe only while that revision has run nowhere else.
@@ -183,7 +183,9 @@ answer parser, the `isinstance`-before-`in VALID_X` check (model output can be a
 and the loop's bookkeeping by hand — the last needs `tests/support/scripted_llm.py` and an adapter
 typed against a Protocol, as `prompt_llm_adapter.py` declares `SupportsMessageCall`. A provider error
 reaches your vertical translated: `ExternalServiceError` or `UpstreamAuthenticationError`, both 502.
-See ADR-009.
+See ADR-009. What neither mock nor script can settle is the turn ceiling a production loop needs:
+measure that against a live provider, and make the loop say it hit one — in the trace and in the
+answer it returns — because a loop that stops silently reads as a loop that finished.
 
 ## Subsystems that can be off
 
@@ -285,7 +287,6 @@ the vertical without appearing below — trust that test, and the table it check
 | `tests/application/test_functional_request_helpers.py` | a fixture `GET /reference-tasks/<uuid>` |
 | `tests/application/test_gate_recipes.py` | a synthetic `SELECT ... FROM reference_tasks` string |
 | `tests/application/test_trace_formatter_failure_visibility.py` | a fixture span name and path in recorded NDJSON |
-| `tests/application/test_validate_test_quality.py` | a `# NOTE:` naming the span `db.reference_task.update` |
 
 Every one of those is fixture text about a vertical, or a document that names the thing it removes —
 not a use of the vertical. A file outside the table and the three categories means the prose step
