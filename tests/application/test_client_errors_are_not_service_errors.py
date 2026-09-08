@@ -17,13 +17,18 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
-from project.core.logging import get_logger
+from project.core.error_utils import is_client_rejection
 from project.domain.exceptions import (
+    AuthenticationError,
     ConflictError,
     ExternalServiceError,
     NotFoundError,
+    ProjectError,
+    UpstreamAuthenticationError,
     ValidationError,
 )
+from project.core.logging import get_logger
+from project.infrastructure.api.exception_handlers import _project_error_status
 
 
 # FUNCTION: _wire_raising_route
@@ -180,3 +185,33 @@ class TestARejectionInsideANestedSpanIsNotAFailure:
         assert all(event["kwargs"].get("level") != logging.ERROR for event in log_capture), (
             log_capture
         )
+
+
+# CLASS: tests.application.test_client_errors_are_not_service_errors.TestBothCallSitesJudgeAlike
+# SUMMARY: Verify the span and the exception handler cannot disagree about what counts as routine.
+# NOTE: They used to decide separately — the span through `is_client_rejection`, the handler
+# through `_project_error_status(exc) >= 500`. Both gave the same answers, which is exactly why a
+# drift would have gone unnoticed: adding a domain error mapped to 503 would have made the handler
+# call it a failure and the span still call it routine, and the log would carry both verdicts for
+# one exception. The handler now asks the same function; this pins the equivalence that made the
+# swap safe, so a future status mapping cannot quietly break it.
+class TestBothCallSitesJudgeAlike:
+    # FUNCTION: test_every_domain_error_gets_one_verdict
+    # SUMMARY: Verify rejection and sub-500 status agree for every shipped ProjectError subclass.
+    # OUTPUT: (None): None.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ProjectError("plain"),
+            ValidationError("invalid"),
+            NotFoundError("missing"),
+            ConflictError("duplicate"),
+            AuthenticationError("denied"),
+            ExternalServiceError("upstream down"),
+            UpstreamAuthenticationError("upstream key rejected"),
+        ],
+        ids=lambda error: type(error).__name__,
+    )
+    def test_every_domain_error_gets_one_verdict(self, error: ProjectError) -> None:
+        assert is_client_rejection(error) is (_project_error_status(error) < 500)

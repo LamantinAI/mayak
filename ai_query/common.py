@@ -1137,6 +1137,14 @@ def matching_tasks_for_paths(
 _E2E_GATE_PATH_PREFIXES = (
     "project/infrastructure/persistence/",
     "project/infrastructure/api/endpoints/",
+    # **LOGIC_STEP**: A migration belongs here for a reason the other two do not share: it is the
+    # one change `make quality-gates` cannot check at all without a database. With none reachable
+    # `scripts/validate_migrations.py` announces that it skipped and stays green, so `make
+    # test-e2e`, which runs the same check against the functional stack's own database, is the
+    # only local gate that ever executes the revision. Measured in both projects of the
+    # 2026-09-07 duel: a migration that dropped a column instead of renaming it passed every
+    # local gate.
+    "alembic/versions/",
 )
 
 

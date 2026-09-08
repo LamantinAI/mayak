@@ -443,6 +443,34 @@ class TestQueryConstantRoundTrip:
 
         assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
 
+    # FUNCTION: test_the_constant_used_as_a_lookup_key_does_not_count_as_pinned
+    # SUMMARY: Verify a constant that appears only as a dictionary key states nothing about the
+    # SQL and does not silence the rule for the module.
+    # NOTE: Both branches used to ask `_referenced_names` whether the expression mentions the
+    # constant at all, which `results[_SELECT_BY_ID]` does — as the key doing the looking-up, with
+    # no claim about the query text anywhere. One such assertion marked the constant pinned and
+    # the rule went quiet for the whole module, which is the silence it exists to break. Found by
+    # an independent review of this branch on 2026-09-08.
+    @pytest.mark.unit
+    def test_the_constant_used_as_a_lookup_key_does_not_count_as_pinned(
+        self, tmp_path: Path
+    ) -> None:
+        repo_root = _write_repository_fixture(tmp_path)
+        path = _write_test_module(
+            tmp_path,
+            "from project.infrastructure.persistence.probe_repository import _SELECT_BY_ID\n"
+            "\n"
+            "def test_get_runs_the_query() -> None:\n"
+            "    cursor.execute.assert_awaited_once_with(_SELECT_BY_ID, ('id',))\n"
+            "    results = {_SELECT_BY_ID: 'ok'}\n"
+            "    assert results[_SELECT_BY_ID] == 'ok'\n"
+            "    assert 'ok' in results[_SELECT_BY_ID]\n",
+        )
+
+        issues = validate_test_module(path, repo_root)
+
+        assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
+
 
 # CLASS: tests.application.test_validate_test_quality.TestValidatorSurface
 # SUMMARY: Verify the repository is clean and the rule playbooks are complete.

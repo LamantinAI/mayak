@@ -133,7 +133,12 @@ def unavailable_validator_payload(detail: str) -> dict[str, object]:
 def _migrations_not_verified_notice(issues: Sequence[object]) -> str | None:
     for issue in issues:
         if getattr(issue, "rule_id", None) == "migrations.database_unreachable":
-            return str(issue.message)
+            # **LOGIC_STEP**: `message` is read the same defensive way `rule_id` is. The batch is
+            # typed as Sequence[object] precisely because this function must not assume the shape
+            # of what a future validator hands it, and reading one attribute defensively while
+            # reaching straight for the next is the half-measure that raises AttributeError on the
+            # first object that does not match.
+            return str(getattr(issue, "message", ""))
     return None
 
 

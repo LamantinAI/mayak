@@ -37,6 +37,10 @@ class _LLMServiceMockContract(Protocol):
     # ToolMessage anywhere in this conversation.
     def _next_uncalled_tool_name(self, messages: list[BaseMessage]) -> str | None: ...
 
+    # FUNCTION: _answered_tool_names
+    # SUMMARY: Return the names of every tool the conversation already has a result for.
+    def _answered_tool_names(self, messages: list[BaseMessage]) -> set[str]: ...
+
     # FUNCTION: _extract_last_human_message
     # SUMMARY: Return the most recent human-authored message content.
     # OUTPUT: (str): Latest human message content or an empty string.
@@ -78,16 +82,47 @@ class LLMServiceMockMixin:
         self: _LLMServiceMockContract,
         messages: list[BaseMessage],
     ) -> str | None:
-        already_called = {
-            message.name
-            for message in self._collect_tool_messages(messages)
-            if isinstance(message.name, str)
-        }
+        already_called = self._answered_tool_names(messages)
         for tool in self._mock_tools:
             name = getattr(tool, "name", None)
             if isinstance(name, str) and name not in already_called:
                 return name
         return None
+
+    # FUNCTION: _answered_tool_names
+    # SUMMARY: Name every tool this conversation already has a result for.
+    # OUTPUT: (set[str]): Tool names, resolved by ToolMessage.name where it is set and by the
+    #         tool call the message answers where it is not.
+    # NOTE: `ToolMessage.name` is optional in langchain-core, and the hand-written agent loop this
+    # template tells a vertical to write is exactly the caller most likely to omit it —
+    # `ToolMessage(content=..., tool_call_id=...)` is the shortest thing that works. Reading only
+    # `.name` then leaves `already_called` empty forever, so `_next_uncalled_tool_name` keeps
+    # answering with the first bound tool and the vertical's loop spins until its own round cap
+    # stops it. Falling back to the tool call the message answers costs one pass over the
+    # AIMessages and removes a hang that would have looked like a bug in the vertical.
+    def _answered_tool_names(
+        self: _LLMServiceMockContract,
+        messages: list[BaseMessage],
+    ) -> set[str]:
+        by_call_id: dict[str, str] = {}
+        for message in messages:
+            for call in getattr(message, "tool_calls", None) or []:
+                call_id = call.get("id") if isinstance(call, dict) else getattr(call, "id", None)
+                call_name = (
+                    call.get("name") if isinstance(call, dict) else getattr(call, "name", None)
+                )
+                if isinstance(call_id, str) and isinstance(call_name, str):
+                    by_call_id[call_id] = call_name
+
+        answered: set[str] = set()
+        for tool_message in self._collect_tool_messages(messages):
+            if isinstance(tool_message.name, str) and tool_message.name:
+                answered.add(tool_message.name)
+                continue
+            resolved = by_call_id.get(tool_message.tool_call_id)
+            if resolved is not None:
+                answered.add(resolved)
+        return answered
 
     # FUNCTION: _extract_last_human_message
     # SUMMARY: Retrieve the latest human-authored message content from a prompt stack.

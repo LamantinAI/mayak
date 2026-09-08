@@ -94,6 +94,48 @@ class TestToolSpanArgumentsAreVisible:
         # replaced by them.
         assert "result_count=3" in rendered
 
+    # FUNCTION: test_a_long_string_argument_is_cut_rather_than_printed_whole
+    # SUMMARY: Verify one oversized argument cannot turn the compact tree into a wall of text.
+    # NOTE: A tool argument is routinely a document, a prompt or a pasted page. Rendering it whole
+    # defeats the word "compact" in this renderer's own description, and the failure only shows up
+    # with real data — the fixtures here all carry short arguments. Found by an independent review
+    # of this branch on 2026-09-08.
+    @pytest.mark.unit
+    def test_a_long_string_argument_is_cut_rather_than_printed_whole(self) -> None:
+        document = "x" * 5000
+        lines = [
+            _http_root_start(),
+            _line(
+                seq=2,
+                trace_id=_TRACE_ID,
+                event_id="span.start",
+                span_id="tool1",
+                span_name="agent.tool.summarise",
+                parent_span_id="root1",
+                data={"input_params": {"document": document}},
+            ),
+            _line(
+                seq=3,
+                trace_id=_TRACE_ID,
+                event_id="span.finish",
+                span_id="tool1",
+                span_name="agent.tool.summarise",
+                parent_span_id="root1",
+                duration_ms=12.0,
+                data={"output": {"sentences": 4}},
+            ),
+            _http_root_finish(seq=4),
+        ]
+
+        rendered = format_trace_for_llm(lines)
+
+        assert document not in rendered
+        assert "agent.tool.summarise" in rendered
+        # **LOGIC_STEP**: Cut, not dropped — the reader still sees the argument was there and how
+        # much of it is missing, so a truncated line is never mistaken for an empty argument.
+        assert "(+4920 chars)" in rendered
+        assert max(len(line) for line in rendered.splitlines()) < 200
+
     # FUNCTION: test_a_failing_tool_call_still_shows_its_arguments
     # SUMMARY: Verify the arguments render next to the failure mark too, not only on success.
     @pytest.mark.unit

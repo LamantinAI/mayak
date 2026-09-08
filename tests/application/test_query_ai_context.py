@@ -312,6 +312,43 @@ class TestQueryAIContext:
 
         assert payload["final_gate"] == ["make quality-gates", "make test-e2e"]
 
+    # FUNCTION: test_query_workset_diff_recommends_e2e_for_a_migration
+    # SUMMARY: Verify a revision under alembic/versions/ also asks for the gate that runs it.
+    # NOTE: A migration is the one change `make quality-gates` cannot check at all without a
+    # database: with none reachable `scripts/validate_migrations.py` announces the skip and stays
+    # green, and `make test-e2e` is the only local gate that executes the revision. Added after an
+    # independent review of this branch pointed out the prefix list stopped at persistence and
+    # endpoints on 2026-09-08.
+    @pytest.mark.unit
+    def test_query_workset_diff_recommends_e2e_for_a_migration(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        outputs = {
+            ("git", "diff", "--name-only", "--cached"): (
+                "alembic/versions/9f1c2b3d4e5f_add_a_column.py\n"
+            ),
+            ("git", "diff", "--name-only"): "",
+            ("git", "ls-files", "--others", "--exclude-standard"): "",
+        }
+
+        def fake_run(
+            argv: list[str],
+            cwd: str,
+            check: bool,
+            capture_output: bool,
+            text: bool,
+        ) -> subprocess.CompletedProcess[str]:
+            del cwd, check, capture_output, text
+            return subprocess.CompletedProcess(argv, 0, stdout=outputs[tuple(argv)], stderr="")
+
+        monkeypatch.setattr(query_common.subprocess, "run", fake_run)
+
+        result = _query_workset("diff", [])
+        payload: dict[str, Any] = result.payload
+
+        assert payload["final_gate"] == ["make quality-gates", "make test-e2e"]
+
     # FUNCTION: test_query_workset_diff_does_not_recommend_e2e_for_a_docs_only_change
     # SUMMARY: Verify final_gate stays quality-gates-only when nothing touched needs a live database.
     @pytest.mark.unit

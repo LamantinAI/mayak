@@ -35,6 +35,22 @@ _ROUTINE_STATUSES = frozenset(
 # ==================== RENDERING ====================
 
 
+# ATTRIBUTE: _MAX_ARG_CHARS (int)
+# SUMMARY: How much of one string tool argument the compact tree prints before cutting it.
+_MAX_ARG_CHARS = 80
+
+
+# FUNCTION: _clipped
+# SUMMARY: Shorten one string argument to a length a tree line can carry.
+# INPUT: value (str): The argument as the span recorded it.
+# OUTPUT: (str): The value, or its first _MAX_ARG_CHARS characters followed by an ellipsis and the
+#         full length, so the reader knows something was cut and by how much.
+def _clipped(value: str) -> str:
+    if len(value) <= _MAX_ARG_CHARS:
+        return value
+    return f"{value[:_MAX_ARG_CHARS]}… (+{len(value) - _MAX_ARG_CHARS} chars)"
+
+
 # FUNCTION: _render_span_line
 # SUMMARY: Render a single span node as a compact text line.
 def _render_span_line(node: SpanNode) -> str:
@@ -66,6 +82,8 @@ def _render_span_line(node: SpanNode) -> str:
     # **LOGIC_STEP**: agent.tool.* is the one span whose call arguments belong in the compact
     # view — see _TOOL_SPAN_PREFIX. Same scalars-only rule as `output` above, for the same reason:
     # this renderer is "compact" by design, and a list or nested dict argument would defeat that.
+    # A string is capped for the same reason: a tool argument is routinely a document, a prompt or
+    # a pasted page, and one of those printed whole turns a tree meant to be skimmed into a wall.
     args_suffix = ""
     if node.name.startswith(_TOOL_SPAN_PREFIX) and node.input_params:
         arg_parts = []
@@ -73,7 +91,7 @@ def _render_span_line(node: SpanNode) -> str:
             if isinstance(v, (int, float, bool)):
                 arg_parts.append(f"{k}={v}")
             elif isinstance(v, str):
-                arg_parts.append(f'{k}="{v}"')
+                arg_parts.append(f'{k}="{_clipped(v)}"')
         if arg_parts:
             args_suffix = f" ({', '.join(arg_parts)})"
 

@@ -197,3 +197,38 @@ class TestThreeToolAgentLoopOnMock:
         # above exists to avoid. Asserted here as the documented boundary, not just described.
         with pytest.raises(Exception, match="customer_id"):
             await _TOOLS[0].ainvoke(response.tool_calls[0]["args"])
+
+    # FUNCTION: test_the_loop_advances_when_the_tool_result_carries_no_name
+    # SUMMARY: Drive the same loop with `ToolMessage(content=..., tool_call_id=...)` — no `name` —
+    # and check the cycle still visits every tool once.
+    # NOTE: `ToolMessage.name` is optional, and the shortest hand-written loop omits it. Selection
+    # read only that field until 2026-09-08, so an unnamed result taught the mock nothing: it
+    # answered with the first bound tool again, and again, until the caller's own round budget
+    # stopped it. Found by an independent review of this branch, not by the loop above, because
+    # the loop above happens to set the name.
+    @pytest.mark.unit
+    async def test_the_loop_advances_when_the_tool_result_carries_no_name(self) -> None:
+        with patch(
+            "project.infrastructure.agents.llm_service.get_settings",
+            return_value=FixtureSettings(),
+        ):
+            service = LLMService()
+        bound = service.bind_tools(_TOOLS)
+        bound._mock_tool_args = _VALID_ARGS_BY_TOOL
+
+        messages: list[BaseMessage] = [HumanMessage(content="confirm the order for cust-42")]
+        tools_by_name = {tool.name: tool for tool in _TOOLS}
+        called_in_order: list[str] = []
+
+        for _round in range(len(_TOOLS) + 1):
+            response = await bound.call(messages)
+            messages.append(response)
+            if not isinstance(response, AIMessage) or not response.tool_calls:
+                break
+            call = response.tool_calls[0]
+            called_in_order.append(call["name"])
+            result = await tools_by_name[call["name"]].ainvoke(call["args"])
+            # **LOGIC_STEP**: The whole point — no `name=`, only the id of the call it answers.
+            messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
+
+        assert called_in_order == ["lookup_customer", "price_order", "send_confirmation"]

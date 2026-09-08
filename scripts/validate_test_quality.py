@@ -527,6 +527,25 @@ def _referenced_names(node: ast.expr) -> set[str]:
     return {child.id for child in ast.walk(node) if isinstance(child, ast.Name)}
 
 
+# FUNCTION: _names_stated_as_text
+# SUMMARY: Return the names of an expression whose own text is what the comparison is about.
+# INPUT: node (ast.expr): The side of a comparison that is not the string literal.
+# OUTPUT: (set[str]): Identifiers reached through slicing, calls and attributes, but never a name
+#         used only as a subscript key.
+# NOTE: `_referenced_names` answers "does this expression mention the constant at all", which is
+# the right question for a round trip and the wrong one for a pin. `results[_SELECT_BY_ID] ==
+# "ok"` mentions the constant as a dictionary key and states nothing about the SQL, yet it used to
+# mark the constant pinned and silence the rule for the whole module — the rule exists to notice
+# exactly that silence. `_SELECT_BY_ID.split(" WHERE ", 1)[1] == "id = %s"` still counts: there
+# the constant is the value being sliced, not the key doing the looking-up.
+def _names_stated_as_text(node: ast.expr) -> set[str]:
+    keys: set[str] = set()
+    for child in ast.walk(node):
+        if isinstance(child, ast.Subscript):
+            keys |= _referenced_names(child.slice)
+    return _referenced_names(node) - keys
+
+
 # FUNCTION: _is_expectation_call
 # SUMMARY: Report whether a call is a mock assertion carrying the expected arguments.
 # OUTPUT: (bool): True for the `*_with` family, assert_any_call and assert_has_calls.
@@ -581,7 +600,7 @@ def _query_constants_pinned_as_text(tree: ast.AST, constants: set[str]) -> set[s
         if isinstance(op, ast.Eq):
             for expression, other in ((node.left, right), (right, node.left)):
                 if isinstance(other, ast.Constant) and isinstance(other.value, str):
-                    pinned |= _referenced_names(expression) & constants
+                    pinned |= _names_stated_as_text(expression) & constants
         elif isinstance(op, ast.In):
             # **LOGIC_STEP**: `"WHERE id = %s" in _SELECT_BY_ID` pins the same fact a sliced `==`
             # does, and used to count for nothing: only ast.Eq was read here, so this exact
@@ -590,7 +609,7 @@ def _query_constants_pinned_as_text(tree: ast.AST, constants: set[str]) -> set[s
             # (necessarily shorter) needle, never the query itself, so this is not mirrored the way
             # `==` is above.
             if isinstance(node.left, ast.Constant) and isinstance(node.left.value, str):
-                pinned |= _referenced_names(right) & constants
+                pinned |= _names_stated_as_text(right) & constants
     return pinned
 
 
