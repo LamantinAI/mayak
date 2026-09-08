@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import ast
 import fnmatch
 import subprocess
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 from ai_context.constants import (
@@ -784,6 +785,12 @@ def name_matched_test_candidates(normalized_path: str) -> list[str]:
 # ATTRIBUTE: _LAYER_SUFFIXES (tuple[str, ...])
 # SUMMARY: Suffixes a vertical's file carries to say which layer it belongs to.
 # NOTE: The order matters only in that the first match wins; no stem here ends in two of them.
+# `_agent`, `_mock`, `_tools` and `_verdict` were missing until 2026-09-08: an agentic vertical's
+# `<name>_agent.py`, `<name>_mock.py`, `<name>_tools.py` and `<name>_verdict.py` files kept their
+# suffix through `vertical_names_for_path`, so the derived "name" was never a name the project had
+# registered and `workset diff`'s "each vertical file finds its own tests" gate reported no likely
+# tests for them — reproduced on an agentic vertical built from this template in the 2026-09
+# audit. The kernel ships no such vertical itself, so nothing here caught it until then.
 _LAYER_SUFFIXES = (
     "_service",
     "_repository",
@@ -797,6 +804,10 @@ _LAYER_SUFFIXES = (
     "_endpoints",
     "_adapter",
     "_orm",
+    "_agent",
+    "_mock",
+    "_tools",
+    "_verdict",
 )
 
 # ATTRIBUTE: _RUNNABLE_TEST_SUITES (tuple[str, ...])
@@ -1112,6 +1123,35 @@ def matching_tasks_for_paths(
     return sorted(dict.fromkeys(matches))
 
 
+# ATTRIBUTE: _E2E_GATE_PATH_PREFIXES (tuple[str, ...])
+# SUMMARY: Directory prefixes docs/agent_rules.md names as finished only by `make test-e2e`.
+# NOTE: The rule ("Finish with `make quality-gates`, and with `make test-e2e` as well when the
+# diff touched persistence, endpoints, or wiring") lived in agent_rules.md prose only —
+# workset_payload's final_gate was hardcoded to ["make quality-gates"] regardless of what the
+# diff touched, so `workset diff` on a persistence-only change recommended the one gate that runs
+# none of the project's own queries and said nothing about the one that does. Measured on
+# 2026-09-02 in that same file: reversing an ORDER BY clause under
+# project/infrastructure/persistence/ left every quality-gates check green. Wiring files are
+# matched separately below, against architecture_rules["wiring_files"], because they are exact
+# files rather than a directory prefix.
+_E2E_GATE_PATH_PREFIXES = (
+    "project/infrastructure/persistence/",
+    "project/infrastructure/api/endpoints/",
+)
+
+
+def requires_e2e_gate(paths: list[str], architecture_rules: dict[str, object]) -> bool:
+    wiring_files = set(architecture_rules["wiring_files"].values())
+    return any(path in wiring_files or path.startswith(_E2E_GATE_PATH_PREFIXES) for path in paths)
+
+
+def final_gate_for_paths(paths: list[str], architecture_rules: dict[str, object]) -> list[str]:
+    gate = ["make quality-gates"]
+    if requires_e2e_gate(paths, architecture_rules):
+        gate.append("make test-e2e")
+    return gate
+
+
 def tests_payload(
     unit_tests: list[str],
     integration_tests: list[str],
@@ -1306,7 +1346,7 @@ def workset_payload(
         "likely_tests": normalize_test_candidates([*likely_unit_tests, *likely_integration_tests]),
         "partial_context": bool(context_warnings),
         "context_warnings": context_warnings,
-        "final_gate": ["make quality-gates"],
+        "final_gate": final_gate_for_paths(all_paths, architecture_rules),
         "recommended_diff_style": recommended_diff_style_for_paths(architecture_rules, all_paths),
         "read_first": read_first,
     }
@@ -1376,4 +1416,85 @@ def file_impact_payload(
         "required_validators": likely_tests["required_validators"],
         "partial_context": bool(context_warnings),
         "context_warnings": context_warnings,
+    }
+
+
+# ATTRIBUTE: _SYMBOL_SEARCH_ROOTS (tuple[str, ...])
+# SUMMARY: First-party source directories `symbol` scans. Excludes .venv and every generated path.
+_SYMBOL_SEARCH_ROOTS = ("project", "ai_context", "ai_query", "scripts", "tests", "alembic")
+
+# ATTRIBUTE: _SYMBOL_RESULT_LIMIT (int)
+# SUMMARY: Cap on matches returned for one name, so a generic identifier does not flood the payload.
+_SYMBOL_RESULT_LIMIT = 25
+
+# ATTRIBUTE: _SYMBOL_KIND_ORDER (dict[str, int])
+# SUMMARY: Sort weight so a class or function definition is listed ahead of a same-named local
+# variable — the two things someone searching a symbol name is almost always after.
+_SYMBOL_KIND_ORDER = {"class": 0, "function": 1, "attribute": 2}
+
+
+# FUNCTION: _symbol_search_files
+# SUMMARY: List every first-party .py file `symbol` is allowed to open.
+# OUTPUT: (Iterator[Path]): Files under _SYMBOL_SEARCH_ROOTS, sorted for deterministic output.
+def _symbol_search_files() -> Iterator[Path]:
+    for root_name in _SYMBOL_SEARCH_ROOTS:
+        root = ROOT_DIR / root_name
+        if not root.is_dir():
+            continue
+        yield from sorted(root.rglob("*.py"))
+
+
+# FUNCTION: _symbol_matches_in_file
+# SUMMARY: Find every definition or name binding matching `name` in one source file.
+# INPUT: path (Path): File to parse.
+# INPUT: name (str): Exact identifier to match (case-sensitive — Python names are).
+# OUTPUT: (list[dict[str, object]]): {"file", "line", "kind"} entries, kind in class/function/attribute.
+# **LOGIC_STEP**: `ast`, not a regex over `def NAME(` / `class NAME` / `NAME =` — indentation,
+# multi-line signatures and string literals containing the name all defeat a line-based scan
+# without visibly failing, and this repository already leans on `ast` for the same reason in
+# ai_context/extraction.py and scripts/validate_cbm.py. A plain `Assign`/`AnnAssign` target is an
+# `ast.Name` only for a module-level constant or a class-body field (`llm_mode: Literal[...] = ...`
+# in AgentSettings, say) — `self.x = ...` binds an `ast.Attribute` instead, so instance attributes
+# set in `__init__` are excluded without a special case. A same-named local variable inside a
+# function is not excluded — narrowing to definitions and fields only would take a scope-aware
+# walker this command does not need to earn its keep over grep.
+def _symbol_matches_in_file(path: Path, name: str) -> list[dict[str, object]]:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (SyntaxError, UnicodeDecodeError, OSError):
+        return []
+    relative_path = path.relative_to(ROOT_DIR).as_posix()
+    found: list[dict[str, object]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == name:
+            found.append({"file": relative_path, "line": node.lineno, "kind": "class"})
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            found.append({"file": relative_path, "line": node.lineno, "kind": "function"})
+        elif isinstance(node, ast.AnnAssign):
+            if isinstance(node.target, ast.Name) and node.target.id == name:
+                found.append({"file": relative_path, "line": node.lineno, "kind": "attribute"})
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == name:
+                    found.append({"file": relative_path, "line": node.lineno, "kind": "attribute"})
+    return found
+
+
+# FUNCTION: find_symbol
+# SUMMARY: Locate a function, class or field by exact name — file and line, without a repo-wide grep.
+# INPUT: name (str): Exact identifier to search for.
+# OUTPUT: (dict[str, object]): {"name", "matches", "truncated"}. `matches` is capped at
+# _SYMBOL_RESULT_LIMIT and sorted class-before-function-before-attribute, then by file and line;
+# `truncated` is true when more matches existed than the cap kept.
+def find_symbol(name: str) -> dict[str, object]:
+    matches: list[dict[str, object]] = []
+    for path in _symbol_search_files():
+        matches.extend(_symbol_matches_in_file(path, name))
+    matches.sort(
+        key=lambda match: (_SYMBOL_KIND_ORDER[str(match["kind"])], match["file"], match["line"])
+    )
+    return {
+        "name": name,
+        "matches": matches[:_SYMBOL_RESULT_LIMIT],
+        "truncated": len(matches) > _SYMBOL_RESULT_LIMIT,
     }

@@ -53,5 +53,14 @@ def render_text(result: QueryPayload) -> str:
         lines.append("summary:")
         lines.append("  rerun: " + result.payload["smallest_command_to_rerun"])
         lines.append("  stop_widening: " + result.payload["stop_widening_condition"])
+    elif result.kind == "symbol":
+        lines.append("summary:")
+        matches = result.payload.get("matches", [])
+        lines.append(
+            f"  matches: {len(matches)}"
+            + (" (truncated)" if result.payload.get("truncated") else "")
+        )
+        for match in matches[:3]:
+            lines.append(f"  {match['kind']}: {match['file']}:{match['line']}")
     lines.append(json.dumps(result.payload, ensure_ascii=True, sort_keys=True))
     return "\n".join(lines)

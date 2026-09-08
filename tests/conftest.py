@@ -145,6 +145,24 @@ def pin_postgres_toggle(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None
     yield
 
 
+# FUNCTION: pin_llm_mode_toggle
+# SUMMARY: Pin AGENT_LLM_MODE for the whole suite so tests never depend on the operator's .env.
+# OUTPUT: (Generator[None, None, None]): Yields with the variable set to the mock default.
+@pytest.fixture(autouse=True)
+def pin_llm_mode_toggle(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+    # **LOGIC_STEP**: Symmetric to pin_postgres_toggle above, for the same reason.
+    # `_FixtureSettings.__init__` forces `self.agent.llm_mode = "mock"` on the object it builds,
+    # but that only helps a test that goes through the `test_settings`/`fastapi_app` fixtures. A
+    # test that constructs `LLMService()` directly reads the process-wide `get_settings()`, whose
+    # `AgentSettings` (env_prefix="AGENT_") is built straight from the environment and the
+    # operator's own .env — unpinned, AGENT_LLM_MODE=live there makes `_initialize_llm()` build a
+    # real provider client instead of the deterministic mock, and the mock-mode assertions the
+    # test is actually checking never run. Tests that want the live path override this with their
+    # own monkeypatch.setenv, the same escape hatch pin_postgres_toggle documents above.
+    monkeypatch.setenv("AGENT_LLM_MODE", "mock")
+    yield
+
+
 # FUNCTION: log_capture
 # SUMMARY: Capture log messages for verifying logging behavior in tests.
 # OUTPUT: (Generator[list, None, None]): List that accumulates log entries.

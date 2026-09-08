@@ -82,20 +82,6 @@ PROJECT_MAP_HEADING = "# Project Map"
 # SUMMARY: The only heading the always-loaded wrapper may carry. It names the kernel's contract, not a domain.
 CONTRACT_HEADING = "# CLAUDE.md"
 
-# ATTRIBUTE: MAY_NAME_THE_PROJECT (frozenset[str])
-# SUMMARY: The one file under project/ allowed to contain the project's own name.
-# `initialize-project` row 4 documents it: ProjectSettings.name's default is what a deployment
-# without APP_NAME serves, so it has to be this project's name and nothing else.
-MAY_NAME_THE_PROJECT = frozenset({"project/core/config_settings_core.py"})
-
-
-# FUNCTION: _declared_project_name
-# SUMMARY: Read this project's own name from the file that owns it.
-# OUTPUT: (str): The project name, lower-cased for substring comparison.
-def _declared_project_name() -> str:
-    context = json.loads((_REPO_ROOT / "docs" / "project_context.json").read_text(encoding="utf-8"))
-    return str(context["project_name"]).lower()
-
 
 # FUNCTION: _working_copy_files
 # SUMMARY: List every file the working copy carries — tracked or newly written — minus what
@@ -243,12 +229,17 @@ class TestProjectMapHeading:
 
 # CLASS: tests.application.test_template_neutrality.TestKernelSurfacesCarryNoProjectName
 # SUMMARY: Verify the identity checklist cannot silently grow a seventh place.
-# NOTE: Three surfaces named the template outside the six places initialize-project renames: the
-# operational contract's own heading, project/__init__.py's SUMMARY, which is copied verbatim
-# into docs/project_map.md, and the /tmp file make audit-deps wrote. None of them is
+# NOTE: Two surfaces named the template outside the six places initialize-project renames: the
+# operational contract's own heading, and the /tmp file make audit-deps wrote. Neither is
 # project-specific, so each was made generic rather than added to the checklist. These guards
 # keep it that way; the name is read from the project's own context file, so they hold in a
 # renamed project too.
+# A third guard used to forbid the project's own name anywhere under project/ outside
+# config_settings_core.py's documented default. The template owner reversed that on 2026-09-08:
+# a project is free to name itself in its own prompt file and in comments, so the blanket sweep
+# over project/ is gone. Only the fallback default in config_settings_core.py stays pinned, by
+# tests/application/test_config.py::test_default_values, because that one is not decoration — it
+# is what a deployment without APP_NAME serves.
 class TestKernelSurfacesCarryNoProjectName:
     # FUNCTION: test_the_operational_contract_heading_is_generic
     # SUMMARY: Verify the always-loaded wrapper opens with a heading no rename can invalidate.
@@ -260,34 +251,6 @@ class TestKernelSurfacesCarryNoProjectName:
         first_line = (_REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8").splitlines()[0].strip()
 
         assert first_line == CONTRACT_HEADING
-
-    # FUNCTION: test_application_package_names_the_project_in_one_declared_place
-    # SUMMARY: Verify no tracked file under project/ carries the project name except the documented default.
-    @pytest.mark.unit
-    def test_application_package_names_the_project_in_one_declared_place(self) -> None:
-        # **LOGIC_STEP**: Every tracked file, not just `*.py`. The first version of this guard
-        # walked `rglob("*.py")` while claiming to cover "anywhere under project/", and
-        # project/prompts/ ships a .txt the scan never opened — a prompt, a fixture, a future
-        # .sql or .jinja asset could carry a stale name straight past it.
-        name = _declared_project_name()
-        offenders: list[str] = []
-        for path in _working_copy_files():
-            repo_path = str(path.relative_to(_REPO_ROOT))
-            if not repo_path.startswith("project/") or repo_path in MAY_NAME_THE_PROJECT:
-                continue
-            if not path.is_file():
-                continue
-            try:
-                text = path.read_text(encoding="utf-8")
-            except (UnicodeDecodeError, OSError):
-                # **LOGIC_STEP**: A binary asset carries no prose to go stale.
-                continue
-            if name in text.lower():
-                offenders.append(repo_path)
-
-        assert sorted(offenders) == [], (
-            f"the project name appears under project/ outside the documented default: {offenders}"
-        )
 
     # FUNCTION: test_dependency_audit_writes_to_a_temporary_path_it_did_not_invent
     # SUMMARY: Verify make audit-deps names no fixed /tmp file, which would carry a stale name.
