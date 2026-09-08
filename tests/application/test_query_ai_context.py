@@ -24,10 +24,17 @@ from scripts.query_ai_context import (
 )
 
 
+# FUNCTION: tests.application.test_query_ai_context._architecture_rules
+# SUMMARY: The rules bundle tests_for_file needs to decide whether a path is finished by e2e.
+def _architecture_rules() -> dict[str, Any]:
+    _context_map, _change_map, architecture_rules = query_common.context_bundle()
+    return architecture_rules
+
+
 # FUNCTION: tests.application.test_query_ai_context._tests_for
 # SUMMARY: Narrow the tests_for_file payload to Any so assertions can index its heterogeneous values.
 def _tests_for(context_map: dict[str, Any], path: str) -> dict[str, Any]:
-    return query_common.tests_for_file(context_map, path)
+    return query_common.tests_for_file(context_map, path, _architecture_rules())
 
 
 # CLASS: tests.application.test_query_ai_context.TestQueryAIContext
@@ -311,6 +318,24 @@ class TestQueryAIContext:
         payload: dict[str, Any] = result.payload
 
         assert payload["final_gate"] == ["make quality-gates", "make test-e2e"]
+
+    # FUNCTION: test_before_edit_on_a_persistence_file_recommends_e2e_too
+    # SUMMARY: Verify the per-file answer names the same final gate `workset diff` does.
+    # NOTE: `workset diff` learned this on 2026-09-08 and `before-edit file` did not — its payload
+    # kept a hardcoded ["make quality-gates"], and it is the more misleading of the two: it is
+    # asked about one file, usually immediately before that file is edited. Found by an independent
+    # review of this branch.
+    @pytest.mark.unit
+    def test_before_edit_on_a_persistence_file_recommends_e2e_too(self) -> None:
+        context_map, _change_map, _rules = query_common.context_bundle()
+
+        payload = _tests_for(
+            context_map, "project/infrastructure/persistence/reference_task_repository.py"
+        )
+        docs_only = _tests_for(context_map, "docs/agent_rules.md")
+
+        assert payload["final_gate"] == ["make quality-gates", "make test-e2e"]
+        assert docs_only["final_gate"] == ["make quality-gates"]
 
     # FUNCTION: test_query_workset_diff_recommends_e2e_for_a_migration
     # SUMMARY: Verify a revision under alembic/versions/ also asks for the gate that runs it.

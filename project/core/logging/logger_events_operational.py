@@ -199,8 +199,17 @@ class SemanticLoggerOperationalEventsMixin:
         # through a required argument. Reading it back out of `payload` — after `extra` has been
         # folded in — is what lets this one check cover a truncated call whatever else the caller
         # sent alongside it.
+        # **LOGIC_STEP**: `extra` is typed LogValue, which admits a list and a dict, and a
+        # membership test against a frozenset raises TypeError on an unhashable one — a provider
+        # returning a malformed `finish_reason` would then crash the logging call rather than the
+        # request it was describing. Only a string can name a stop reason, so anything else is
+        # simply not one.
         finish_reason = payload.get("finish_reason")
-        truncated = success and finish_reason in _TRUNCATED_FINISH_REASONS
+        truncated = (
+            success
+            and isinstance(finish_reason, str)
+            and finish_reason in _TRUNCATED_FINISH_REASONS
+        )
 
         level = logging.WARNING if (not success or truncated) else logging.INFO
         msg = f"LLM call to {model}: {'ok' if success else 'failed'} in {round(duration_ms, 1)}ms"

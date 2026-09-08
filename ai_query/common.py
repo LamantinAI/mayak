@@ -1126,7 +1126,8 @@ def matching_tasks_for_paths(
 # ATTRIBUTE: _E2E_GATE_PATH_PREFIXES (tuple[str, ...])
 # SUMMARY: Directory prefixes docs/agent_rules.md names as finished only by `make test-e2e`.
 # NOTE: The rule ("Finish with `make quality-gates`, and with `make test-e2e` as well when the
-# diff touched persistence, endpoints, or wiring") lived in agent_rules.md prose only —
+# diff touched persistence, endpoints, wiring, or a migration") lived in agent_rules.md prose
+# only —
 # workset_payload's final_gate was hardcoded to ["make quality-gates"] regardless of what the
 # diff touched, so `workset diff` on a persistence-only change recommended the one gate that runs
 # none of the project's own queries and said nothing about the one that does. Measured on
@@ -1164,19 +1165,26 @@ def tests_payload(
     unit_tests: list[str],
     integration_tests: list[str],
     validators: list[str],
+    final_gate: list[str],
 ) -> dict[str, object]:
     return {
         "heuristic": True,
         "likely_unit_tests": unit_tests,
         "likely_integration_tests": integration_tests,
         "required_validators": validators,
-        "final_gate": ["make quality-gates"],
+        "final_gate": final_gate,
     }
 
 
+# **LOGIC_STEP**: `architecture_rules` is threaded in for one line — the final gate. Without it
+# this payload hardcoded ["make quality-gates"], the same defect `workset diff` had until
+# 2026-09-08 and in the more misleading place of the two: `before-edit file` is asked about ONE
+# file, usually right before editing it, so a reader looking at a repository path was told the
+# gates would finish the job and never heard about `make test-e2e`.
 def tests_for_file(
     context_map: dict[str, object],
     repo_path: str,
+    architecture_rules: dict[str, object],
 ) -> dict[str, object]:
     normalized_path = relative_repo_path(repo_path)
     unit_tests: list[str] = []
@@ -1241,6 +1249,7 @@ def tests_for_file(
         unit_tests=normalize_test_candidates(unit_tests),
         integration_tests=normalize_test_candidates(integration_tests),
         validators=validator_recommendations_for_paths([normalized_path]),
+        final_gate=final_gate_for_paths([normalized_path], architecture_rules),
     )
 
 
@@ -1312,7 +1321,7 @@ def workset_payload(
     affected_routes: list[str] = []
 
     for normalized_path in existing_changed_files:
-        file_tests = tests_for_file(context_map, normalized_path)
+        file_tests = tests_for_file(context_map, normalized_path, architecture_rules)
         likely_unit_tests.extend(file_tests["likely_unit_tests"])
         likely_integration_tests.extend(file_tests["likely_integration_tests"])
         impact_payload = file_impact_payload(
@@ -1407,7 +1416,7 @@ def file_impact_payload(
     affected_service_keys = sorted(dict.fromkeys(affected_service_keys))
     affected_aliases = sorted(dict.fromkeys(affected_aliases))
     affected_routes = sorted(dict.fromkeys(affected_routes))
-    likely_tests = tests_for_file(context_map, normalized_path)
+    likely_tests = tests_for_file(context_map, normalized_path, architecture_rules)
     context_warnings = warnings_for_service_keys(context_map, affected_service_keys)
     return {
         "subject_kind": "file",

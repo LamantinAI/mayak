@@ -261,9 +261,12 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen
 
-      # --cov-fail-under=0: pytest.ini sets a 60% floor for the WHOLE project, and this job runs
-      # one directory. The floor belongs to the full suite (quality-gates) and to diff-coverage;
-      # applying it to a subset makes the job fail on arithmetic rather than on a real problem.
+      # --cov-fail-under=0: the floor is owned by scripts/run_all_tests.py, which asks for it on
+      # the full local run and nowhere else (COVERAGE_FLOOR_PERCENT there); it left pytest.ini's
+      # addopts on 2026-09-08 precisely because a subset run cannot honestly be held to a project
+      # total. Passing 0 explicitly here keeps that true whatever a future addopts line does, and
+      # says so at the job that would otherwise fail on arithmetic rather than on a real problem.
+      # The floor belongs to the full suite (quality-gates) and to diff-coverage.
       - name: Run unit tests
         run: uv run python -m pytest tests/application -q --cov-fail-under=0
 

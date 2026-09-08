@@ -80,7 +80,11 @@ def _foreign_keys_missing_ondelete(metadata: MetaData) -> list[str]:
         for table in metadata.tables.values()
         for column in table.columns
         for foreign_key in column.foreign_keys
-        if foreign_key.ondelete is None
+        # **LOGIC_STEP**: An empty string is not a policy either, and it is worse than None:
+        # SQLAlchemy accepts `ondelete=""` at model level and PostgreSQL's DDL compiler then fails
+        # with `Unexpected SQL phrase: ''` at migration time, when the useful message is furthest
+        # from the line that caused it. Anything blank is reported here instead.
+        if foreign_key.ondelete is None or not str(foreign_key.ondelete).strip()
     )
 
 
@@ -104,6 +108,22 @@ class TestForeignKeysDeclareOnDelete:
         )
 
         assert _foreign_keys_missing_ondelete(bare) == ["children.parent_id"]
+
+    # FUNCTION: test_a_foreign_key_with_a_blank_ondelete_is_reported
+    # SUMMARY: Verify an empty policy is caught at model level rather than at DDL compilation.
+    # OUTPUT: (None): None.
+    @pytest.mark.unit
+    def test_a_foreign_key_with_a_blank_ondelete_is_reported(self) -> None:
+        blank = MetaData()
+        Table("parents", blank, Column("id", String, primary_key=True))
+        Table(
+            "children",
+            blank,
+            Column("id", String, primary_key=True),
+            Column("parent_id", String, ForeignKey("parents.id", ondelete="  ")),
+        )
+
+        assert _foreign_keys_missing_ondelete(blank) == ["children.parent_id"]
 
     # FUNCTION: test_a_foreign_key_with_ondelete_is_not_reported
     @pytest.mark.unit

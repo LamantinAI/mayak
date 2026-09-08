@@ -9,13 +9,13 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from project.core.error_utils import (
     SAFE_INTERNAL_ERROR_MESSAGE,
     get_client_safe_message,
-    is_client_rejection,
     summarize_exception_for_logging,
 )
 from project.core.logging import get_logger
 from project.core.logging.context import get_trace_id, reset_trace_id, set_trace_id
 from project.core.logging.redaction import summarize_text
 from project.domain.exceptions import (
+    is_client_rejection,
     ProjectError,
     ValidationError,
     NotFoundError,

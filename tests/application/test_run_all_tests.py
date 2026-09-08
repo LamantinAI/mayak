@@ -248,4 +248,9 @@ class TestCoverageFloorAppliesToTheFullRunOnly:
             step for step in _build_test_steps(skip_functional=True, functional_only=False)
         )
 
-        assert f"--cov-fail-under={COVERAGE_FLOOR_PERCENT}" in local.command
+        # **LOGIC_STEP**: The number is written out here rather than interpolated from the constant
+        # the command is built from. Interpolating it moves both sides together — lowering the
+        # floor to 0 would have kept this green while switching the protection off, which is the
+        # same tautology `test.sql_constant_round_trip` exists to forbid one directory away.
+        assert "--cov-fail-under=60" in local.command
+        assert COVERAGE_FLOOR_PERCENT == 60

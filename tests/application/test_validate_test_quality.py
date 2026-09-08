@@ -443,6 +443,28 @@ class TestQueryConstantRoundTrip:
 
         assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
 
+    # FUNCTION: test_an_empty_needle_does_not_count_as_pinned
+    # SUMMARY: Verify `assert "" in _CONSTANT` — true of every string — pins nothing.
+    # NOTE: Found by an independent review of this branch on 2026-09-08, right after the `in`
+    # branch was added: the shortest possible way to silence the rule for a whole module was one
+    # assertion that cannot fail.
+    @pytest.mark.unit
+    def test_an_empty_needle_does_not_count_as_pinned(self, tmp_path: Path) -> None:
+        repo_root = _write_repository_fixture(tmp_path)
+        path = _write_test_module(
+            tmp_path,
+            "from project.infrastructure.persistence.probe_repository import _SELECT_BY_ID\n"
+            "\n"
+            "def test_get_runs_the_query() -> None:\n"
+            "    cursor.execute.assert_awaited_once_with(_SELECT_BY_ID, ('id',))\n"
+            "    assert '' in _SELECT_BY_ID\n"
+            "    assert '   ' in _SELECT_BY_ID\n",
+        )
+
+        issues = validate_test_module(path, repo_root)
+
+        assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
+
     # FUNCTION: test_the_constant_used_as_a_lookup_key_does_not_count_as_pinned
     # SUMMARY: Verify a constant that appears only as a dictionary key states nothing about the
     # SQL and does not silence the rule for the module.
@@ -1058,6 +1080,71 @@ class TestASpanNobodyLooksAtIsReported:
         issues = collect_test_quality_issues(tmp_path)
 
         assert "test.span_output_unpinned" in [issue.rule_id for issue in issues]
+
+    # FUNCTION: test_a_sibling_symbol_from_the_span_helpers_module_does_not_vouch
+    # SUMMARY: Verify only the name that does the looking-up counts, not any name that happens to
+    # live in the same file as one.
+    # NOTE: The rule resolved the import to its module and asked whether the MODULE contained a
+    # span lookup. A test importing `make_row` from a module that also defines
+    # `assert_span_finished` therefore read as a span test, and every span name it mentioned in a
+    # string counted as covered while it asserted nothing. Found by an independent review of this
+    # branch on 2026-09-08 — the mutation it named was exactly this fixture.
+    @pytest.mark.unit
+    def test_a_sibling_symbol_from_the_span_helpers_module_does_not_vouch(
+        self, tmp_path: Path
+    ) -> None:
+        self._write_project(
+            tmp_path,
+            "from tests.support.spans import make_row\n"
+            "\n"
+            "def test_something_else() -> None:\n"
+            "    assert make_row() is not None\n"
+            "    assert 'db.thing.save' is not None\n",
+        )
+        support = tmp_path / "tests" / "support"
+        support.mkdir(parents=True)
+        (support / "__init__.py").write_text("", encoding="utf-8")
+        (support / "spans.py").write_text(
+            "def make_row():\n"
+            "    return {'id': 1}\n"
+            "\n"
+            "def assert_span_finished(captured, name):\n"
+            "    finish = [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "    assert finish['name'] == name\n",
+            encoding="utf-8",
+        )
+
+        issues = collect_test_quality_issues(tmp_path)
+
+        assert "test.span_output_unpinned" in [issue.rule_id for issue in issues]
+
+    # FUNCTION: test_importing_the_span_helper_itself_still_vouches
+    # SUMMARY: Verify the tightening did not take the legitimate case with it.
+    @pytest.mark.unit
+    def test_importing_the_span_helper_itself_still_vouches(self, tmp_path: Path) -> None:
+        self._write_project(
+            tmp_path,
+            "from tests.support.spans import assert_span_finished\n"
+            "\n"
+            "def test_the_span_reports(log_capture) -> None:\n"
+            "    assert_span_finished(log_capture, 'db.thing.save')\n",
+        )
+        support = tmp_path / "tests" / "support"
+        support.mkdir(parents=True)
+        (support / "__init__.py").write_text("", encoding="utf-8")
+        (support / "spans.py").write_text(
+            "def make_row():\n"
+            "    return {'id': 1}\n"
+            "\n"
+            "def assert_span_finished(captured, name):\n"
+            "    finish = [e for e in captured if e['event_id'] == 'span.finish'][0]\n"
+            "    assert finish['output']['row_written'] is True\n",
+            encoding="utf-8",
+        )
+
+        issues = collect_test_quality_issues(tmp_path)
+
+        assert "test.span_output_unpinned" not in [issue.rule_id for issue in issues]
 
 
 class TestValidatorSurface:

@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from types import FrameType
 from typing import Any, Optional, cast
 
-from project.core.error_utils import is_client_rejection
+from project.domain.exceptions import is_client_rejection
 from project.core.logging.context import (
     get_current_context,
     get_current_span,
@@ -274,7 +274,15 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             error_id = uuid.uuid4().hex
             ctx.error_id = error_id
             error_id_token = set_current_error_id(error_id)
-            increment_span_stat("error_count")
+            rejection = is_client_rejection(error)
+            # **LOGIC_STEP**: A routine 409 is not an error in the count either. Levels alone were
+            # fixed first and the counter was left behind, so `request.summary` still reported
+            # error_count=1 and `make format-trace` still printed `errors=1` for a request the
+            # same trace calls a client_error — the healthy service reading as a failing one,
+            # one field further down. The span.error record survives at WARNING with
+            # client_rejection=True; what stops is calling it a failure twice.
+            if not rejection:
+                increment_span_stat("error_count")
             if not is_root_span:
                 # **LOGIC_STEP**: span.error is written whatever the span's own level, so a failed
                 # child is always in the tree and always counted.
@@ -295,10 +303,10 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             # answers the identical exception 409/404/422/401 a moment later, at WARNING with none,
             # because it IS this application working, not failing. Until this check existed the two
             # records disagreed, and the ERROR one — the one carrying a stack trace — read as the
-            # incident. is_client_rejection is the same rule exception_handlers.py's
-            # _project_error_status applies, kept in project.core.error_utils so this call site and
-            # that one cannot drift apart.
-            rejection = is_client_rejection(error)
+            # incident. is_client_rejection is the function exception_handlers.py itself asks a
+            # moment later, kept beside the exception hierarchy in project.domain.exceptions so
+            # this call site and that one cannot drift apart — TestBothCallSitesJudgeAlike pins
+            # that they answer alike.
             event_level = logging.WARNING if rejection else logging.ERROR
             write_traceback = not rejection and not already_logged
             self.log_event(

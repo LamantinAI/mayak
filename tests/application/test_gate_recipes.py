@@ -9,6 +9,7 @@ import os
 import re
 import shlex
 from pathlib import Path
+from uuid import uuid4
 from subprocess import CompletedProcess, run
 
 import pytest
@@ -828,9 +829,14 @@ class TestLogTargetsReportAFailedCompose:
     def test_logs_raw_is_unaffected_by_files_already_in_the_repositorys_own_logs_dir(
         self, tmp_path: Path
     ) -> None:
+        # **LOGIC_STEP**: The decoy's name carries this test's own id, and the directory is
+        # removed again when this test is what created it. A test that proves it leaves the real
+        # logs/ alone must not be the thing that leaves a directory, or a file with a name someone
+        # else might already be using, behind in it.
         real_logs_dir = _REPO_ROOT / "logs"
+        created_the_directory = not real_logs_dir.exists()
         real_logs_dir.mkdir(exist_ok=True)
-        decoy = real_logs_dir / "container-decoy-from-another-writer.ndjson"
+        decoy = real_logs_dir / f"container-decoy-{uuid4().hex}.ndjson"
         decoy.write_text('{"event_id":"someone-elses-write"}\n', encoding="utf-8")
         try:
             isolated_logs_dir = tmp_path / "logs"
@@ -847,6 +853,8 @@ class TestLogTargetsReportAFailedCompose:
             assert decoy.read_text(encoding="utf-8") == '{"event_id":"someone-elses-write"}\n'
         finally:
             decoy.unlink(missing_ok=True)
+            if created_the_directory and not any(real_logs_dir.iterdir()):
+                real_logs_dir.rmdir()
 
     # FUNCTION: test_neither_recipe_relies_on_pipefail
     # SUMMARY: Verify the fix did not reach for the option dash does not have.
@@ -864,7 +872,10 @@ class TestLogTargetsReportAFailedCompose:
 # `db-down-worktree` against: two worktrees agree on one name, so this read whichever project
 # happened to own it — another checkout's container, or nothing — instead of this worktree's own
 # app. `db-up-worktree`/`db-down-worktree` already carried the fix; `logs`/`logs-raw` were the pair
-# the 2026-09-02 audit found still unscoped.
+# still unscoped on 2026-09-07, when two agents each built a project on this template and both
+# ran their app under the worktree project. `LOGS_PROJECT` defaults to it and can be pointed at
+# the directory-derived project a bare `docker compose up` creates instead — the assertion is
+# that a project is named at all, not which one.
 class TestLogTargetsReadThisWorktreesComposeProject:
     # FUNCTION: test_the_compose_logs_call_is_scoped_to_the_worktree_project
     # SUMMARY: Verify neither recipe's `docker compose logs` call runs without `-p`.
@@ -875,4 +886,9 @@ class TestLogTargetsReadThisWorktreesComposeProject:
 
         assert compose_lines, f"{target} runs no `docker compose` command at all"
         for line in compose_lines:
-            assert "-p $(WORKTREE_PROJECT)" in line, line
+            assert "-p $(LOGS_PROJECT)" in line, line
+
+        # **LOGIC_STEP**: And the variable defaults to this worktree's own project rather than to
+        # nothing, which is what "scoped" has to mean for someone who never sets it.
+        makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+        assert "LOGS_PROJECT ?= $(WORKTREE_PROJECT)" in makefile

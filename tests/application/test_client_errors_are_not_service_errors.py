@@ -17,7 +17,6 @@ import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
 
-from project.core.error_utils import is_client_rejection
 from project.domain.exceptions import (
     AuthenticationError,
     ConflictError,
@@ -26,6 +25,7 @@ from project.domain.exceptions import (
     ProjectError,
     UpstreamAuthenticationError,
     ValidationError,
+    is_client_rejection,
 )
 from project.core.logging import get_logger
 from project.infrastructure.api.exception_handlers import _project_error_status
@@ -185,6 +185,17 @@ class TestARejectionInsideANestedSpanIsNotAFailure:
         assert all(event["kwargs"].get("level") != logging.ERROR for event in log_capture), (
             log_capture
         )
+        # **LOGIC_STEP**: And the request's own summary counts no error. Levels were fixed first
+        # and this counter was left behind, so `request.summary` still said error_count=1 and
+        # `make format-trace` still printed `errors=1` over a request the same trace calls a
+        # client_error. Found by an independent review of this branch on 2026-09-08.
+        summaries = [
+            event["kwargs"]["data"]
+            for event in log_capture
+            if event["kwargs"].get("event_id") == "request.summary"
+        ]
+        assert summaries, "the request wrote no summary at all"
+        assert summaries[-1]["error_count"] == 0, summaries[-1]
 
 
 # CLASS: tests.application.test_client_errors_are_not_service_errors.TestBothCallSitesJudgeAlike

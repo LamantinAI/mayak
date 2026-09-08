@@ -504,13 +504,34 @@ _DELETION_ACCOUNTING_EXEMPTIONS: tuple[tuple[str, str], ...] = (
 )
 
 
+# FUNCTION: _shared_basenames
+# SUMMARY: Filenames that more than one tracked file in this repository carries.
+# OUTPUT: (set[str]): Bare filenames that cannot stand for a single file on their own.
+def _shared_basenames() -> set[str]:
+    seen: dict[str, int] = {}
+    for path in _tracked_text_files():
+        seen[path.name] = seen.get(path.name, 0) + 1
+    return {name for name, count in seen.items() if count > 1}
+
+
 # FUNCTION: _skill_names
-# SUMMARY: Whether the skill's text mentions a tracked file, by its repo-relative path or its bare
-# filename — either is how the deletion section's tables actually spell a survivor.
+# SUMMARY: Whether the skill's text mentions a tracked file, by its repo-relative path or — only
+# where that name belongs to one file in the whole repository — by its bare filename.
 # INPUT: path (str): Repo-relative path, as `git grep` prints it.
 # INPUT: skill_text (str): Full markdown text of the skill.
-def _skill_names(path: str, skill_text: str) -> bool:
-    return path in skill_text or Path(path).name in skill_text
+# INPUT: shared_basenames (set[str]): Filenames carried by more than one tracked file.
+# OUTPUT: (bool): True when the skill names this file, not merely something called the same.
+# **LOGIC_STEP**: A bare filename is how the tables actually spell most survivors, so it has to
+# count — but two directories can carry one name, and then a mention of the other file vouches for
+# a file nobody has read. Measured on 2026-09-08: `tests/application/test_logging_api.py` is named
+# in the skill and `tests/infrastructure/test_logging_api.py` would have been accepted on its
+# strength alone. Where a basename is ambiguous the full path is required, which is also the only
+# spelling that tells a reader which file to open.
+def _skill_names(path: str, skill_text: str, shared_basenames: set[str]) -> bool:
+    if path in skill_text:
+        return True
+    name = Path(path).name
+    return name not in shared_basenames and name in skill_text
 
 
 # FUNCTION: _contains_wrapped
@@ -539,11 +560,12 @@ class TestDeletionAccountsForEveryMatch:
     @pytest.mark.unit
     def test_every_current_match_is_named_or_exempt(self) -> None:
         skill_text = _ADD_VERTICAL.read_text(encoding="utf-8")
+        shared = _shared_basenames()
         unaccounted = [
             path
             for path in sorted(_files_matching(_VERTICAL_ANY_SPELLING))
             if not any(path.startswith(prefix) for prefix, _ in _DELETION_ACCOUNTING_EXEMPTIONS)
-            if not _skill_names(path, skill_text)
+            if not _skill_names(path, skill_text, shared)
         ]
 
         assert unaccounted == [], (
@@ -560,7 +582,20 @@ class TestDeletionAccountsForEveryMatch:
         assert not _skill_names(
             "tests/application/test_a_file_this_skill_will_never_mention.py",
             _ADD_VERTICAL.read_text(encoding="utf-8"),
+            _shared_basenames(),
         )
+
+    # FUNCTION: test_a_shared_basename_does_not_vouch_for_the_other_file
+    # SUMMARY: Verify a filename two directories both carry has to be spelled in full to count.
+    # NOTE: Measured on 2026-09-08: the skill names `tests/application/test_logging_api.py`, and a
+    # bare-basename match accepted `tests/infrastructure/test_logging_api.py` on its strength — a
+    # file nobody had read, vouched for by a different file with the same name.
+    @pytest.mark.unit
+    def test_a_shared_basename_does_not_vouch_for_the_other_file(self) -> None:
+        skill_text = "the deletion list names tests/application/probe_twin.py and nothing else"
+
+        assert _skill_names("tests/application/probe_twin.py", skill_text, {"probe_twin.py"})
+        assert not _skill_names("tests/infrastructure/probe_twin.py", skill_text, {"probe_twin.py"})
 
     # FUNCTION: test_the_exemption_prefixes_are_real_directories
     # SUMMARY: Verify each exempt category still matches at least one tracked file, so an exemption

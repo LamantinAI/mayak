@@ -41,14 +41,20 @@ _MAX_ARG_CHARS = 80
 
 
 # FUNCTION: _clipped
-# SUMMARY: Shorten one string argument to a length a tree line can carry.
+# SUMMARY: Make one string argument safe to put on a tree line: single-line, and short.
 # INPUT: value (str): The argument as the span recorded it.
-# OUTPUT: (str): The value, or its first _MAX_ARG_CHARS characters followed by an ellipsis and the
-#         full length, so the reader knows something was cut and by how much.
+# OUTPUT: (str): The value with its line breaks escaped, cut to _MAX_ARG_CHARS with the remaining
+#         length stated, so the reader knows something was cut and by how much.
+# NOTE: Escaping comes before cutting, and it is not cosmetic. This renderer draws a tree
+# with box-drawing characters, one node per line, and a tool argument is attacker-reachable input —
+# a prompt, a pasted page, a search query. A value containing "\n└── db.thing.delete ✓" printed
+# raw becomes a second physical line that reads exactly like a span that never happened. A trace
+# that can be forged is worse than no trace, for the same reason a trace that can lie is.
 def _clipped(value: str) -> str:
-    if len(value) <= _MAX_ARG_CHARS:
-        return value
-    return f"{value[:_MAX_ARG_CHARS]}… (+{len(value) - _MAX_ARG_CHARS} chars)"
+    flattened = value.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r")
+    if len(flattened) <= _MAX_ARG_CHARS:
+        return flattened
+    return f"{flattened[:_MAX_ARG_CHARS]}… (+{len(flattened) - _MAX_ARG_CHARS} chars)"
 
 
 # FUNCTION: _render_span_line

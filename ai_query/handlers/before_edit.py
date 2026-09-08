@@ -31,7 +31,7 @@ def query_before_edit(repo_path: str) -> QueryPayload:
         "required_validators": list(metadata["validators_if_changed"]),
         "watch_rules": watch_rules,
         "likely_failures": likely_failure_entries(watch_rules),
-        "related_tests": tests_for_file(context_map, normalized_path),
+        "related_tests": tests_for_file(context_map, normalized_path, architecture_rules),
         "task_guidance": match_tasks_for_file(change_map, normalized_path, common_tasks),
         "derived": bool(metadata.get("derived", False)),
     }

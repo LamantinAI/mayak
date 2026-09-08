@@ -95,7 +95,7 @@ class TestValidateMigrations:
 
     # FUNCTION: test_not_verified_banner_appears_only_when_the_gate_actually_skipped
     # SUMMARY: The banner marks an unverified skip and only an unverified skip — never a real pass.
-    # **LOGIC_STEP**: This is the trap for the 2026-09-02 audit finding: the old skip message read
+    # **LOGIC_STEP**: This is the trap for the 2026-09-07 finding: the old skip message read
     # like every other passing line in a `make quality-gates` run, so a migration that dropped a
     # column instead of renaming it cleared every local gate on both projects the audit built from
     # this template. The banner text has to be present on the skip path and absent on the path

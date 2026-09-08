@@ -123,20 +123,30 @@ Two mechanisms reach it, and neither is a bigger version of the token above:
 
 - **`SELECT ... FOR UPDATE` on the parent row**, when the invariant spans rows a constraint cannot
   name. The repository locks the parent inside the transaction it already opens for a
-  multi-statement write, then checks and inserts before releasing it:
+  multi-statement write, then checks, **reads the answer**, and inserts only if it is still free:
 
   ```python
   async with self._pool.connection() as connection:
       async with connection.transaction():
           await connection.execute(_LOCK_BERTH_FOR_UPDATE, (berth_id,))
-          await connection.execute(_CHECK_NO_OVERLAP, (berth_id, arrival, departure))
+          cursor = await connection.execute(_CHECK_NO_OVERLAP, (berth_id, arrival, departure))
+          if await cursor.fetchone() is not None:
+              raise ConflictError("berth already reserved for those dates")
           await connection.execute(_INSERT_RESERVATION, (...))
   ```
 
-Either way, the database raises a driver error on the second writer — `errors.ExclusionViolation` or
-`errors.UniqueViolation` from psycopg — and the repository translates it into a domain
-`ConflictError`, the same shape as the zero-row `RETURNING` above, so the API layer answers 409
-instead of the client seeing the driver's exception as a 500.
+  The `fetchone()` is the whole mechanism, and it is the line that is easy to leave out: the lock
+  only makes the check trustworthy, it does not make it happen. A version that runs
+  `_CHECK_NO_OVERLAP` and inserts regardless serialises the two writers and then produces exactly
+  the two overlapping rows it was added to prevent — slower, and no safer.
+
+The two mechanisms fail differently, and the repository has to expect the right one. With the
+constraint, the database rejects the second writer and psycopg raises `errors.ExclusionViolation`
+or `errors.UniqueViolation`, which the repository catches and re-raises as a domain
+`ConflictError`. With `FOR UPDATE` there is no constraint to violate — nothing raises unless your
+own code does, which is what the `fetchone()` branch above is for. Either way the exception the
+application layer sees is `ConflictError`, the same shape as the zero-row `RETURNING` above, so the
+API answers 409 rather than showing the client a driver exception as a 500.
 
 The reference vertical cannot demonstrate this fix. It has one row per aggregate and no set-level
 invariant to violate, so — exactly as it could not show a transaction spanning two statements, and
@@ -222,7 +232,9 @@ outcome — every request that answered 200 must find its own change in the fina
   `updated_at` token or by wrapping statements in a transaction; it needs a database constraint or a
   `SELECT ... FOR UPDATE` on the parent, per "Where the single-row token does not reach" above, and a
   concurrent functional test to prove it, not a unit test against a fake.
-- A `ForeignKey` with no explicit `ondelete` autogenerates anyway — `make quality-gates` passes and
-  the migration applies — and then answers a domain delete rule with the driver's `IntegrityError`
-  and a 500 the first time a project actually exercises it, instead of the 409 or 403 the domain
-  wanted.
+- A `ForeignKey` with no explicit `ondelete` autogenerates anyway, and the migration applies. Until
+  2026-09-08 nothing said so either: it reached production and answered a domain delete rule with
+  the driver's `IntegrityError` and a 500 the first time a project exercised it, instead of the 409
+  or 403 the domain wanted. `tests/infrastructure/test_persistence_models.py::TestForeignKeysDeclareOnDelete`
+  now reports it as part of the ordinary unit suite, so `make quality-gates` goes red on a bare key
+  rather than waiting for a functional test to delete a parent row.

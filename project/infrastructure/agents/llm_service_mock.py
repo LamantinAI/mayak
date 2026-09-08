@@ -47,8 +47,12 @@ class _LLMServiceMockContract(Protocol):
     def _extract_last_human_message(self, messages: list[BaseMessage]) -> str: ...
 
     # FUNCTION: _collect_tool_messages
-    # SUMMARY: Return every ToolMessage anywhere in the conversation, in order.
+    # SUMMARY: Return every ToolMessage of the current turn, in order.
     def _collect_tool_messages(self, messages: list[BaseMessage]) -> list[ToolMessage]: ...
+
+    # FUNCTION: _current_turn
+    # SUMMARY: Return the messages that follow the most recent human question.
+    def _current_turn(self, messages: list[BaseMessage]) -> list[BaseMessage]: ...
 
 
 # CLASS: project.infrastructure.agents.llm_service_mock.LLMServiceMockMixin
@@ -105,7 +109,7 @@ class LLMServiceMockMixin:
         messages: list[BaseMessage],
     ) -> set[str]:
         by_call_id: dict[str, str] = {}
-        for message in messages:
+        for message in self._current_turn(messages):
             for call in getattr(message, "tool_calls", None) or []:
                 call_id = call.get("id") if isinstance(call, dict) else getattr(call, "id", None)
                 call_name = (
@@ -150,7 +154,28 @@ class LLMServiceMockMixin:
     def _collect_tool_messages(
         self: _LLMServiceMockContract, messages: list[BaseMessage]
     ) -> list[ToolMessage]:
-        return [message for message in messages if isinstance(message, ToolMessage)]
+        return [
+            message for message in self._current_turn(messages) if isinstance(message, ToolMessage)
+        ]
+
+    # FUNCTION: _current_turn
+    # SUMMARY: Return the messages that belong to the question being answered right now.
+    # INPUT: messages (list[BaseMessage]): The whole conversation as the caller keeps it.
+    # OUTPUT: (list[BaseMessage]): Everything after the last HumanMessage, or all of it when the
+    #         conversation has no human turn at all.
+    # NOTE: The cycle over bound tools has to remember what it already called within one answer and
+    # forget it at the next question. Scanning the whole conversation gets the first half right and
+    # the second half badly wrong: measured on 2026-09-08, a second question in the same
+    # conversation got no tool call at all, because every tool still counted as answered from the
+    # first one. The trailing-only scan this replaced had the opposite failure — it forgot mid-answer
+    # and called the first tool forever. The turn is the unit that makes both correct.
+    def _current_turn(
+        self: _LLMServiceMockContract, messages: list[BaseMessage]
+    ) -> list[BaseMessage]:
+        for index in range(len(messages) - 1, -1, -1):
+            if isinstance(messages[index], HumanMessage):
+                return messages[index + 1 :]
+        return list(messages)
 
     # FUNCTION: _build_mock_response
     # SUMMARY: Produce a deterministic assistant response without calling an external provider.

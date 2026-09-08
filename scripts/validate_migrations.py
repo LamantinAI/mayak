@@ -242,8 +242,8 @@ _SKIP_OPT_OUT_ENV = "MIGRATIONS_ALLOW_SKIP"
 # NOTE: This skip is deliberately non-fatal locally (database_skip_is_allowed) — the defect this
 # banner fixes is not the skip itself but its old wording, "Database is not reachable — migration
 # validation skipped.", which read like every other line among the ~20 steps `make quality-gates`
-# prints. Measured in the 2026-09-02 template audit: on both projects two agents built from this
-# template, a migration that dropped a column instead of renaming it cleared every local gate,
+# prints. Measured on 2026-09-07, on both projects two agents built from this template: a
+# migration that dropped a column instead of renaming it cleared every local gate,
 # this one included, because nothing in its output stood out as unverified rather than passing.
 # See collect_migration_issues() for where this is used, and get_migrations_rule_playbook's entry
 # for migrations.database_unreachable for the reasoning in full — one fact, read from here.

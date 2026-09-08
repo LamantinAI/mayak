@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from project.core.logging import get_logger
+from project.core.logging.logger_types import LogValue
 from project.core.logging.enums import EventType
 from project.core.logging.logger import SemanticLogger
 from project.domain.exceptions import ConflictError
@@ -361,6 +362,25 @@ class TestATruncatedLLMCallIsAWarning:
         self, log_capture: list[dict], finish_reason: str | None
     ) -> None:
         logger = get_logger("tests.application.test_logging_api.llm_ok")
+
+        logger.log_llm_call("gpt-test", duration_ms=12.0, success=True, finish_reason=finish_reason)
+
+        record = log_capture[-1]["kwargs"]
+        assert record["level"] == logging.INFO
+        assert record["data"]["finish_reason"] == finish_reason
+
+    # FUNCTION: test_a_malformed_finish_reason_does_not_take_the_logging_call_down
+    # SUMMARY: Verify an unhashable value where a stop reason belongs is ignored, not fatal.
+    # NOTE: `extra` is typed LogValue, which admits a list and a dict, so a provider answering with
+    # a malformed `response_metadata` reaches the membership test below. Before 2026-09-08 that
+    # raised TypeError: unhashable type — the logging call crashed the request it was describing,
+    # which is the one thing a logger must never do. Found by an independent review of this branch.
+    @pytest.mark.unit
+    @pytest.mark.parametrize("finish_reason", [[], {"stop": True}, 7])
+    def test_a_malformed_finish_reason_does_not_take_the_logging_call_down(
+        self, log_capture: list[dict], finish_reason: LogValue
+    ) -> None:
+        logger = get_logger("tests.application.test_logging_api.llm_malformed")
 
         logger.log_llm_call("gpt-test", duration_ms=12.0, success=True, finish_reason=finish_reason)
 

@@ -27,7 +27,7 @@ from project.infrastructure.persistence.reference_task_repository import (
 
 # CLASS: tests.infrastructure.test_reference_task_repository.TestRowToReferenceTask
 # SUMMARY: Verify the mapper's whole output equals a domain object built straight from the row.
-# NOTE: Rewritten 2026-09-08 after the 2026-09-02 template experiment: the prior version asserted
+# NOTE: Rewritten 2026-09-08 after the 2026-09-07 template experiment: the prior version asserted
 # `task.id` and two `isinstance` checks, and its fixture gave every other field a value
 # indistinguishable from its neighbour — most sharply, created_at and updated_at were the SAME
 # datetime. A mapper that read the wrong column (`title=row["details"]`), returned a constant

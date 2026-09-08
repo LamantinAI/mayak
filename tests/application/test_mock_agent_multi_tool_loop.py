@@ -19,7 +19,7 @@ from unittest.mock import patch
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from project.infrastructure.agents.llm_service import LLMService
 from tests.conftest import _FixtureSettings as FixtureSettings
@@ -192,10 +192,13 @@ class TestThreeToolAgentLoopOnMock:
 
         assert isinstance(response, AIMessage)
         assert response.tool_calls[0]["name"] == "lookup_customer"
-        # **LOGIC_STEP**: `{"query": ...}` is not `LookupArgs`'s shape (`customer_id`), so the
-        # default args fail this tool's real schema — the exact failure the override in the test
-        # above exists to avoid. Asserted here as the documented boundary, not just described.
-        with pytest.raises(Exception, match="customer_id"):
+        # **LOGIC_STEP**: The default is stated, not merely observed to fail. Asserting only that
+        # invoking raises leaves the test green when the default becomes `{}` — a different
+        # behaviour, the same pydantic complaint about the missing `customer_id`.
+        assert response.tool_calls[0]["args"] == {"query": "place an order"}
+        # **LOGIC_STEP**: And that shape is not `LookupArgs`'s (`customer_id`), so it fails this
+        # tool's real schema — the exact failure the override in the test above exists to avoid.
+        with pytest.raises(ValidationError, match="customer_id"):
             await _TOOLS[0].ainvoke(response.tool_calls[0]["args"])
 
     # FUNCTION: test_the_loop_advances_when_the_tool_result_carries_no_name
@@ -232,3 +235,52 @@ class TestThreeToolAgentLoopOnMock:
             messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
 
         assert called_in_order == ["lookup_customer", "price_order", "send_confirmation"]
+
+    # FUNCTION: test_a_second_question_starts_the_cycle_over
+    # SUMMARY: Verify the tools a previous answer used are available again for the next question.
+    # NOTE: The cycle has to remember within one answer and forget between answers. Scanning the
+    # whole conversation got the first right and the second wrong: measured on 2026-09-08, a second
+    # question in the same conversation received no tool call at all, because every tool still
+    # counted as answered from the first one. A conversation is the normal case for an assistant,
+    # so this was a regression against the single-tool behaviour the template shipped before.
+    @pytest.mark.unit
+    async def test_a_second_question_starts_the_cycle_over(self) -> None:
+        with patch(
+            "project.infrastructure.agents.llm_service.get_settings",
+            return_value=FixtureSettings(),
+        ):
+            service = LLMService()
+        bound = service.bind_tools(_TOOLS)
+        bound._mock_tool_args = _VALID_ARGS_BY_TOOL
+
+        messages: list[BaseMessage] = [HumanMessage(content="first question")]
+        first_calls, first_answer = await _drive(bound, messages)
+        messages.append(HumanMessage(content="second question"))
+        second_calls, _ = await _drive(bound, messages)
+
+        assert first_calls == ["lookup_customer", "price_order", "send_confirmation"]
+        assert "Tool-assisted summary" in first_answer
+        assert second_calls == first_calls
+
+
+# FUNCTION: _drive
+# SUMMARY: Run the loop over an existing conversation, appending to it in place.
+# INPUT: service (LLMService): Bound service in mock mode.
+# INPUT: messages (list[BaseMessage]): Conversation so far; the last entry is the question.
+# OUTPUT: (tuple[list[str], str]): Tool names called for this question, and the final answer.
+async def _drive(service: LLMService, messages: list[BaseMessage]) -> tuple[list[str], str]:
+    tools_by_name = {tool.name: tool for tool in _TOOLS}
+    called: list[str] = []
+    for _round in range(len(_TOOLS) + 1):
+        response = await service.call(messages)
+        messages.append(response)
+        if not isinstance(response, AIMessage) or not response.tool_calls:
+            assert isinstance(response.content, str)
+            return called, response.content
+        call = response.tool_calls[0]
+        called.append(call["name"])
+        result = await tools_by_name[call["name"]].ainvoke(call["args"])
+        messages.append(
+            ToolMessage(content=str(result), name=call["name"], tool_call_id=call["id"])
+        )
+    raise AssertionError("loop did not finalize within its round budget")

@@ -317,17 +317,21 @@ prompt and reads text back. A vertical that runs a tool loop declares its own po
 and returning domain objects, so the loop lives entirely inside the adapter and the service can be
 unit-tested against a planner that returns a fixed answer.
 
-Two things the deterministic provider cannot tell you, both measured on 2026-08-14:
+Two things the deterministic provider cannot tell you:
 
-- **Mock mode calls the FIRST bound tool with `{"query": <last user message>}`**, whatever that
-  tool's arguments actually are (`llm_service_mock.py`). So a tool whose arguments are one free-text
-  field is reachable in CI and a tool with real domain arguments is not. Bind the free-text one
-  first if you want the loop exercised without a key, and prove the rest against a fake port in the
-  vertical's own test. What the functional suite can honestly assert is that the loop ran and a tool
-  executed — not that the model produced anything useful.
-- **The turn ceiling has to be measured against a live provider.** Mock mode answers with a text
-  summary as soon as one tool has returned, so every loop looks two turns long. A live model does
-  not: qwen3-next-80b, given a day with three pieces of work, spent one turn listing and then one
+- **Mock mode chooses the tool for you, and cannot invent its arguments.** Since 2026-09-08 it
+  walks every bound tool once, in binding order, before answering with a summary — a three-tool
+  loop runs in CI without a key, and `tests/application/test_mock_agent_multi_tool_loop.py` is the
+  worked example to copy. What it still cannot do is guess a tool's argument shape: the default is
+  `{"query": <last user message>}`, which satisfies a free-text tool and nothing else. A tool
+  taking a `Decimal`, a nested object or an enum needs its arguments written down —
+  `bound._mock_tool_args = {"price_order": {...}}` after `bind_tools(...)` — exactly as
+  `tests/support/scripted_llm.py` has you write down a scripted reply, because both are the caller
+  declaring what only the caller knows. What the functional suite can honestly assert is that the
+  loop ran and the tools executed, not that a model produced anything useful.
+- **The turn ceiling has to be measured against a live provider.** Mock mode spends exactly one
+  turn per bound tool and then finalises, so a loop's length in CI is a property of your binding
+  list rather than of the problem. A live model does not work that way: qwen3-next-80b, given a day with three pieces of work, spent one turn listing and then one
   turn per booking. A ceiling of four cut the closing message off and a fourth item would have been
   lost outright — with every gate green, because the gates never call a provider. Whatever ceiling
   you pick, make the loop report that it hit it, in the trace and in the response.
@@ -355,7 +359,8 @@ without them (2026-09-03):
   bare `Exception` — an assertion on `Exception` passes on both the fix and the defect.
 - **The loop's own bookkeeping needs a scripted model, not a fake port.** Which tool's results
   count toward which rule, how the turn budget is spent, what happens when the same tool answers
-  twice: a fake port skips all of it, and mock mode never calls a second tool in one run. A field
+  twice: a fake port skips all of it, and mock mode has one fixed order and calls each tool once —
+  it cannot answer the same tool twice in one turn, or in any order but the binding one. A field
   build regressed exactly there — ids from any list-shaped tool result were counted as "articles
   the model saw", so a verdict could cite a sibling ticket as its source — and neither test layer
   could have caught it. `tests/support/scripted_llm.py` is the layer that can: hand the real

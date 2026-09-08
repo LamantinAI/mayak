@@ -608,7 +608,14 @@ def _query_constants_pinned_as_text(tree: ast.AST, constants: set[str]) -> set[s
             # unpinned round trip. Only one direction makes sense for `in`: the literal is the
             # (necessarily shorter) needle, never the query itself, so this is not mirrored the way
             # `==` is above.
-            if isinstance(node.left, ast.Constant) and isinstance(node.left.value, str):
+            # **LOGIC_STEP**: The needle has to say something. `assert "" in _SELECT` is true of
+            # every string ever written, so counting it as a pin would let one meaningless line
+            # silence the rule for the whole module — the same silence, reached by a shorter road.
+            if (
+                isinstance(node.left, ast.Constant)
+                and isinstance(node.left.value, str)
+                and node.left.value.strip()
+            ):
                 pinned |= _names_stated_as_text(right) & constants
     return pinned
 
@@ -1250,9 +1257,38 @@ def _imports_a_span_finish_helper(tree: ast.AST, repo_root: Path) -> bool:
             )
         except (OSError, SyntaxError, UnicodeDecodeError):
             continue
-        if _looks_up_a_span_finish(helper_tree):
+        # **LOGIC_STEP**: The imported name has to be the one that does the looking-up. Asking
+        # only whether the helper's module contains a span lookup somewhere lets an unrelated
+        # symbol from the same file vouch for the test — import `make_row` from a module that also
+        # happens to define `assert_span_finished`, mention a span name in a string, assert nothing
+        # about it, and the rule went quiet. Found by an independent review on 2026-09-08.
+        vouching = _names_that_look_up_a_span_finish(helper_tree)
+        if not vouching:
+            continue
+        if vouching & {alias.name for alias in node.names}:
             return True
     return False
+
+
+# FUNCTION: _names_that_look_up_a_span_finish
+# SUMMARY: The importable names in one module whose own body finds a span's finish event.
+# INPUT: tree (ast.AST): Parsed helper module.
+# OUTPUT: (set[str]): Function names, plus every top-level name when the lookup sits at module
+#         level rather than inside a function — there the whole module is the helper.
+def _names_that_look_up_a_span_finish(tree: ast.AST) -> set[str]:
+    named: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and _looks_up_a_span_finish(
+            node
+        ):
+            named.add(node.name)
+    if named or not _looks_up_a_span_finish(tree):
+        return named
+    return {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    }
 
 
 # FUNCTION: _span_names_named_by_tests

@@ -196,6 +196,7 @@ Project Map: Mayak
 │   │   ├── test_gate_recipes.py  ---  Guard the Makefile recipes whose defect is what they do NOT do — a gate that measures
 │   │   ├── test_generate_ai_context.py  ---  Unit tests for the AI context map generator script.
 │   │   ├── test_health_endpoints.py  ---  Endpoint tests for liveness and readiness health contracts.
+│   │   ├── test_import_graph_is_acyclic.py  ---  Guard the one defect the whole suite is structurally blind to — an import cycle inside
 │   │   ├── test_launcher_shutdown.py  ---  Verify SIGTERM leaves the launcher's post-uvicorn shutdown work enough time to finish.
 │   │   ├── test_lifecycle_and_log_rotation.py  ---  Cover the two kernel modules nothing exercised — the lifespan body and log rotation.
 │   │   ├── test_llm_service.py  ---  Unit tests for mock-mode LLM service behavior and readiness semantics.
