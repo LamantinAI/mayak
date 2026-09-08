@@ -484,18 +484,34 @@ format-trace: ## Reading a running service | Render a local NDJSON file: ARGS="<
 # exited 0 — the same answer as a service that logged nothing. Measured on 2026-09-02 with
 # COMPOSE_FILE=nonexistent.yml. `set -o pipefail` would be the one-line fix, and the /bin/sh
 # that make uses is dash on Debian and Ubuntu, where that is an illegal option.
+# Both recipes below pass `-p $(WORKTREE_PROJECT)` — the same Compose project `db-up-worktree`
+# starts this checkout's own stack under, further up in this file. Without it `docker compose
+# logs` falls back to the directory-derived default project name, exactly the collision
+# `db-up-worktree`'s own comment documents for `up`: two worktrees agree on one name, so this
+# read whichever project happened to own it — another checkout's container, or nothing, silently,
+# rather than this worktree's own app. Found in the 2026-09-02 template audit, alongside the same
+# gap in `up`/`migrate` that `db-up-worktree` already closed for those.
 logs: ## Reading a running service | Render the container's semantic log as a trace tree
 	@tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
-	docker compose logs --no-color --no-log-prefix --tail $(or $(LINES),2000) app > "$$tmp" && \
+	docker compose -p $(WORKTREE_PROJECT) logs --no-color --no-log-prefix --tail $(or $(LINES),2000) app > "$$tmp" && \
 	$(UV) run python -c "from project.core.logging.trace_formatter import _cli; _cli()" "$$tmp" $(ARGS)
 
-# Same source, unrendered, for grepping. Writes to logs/container-<timestamp>.ndjson.
+# Where logs-raw writes. `?=` so an environment variable overrides it — make imports the
+# environment before reading the makefile, and a conditional assignment leaves an already-set
+# variable alone. tests/application/test_gate_recipes.py::TestLogTargetsReportAFailedCompose uses
+# exactly that: pointing LOGS_DIR at a tmp_path keeps those tests from reading this checkout's own
+# logs/, which whatever container is actually running writes into concurrently — a before/after
+# glob compared against the shared directory went red whenever that happened mid-test, for a
+# reason that had nothing to do with the recipe under test.
+LOGS_DIR ?= logs
+
+# Same source, unrendered, for grepping. Writes to $(LOGS_DIR)/container-<timestamp>.ndjson.
 # A failed compose call removes the file it was writing and exits non-zero; before 2026-09-02 the
 # recipe went on to print the path of an empty file and exit 0.
 logs-raw: ## Reading a running service | Dump the container's raw NDJSON under logs/
-	@mkdir -p logs
-	@out="logs/container-$$(date -u +%Y-%m-%dT%H-%M-%S).ndjson"; \
-	docker compose logs --no-color --no-log-prefix --tail $(or $(LINES),2000) app > "$$out" \
+	@mkdir -p $(LOGS_DIR)
+	@out="$(LOGS_DIR)/container-$$(date -u +%Y-%m-%dT%H-%M-%S).ndjson"; \
+	docker compose -p $(WORKTREE_PROJECT) logs --no-color --no-log-prefix --tail $(or $(LINES),2000) app > "$$out" \
 		|| { rm -f "$$out"; exit 1; }; \
 	echo "$$out"
 

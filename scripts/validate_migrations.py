@@ -114,11 +114,15 @@ _MIGRATIONS_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
     "migrations.database_unreachable": {
         "meaning": (
             "Alembic could not connect to the configured database. Validator skipped without "
-            "actually verifying migrations — common in dev/CI environments without Postgres."
+            "actually verifying migrations — common in dev/CI environments without Postgres. "
+            "Non-fatal locally by design (see database_skip_is_allowed); the message this rule "
+            "carries opens with a 'MIGRATIONS NOT VERIFIED' banner precisely because that design "
+            "choice must not read as a pass — see _NOT_VERIFIED_BANNER in validate_migrations.py "
+            "for what silently reading as one already cost."
         ),
         "suggested_fix": (
-            "Either start a local Postgres (`docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d db`) and rerun, "
-            "or accept the skip — `migrations.database_unreachable` is non-fatal by design."
+            "Start a database for this checkout alone (`make db-up-worktree`) and rerun, or "
+            "accept the skip — `migrations.database_unreachable` is non-fatal by design."
         ),
         "read_first": [
             "docker-compose.yml",
@@ -232,6 +236,18 @@ _MIGRATIONS_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
 # ATTRIBUTE: _SKIP_OPT_OUT_ENV (str)
 # SUMMARY: Environment variable that re-permits the database skip inside CI for deliberate exceptions.
 _SKIP_OPT_OUT_ENV = "MIGRATIONS_ALLOW_SKIP"
+
+# ATTRIBUTE: _NOT_VERIFIED_BANNER (str)
+# SUMMARY: Opens the unreachable-database skip message so it cannot be mistaken for a passing step.
+# NOTE: This skip is deliberately non-fatal locally (database_skip_is_allowed) — the defect this
+# banner fixes is not the skip itself but its old wording, "Database is not reachable — migration
+# validation skipped.", which read like every other line among the ~20 steps `make quality-gates`
+# prints. Measured in the 2026-09-02 template audit: on both projects two agents built from this
+# template, a migration that dropped a column instead of renaming it cleared every local gate,
+# this one included, because nothing in its output stood out as unverified rather than passing.
+# See collect_migration_issues() for where this is used, and get_migrations_rule_playbook's entry
+# for migrations.database_unreachable for the reasoning in full — one fact, read from here.
+_NOT_VERIFIED_BANNER = "MIGRATIONS NOT VERIFIED"
 
 
 # FUNCTION: postgres_is_enabled
@@ -668,9 +684,10 @@ def collect_migration_issues(
                 rule_id="migrations.database_unreachable",
                 command_name="precheck",
                 message=(
-                    "Database is not reachable — migration validation skipped. "
-                    "`make test-e2e` runs this same check against the functional stack's "
-                    "database, where it cannot skip."
+                    f"{_NOT_VERIFIED_BANNER} — no database reachable, so `alembic upgrade head` "
+                    "and `alembic check` did not run. Start one for this checkout: "
+                    "`make db-up-worktree`. `make test-e2e` runs this same check against the "
+                    "functional stack's database, where it cannot skip."
                 ),
                 returncode=0,
                 severity="info",

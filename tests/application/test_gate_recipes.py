@@ -785,32 +785,68 @@ class TestLogTargetsReportAFailedCompose:
         assert "(no events found)" in stdout
 
     # FUNCTION: test_logs_raw_fails_and_leaves_no_file_when_compose_fails
-    # SUMMARY: Verify a failed dump exits non-zero and leaves no empty file under logs/.
+    # SUMMARY: Verify a failed dump exits non-zero and leaves no empty file behind.
+    # **LOGIC_STEP**: LOGS_DIR is pinned to a tmp_path, not this checkout's own logs/. That
+    # directory is written into by whatever container is actually running this checkout, and a
+    # before/after glob compared against it went red whenever that happened mid-test — the new
+    # file it saw was somebody else's write, not this recipe's. See
+    # test_logs_raw_is_unaffected_by_files_already_in_the_repositorys_own_logs_dir below for the
+    # trap that pins this isolation.
     @pytest.mark.unit
     def test_logs_raw_fails_and_leaves_no_file_when_compose_fails(self, tmp_path: Path) -> None:
-        logs_dir = _REPO_ROOT / "logs"
-        before = set(logs_dir.glob("container-*.ndjson")) if logs_dir.is_dir() else set()
+        logs_dir = tmp_path / "logs"
+        env = {**_with_docker_shim(tmp_path, exit_code=1), "LOGS_DIR": str(logs_dir)}
 
-        returncode, _ = _make("logs-raw", _with_docker_shim(tmp_path, exit_code=1))
+        returncode, _ = _make("logs-raw", env)
 
         assert returncode != 0
-        assert set(logs_dir.glob("container-*.ndjson")) == before
+        assert list(logs_dir.glob("container-*.ndjson")) == []
 
     # FUNCTION: test_logs_raw_prints_the_file_it_wrote
     # SUMMARY: Verify a successful dump prints a path holding exactly what compose produced.
     @pytest.mark.unit
     def test_logs_raw_prints_the_file_it_wrote(self, tmp_path: Path) -> None:
+        logs_dir = tmp_path / "logs"
         line = '{"event_id":"probe"}\n'
-        returncode, stdout = _make(
-            "logs-raw", _with_docker_shim(tmp_path, exit_code=0, stdout=line)
-        )
-        written = _REPO_ROOT / stdout.strip()
+        env = {**_with_docker_shim(tmp_path, exit_code=0, stdout=line), "LOGS_DIR": str(logs_dir)}
 
+        returncode, stdout = _make("logs-raw", env)
+        written = Path(stdout.strip())
+
+        assert returncode == 0
+        assert written.parent == logs_dir
+        assert written.read_text(encoding="utf-8") == line
+
+    # FUNCTION: test_logs_raw_is_unaffected_by_files_already_in_the_repositorys_own_logs_dir
+    # SUMMARY: Trap for the LOGS_DIR isolation above — a decoy file in the real logs/ changes nothing.
+    # **LOGIC_STEP**: This is what the two tests above used to get wrong: a file appearing in this
+    # checkout's own logs/ while they ran, from a source that has nothing to do with the recipe
+    # under test. Writing that decoy here and staying green is the fix; reverting either test above
+    # to compare against `_REPO_ROOT / "logs"` instead of an isolated LOGS_DIR turns this red, since
+    # the decoy this test writes is then exactly the kind of concurrent write that broke them.
+    @pytest.mark.unit
+    def test_logs_raw_is_unaffected_by_files_already_in_the_repositorys_own_logs_dir(
+        self, tmp_path: Path
+    ) -> None:
+        real_logs_dir = _REPO_ROOT / "logs"
+        real_logs_dir.mkdir(exist_ok=True)
+        decoy = real_logs_dir / "container-decoy-from-another-writer.ndjson"
+        decoy.write_text('{"event_id":"someone-elses-write"}\n', encoding="utf-8")
         try:
+            isolated_logs_dir = tmp_path / "logs"
+            env = {
+                **_with_docker_shim(tmp_path, exit_code=0, stdout='{"event_id":"probe"}\n'),
+                "LOGS_DIR": str(isolated_logs_dir),
+            }
+
+            returncode, stdout = _make("logs-raw", env)
+
             assert returncode == 0
-            assert written.read_text(encoding="utf-8") == line
+            assert Path(stdout.strip()).parent == isolated_logs_dir
+            # The decoy is untouched — this recipe run never looked at the real logs/ at all.
+            assert decoy.read_text(encoding="utf-8") == '{"event_id":"someone-elses-write"}\n'
         finally:
-            written.unlink(missing_ok=True)
+            decoy.unlink(missing_ok=True)
 
     # FUNCTION: test_neither_recipe_relies_on_pipefail
     # SUMMARY: Verify the fix did not reach for the option dash does not have.
@@ -818,3 +854,25 @@ class TestLogTargetsReportAFailedCompose:
     @pytest.mark.parametrize("target", ["logs", "logs-raw"])
     def test_neither_recipe_relies_on_pipefail(self, target: str) -> None:
         assert "pipefail" not in "\n".join(_recipe(target))
+
+
+# CLASS: tests.application.test_gate_recipes.TestLogTargetsReadThisWorktreesComposeProject
+# SUMMARY: Verify `make logs` and `make logs-raw` scope `docker compose logs` to this worktree's
+# own Compose project — the one `db-up-worktree` started — instead of the bare compose default.
+# NOTE: Without `-p $(WORKTREE_PROJECT)` compose falls back to the directory-derived project name,
+# the same collision TestTheWorktreeDatabaseIsThisWorktreesAlone guards `db-up-worktree` and
+# `db-down-worktree` against: two worktrees agree on one name, so this read whichever project
+# happened to own it — another checkout's container, or nothing — instead of this worktree's own
+# app. `db-up-worktree`/`db-down-worktree` already carried the fix; `logs`/`logs-raw` were the pair
+# the 2026-09-02 audit found still unscoped.
+class TestLogTargetsReadThisWorktreesComposeProject:
+    # FUNCTION: test_the_compose_logs_call_is_scoped_to_the_worktree_project
+    # SUMMARY: Verify neither recipe's `docker compose logs` call runs without `-p`.
+    @pytest.mark.unit
+    @pytest.mark.parametrize("target", ["logs", "logs-raw"])
+    def test_the_compose_logs_call_is_scoped_to_the_worktree_project(self, target: str) -> None:
+        compose_lines = [line for line in _recipe(target) if "docker compose" in line]
+
+        assert compose_lines, f"{target} runs no `docker compose` command at all"
+        for line in compose_lines:
+            assert "-p $(WORKTREE_PROJECT)" in line, line
