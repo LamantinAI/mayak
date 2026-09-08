@@ -34,6 +34,7 @@ import pytest
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ADD_VERTICAL = _REPO_ROOT / ".agents" / "skills" / "add-vertical" / "SKILL.md"
 _INITIALIZE_PROJECT = _REPO_ROOT / ".agents" / "skills" / "initialize-project" / "SKILL.md"
+_ADR_007 = _REPO_ROOT / "docs" / "adr" / "ADR-007-autocommit-and-explicit-transactions.md"
 
 # ATTRIBUTE: _KERNEL_PYTHON_ROOTS (tuple[str, ...])
 # SUMMARY: Every directory of kernel Python, used to prove the memory tag has not come back.
@@ -469,6 +470,154 @@ class TestDeletionSweepFindsEverything:
         missed = _files_matching(_VERTICAL_ANY_SPELLING) - _files_matching(_VERTICAL_NAIVE_SPELLING)
 
         assert missed, "no file is spelled in a way the narrow pattern misses any more"
+
+
+# ATTRIBUTE: _DELETION_ACCOUNTING_EXEMPTIONS
+# SUMMARY: Path prefixes the deletion section's tables are allowed to cover as a category rather
+# than by naming every matching file, plus why each category is legitimate.
+# NOTE: Measured on 2026-09-08: the "Deleting the reference vertical" survivor table promised
+# "twelve files" and a second migration file plus seven comment/fixture files were not in it —
+# `alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py`, `ai_context/dynamic_
+# imports.py`, `ai_query/common.py`, and five files under `tests/application/`. The table was fixed
+# by naming those individually. What is exempted here is narrower than "the table" — the three
+# categories the skill's own prose explains it deliberately does not enumerate file-by-file, so a
+# project's own migrations or its own ADRs cannot make this test red for reasons the skill was never
+# wrong about.
+_DELETION_ACCOUNTING_EXEMPTIONS: tuple[tuple[str, str], ...] = (
+    (
+        ".agents/skills/add-vertical/SKILL.md",
+        "the skill naming itself is not a fact it has to state about itself",
+    ),
+    (
+        "docs/adr/",
+        "an ADR is a decision record CLAUDE.md's own 'one fact, one place' rule already owns; "
+        "the skill points at ADR-007 once rather than re-explaining every ADR that happens to "
+        "mention the vertical while it explains a decision",
+    ),
+    (
+        "alembic/versions/",
+        "migration history is append-only and governed by 'Two branches, one migration history' "
+        "above; a project accumulates migrations the skill was never told about, so naming "
+        "filenames here is the kind of number that goes stale, the way the survivor table's own "
+        "count already has more than once",
+    ),
+)
+
+
+# FUNCTION: _skill_names
+# SUMMARY: Whether the skill's text mentions a tracked file, by its repo-relative path or its bare
+# filename — either is how the deletion section's tables actually spell a survivor.
+# INPUT: path (str): Repo-relative path, as `git grep` prints it.
+# INPUT: skill_text (str): Full markdown text of the skill.
+def _skill_names(path: str, skill_text: str) -> bool:
+    return path in skill_text or Path(path).name in skill_text
+
+
+# FUNCTION: _contains_wrapped
+# SUMMARY: Whether `phrase` appears in `text`, tolerant of the markdown soft-wrap that can insert a
+# newline and indentation between two of the phrase's words.
+# INPUT: phrase (str): The literal heading or sentence to look for, written with single spaces.
+# INPUT: text (str): Prose that may hold it, possibly wrapped across lines.
+# NOTE: A quoted section heading written inline in prose crosses this repository's ~88-column wrap
+# on its own line breaks, not word breaks — `re.sub` collapses every run of whitespace to one space
+# before the substring check runs, so a heading is found whether or not the wrap happened to fall in
+# the middle of it.
+def _contains_wrapped(phrase: str, text: str) -> bool:
+    return phrase in re.sub(r"\s+", " ", text)
+
+
+# CLASS: tests.application.test_skill_texts_match_reality.TestDeletionAccountsForEveryMatch
+# SUMMARY: Verify every file currently carrying the vertical is named by the deletion section, or
+# falls into one of the three exempt categories above.
+# NOTE: This is a different claim from TestAddVerticalNamesEveryTableLedger above: that class checks
+# one specific fact (the exact-table-set ledgers) is named; this one checks the deletion section's
+# bookkeeping is complete against the actual sweep the skill tells a reader to run, so a new file
+# that starts mentioning the vertical — a fixture, a comment, a doc — cannot go unlisted the way the
+# eight files in the NOTE above did, silently, across three separate audits.
+class TestDeletionAccountsForEveryMatch:
+    # FUNCTION: test_every_current_match_is_named_or_exempt
+    @pytest.mark.unit
+    def test_every_current_match_is_named_or_exempt(self) -> None:
+        skill_text = _ADD_VERTICAL.read_text(encoding="utf-8")
+        unaccounted = [
+            path
+            for path in sorted(_files_matching(_VERTICAL_ANY_SPELLING))
+            if not any(path.startswith(prefix) for prefix, _ in _DELETION_ACCOUNTING_EXEMPTIONS)
+            if not _skill_names(path, skill_text)
+        ]
+
+        assert unaccounted == [], (
+            "these files carry `reference_task` but .agents/skills/add-vertical/SKILL.md never "
+            "names them, individually or by one of its stated exemptions: " + ", ".join(unaccounted)
+        )
+
+    # FUNCTION: test_a_file_the_skill_never_mentions_is_reported
+    # SUMMARY: Verify the check above is not vacuous — it can actually fail.
+    @pytest.mark.unit
+    def test_a_file_the_skill_never_mentions_is_reported(self) -> None:
+        # **LOGIC_STEP**: A name this specific will not appear in the skill's own prose by
+        # coincidence, so this proves the substring check works rather than always passing.
+        assert not _skill_names(
+            "tests/application/test_a_file_this_skill_will_never_mention.py",
+            _ADD_VERTICAL.read_text(encoding="utf-8"),
+        )
+
+    # FUNCTION: test_the_exemption_prefixes_are_real_directories
+    # SUMMARY: Verify each exempt category still matches at least one tracked file, so an exemption
+    # for a directory that has been renamed or removed cannot silently widen the check for nothing.
+    @pytest.mark.unit
+    @pytest.mark.parametrize("prefix", [prefix for prefix, _ in _DELETION_ACCOUNTING_EXEMPTIONS])
+    def test_the_exemption_prefixes_are_real_directories(self, prefix: str) -> None:
+        tracked = {str(path.relative_to(_REPO_ROOT)) for path in _tracked_text_files()}
+
+        assert any(path.startswith(prefix) for path in tracked), (
+            f"no tracked file starts with {prefix!r} any more; this exemption covers nothing"
+        )
+
+
+# CLASS: tests.application.test_skill_texts_match_reality.TestConcurrencyAndForeignKeyGuidanceStays
+# SUMMARY: Verify the 2026-09-08 additions to ADR-007 and the skill still name each other.
+# NOTE: Both additions are prose — there is no code in this template a red/green pytest run could
+# exercise, because the reference vertical has no second row to conflict over and no ForeignKey to
+# leave bare. What CAN regress silently is the cross-reference itself: ADR-007 gaining a heading the
+# skill never points at, or the skill's pointer surviving a rewrite that drops the heading it names.
+# These tests pin both headings and both pointers as literal text, the same way the rest of this
+# module already pins the deletion section's other claims.
+class TestConcurrencyAndForeignKeyGuidanceStays:
+    # FUNCTION: test_adr_007_names_the_set_level_invariant_boundary
+    @pytest.mark.unit
+    def test_adr_007_names_the_set_level_invariant_boundary(self) -> None:
+        assert _contains_wrapped(
+            "Where the single-row token does not reach", _ADR_007.read_text(encoding="utf-8")
+        )
+
+    # FUNCTION: test_adr_007_names_the_foreign_key_deletion_policy
+    @pytest.mark.unit
+    def test_adr_007_names_the_foreign_key_deletion_policy(self) -> None:
+        text = _ADR_007.read_text(encoding="utf-8")
+        assert _contains_wrapped("A foreign key's deletion policy is a domain decision", text)
+
+    # FUNCTION: test_the_service_step_points_at_the_set_level_invariant_section
+    # SUMMARY: Verify step 6 (where the service is written) still points at ADR-007's boundary
+    # section, rather than repeating its reasoning inline.
+    @pytest.mark.unit
+    def test_the_service_step_points_at_the_set_level_invariant_section(self) -> None:
+        skill_text = _ADD_VERTICAL.read_text(encoding="utf-8")
+        step_six = skill_text.split("6. Application service and DTOs.", 1)[1].split("\n7.", 1)[0]
+
+        assert _contains_wrapped("Where the single-row token does not reach", step_six)
+
+    # FUNCTION: test_the_orm_model_step_points_at_the_foreign_key_section
+    # SUMMARY: Verify step 2 (where a ForeignKey column is written) still points at ADR-007's
+    # deletion-policy section.
+    @pytest.mark.unit
+    def test_the_orm_model_step_points_at_the_foreign_key_section(self) -> None:
+        skill_text = _ADD_VERTICAL.read_text(encoding="utf-8")
+        step_two = skill_text.split("2. The ORM model in `orm_models.py`.", 1)[1].split("\n3.", 1)[
+            0
+        ]
+
+        assert _contains_wrapped("A foreign key's deletion policy is a domain decision", step_two)
 
 
 # CLASS: tests.application.test_skill_texts_match_reality.TestTheMemoryTagStaysGone

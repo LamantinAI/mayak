@@ -64,7 +64,12 @@ the tree, so this stays one place.
 1. Domain model and port.
 2. The ORM model in `orm_models.py`. It comes before the migration, not after: autogeneration
    compares this metadata against the database, so running it first produces a migration whose
-   `upgrade()` is `pass` — valid Alembic, no table, and no error anywhere.
+   `upgrade()` is `pass` — valid Alembic, no table, and no error anywhere. A `ForeignKey(...)` gets
+   its `ondelete` chosen here, on the same line — autogenerate copies whatever the model says and
+   decides nothing on its own, so a bare `ForeignKey("parents.id")` autogenerates without complaint
+   and the missing policy surfaces later as a 500 from the driver instead of the domain's own
+   answer. See `docs/adr/ADR-007-autocommit-and-explicit-transactions.md`, "A foreign key's deletion
+   policy is a domain decision".
 3. **A running database, brought to head, before you autogenerate.** In this order:
 
    ```bash
@@ -121,7 +126,10 @@ the tree, so this stays one place.
    two things a first attempt gets wrong — the conditional write that stops a concurrent patch from
    erasing another one, and the `UNCHANGED` sentinel that lets a caller clear a nullable field
    instead of `None` meaning both "absent" and "null". Both are explained in
-   `docs/adr/ADR-007-autocommit-and-explicit-transactions.md`.
+   `docs/adr/ADR-007-autocommit-and-explicit-transactions.md`. That token only ever protects the one
+   row it is read from — a rule spanning several rows ("no two overlapping bookings on one resource",
+   "no item sold twice") needs a different mechanism, in the same ADR under "Where the single-row
+   token does not reach".
 7. **The endpoint and all three wiring files in the same step.** The endpoint's last import is the
    typed alias, and that alias is defined in `dependencies.py`; writing the endpoint a step earlier
    leaves an import resolving to nothing. `service_registration.py` and `router_registration.py`
@@ -435,18 +443,23 @@ made this happen twice in a row was removed.
 
 Then the prose. None of it fails a gate, and all of it tells the next agent to copy a vertical that
 is gone: `README.md`, `docs/agent_rules.md`, `PROJECT.md`, `docs/project_context.json`, the
-docstring example in `tests/conftest.py::registered_paths`, and this file.
+docstring example in `tests/conftest.py::registered_paths`, the span-name example in
+`project/core/logging/logger.py` — it spells the `db.<vertical>.<operation>` convention as
+`db.reference_task.add` and points at the repository file that carries it, so both halves name a
+file you just deleted — and this file.
 
-**Not `CLAUDE.md`.** This list said to edit it until 2026-08-14, and the pre-edit hook refuses the
-write: it is generated from `docs/agent_rules.md`, and the first bullet of that file's `Start here:`
-list is the sentence that names the vertical. Edit the bullet, run `make refresh-agent-docs`, and
-the wrapper follows. Keep the file count in that bullet spelled the same way as the `## The …
-files of a vertical` heading above: `tests/application/test_sync_agent_docs.py` compares the two
-words and goes red when they drift, and it is the only coupling between these two documents
-that neither of them otherwise announces. Until the same day the wrapper's Quick Start was a literal inside
-`scripts/sync_agent_docs.py` and no edit anywhere could reach it, so the only way out was patching
-that generator — which forks the thing meant to be shared. If your checkout still carries a
-hardcoded Quick Start, that is the version you are on.
+**Not `CLAUDE.md`, and not `AGENTS.md` either.** This list said to edit `CLAUDE.md` until 2026-08-14,
+and the pre-edit hook refuses the write: both are generated from `docs/agent_rules.md` by
+`scripts/sync_agent_docs.py` — one wrapper per agent, same source, same Quick Start bullets — and
+the first bullet of that file's `Start here:` list is the sentence that names the vertical. Edit the
+bullet, run `make refresh-agent-docs`, and both wrappers follow. Keep the file count in that bullet
+spelled the same way as the `## The … files of a vertical` heading above:
+`tests/application/test_sync_agent_docs.py` compares the two words and goes red when they drift,
+and it is the only coupling between these two documents that neither of them otherwise announces.
+Until the same day the wrapper's Quick Start was a literal inside `scripts/sync_agent_docs.py` and
+no edit anywhere could reach it, so the only way out was patching that generator — which forks the
+thing meant to be shared. If your checkout still carries a hardcoded Quick Start, that is the
+version you are on.
 
 And one edit that fails a gate from inside this skill: `minimal_read_set` in the front matter above
 names `project/application/reference_task_service.py`. Once it is gone,
@@ -462,20 +475,45 @@ repository, it finds four of the six mentions in one file and none at all in two
 git grep -inE 'reference[-_]?task'
 ```
 
-The sweep returns the **twelve files** of the table below, not a handful, and every one of them is
-a legitimate survivor. The number has moved: fourteen on 2026-08-13, three of them inside the
+The sweep returns every survivor named in the table below, plus three categories it does not spell
+out file-by-file, because doing so would duplicate a fact this repository already states once
+elsewhere:
+
+- **ADR documents** (`docs/adr/*.md`) — the reasoning that made the reference vertical exist stays
+  in the ADR that made the decision. This file points at ADR-007 by name where it matters; it does
+  not re-justify every other ADR that happens to mention the vertical along the way.
+- **Migration history** (`alembic/versions/*`) — append-only, and governed by "Two branches, one
+  migration history" above. A project accumulates migrations this skill was never told about, so
+  naming filenames here is exactly the kind of number that goes stale — which the rest of this
+  section is a case study in.
+- **`CLAUDE.md` and `AGENTS.md`** — both clear themselves the moment `docs/agent_rules.md` is edited
+  and `make refresh-agent-docs` runs, per "Not `CLAUDE.md`, and not `AGENTS.md` either" below; between
+  that edit and this one they still match the sweep, which is why that section names both by hand
+  rather than leaving them for this table to enumerate.
+
+`TestDeletionAccountsForEveryMatch` in `tests/application/test_skill_texts_match_reality.py` runs
+the same sweep against this checkout and fails the day a file outside those three categories carries
+the vertical without appearing below — trust that test, and the table it checks, over any count in
+this prose, including the one in the next sentence. At the time of writing the table holds
+**nineteen real files** (the twentieth row is the drop migration you have not appended yet). The
+number has moved before and will again: fourteen on 2026-08-13, three of them inside the
 `task-proof-loop` skill and its generated wrapper, which left the template on 2026-08-14; eleven
-after that, until an audit the same day found two files the table had never listed. Re-measure
-rather than trusting this number, and count the table rather than this sentence — your own prose
-about the deletion counts too, and a project that carries skills of its own will see more.
+after that, until an audit the same day found two files the table had never listed; twelve after
+that, until 2026-09-08 found the table short by eight more — a second migration file it had
+described the count of but not named, and seven comment or fixture files in `ai_context/`,
+`ai_query/` and `tests/application/` that no version of this table had ever listed. That audit is
+also what added the test above; re-measure with the command below rather than trusting this
+sentence, exactly as every earlier version of this paragraph already said, and now a red gate says
+so before the count needs saying twice.
 
 | Survivor | Why it stays |
 |---|---|
 | `alembic/versions/001_initial_reference_tasks_schema.py` | history every database already ran |
+| `alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py` | history; the second migration every database created after 2026-09-02 already ran, for the update endpoint's optimistic-lock column |
 | the drop migration you just appended | the drop itself names what it drops |
-| `docs/project_map.md` | generated tree; the two migration filenames above are all it shows |
+| `docs/project_map.md` | generated tree; shows every migration filename that still exists under `alembic/versions/` — currently the two rows above plus whichever drop migration you appended, not a fixed count this row can promise |
 | `.agents/skills/add-vertical/SKILL.md` | this file has to name what it deletes — but the prose step above still applies to it: its opening paragraph and its examples must point at your vertical, not the one that is gone |
-| `tests/application/test_skill_texts_match_reality.py` | it pins the sweep spelling as a regex, so it names the vertical on purpose |
+| `tests/application/test_skill_texts_match_reality.py` | it pins the sweep spelling as a regex, and runs the accounting check above, so it names the vertical on purpose |
 | `tests/application/test_generate_ai_context.py` | synthetic `"reference_task_service"` fixture strings |
 | `tests/application/test_validate_architecture.py` | a synthetic source line containing `ReferenceTaskORM` |
 | `tests/application/test_trace_formatter_against_real_output.py` | six mentions inside recorded log fixtures — a path, a traceback, a function name |
@@ -483,18 +521,25 @@ about the deletion counts too, and a project that carries skills of its own will
 | `tests/application/test_query_ai_context.py` | functional-test paths inside a fixture list |
 | `scripts/validate_test_quality.py` | one query in a comment, illustrating the rule about pinning a clause as text |
 | `tests/application/test_sync_agent_docs.py` | asserts the generated Quick Start does **not** name the vertical, so it has to spell it |
+| `ai_context/dynamic_imports.py` | a `# NOTE:` recording the exact line count of a 2026-09-02 measurement against `project/domain/reference_task.py`; the fact is dated and about that file, not a live import |
+| `ai_query/common.py` | a comment illustrating the vertical-name-from-path heuristic using `reference_task_service.py`, `reference_task_repository.py` and `reference_tasks.py` as the worked example |
+| `tests/application/test_client_errors_are_not_service_errors.py` | a fixture `POST /reference-tasks` used to prove a 422 is logged as a client error, not a server one |
+| `tests/application/test_functional_request_helpers.py` | a fixture `GET /reference-tasks/<uuid>` used to exercise a functional request helper without Docker |
+| `tests/application/test_gate_recipes.py` | a synthetic `SELECT ... FROM reference_tasks` string used to prove where a `# nosec` marker must sit |
+| `tests/application/test_trace_formatter_failure_visibility.py` | a fixture span name (`db.reference_task.get`) and a fixture path (`/reference-tasks`) inside recorded NDJSON lines |
+| `tests/application/test_validate_test_quality.py` | a `# NOTE:` naming the span (`db.reference_task.update`) a 2026-09-06 measurement mutated to prove a blind span is reported |
 
 Every one of those is fixture text about a vertical, or a document that has to name the thing it
-removes — not a use of the vertical. That is the whole reason the count surprises: the narrow sweep
-hides them differently. It misses `test_validate_architecture.py` entirely (the only mention there
-is camelCase `ReferenceTaskORM`) and shows four of the six lines in
+removes — not a use of the vertical. That is the whole reason the count keeps surprising: the narrow
+sweep hides them differently. It misses `test_validate_architecture.py` entirely (the only mention
+there is camelCase `ReferenceTaskORM`) and shows four of the six lines in
 `test_trace_formatter_against_real_output.py`, leaving the two hyphenated `/reference-tasks/` paths
 out of view.
 
-If your sweep shows a file that is not in the table, it is the prose step above left unfinished:
-a document of your own that still tells the next agent to copy a vertical you deleted. Point it at
-your own vertical, then `make refresh-agent-docs` if it was `docs/agent_rules.md`, so the
-generated wrappers follow.
+If your sweep shows a file that is not in the table and not one of the three categories above, it is
+the prose step above left unfinished: a document of your own that still tells the next agent to copy
+a vertical you deleted. Point it at your own vertical, then `make refresh-agent-docs` if it was
+`docs/agent_rules.md`, so the generated wrappers follow.
 
 This section said "exactly five" until 2026-08-13, and the nine unlisted files cost an hour of
 looking for a mistake that was not there. A match in `project/domain/ports.py` would be a real one:

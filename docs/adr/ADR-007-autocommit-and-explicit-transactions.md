@@ -93,6 +93,88 @@ Measured on 2026-09-02: an agent given "add a vertical with PATCH" and following
 `.agents/skills/add-vertical/SKILL.md` wrote the blind form, because the reference vertical had no
 update to copy and this ADR said nothing about the case. All 876 tests passed.
 
+## Where the single-row token does not reach (added 2026-09-08)
+
+The `updated_at` token above answers one question: did somebody else touch *this* row between my
+read and my write. It says nothing about a second row. Two requests that each read zero matching
+rows, each conclude a slot is free, and each `INSERT` their own report a conflict-free 200 apiece —
+the token never runs, because neither request's write disagreed with anything it had itself read.
+
+Measured in a project built from this template: a berth-booking vertical took reservations with
+exactly the shape this ADR already ships — read, decide, single-row `INSERT`, one `execute()` per
+method, autocommit correct by the Decision above. 24 concurrent `POST /reservations` requests
+against one berth produced two overlapping reservations for the same berth in 10 of 20 runs. Nothing
+in this ADR was violated; a set-level invariant — no two overlapping intervals on one resource, no
+second active reservation, no item sold twice — was never something the single-row token promised to
+hold, and this ADR said nothing about the case until now.
+
+Two mechanisms reach it, and neither is a bigger version of the token above:
+
+- **A constraint the database enforces**, when the invariant is expressible as one. A partial
+  exclusion constraint rejects the second overlapping row at `INSERT` time, no prior read needed —
+  the equality term on `berth_id` needs the `btree_gist` extension, `CREATE EXTENSION IF NOT EXISTS
+  btree_gist;` once per database, before this migration runs:
+
+  ```sql
+  ALTER TABLE reservations ADD CONSTRAINT no_overlapping_berth_reservations
+      EXCLUDE USING gist (berth_id WITH =, daterange(arrival, departure) WITH &&)
+      WHERE (status = 'active');
+  ```
+
+- **`SELECT ... FOR UPDATE` on the parent row**, when the invariant spans rows a constraint cannot
+  name. The repository locks the parent inside the transaction it already opens for a
+  multi-statement write, then checks and inserts before releasing it:
+
+  ```python
+  async with self._pool.connection() as connection:
+      async with connection.transaction():
+          await connection.execute(_LOCK_BERTH_FOR_UPDATE, (berth_id,))
+          await connection.execute(_CHECK_NO_OVERLAP, (berth_id, arrival, departure))
+          await connection.execute(_INSERT_RESERVATION, (...))
+  ```
+
+Either way, the database raises a driver error on the second writer — `errors.ExclusionViolation` or
+`errors.UniqueViolation` from psycopg — and the repository translates it into a domain
+`ConflictError`, the same shape as the zero-row `RETURNING` above, so the API layer answers 409
+instead of the client seeing the driver's exception as a 500.
+
+The reference vertical cannot demonstrate this fix. It has one row per aggregate and no set-level
+invariant to violate, so — exactly as it could not show a transaction spanning two statements, and
+could not show the read-modify-write case before 2026-09-02 — copying `ReferenceTaskRepository`
+alone will not carry this pattern into a vertical that needs it.
+
+## A foreign key's deletion policy is a domain decision, not a schema detail (added 2026-09-08)
+
+`alembic revision --autogenerate` writes exactly the `ForeignKey(...)` the ORM model declares. A
+model that names no `ondelete` produces a migration that names none either, and PostgreSQL's own
+default takes over silently — behaviourally `RESTRICT`: deleting a parent with a child still
+attached raises `IntegrityError`, which reaches the client as a 500 from the driver, not as the
+domain's own answer.
+
+Measured in two projects built from this template: a parent delete against a child holding an active
+reference failed exactly this way in `make test-e2e`, where the domain wanted "cannot delete while a
+booking is still active" — a 409 or a 403 the project already had in prose and nowhere in the
+schema.
+
+`ondelete` is not a fact autogenerate can infer, because it is not a fact about the schema — it is
+what the domain wants done to the child when the parent goes away, and the right answer differs by
+relationship even inside one project: `CASCADE` when the child has no meaning without the parent, a
+domain check plus `RESTRICT` when the rule needs its own error message instead of the database's,
+`SET NULL` when the child is meant to survive as an orphan. Choose it where the `ForeignKey(...)` is
+written, before autogeneration ever runs — a migration written from a bare declaration has to be
+edited by hand or regenerated, not patched around:
+
+```python
+customer_id: Mapped[str] = mapped_column(
+    ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False
+)
+```
+
+Nothing in `make quality-gates` catches a bare `ForeignKey` — it is a syntactically valid column, not
+a malformed one — and `make test-e2e` only catches it if some test actually deletes a parent with a
+child present and asserts the domain's answer rather than accepting whatever the driver happens to
+raise.
+
 ## Proving the fix
 
 A unit test against a fake repository has no transaction to roll back, so it cannot see a partial
@@ -116,7 +198,13 @@ outcome — every request that answered 200 must find its own change in the fina
 - `project/core/composition_root.py` — the pool's `autocommit=True` kwarg, where this decision is
   made once for every connection the application borrows.
 - `project/infrastructure/persistence/` — where a future repository method gains a second `execute()`
-  and must wrap both in `async with connection.transaction():`.
+  and must wrap both in `async with connection.transaction():`; also where a set-level invariant gets
+  its exclusion constraint or its `SELECT ... FOR UPDATE`, per "Where the single-row token does not
+  reach" above.
+- `project/infrastructure/persistence/orm_models.py` — where a `ForeignKey(...)` is written, and so
+  where its `ondelete` is chosen, per "A foreign key's deletion policy is a domain decision" above.
+  `tests/infrastructure/test_persistence_models.py` guards that no foreign key in the shipped
+  metadata is missing one.
 - `.agents/skills/add-vertical/SKILL.md` — the constraint list a vertical author reads before writing
   a repository; it points here rather than repeating the reasoning.
 
@@ -130,3 +218,11 @@ outcome — every request that answered 200 must find its own change in the fina
 - Nothing in `make quality-gates` will flag a missing transaction wrapper; review and `make
   test-e2e` are what catch it, so a diff touching `project/infrastructure/persistence/` is finished
   by the functional lane, not the gate.
+- A set-level invariant — no two overlapping rows, no double sale — is not covered by the
+  `updated_at` token or by wrapping statements in a transaction; it needs a database constraint or a
+  `SELECT ... FOR UPDATE` on the parent, per "Where the single-row token does not reach" above, and a
+  concurrent functional test to prove it, not a unit test against a fake.
+- A `ForeignKey` with no explicit `ondelete` autogenerates anyway — `make quality-gates` passes and
+  the migration applies — and then answers a domain delete rule with the driver's `IntegrityError`
+  and a 500 the first time a project actually exercises it, instead of the 409 or 403 the domain
+  wanted.
