@@ -235,6 +235,45 @@ class TestThreeToolAgentLoopOnMock:
             messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
 
         assert called_in_order == ["lookup_customer", "price_order", "send_confirmation"]
+        # **LOGIC_STEP**: And the summary names those tools too. Selection learned to resolve an
+        # unnamed result through the call it answers; the summary kept reading `.name` and printed
+        # `None: <result>` for the same message. Found by a second independent review on
+        # 2026-09-08 — one fix, two readers, and only one of them had been updated.
+        summary = messages[-1]
+        assert isinstance(summary, AIMessage)
+        assert "None:" not in str(summary.content)
+        for tool_name in called_in_order:
+            assert tool_name in str(summary.content)
+
+    # FUNCTION: test_a_result_answering_no_known_call_does_not_consume_a_tool
+    # SUMMARY: Verify an unnamed result is matched to the call it answers, not to a position.
+    # NOTE: The loop test above walks a happy path where "first result answers the first call" and
+    # "the id says so" agree, so it stays green against an implementation that just counts results.
+    # A second review made exactly that mutation on 2026-09-08 and watched it pass. Here the id
+    # matches nothing, so only an implementation that reads it gets the answer right.
+    @pytest.mark.unit
+    async def test_a_result_answering_no_known_call_does_not_consume_a_tool(self) -> None:
+        with patch(
+            "project.infrastructure.agents.llm_service.get_settings",
+            return_value=FixtureSettings(),
+        ):
+            service = LLMService()
+        bound = service.bind_tools(_TOOLS)
+        bound._mock_tool_args = _VALID_ARGS_BY_TOOL
+
+        first = await bound.call([HumanMessage(content="place an order")])
+        assert isinstance(first, AIMessage)
+        messages: list[BaseMessage] = [
+            HumanMessage(content="place an order"),
+            first,
+            ToolMessage(content="stray", tool_call_id="call-from-another-conversation"),
+        ]
+
+        second = await bound.call(messages)
+
+        assert isinstance(second, AIMessage)
+        assert second.tool_calls, "a stray result was taken as an answer to the first tool"
+        assert second.tool_calls[0]["name"] == "lookup_customer"
 
     # FUNCTION: test_a_second_question_starts_the_cycle_over
     # SUMMARY: Verify the tools a previous answer used are available again for the next question.

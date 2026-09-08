@@ -1472,9 +1472,12 @@ def _symbol_search_files() -> Iterator[Path]:
 # ai_context/extraction.py and scripts/validate_cbm.py. A plain `Assign`/`AnnAssign` target is an
 # `ast.Name` only for a module-level constant or a class-body field (`llm_mode: Literal[...] = ...`
 # in AgentSettings, say) — `self.x = ...` binds an `ast.Attribute` instead, so instance attributes
-# set in `__init__` are excluded without a special case. A same-named local variable inside a
-# function is not excluded — narrowing to definitions and fields only would take a scope-aware
-# walker this command does not need to earn its keep over grep.
+# set in `__init__` are excluded without a special case. Bindings are read from module and class
+# bodies only, never from inside a function: `ast.walk` reaches every local variable too, and a
+# common name paid for it — measured on 2026-09-08, `symbol result` returned 75 matches, 24 of
+# them locals reported as `attribute`, which is both noise and a different claim than the one this
+# command makes. A definition, by contrast, is worth finding wherever it sits, nested helpers
+# included, so classes and functions are still walked in full.
 def _symbol_matches_in_file(path: Path, name: str) -> list[dict[str, object]]:
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -1487,13 +1490,35 @@ def _symbol_matches_in_file(path: Path, name: str) -> list[dict[str, object]]:
             found.append({"file": relative_path, "line": node.lineno, "kind": "class"})
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
             found.append({"file": relative_path, "line": node.lineno, "kind": "function"})
-        elif isinstance(node, ast.AnnAssign):
-            if isinstance(node.target, ast.Name) and node.target.id == name:
-                found.append({"file": relative_path, "line": node.lineno, "kind": "attribute"})
-        elif isinstance(node, ast.Assign):
-            for target in node.targets:
+    found.extend(_field_bindings_in_scope(tree, name, relative_path))
+    return found
+
+
+# FUNCTION: _field_bindings_in_scope
+# SUMMARY: Find name bindings written directly in a module body or a class body, never in a
+# function body.
+# INPUT: scope (ast.AST): Module or ClassDef whose own statements are read.
+# INPUT: name (str): Exact identifier to match.
+# INPUT: relative_path (str): Repository-relative path, carried into each entry.
+# OUTPUT: (list[dict[str, object]]): {"file", "line", "kind"} entries with kind "attribute".
+def _field_bindings_in_scope(
+    scope: ast.AST,
+    name: str,
+    relative_path: str,
+) -> list[dict[str, object]]:
+    found: list[dict[str, object]] = []
+    for statement in getattr(scope, "body", []):
+        if isinstance(statement, ast.AnnAssign):
+            if isinstance(statement.target, ast.Name) and statement.target.id == name:
+                found.append({"file": relative_path, "line": statement.lineno, "kind": "attribute"})
+        elif isinstance(statement, ast.Assign):
+            for target in statement.targets:
                 if isinstance(target, ast.Name) and target.id == name:
-                    found.append({"file": relative_path, "line": node.lineno, "kind": "attribute"})
+                    found.append(
+                        {"file": relative_path, "line": statement.lineno, "kind": "attribute"}
+                    )
+        elif isinstance(statement, ast.ClassDef):
+            found.extend(_field_bindings_in_scope(statement, name, relative_path))
     return found
 
 

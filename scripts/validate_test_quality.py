@@ -587,6 +587,14 @@ def _query_constant_round_trips(tree: ast.AST, constants: set[str]) -> dict[str,
     return lines
 
 
+# FUNCTION: _is_clause_shaped
+# SUMMARY: Whether a literal is specific enough to be a clause of a query rather than a word in one.
+# INPUT: value (object): The left operand of an `in` comparison, which need not be a string.
+# OUTPUT: (bool): True for a stripped literal carrying more than one whitespace-separated token.
+def _is_clause_shaped(value: object) -> bool:
+    return isinstance(value, str) and len(value.split()) > 1
+
+
 # FUNCTION: _query_constants_pinned_as_text
 # SUMMARY: Find the query constants the module states as literal text at least once.
 # OUTPUT: (set[str]): Constants compared, whole or sliced, against a string literal.
@@ -608,14 +616,16 @@ def _query_constants_pinned_as_text(tree: ast.AST, constants: set[str]) -> set[s
             # unpinned round trip. Only one direction makes sense for `in`: the literal is the
             # (necessarily shorter) needle, never the query itself, so this is not mirrored the way
             # `==` is above.
-            # **LOGIC_STEP**: The needle has to say something. `assert "" in _SELECT` is true of
-            # every string ever written, so counting it as a pin would let one meaningless line
-            # silence the rule for the whole module — the same silence, reached by a shorter road.
-            if (
-                isinstance(node.left, ast.Constant)
-                and isinstance(node.left.value, str)
-                and node.left.value.strip()
-            ):
+            # **LOGIC_STEP**: The needle has to be a clause, not a word. `assert "" in _SELECT`
+            # is true of every string ever written and `assert "SELECT" in _SELECT` of every query,
+            # so either would let one meaningless line silence the rule for a whole module — the
+            # same silence, reached by a shorter road than the round trip this rule was built to
+            # notice. Measured on 2026-09-08: with a one-word needle accepted, reversing
+            # `WHERE id = %s` to `WHERE status = %s` left the module reported clean, where the
+            # unpinned base had reported it. Two words is the line: `ORDER BY created_at DESC`
+            # and `id = %s` move when the clause moves; `SELECT` does not. This still only asks
+            # whether a trap is present, never whether the text it pins is the right text.
+            if isinstance(node.left, ast.Constant) and _is_clause_shaped(node.left.value):
                 pinned |= _names_stated_as_text(right) & constants
     return pinned
 

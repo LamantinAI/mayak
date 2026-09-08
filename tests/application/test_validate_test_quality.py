@@ -443,6 +443,28 @@ class TestQueryConstantRoundTrip:
 
         assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
 
+    # FUNCTION: test_a_one_word_needle_does_not_count_as_pinned
+    # SUMMARY: Verify `assert "SELECT" in _CONSTANT` — true of every query — pins nothing.
+    # NOTE: Measured on 2026-09-08 by a second independent review: with a one-word needle accepted,
+    # reversing `WHERE id = %s` to `WHERE status = %s` left the module reported clean, where the
+    # version before the `in` branch existed had reported it. A widening that makes a rule easier
+    # to silence than it was is a regression even when the widening itself was right.
+    @pytest.mark.unit
+    def test_a_one_word_needle_does_not_count_as_pinned(self, tmp_path: Path) -> None:
+        repo_root = _write_repository_fixture(tmp_path)
+        path = _write_test_module(
+            tmp_path,
+            "from project.infrastructure.persistence.probe_repository import _SELECT_BY_ID\n"
+            "\n"
+            "def test_get_runs_the_query() -> None:\n"
+            "    cursor.execute.assert_awaited_once_with(_SELECT_BY_ID, ('id',))\n"
+            "    assert 'SELECT' in _SELECT_BY_ID\n",
+        )
+
+        issues = validate_test_module(path, repo_root)
+
+        assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
+
     # FUNCTION: test_an_empty_needle_does_not_count_as_pinned
     # SUMMARY: Verify `assert "" in _CONSTANT` — true of every string — pins nothing.
     # NOTE: Found by an independent review of this branch on 2026-09-08, right after the `in`

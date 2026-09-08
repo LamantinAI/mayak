@@ -222,6 +222,14 @@ def _build_tree(
             # dataclass default — a tool call that never finished would sort before every sibling
             # regardless of when it actually started, which is worse than an approximate position.
             node.seq = seq
+            # **LOGIC_STEP**: And a provisional parent, for the same reason and a worse failure.
+            # span.start carries `parent_span_id` too; taking it only from finish/error left a tool
+            # call that never returned — a hung provider, a killed process, the exact run someone
+            # opens a trace to understand — parentless, which the assembly below reads as a second
+            # root. It then rendered detached from the request that made it AND marked with the
+            # root's own successful outcome. Overwritten by finish/error when either arrives, so
+            # the completed path is unchanged.
+            node.parent_span_id = ev.get("parent_span_id")
 
         elif eid == "span.finish":
             sid = ev.get("span_id", "")

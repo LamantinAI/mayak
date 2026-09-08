@@ -54,6 +54,16 @@ class _LLMServiceMockContract(Protocol):
     # SUMMARY: Return the messages that follow the most recent human question.
     def _current_turn(self, messages: list[BaseMessage]) -> list[BaseMessage]: ...
 
+    # FUNCTION: _tool_calls_by_id
+    # SUMMARY: Return the tool name behind every tool-call id issued this turn.
+    def _tool_calls_by_id(self, messages: list[BaseMessage]) -> dict[str, str]: ...
+
+    # FUNCTION: _tool_name_of
+    # SUMMARY: Return the tool a result answers, by its own field or by the call id.
+    def _tool_name_of(
+        self, tool_message: ToolMessage, by_call_id: dict[str, str]
+    ) -> str | None: ...
+
 
 # CLASS: project.infrastructure.agents.llm_service_mock.LLMServiceMockMixin
 # SUMMARY: Mixin implementing deterministic mock-mode tool selection and response synthesis.
@@ -108,6 +118,23 @@ class LLMServiceMockMixin:
         self: _LLMServiceMockContract,
         messages: list[BaseMessage],
     ) -> set[str]:
+        by_call_id = self._tool_calls_by_id(messages)
+
+        answered: set[str] = set()
+        for tool_message in self._collect_tool_messages(messages):
+            resolved = self._tool_name_of(tool_message, by_call_id)
+            if resolved is not None:
+                answered.add(resolved)
+        return answered
+
+    # FUNCTION: _tool_calls_by_id
+    # SUMMARY: Map every tool-call id this turn issued to the tool it asked for.
+    # INPUT: messages (list[BaseMessage]): The whole conversation; only the current turn is read.
+    # OUTPUT: (dict[str, str]): Tool name per call id.
+    def _tool_calls_by_id(
+        self: _LLMServiceMockContract,
+        messages: list[BaseMessage],
+    ) -> dict[str, str]:
         by_call_id: dict[str, str] = {}
         for message in self._current_turn(messages):
             for call in getattr(message, "tool_calls", None) or []:
@@ -117,16 +144,21 @@ class LLMServiceMockMixin:
                 )
                 if isinstance(call_id, str) and isinstance(call_name, str):
                     by_call_id[call_id] = call_name
+        return by_call_id
 
-        answered: set[str] = set()
-        for tool_message in self._collect_tool_messages(messages):
-            if isinstance(tool_message.name, str) and tool_message.name:
-                answered.add(tool_message.name)
-                continue
-            resolved = by_call_id.get(tool_message.tool_call_id)
-            if resolved is not None:
-                answered.add(resolved)
-        return answered
+    # FUNCTION: _tool_name_of
+    # SUMMARY: Name the tool one result answers, by its own field or by the call it replies to.
+    # INPUT: tool_message (ToolMessage): The result to name.
+    # INPUT: by_call_id (dict[str, str]): Tool name per tool-call id, from this turn's AI messages.
+    # OUTPUT: (str | None): The tool's name, or None when neither source knows it.
+    def _tool_name_of(
+        self: _LLMServiceMockContract,
+        tool_message: ToolMessage,
+        by_call_id: dict[str, str],
+    ) -> str | None:
+        if isinstance(tool_message.name, str) and tool_message.name:
+            return tool_message.name
+        return by_call_id.get(tool_message.tool_call_id)
 
     # FUNCTION: _extract_last_human_message
     # SUMMARY: Retrieve the latest human-authored message content from a prompt stack.
@@ -186,7 +218,9 @@ class LLMServiceMockMixin:
     # bound tool exactly once, in binding order, then finalizes — deterministic tool SELECTION.
     # Not guaranteed: valid ARGUMENTS for an arbitrary tool schema. The default
     # `{"query": <last human message>}` satisfies a tool whose schema happens to be `{query:
-    # str}` and nothing else — a required Decimal, a nested object, or an enum field fails
+    # str}`, and any schema whose only REQUIRED field is a compatible `query` — optional fields
+    # with defaults are filled in by the tool's own model — and nothing else: a required Decimal,
+    # a nested object, or an enum field fails
     # `tool.ainvoke(...)` with the same pydantic ValidationError this file used to produce on the
     # very first call, args or no cycle. Generating a schema-valid instance for an arbitrary
     # pydantic model is a small library in its own right — guessing a Decimal that also satisfies
@@ -219,8 +253,14 @@ class LLMServiceMockMixin:
                 ],
             )
         elif tool_messages:
+            # **LOGIC_STEP**: The summary names tools the same way the selection above does.
+            # Reading `.name` directly printed `None: <result>` for the very ToolMessage shape the
+            # selection had just learned to resolve — a summary that cannot say which tool produced
+            # what is the thing a reader copies this mock to see.
+            by_call_id = self._tool_calls_by_id(messages)
             tool_lines = [
-                f"{tool_message.name}: {tool_message.content}" for tool_message in tool_messages
+                f"{self._tool_name_of(tool_message, by_call_id) or 'tool'}: {tool_message.content}"
+                for tool_message in tool_messages
             ]
             response = AIMessage(
                 content=(

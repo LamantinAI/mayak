@@ -57,7 +57,8 @@ here — assert either against a fake port in the vertical's own test.
 ## What mock mode does not do with tool arguments (2026-09-08)
 
 The default arguments sent with every tool call are still `{"query": <last human message>}`,
-whichever tool is being called. That satisfies a tool schema of exactly `{query: str}` and nothing
+whichever tool is being called. That satisfies any schema whose only required field is a compatible
+`query` — a `limit: int = 50` beside it is filled in by the tool's own model — and nothing
 else: a required `Decimal`, a nested object, or an enum field fails the tool's own pydantic
 validation the same way it always did, cycle or no cycle — this is not a defect the loop fix above
 closes, because the mock has no way to know what value would be *valid*, only what value would be

@@ -67,8 +67,9 @@ the tree, so this stays one place.
    `upgrade()` is `pass` — valid Alembic, no table, and no error anywhere. A `ForeignKey(...)` gets
    its `ondelete` chosen here, on the same line — autogenerate copies whatever the model says and
    decides nothing on its own, so a bare `ForeignKey("parents.id")` autogenerates without complaint
-   and the missing policy surfaces later as a 500 from the driver instead of the domain's own
-   answer. See `docs/adr/ADR-007-autocommit-and-explicit-transactions.md`, "A foreign key's deletion
+   and the missing policy used to surface only later, as a 500 from the driver instead of the
+   domain's own answer. `tests/infrastructure/test_persistence_models.py::TestForeignKeysDeclareOnDelete`
+   reports one now, in the ordinary unit suite. See `docs/adr/ADR-007-autocommit-and-explicit-transactions.md`, "A foreign key's deletion
    policy is a domain decision".
 3. **A running database, brought to head, before you autogenerate.** In this order:
 

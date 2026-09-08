@@ -37,8 +37,8 @@ No gate in this repository catches that failure mode:
 
 - `make quality-gates` runs none of your SQL (CLAUDE.md, "It runs none of your queries" — the gate
   runs no query, so it cannot see that two of them needed to be one transaction).
-- The shipped `reference_task_repository.py` cannot demonstrate the fix either. All three of its
-  methods issue exactly one `execute()`, so `async with connection.transaction():` does not appear
+- The shipped `reference_task_repository.py` cannot demonstrate the fix either. Every one of its
+  methods issues exactly one `execute()`, so `async with connection.transaction():` does not appear
   anywhere in the worked example, and a vertical author has nothing to copy from when their own
   repository grows a second statement.
 

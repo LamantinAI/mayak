@@ -6,14 +6,20 @@
 # ceiling before the dense one does, and the cheapest way back under the limit is to delete the
 # explanation — which is the opposite of what this kernel wants from an agent under a red gate.
 #
-# The effect is visible in this repository. Measured on 2026-09-08 over `project/`, which is the
-# only tree `scripts/validate_module_sizes.py` walks: the largest module is
-# `project/core/logging/logger.py` at 556 raw lines and 348 executable ones, and the next is
-# `project/core/logging/trace_formatter.py` at 460 and 293. Both are comfortably inside the 450
-# executable-line budget; both would be over a 450 raw one, and the cheapest way back under it
-# would have been to delete the paragraphs that say why the tree walk is shaped the way it is.
-# Rerun the metric for current figures — the point is the shape of the difference, not the
-# particular numbers, and this example moved once already when the trace renderer was split.
+# The effect is visible in this repository, and the figures below are an example rather than a
+# fact to be trusted: they moved twice on the day they were written, once when the trace renderer
+# was split and again when its own comments grew. Re-measure instead of quoting them:
+#
+#   uv run python -c "from pathlib import Path; from ai_context.line_metrics import \
+#     compute_module_metrics as m; print(sorted(((len(f.read_bytes().decode().splitlines()), \
+#     m(f.read_bytes()).code_lines, str(f)) for f in Path('project').rglob('*.py')), \
+#     reverse=True)[:3])"
+#
+# Measured that way on 2026-09-08 over `project/`, the only tree
+# `scripts/validate_module_sizes.py` walks: the largest module, `project/core/logging/logger.py`,
+# was 564 raw lines and 349 executable ones. It is comfortably inside the 450 executable-line
+# budget and well over a raw one of the same size, and the cheapest way back under a raw budget
+# would have been to delete the paragraphs explaining why the span machinery is shaped as it is.
 
 from __future__ import annotations
 

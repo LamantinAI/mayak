@@ -94,6 +94,37 @@ class TestToolSpanArgumentsAreVisible:
         # replaced by them.
         assert "result_count=3" in rendered
 
+    # FUNCTION: test_a_tool_call_that_never_finished_stays_under_its_request
+    # SUMMARY: Verify an unfinished tool span keeps its parent instead of becoming a second root.
+    # NOTE: `parent_span_id` was read only from span.finish/span.error, so a tool call that never
+    # returned — a hung provider, a killed process, exactly the run someone opens a trace to
+    # understand — was assembled as a root of its own and then took the real root's successful
+    # outcome. Found by a second independent review on 2026-09-08.
+    @pytest.mark.unit
+    def test_a_tool_call_that_never_finished_stays_under_its_request(self) -> None:
+        lines = [
+            _http_root_start(),
+            _line(
+                seq=2,
+                trace_id=_TRACE_ID,
+                event_id="span.start",
+                span_id="tool1",
+                span_name="agent.tool.search_docs",
+                parent_span_id="root1",
+                data={"input_params": {"query": "revenue"}},
+            ),
+            _http_root_finish(seq=3),
+        ]
+
+        rendered = format_trace_for_llm(lines)
+
+        tool_lines = [line for line in rendered.splitlines() if "agent.tool.search_docs" in line]
+        assert len(tool_lines) == 1
+        # **LOGIC_STEP**: Indented under the request rather than flush with it — a child, not a
+        # second root — and carrying no outcome of its own, because it never reported one.
+        assert tool_lines[0].startswith(" ") or "└" in tool_lines[0] or "├" in tool_lines[0]
+        assert "✓" not in tool_lines[0]
+
     # FUNCTION: test_a_newline_in_an_argument_cannot_forge_a_tree_node
     # SUMMARY: Verify a line break inside a tool argument is escaped rather than drawn.
     # NOTE: A tool argument is whatever reached the agent — a prompt, a pasted page, a search query.

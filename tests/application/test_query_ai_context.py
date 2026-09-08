@@ -580,6 +580,18 @@ class TestQueryAIContext:
         matches = [match for match in payload["matches"] if match["kind"] == "attribute"]
         assert any(match["file"] == "project/core/config_settings_agent.py" for match in matches)
 
+    # FUNCTION: test_query_symbol_ignores_a_local_variable
+    # SUMMARY: Verify a name bound inside a function body is not reported as a field.
+    # NOTE: The walk reached every scope, so `symbol result` answered with 75 matches, 24 of them
+    # ordinary locals labelled `attribute` — noise, and a different claim than "function, class or
+    # field". Measured by a second independent review on 2026-09-08. A definition is still found
+    # wherever it sits, nested helpers included; only bindings are scoped.
+    @pytest.mark.unit
+    def test_query_symbol_ignores_a_local_variable(self) -> None:
+        payload: dict[str, Any] = _query_symbol("result").payload
+
+        assert payload["matches"] == []
+
     # FUNCTION: test_query_symbol_reports_no_matches_for_an_unknown_name
     # SUMMARY: Verify an unmatched name returns an empty list rather than raising.
     @pytest.mark.unit

@@ -531,7 +531,14 @@ def _skill_names(path: str, skill_text: str, shared_basenames: set[str]) -> bool
     if path in skill_text:
         return True
     name = Path(path).name
-    return name not in shared_basenames and name in skill_text
+    if name in shared_basenames or name not in skill_text:
+        return False
+    # **LOGIC_STEP**: And the mention has to be free. A skill naming `ai_query/common.py` contains
+    # the string `common.py`, so a file added at `tests/application/common.py` was vouched for by
+    # a path that is not its own — measured by a second review on 2026-09-08, with a file the
+    # tracked-collision set above cannot know about because it did not exist when the set was
+    # built. Any full path in the skill sharing this basename means the bare name is spoken for.
+    return not re.search(rf"\S+/{re.escape(name)}", skill_text)
 
 
 # FUNCTION: _contains_wrapped
@@ -585,6 +592,19 @@ class TestDeletionAccountsForEveryMatch:
             _shared_basenames(),
         )
 
+    # FUNCTION: test_a_basename_already_spoken_for_by_a_path_does_not_vouch
+    # SUMMARY: Verify a bare filename cannot ride on a full path the skill names for another file.
+    # NOTE: The collision set is built from the files that exist now, so it cannot know about the
+    # file being added — which is the only file this check ever runs against in anger. Measured by
+    # a second review on 2026-09-08 with `tests/application/common.py`, vouched for by the skill's
+    # mention of `ai_query/common.py`.
+    @pytest.mark.unit
+    def test_a_basename_already_spoken_for_by_a_path_does_not_vouch(self) -> None:
+        skill_text = "the fixtures live in ai_query/common.py and nowhere else"
+
+        assert not _skill_names("tests/application/common.py", skill_text, set())
+        assert _skill_names("ai_query/common.py", skill_text, set())
+
     # FUNCTION: test_a_shared_basename_does_not_vouch_for_the_other_file
     # SUMMARY: Verify a filename two directories both carry has to be spelled in full to count.
     # NOTE: Measured on 2026-09-08: the skill names `tests/application/test_logging_api.py`, and a
@@ -631,6 +651,15 @@ class TestConcurrencyAndForeignKeyGuidanceStays:
     def test_adr_007_names_the_foreign_key_deletion_policy(self) -> None:
         text = _ADR_007.read_text(encoding="utf-8")
         assert _contains_wrapped("A foreign key's deletion policy is a domain decision", text)
+        # **LOGIC_STEP**: And says the load-bearing thing under that heading. A heading alone can
+        # sit above prose that argues the opposite, which is what a second review demonstrated on
+        # 2026-09-08 by inverting the section and watching this test pass. These two claims are
+        # what a vertical author has to come away with; pin them as text, the same discipline this
+        # repository applies to a SQL clause.
+        assert _contains_wrapped(
+            "writes exactly the `ForeignKey(...)` the ORM model declares", text
+        )
+        assert _contains_wrapped("RESTRICT", text) and _contains_wrapped("CASCADE", text)
 
     # FUNCTION: test_the_service_step_points_at_the_set_level_invariant_section
     # SUMMARY: Verify step 6 (where the service is written) still points at ADR-007's boundary

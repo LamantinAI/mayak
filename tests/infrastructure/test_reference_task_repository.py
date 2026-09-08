@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator
 from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
@@ -46,9 +46,13 @@ class TestRowToReferenceTask:
         identifier = UUID("11111111-2222-3333-4444-555555555555")
         # **LOGIC_STEP**: created_at and updated_at differ on purpose — a mapper that swaps them
         # returns a structurally valid ReferenceTask, so only distinguishable timestamps make that
-        # swap visible to the equality check below.
-        created_at = datetime(2024, 3, 1, 6, 0, 0, tzinfo=timezone.utc)
-        updated_at = datetime(2025, 11, 20, 18, 30, 45, tzinfo=timezone.utc)
+        # swap visible to the equality check below. Their offset is deliberately not UTC either:
+        # with a UTC fixture, a mapper rewriting `row["created_at"].replace(tzinfo=timezone.utc)`
+        # is invisible — the value is unchanged — while against a real column carrying an offset
+        # it silently moves the instant by that offset. Measured by an independent review on
+        # 2026-09-08, which is when the offsets below stopped being UTC.
+        created_at = datetime(2024, 3, 1, 6, 0, 0, tzinfo=timezone(timedelta(hours=3)))
+        updated_at = datetime(2025, 11, 20, 18, 30, 45, tzinfo=timezone(timedelta(hours=-7)))
         row = {
             "id": identifier,
             "title": "Migrate the billing job",
