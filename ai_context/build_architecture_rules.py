@@ -28,10 +28,9 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 # SUMMARY: Derive the Python version policy from pyproject.toml and .python-version.
 # OUTPUT: (dict[str, str]): Minimum, local toolchain, mypy target and CI versions.
 def _python_runtime_policy() -> dict[str, str]:
-    # **LOGIC_STEP**: These five values used to be typed out here by hand, in the file that
-    # ARCHITECTURE.md points to as a source of truth. Nothing checked them against
-    # pyproject.toml, so a version bump would leave the generated rules quietly wrong while
-    # every gate stayed green.
+    # **LOGIC_STEP**: These five values are derived rather than typed out by hand, because nothing
+    # would check a hand-typed copy against pyproject.toml — a version bump would leave the
+    # generated rules quietly wrong while every gate stayed green.
     pyproject = (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     match = re.search(r'^requires-python\s*=\s*">=([0-9.]+)"', pyproject, re.MULTILINE)
     if match is None:
@@ -53,9 +52,9 @@ def _build_enforcement_model(
     strictly_validated_rules: list[dict[str, object]] = []
     guidance_only_rules: list[dict[str, object]] = []
     for layer, rules in layer_rules.items():
-        # **LOGIC_STEP**: A layer is strictly validated by whichever mechanism it declares. The
-        # domain moved from a blacklist to an allowlist on 2026-08-12, and a reader of this payload
-        # has to see which one — the two answer different questions. Emitting only the blacklist
+        # **LOGIC_STEP**: A layer is strictly validated by whichever mechanism it declares — the
+        # domain by an allowlist, other layers by a blacklist — and a reader of this payload has
+        # to see which one, since the two answer different questions. Emitting only the blacklist
         # entry would have dropped the domain out of `strictly_validated_rules` entirely, making
         # the strictest rule in the repository look like guidance.
         allowed_imports = list(rules["runtime_enforced"]["allowed_imports"])

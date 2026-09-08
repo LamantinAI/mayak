@@ -27,7 +27,7 @@ from project.infrastructure.persistence.reference_task_repository import (
 
 # CLASS: tests.infrastructure.test_reference_task_repository.TestRowToReferenceTask
 # SUMMARY: Verify the mapper's whole output equals a domain object built straight from the row.
-# NOTE: Rewritten 2026-09-08 after the 2026-09-07 template experiment: the prior version asserted
+# NOTE: Rewritten after a template experiment: the prior version asserted
 # `task.id` and two `isinstance` checks, and its fixture gave every other field a value
 # indistinguishable from its neighbour — most sharply, created_at and updated_at were the SAME
 # datetime. A mapper that read the wrong column (`title=row["details"]`), returned a constant
@@ -36,7 +36,7 @@ from project.infrastructure.persistence.reference_task_repository import (
 # could tell a swap apart. This is the file `.agents/skills/add-vertical` tells every new vertical
 # to copy, so the blind spot was copied with it. Confirmed by mutating row_to_reference_task all
 # three ways below and watching test_row_maps_to_the_expected_domain_object fail each time, then
-# reverting — see the PR description for the transcript.
+# reverting.
 class TestRowToReferenceTask:
     # FUNCTION: test_row_maps_to_the_expected_domain_object
     # SUMMARY: Verify every field lands from its own column, unchanged, in the right slot — not a
@@ -49,8 +49,7 @@ class TestRowToReferenceTask:
         # swap visible to the equality check below. Their offset is deliberately not UTC either:
         # with a UTC fixture, a mapper rewriting `row["created_at"].replace(tzinfo=timezone.utc)`
         # is invisible — the value is unchanged — while against a real column carrying an offset
-        # it silently moves the instant by that offset. Measured by an independent review on
-        # 2026-09-08, which is when the offsets below stopped being UTC.
+        # it silently moves the instant by that offset.
         created_at = datetime(2024, 3, 1, 6, 0, 0, tzinfo=timezone(timedelta(hours=3)))
         updated_at = datetime(2025, 11, 20, 18, 30, 45, tzinfo=timezone(timedelta(hours=-7)))
         row = {
@@ -182,7 +181,7 @@ class TestQueriesAreParameterised:
         cursor.execute.assert_awaited_once_with(_SELECT_BY_STATUS, ("pending", 7))
         assert "pending" not in _SELECT_BY_STATUS
         # **LOGIC_STEP**: Filter, ordering and page bound pinned as text, because nothing else here
-        # can see them. Measured on 2026-08-12: reversing `DESC` to `ASC` in this very query left
+        # can see them. Measured: reversing `DESC` to `ASC` in this very query left
         # `make quality-gates` green — this file included — and failed only in `make test-e2e`.
         # The two assertions above cannot catch it: one compares the query to itself, the other
         # only proves the status was not interpolated. Every vertical copies this file, so the
@@ -411,7 +410,7 @@ class TestAnImpossibleIdIsAMiss:
 class TestEveryQueryGetsItsOwnSpan:
     # FUNCTION: test_a_query_span_is_written_at_the_level_production_runs_at
     # SUMMARY: Verify the database spans reach a log configured the way a deployment configures it.
-    # NOTE: This is what the class could not see until 2026-09-06: every test here set the logger to
+    # NOTE: This is what the class could not see: every test here set the logger to
     # DEBUG, and a child span defaults to DEBUG, so the assertions passed against a level no
     # deployment uses. With APP_DEBUG=false the level is INFO, the spans were filtered, and an
     # operator reading a real trace saw the request with nothing inside it — the `0 spans` the
@@ -487,7 +486,7 @@ class TestEveryQueryGetsItsOwnSpan:
     # SUMMARY: Verify `db.reference_task.update` reports which of the two outcomes it reached.
     # **LOGIC_STEP**: Both outcomes, because this span is the one whose two answers mean the most
     # different things: a write that landed, and a write that matched nothing because somebody
-    # else got there first. Until 2026-09-06 no test looked this span up at all, so
+    # else got there first. No test used to look this span up at all, so
     # `span.output["row_written"] = True` — the exact mutation the phase's own gate rule was
     # written to catch — left every gate green. The rule cannot see a span nobody mentions; this
     # test is what mentions it.

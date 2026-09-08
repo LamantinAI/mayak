@@ -65,16 +65,16 @@ jobs:
         run: make quality-gates
 
   # Second leg: the one code path `quality-gates` above cannot exercise — a project that declares
-  # no relational store. It used to run the whole gate a second time under POSTGRES_ENABLED=false,
-  # but nothing in the gate reads that flag except two steps: the test run, which pins
-  # POSTGRES_ENABLED=true for itself regardless (tests/conftest.py's pin_postgres_toggle fixture,
-  # so the flag never reaches a single test either way), and scripts/validate_migrations.py, which
-  # treats the flag as "no relational store, nothing to verify" and returns an informational pass
-  # without opening a connection. Every other step — lint, format, mypy, architecture, bandit, the
-  # rest of quality-gates-steps — is identical under either value of the flag, so running it twice
-  # bought nothing but CI minutes. This job now runs only those two, under POSTGRES_ENABLED=false,
-  # so the "declares no relational store" branch of validate_migrations.py still gets exercised in
-  # the pipeline and not only by its own unit test.
+  # no relational store. Nothing in the gate reads that flag except two steps: the test run, which
+  # pins POSTGRES_ENABLED=true for itself regardless (tests/conftest.py's pin_postgres_toggle
+  # fixture, so the flag never reaches a single test either way), and
+  # scripts/validate_migrations.py, which treats the flag as "no relational store, nothing to
+  # verify" and returns an informational pass without opening a connection. Every other step —
+  # lint, format, mypy, architecture, bandit, the rest of quality-gates-steps — is identical under
+  # either value of the flag, so running the whole gate a second time would buy nothing but CI
+  # minutes. This job runs only those two, under POSTGRES_ENABLED=false, so the "declares no
+  # relational store" branch of validate_migrations.py still gets exercised in the pipeline and
+  # not only by its own unit test.
   no-postgres-tests:
     runs-on: ubuntu-latest
     env:
@@ -191,11 +191,8 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen
 
-      # Through the make target, not a second spelling. This line used to be
-      # `uv run --with mypy mypy project scripts ai_context ai_query`, which had already drifted
-      # from the Makefile in two ways: it omitted tests/functional (in MYPY_TARGETS on purpose —
-      # that suite is checked nowhere else) and it installed mypy ephemerally instead of the
-      # pinned dev dependency. A copy of a gate step is a gate step that can go stale silently.
+      # Through the make target, not a second spelling. A copy of a gate step is a gate step that
+      # can go stale silently.
       - name: Mypy full-project type-check
         run: make gate-types
 
@@ -281,8 +278,6 @@ jobs:
       - name: Diff coverage gate (changed lines vs origin/main, threshold 80%)
         # Both halves — the coverage run and the diff-cover call — live in the Makefile target, so
         # the documented local mirror (`make diff-coverage`) cannot drift from what CI enforces.
-        # They used to be copied here line for line, and a change to the threshold or the test
-        # paths in one place left the other silently behind.
         run: make diff-coverage
 
 # ---------------------------------------------------------------------------

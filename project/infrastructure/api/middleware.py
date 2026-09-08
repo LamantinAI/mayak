@@ -105,23 +105,22 @@ def _with_header_replaced(
 
 
 # CLASS: project.infrastructure.api.middleware._ResponseObserver
-# SUMMARY: Accumulates response shape from the raw ASGI messages a downstream app sends, for the
-# span output that used to come from inspecting a Response object BaseHTTPMiddleware never gave us.
+# SUMMARY: Accumulates response shape from the raw ASGI messages a downstream app sends; there is
+# no Response object to inspect instead — BaseHTTPMiddleware never hands this class a real one.
 # NOTE: starlette.middleware.base.BaseHTTPMiddleware.call_next does not return the endpoint's own
 # Response — it consumes the downstream ASGI messages and hands back its own private
 # `_StreamingResponse` (starlette/middleware/base.py). That type does not subclass
-# fastapi.responses.StreamingResponse and never gets a `.body` attribute, so on starlette==1.4.1
-# every one of this class's three old branches — `isinstance(response, StreamingResponse)`,
-# `isinstance(response, FileResponse)`, `hasattr(response, "body")` — was unreachable: confirmed
-# by running an actual StreamingResponse and an actual JSONResponse through the real dispatch path
-# on 2026-08-24 and printing what `call_next` returned (`type(response).__name__` was
-# `_StreamingResponse` and `hasattr(response, "body")` was False in both cases). response_type was
-# "standard" and response_size was None for every request this middleware ever logged, streaming or
-# not. Reading the ASGI messages directly, as below, is the first version of these two fields that
-# observes what it claims to rather than a branch that never matched.
+# fastapi.responses.StreamingResponse and never gets a `.body` attribute, so on starlette==1.4.1 an
+# `isinstance(response, StreamingResponse)` / `isinstance(response, FileResponse)` /
+# `hasattr(response, "body")` chain is unreachable: confirmed by running an actual
+# StreamingResponse and an actual JSONResponse through the real dispatch path and printing what
+# `call_next` returned (`type(response).__name__` was `_StreamingResponse` and
+# `hasattr(response, "body")` was False in both cases). response_type would read "standard" and
+# response_size would read None for every request, streaming or not. Reading the ASGI messages
+# directly, as below, is the only version of these two fields that observes what it claims to.
 class _ResponseObserver:
     # FUNCTION: __init__
-    # SUMMARY: Start from the same values the dead branches used to leave behind.
+    # SUMMARY: Start with the defaults each field falls back to when nothing overrides them.
     def __init__(self) -> None:
         self.status_code: int | None = None
         self.content_type: str = _UNKNOWN_CONTENT_TYPE
@@ -148,9 +147,8 @@ class _ResponseObserver:
     # SUMMARY: Record a zero-copy file response — the `http.response.pathsend` extension message.
     # NOTE: FileResponse only sends this when the ASGI server advertises the extension, and only
     # after its own os.stat() call already set Content-Length (starlette.responses.FileResponse).
-    # Reading that header back here is what lets this file drop the Path().stat() call the old
-    # implementation made — see the module NOTE below the class for what that removal means for
-    # pyproject.toml's ASYNC240 exclusion.
+    # Reading that header back here is what lets this file skip a Path().stat() call — see the
+    # module NOTE below the class for what that means for pyproject.toml's ASYNC240 exclusion.
     def record_pathsend(self) -> None:
         self.response_type = "file"
         self.response_size = self._content_length
@@ -162,12 +160,11 @@ class _ResponseObserver:
     # NOTE: A response sent as a single message with more_body False or absent (plain
     # Response.__call__ — starlette.responses) stays "standard" and is sized by the bytes actually
     # seen. Any message with more_body True flips it to "streaming", which is the only signal pure
-    # ASGI has for "more than one chunk" — real StreamingResponse and a FileResponse falling back to
-    # chunked reads because the server has no pathsend support look identical from here, and both
-    # get called "streaming". That collapse is a real loss of information the old isinstance check
-    # would have avoided if it had ever run; it did not (see the class NOTE), so this is not a
-    # regression against anything that worked. "streaming" keeps its old meaning of "size not
-    # counted", matching what response_size was hand-set to before rather than a byte total.
+    # ASGI has for "more than one chunk" — a real StreamingResponse and a FileResponse falling back
+    # to chunked reads because the server has no pathsend support look identical from here, and
+    # both get called "streaming". That collapse is a real loss of information, accepted because
+    # there is no ASGI-level signal to tell the two apart. "streaming" means "size not counted",
+    # not a byte total.
     def record_body(self, body: bytes, more_body: bool) -> None:
         if more_body and self.response_type == "standard":
             self.response_type = "streaming"
@@ -177,9 +174,8 @@ class _ResponseObserver:
             if self.response_type == "streaming":
                 self.response_size = "streaming"
             elif self.response_type == "standard":
-                # **LOGIC_STEP**: An empty body reports None, not 0 — matching the old
-                # `len(response.body) if response.body else None`, whose truthiness check treated
-                # b"" the same as absent.
+                # **LOGIC_STEP**: An empty body reports None, not 0 — the same convention other
+                # span-output fields already use for "nothing here" rather than a raw zero.
                 self.response_size = self._bytes_seen if self._bytes_seen else None
 
     # FUNCTION: as_span_output
@@ -224,15 +220,15 @@ def _observing_send(send: Send, request_id: str, observer: _ResponseObserver) ->
 
 # CLASS: project.infrastructure.api.middleware.AILoggingMiddleware
 # SUMMARY: Pure-ASGI middleware providing AI-optimized semantic logging with request tracing.
-# NOTE: Used to extend starlette.middleware.base.BaseHTTPMiddleware. Starlette's own docs (and
-# https://github.com/encode/starlette/discussions/1737, checked 2026-08-24) recommend pure ASGI for
-# hot-path middleware for exactly the reason found above: BaseHTTPMiddleware runs the downstream app
-# in a task group with a memory-object-stream per request to rebuild a Response from raw ASGI
+# NOTE: Pure ASGI, not starlette.middleware.base.BaseHTTPMiddleware. Starlette's own docs (and
+# https://github.com/encode/starlette/discussions/1737) recommend pure ASGI for hot-path
+# middleware for exactly the reason found above: BaseHTTPMiddleware runs the downstream app in a
+# task group with a memory-object-stream per request to rebuild a Response from raw ASGI
 # messages, which is where the real response type got lost in the first place. This class is on
 # every request of every service built from this template, so that per-request task group and
-# stream were pure cost, and they were the reason response_type/response_size never worked. Pure
-# ASGI removes both problems at once: no task group, and the messages this middleware wanted to
-# inspect all along instead of a rebuilt stand-in for them.
+# stream would be pure cost, and are the reason response_type/response_size never work through
+# BaseHTTPMiddleware. Pure ASGI removes both problems at once: no task group, and the messages
+# this middleware wants to inspect all along instead of a rebuilt stand-in for them.
 class AILoggingMiddleware:
     # FUNCTION: __init__
     # SUMMARY: Store the wrapped ASGI application.
@@ -344,14 +340,14 @@ class AILoggingMiddleware:
                         span_ctx.output = observer.as_span_output()
 
             # **LOGIC_STEP**: Span is now closed — span.finish and, because the span above declares
-            # itself a trace root, request.summary too. Both of those were silently absent for
-            # every real request until that declaration was added.
-            # NOTE: This used to rewrite the whole full-trace file here, on every request: read all
-            # of it, rebuild the tree for every trace it held, write it all back — synchronously,
-            # from an async handler, with no lock. Lines appended by concurrent requests between the
-            # read and the write were silently destroyed, and the cost grew with the file. The
-            # summary is regenerated once at shutdown (project/launcher/main.py) and on demand with
-            # `make format-trace`, which is every bit as useful and cannot lose a line.
+            # itself a trace root, request.summary too.
+            # NOTE: Rewriting the whole full-trace file here, on every request — reading all of
+            # it, rebuilding the tree for every trace it holds, writing it all back — would be
+            # synchronous work inside an async handler, with no lock: lines appended by concurrent
+            # requests between the read and the write would be silently destroyed, and the cost
+            # would grow with the file. The summary is regenerated once at shutdown
+            # (project/launcher/main.py) and on demand with `make format-trace`, which is every
+            # bit as useful and cannot lose a line.
         finally:
             # **LOGIC_STEP**: Reset trace_id to previous state, on every path including a raised
             # exception — this `finally` is not inside the `with logger.span(...)` block above, so

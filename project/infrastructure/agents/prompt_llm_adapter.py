@@ -55,10 +55,10 @@ class PromptLLMAdapter:
     # SUMMARY: Send a text prompt, optionally with a system instruction, and return the reply.
     # INPUT: system (Optional[str]): Instruction sent in the system role. Omitted when None.
     async def call(self, prompt: str, *, system: Optional[str] = None) -> str:
-        # **LOGIC_STEP**: A SystemMessage when there is one, not a prefix glued onto the prompt.
-        # The adapter used to send a lone HumanMessage, and the full-trace extractor splits its
-        # fields by `isinstance(m, SystemMessage)` — so `system_prompt` was empty for every
-        # vertical built on this adapter and the whole instruction was recorded as `user_message`.
+        # **LOGIC_STEP**: A SystemMessage when there is one, not a prefix glued onto the prompt:
+        # the full-trace extractor splits its fields by `isinstance(m, SystemMessage)`, so
+        # sending a lone HumanMessage would leave `system_prompt` empty for every vertical built
+        # on this adapter, with the whole instruction recorded as `user_message` instead.
         # Measured against the mock service: text beginning "SYSTEM: ..." landed in user_message
         # in full, while the same call made directly on LLMService with a SystemMessage split
         # correctly. The instrumentation was right; the port was the blocker.

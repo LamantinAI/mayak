@@ -40,9 +40,8 @@ class TestReferenceTaskORMSchema:
     def test_title_column_is_as_long_as_the_domain_allows(self) -> None:
         # **LOGIC_STEP**: Read off the metadata, so `String(200)` written in place of
         # `String(MAX_TITLE_LENGTH)` is caught the day the constant moves and the column does
-        # not — the exact split the constant exists to prevent. Found by a reviewer's mutation
-        # on 2026-09-02: with the literal in the model and the constant raised to 300, every
-        # suite stayed green.
+        # not — the exact split the constant exists to prevent. Measured: with the literal in the
+        # model and the constant raised to 300, every suite stayed green.
         column_type = cast(Table, ReferenceTaskORM.__table__).columns["title"].type
 
         assert isinstance(column_type, String)
@@ -53,11 +52,11 @@ class TestReferenceTaskORMSchema:
 # SUMMARY: The reference vertical's table is registered in the SQLAlchemy metadata.
 # NOTE: The exact-set ledger that used to live here is gone, deliberately. It asserted
 # `set(Base.metadata.tables) == {"reference_tasks"}` — the same sentence, on the same object, as
-# tests/application/test_validate_migrations.py. Two copies in two directories is why adding a
-# first table went red twice on two different projects: the developer fixed the ledger the failure
-# named, reran, and met the second one. The ledger now lives in exactly one place, next to the
-# migration check whose contract it states. A membership check is kept here because it is a
-# different claim — this table exists — and it stays green when a project adds tables of its own.
+# tests/application/test_validate_migrations.py. Two copies in two directories meant a first table
+# added to a project could go red twice, once per copy. The ledger now lives in exactly one place,
+# next to the migration check whose contract it states. A membership check is kept here because it
+# is a different claim — this table exists — and it stays green when a project adds tables of its
+# own.
 class TestORMRegistry:
     # FUNCTION: test_metadata_contains_reference_tasks
     @pytest.mark.unit

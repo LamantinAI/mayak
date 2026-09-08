@@ -30,9 +30,8 @@ class _Unchanged:
 # NOTE: A patch has three possible states per field and `None` can only express two of them. With
 # `details: str | None = None`, a caller who sends `{"details": null}` to clear the description is
 # indistinguishable from one who never mentioned details at all — so the field can never be
-# emptied, the request answers 200, and nothing changed. Measured on this very vertical on
-# 2026-09-02, before this sentinel existed. Every vertical with a nullable column inherits that
-# trap by copying, which is why the exemplar carries the fix rather than a warning.
+# emptied, the request answers 200, and nothing changed. Every vertical with a nullable column
+# inherits that trap by copying, which is why the exemplar carries the fix rather than a warning.
 UNCHANGED = _Unchanged()
 
 # ATTRIBUTE: MAX_LIST_LIMIT (int)

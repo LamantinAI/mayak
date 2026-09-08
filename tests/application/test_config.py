@@ -364,9 +364,9 @@ class TestSettings:
             # live too. The placeholder-password guard is the one that bites: `Settings()` reads
             # the ambient .env, so on a developer machine POSTGRES_PASSWORD holds the real value
             # `make init-project` generated and the guard stays quiet, while on a fresh checkout
-            # with no .env it falls back to the driver default and the guard fires. Measured
-            # 2026-08-24: this test and the one below passed locally and failed three CI jobs for
-            # exactly that reason. Reproduce either state with `mv .env /tmp/ && pytest …`.
+            # with no .env it falls back to the driver default and the guard fires. Measured: this
+            # test and the one below passed locally and failed three CI jobs for exactly that
+            # reason. Reproduce either state with `mv .env /tmp/ && pytest …`.
             # The sibling refusal tests never hit this because they assert a raise, and the
             # debug-mode test never hits it because the guard is gated on `not debug`.
             settings.postgres.enabled = False
@@ -420,8 +420,8 @@ class TestSettings:
     # NOTE: This is the wiring, not the guard. Settings.validate_runtime() refuses a wildcard in
     # `settings.server.cors_origins`, and the tests above prove that refusal — but the guard reads
     # the settings object, and nothing read what CompositionRoot actually handed to CORSMiddleware.
-    # Measured on 2026-09-02: replacing `allow_origins=settings.server.cors_origins` with a literal
-    # `["*"]` in composition_root.py left `STRICT_GENERATED=1 make quality-gates-steps` at exit 0,
+    # Measured: replacing `allow_origins=settings.server.cors_origins` with a literal `["*"]` in
+    # composition_root.py left `STRICT_GENERATED=1 make quality-gates-steps` at exit 0,
     # every test green, while a request carrying `Origin: https://evil.attacker.test` came back
     # with that origin echoed and `access-control-allow-credentials: true` — the credentialed
     # wildcard the guard exists to prevent, reached by bypassing the setting the guard checks.
@@ -682,11 +682,11 @@ class TestAppVersionFollowsTheManifest:
 
     # FUNCTION: test_every_way_a_manifest_can_be_unusable_degrades_the_same_way
     # SUMMARY: Verify no shape of broken manifest escapes as an exception at import time.
-    # NOTE: The first version of this guard covered "absent" and "no version key" only, and named
-    # tomllib.TOMLDecodeError in the except clause. TOML is defined as UTF-8, so a manifest with
-    # one corrupted byte raises UnicodeDecodeError instead — uncaught, at import time, taking the
-    # whole application down over a display string. Driving the cases from a table is what makes
-    # the next unlisted shape a visible gap rather than a silent one.
+    # NOTE: TOML is defined as UTF-8, so a manifest with one corrupted byte raises
+    # UnicodeDecodeError — uncaught unless the except clause names it beside
+    # tomllib.TOMLDecodeError, which at import time would take the whole application down over a
+    # display string. Driving the cases from a table is what makes the next unlisted shape a
+    # visible gap rather than a silent one.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         "shape",
@@ -706,7 +706,8 @@ class TestAppVersionFollowsTheManifest:
             manifest.write_text('project = "not a table"\n', encoding="utf-8")
         elif shape == "bad_bytes":
             # **LOGIC_STEP**: A real encoding-corrupted manifest, not a synthetic one — this is
-            # the shape that used to raise UnicodeDecodeError straight through the except clause.
+            # the shape that raises UnicodeDecodeError, which the except clause below must catch
+            # like every other bad-manifest shape, not just TOMLDecodeError.
             manifest.write_bytes(b'[project]\nversion = "1.0.0"\nname = "\xff\xfe"\n')
         monkeypatch.setattr("project.core.config_runtime._PYPROJECT_PATH", manifest)
 

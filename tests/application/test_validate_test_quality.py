@@ -445,10 +445,10 @@ class TestQueryConstantRoundTrip:
 
     # FUNCTION: test_a_one_word_needle_does_not_count_as_pinned
     # SUMMARY: Verify `assert "SELECT" in _CONSTANT` — true of every query — pins nothing.
-    # NOTE: Measured on 2026-09-08 by a second independent review: with a one-word needle accepted,
-    # reversing `WHERE id = %s` to `WHERE status = %s` left the module reported clean, where the
-    # version before the `in` branch existed had reported it. A widening that makes a rule easier
-    # to silence than it was is a regression even when the widening itself was right.
+    # NOTE: With a one-word needle accepted, reversing `WHERE id = %s` to `WHERE status = %s` left
+    # the module reported clean, where the version before the `in` branch existed had reported it.
+    # A widening that makes a rule easier to silence than it was is a regression even when the
+    # widening itself was right.
     @pytest.mark.unit
     def test_a_one_word_needle_does_not_count_as_pinned(self, tmp_path: Path) -> None:
         repo_root = _write_repository_fixture(tmp_path)
@@ -467,9 +467,8 @@ class TestQueryConstantRoundTrip:
 
     # FUNCTION: test_an_empty_needle_does_not_count_as_pinned
     # SUMMARY: Verify `assert "" in _CONSTANT` — true of every string — pins nothing.
-    # NOTE: Found by an independent review of this branch on 2026-09-08, right after the `in`
-    # branch was added: the shortest possible way to silence the rule for a whole module was one
-    # assertion that cannot fail.
+    # NOTE: Right after the `in` branch was added, the shortest possible way to silence the rule
+    # for a whole module was one assertion that cannot fail.
     @pytest.mark.unit
     def test_an_empty_needle_does_not_count_as_pinned(self, tmp_path: Path) -> None:
         repo_root = _write_repository_fixture(tmp_path)
@@ -493,8 +492,7 @@ class TestQueryConstantRoundTrip:
     # NOTE: Both branches used to ask `_referenced_names` whether the expression mentions the
     # constant at all, which `results[_SELECT_BY_ID]` does — as the key doing the looking-up, with
     # no claim about the query text anywhere. One such assertion marked the constant pinned and
-    # the rule went quiet for the whole module, which is the silence it exists to break. Found by
-    # an independent review of this branch on 2026-09-08.
+    # the rule went quiet for the whole module, which is the silence it exists to break.
     @pytest.mark.unit
     def test_the_constant_used_as_a_lookup_key_does_not_count_as_pinned(
         self, tmp_path: Path

@@ -19,12 +19,12 @@ from scripts.generate_ai_context import (
     generated_output_issues,
 )
 
-# **LOGIC_STEP**: The ten playbook getters this module used to import here are imported inside
-# failure_playbook() instead, next to the three that already were. Each is used in exactly one
-# place — the resolution chain — and importing them at module level made every consumer of
-# ai_query.common, the doctor included, die during import when any one validator was missing or
-# broken. Measured on 2026-08-13: deleting scripts/validate_cbm.py turned `make doctor` into a
-# ModuleNotFoundError traceback, at the one moment a diagnostic tool has a job to do.
+# **LOGIC_STEP**: The ten playbook getters this module needs are imported inside failure_playbook()
+# instead of at module scope, next to the three that already were. Each is used in exactly one
+# place — the resolution chain — and importing them at module level ties every consumer of
+# ai_query.common, the doctor included, to all ten: deleting scripts/validate_cbm.py, say, would
+# turn `make doctor` into a ModuleNotFoundError traceback at the one moment a diagnostic tool has a
+# job to do.
 
 
 _DRIFT_RULE_PLAYBOOKS = {
@@ -549,12 +549,12 @@ def unique_paths(paths: list[str]) -> list[str]:
 
 
 def zone_via_edit_zones_patterns(path: str, edit_zones: dict[str, list[str]]) -> dict[str, str]:
-    # **LOGIC_STEP**: The most specific pattern wins, not the first one found. The old loop
-    # returned on first match while iterating zones in dict order, so a broad prefix in an early
-    # zone shadowed an exact one in a later zone. That was harmless only while no zone held a
-    # broad prefix: adding `project/` to `caution` — the fix for the 21 unclassified files below
-    # it — silently demoted `project/core/logging/` from expert/high to caution/medium, which is
-    # the opposite of what the zone table says. Longest normalized pattern wins instead.
+    # **LOGIC_STEP**: The most specific pattern wins, not the first one found: returning on first
+    # match while iterating zones in dict order would let a broad prefix in one zone shadow an
+    # exact one in another. `project/` in `caution` — needed so the 21 unclassified files below it
+    # get a policy — would otherwise silently demote `project/core/logging/` from expert/high to
+    # caution/medium, the opposite of what the zone table says. Longest normalized pattern wins
+    # instead.
     normalized_path = relative_repo_path(path)
     best_zone: str | None = None
     best_length = -1
@@ -781,12 +781,12 @@ def name_matched_test_candidates(normalized_path: str) -> list[str]:
 # ATTRIBUTE: _LAYER_SUFFIXES (tuple[str, ...])
 # SUMMARY: Suffixes a vertical's file carries to say which layer it belongs to.
 # NOTE: The order matters only in that the first match wins; no stem here ends in two of them.
-# `_agent`, `_mock`, `_tools` and `_verdict` were missing until 2026-09-08: an agentic vertical's
-# `<name>_agent.py`, `<name>_mock.py`, `<name>_tools.py` and `<name>_verdict.py` files kept their
-# suffix through `vertical_names_for_path`, so the derived "name" was never a name the project had
-# registered and `workset diff`'s "each vertical file finds its own tests" gate reported no likely
-# tests for them — reproduced on an agentic vertical built from this template in the 2026-09
-# audit. The kernel ships no such vertical itself, so nothing here caught it until then.
+# `_agent`, `_mock`, `_tools` and `_verdict` cover an agentic vertical's own file shapes —
+# `<name>_agent.py`, `<name>_mock.py`, `<name>_tools.py`, `<name>_verdict.py`. Without one of these
+# suffixes listed, that file keeps it through `vertical_names_for_path`, the derived "name" is
+# never one the project registered, and `workset diff`'s "each vertical file finds its own tests"
+# gate reports no likely tests for it. The kernel ships no such vertical itself, so nothing here
+# exercises this path by default.
 _LAYER_SUFFIXES = (
     "_service",
     "_repository",
@@ -1121,14 +1121,9 @@ def matching_tasks_for_paths(
 
 # ATTRIBUTE: _E2E_GATE_PATH_PREFIXES (tuple[str, ...])
 # SUMMARY: Directory prefixes docs/agent_rules.md names as finished only by `make test-e2e`.
-# NOTE: The rule ("Finish with `make quality-gates`, and with `make test-e2e` as well when the
-# diff touched persistence, endpoints, wiring, or a migration") lived in agent_rules.md prose
-# only —
-# workset_payload's final_gate was hardcoded to ["make quality-gates"] regardless of what the
-# diff touched, so `workset diff` on a persistence-only change recommended the one gate that runs
-# none of the project's own queries and said nothing about the one that does. Measured on
-# 2026-09-02 in that same file: reversing an ORDER BY clause under
-# project/infrastructure/persistence/ left every quality-gates check green. Wiring files are
+# NOTE: `make quality-gates` runs none of the project's own queries, so a persistence-only change
+# needs `make test-e2e` too — reversing an ORDER BY clause under
+# project/infrastructure/persistence/ leaves every quality-gates check green. Wiring files are
 # matched separately below, against architecture_rules["wiring_files"], because they are exact
 # files rather than a directory prefix.
 _E2E_GATE_PATH_PREFIXES = (
@@ -1138,9 +1133,8 @@ _E2E_GATE_PATH_PREFIXES = (
     # one change `make quality-gates` cannot check at all without a database. With none reachable
     # `scripts/validate_migrations.py` announces that it skipped and stays green, so `make
     # test-e2e`, which runs the same check against the functional stack's own database, is the
-    # only local gate that ever executes the revision. Measured in both projects of the
-    # 2026-09-07 duel: a migration that dropped a column instead of renaming it passed every
-    # local gate.
+    # only local gate that ever executes the revision — a migration that drops a column instead of
+    # renaming it passes every local gate without one.
     "alembic/versions/",
 )
 
@@ -1172,11 +1166,11 @@ def tests_payload(
     }
 
 
-# **LOGIC_STEP**: `architecture_rules` is threaded in for one line — the final gate. Without it
-# this payload hardcoded ["make quality-gates"], the same defect `workset diff` had until
-# 2026-09-08 and in the more misleading place of the two: `before-edit file` is asked about ONE
-# file, usually right before editing it, so a reader looking at a repository path was told the
-# gates would finish the job and never heard about `make test-e2e`.
+# **LOGIC_STEP**: `architecture_rules` is threaded in for one line — the final gate. A hardcoded
+# ["make quality-gates"] here would be the more misleading of the two places that defect can live:
+# `before-edit file` is asked about ONE file, usually right before editing it, so a reader looking
+# at a repository path needs to hear about `make test-e2e` too, not just that the gates finish the
+# job.
 def tests_for_file(
     context_map: dict[str, object],
     repo_path: str,
@@ -1235,9 +1229,9 @@ def tests_for_file(
                 "tests/application/test_logging_redaction.py",
             ]
         )
-    # **LOGIC_STEP**: A changed migration used to return an empty validator list — not even the
-    # architecture check, because the path is outside project/. The ledger test is the one that
-    # goes red when a revision and the ORM metadata disagree, and it is cheap.
+    # **LOGIC_STEP**: A changed migration's path is outside project/, so the architecture check
+    # alone would leave it with no validator at all. The ledger test is the one that goes red when
+    # a revision and the ORM metadata disagree, and it is cheap.
     if normalized_path.startswith("alembic/"):
         unit_tests.extend(["tests/application/test_validate_migrations.py"])
 
@@ -1470,8 +1464,8 @@ def _symbol_search_files() -> Iterator[Path]:
 # in AgentSettings, say) — `self.x = ...` binds an `ast.Attribute` instead, so instance attributes
 # set in `__init__` are excluded without a special case. Bindings are read from module and class
 # bodies only, never from inside a function: `ast.walk` reaches every local variable too, and a
-# common name paid for it — measured on 2026-09-08, `symbol result` returned 75 matches, 24 of
-# them locals reported as `attribute`, which is both noise and a different claim than the one this
+# common name pays for it — on this repository, `symbol result` returns 75 matches, 24 of them
+# locals reported as `attribute`, which is both noise and a different claim than the one this
 # command makes. A definition, by contrast, is worth finding wherever it sits, nested helpers
 # included, so classes and functions are still walked in full.
 def _symbol_matches_in_file(path: Path, name: str) -> list[dict[str, object]]:

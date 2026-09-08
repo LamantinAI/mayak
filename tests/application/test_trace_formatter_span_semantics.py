@@ -1,9 +1,8 @@
 # FILE: tests/application/test_trace_formatter_span_semantics.py
-# SUMMARY: Regression guards for the three trace_formatter.py changes made alongside logger.py and
-# logger_events_operational.py on 2026-09-08 — a tool span's arguments, a domain rejection's mark,
-# and a truncated LLM call's visibility. Each is a fact the compact renderer used to drop or
-# conflate with something else; see the NOTE beside the relevant code for the incident that found
-# it.
+# SUMMARY: Regression guards for three trace_formatter.py changes made alongside logger.py and
+# logger_events_operational.py — a tool span's arguments, a domain rejection's mark, and a
+# truncated LLM call's visibility. Each is a fact the compact renderer used to drop or conflate
+# with something else; see the NOTE beside the relevant code for the incident that found it.
 
 from __future__ import annotations
 
@@ -99,7 +98,7 @@ class TestToolSpanArgumentsAreVisible:
     # NOTE: `parent_span_id` was read only from span.finish/span.error, so a tool call that never
     # returned — a hung provider, a killed process, exactly the run someone opens a trace to
     # understand — was assembled as a root of its own and then took the real root's successful
-    # outcome. Found by a second independent review on 2026-09-08.
+    # outcome.
     @pytest.mark.unit
     def test_a_tool_call_that_never_finished_stays_under_its_request(self) -> None:
         lines = [
@@ -129,8 +128,8 @@ class TestToolSpanArgumentsAreVisible:
     # SUMMARY: Verify a line break inside a tool argument is escaped rather than drawn.
     # NOTE: A tool argument is whatever reached the agent — a prompt, a pasted page, a search query.
     # Printed raw into a tree drawn one node per line, a value carrying box-drawing characters after
-    # a newline reads as a span that never happened. Found by an independent review of this branch
-    # on 2026-09-08; a trace that can be forged is worth no more than one that lies.
+    # a newline reads as a span that never happened; a trace that can be forged is worth no more
+    # than one that lies.
     @pytest.mark.unit
     def test_a_newline_in_an_argument_cannot_forge_a_tree_node(self) -> None:
         forged = "harmless\n└── db.secrets.read 0.1ms ✓"
@@ -172,8 +171,7 @@ class TestToolSpanArgumentsAreVisible:
     # SUMMARY: Verify one oversized argument cannot turn the compact tree into a wall of text.
     # NOTE: A tool argument is routinely a document, a prompt or a pasted page. Rendering it whole
     # defeats the word "compact" in this renderer's own description, and the failure only shows up
-    # with real data — the fixtures here all carry short arguments. Found by an independent review
-    # of this branch on 2026-09-08.
+    # with real data — the fixtures here all carry short arguments.
     @pytest.mark.unit
     def test_a_long_string_argument_is_cut_rather_than_printed_whole(self) -> None:
         document = "x" * 5000

@@ -75,7 +75,7 @@ class TestChildSpanCostsNothingWhenFiltered:
         caplog.set_level(logging.INFO, logger="tests.application.test_logging_api.filtered")
 
         # **LOGIC_STEP**: Asserted inside the root span. Outside it, the root's own finish and
-        # summary land in the capture too — the first version of this test read them as the child's.
+        # summary land in the capture too and could be misread as the child's.
         with logger.span("http_request", root=True):
             log_capture.clear()
             with logger.span("db.reference_task.get", task_id="x"):
@@ -147,11 +147,11 @@ class TestChildSpanCostsNothingWhenFiltered:
         assert len(summaries) == 1
         data = summaries[0]["kwargs"]["data"]
         # **LOGIC_STEP**: `spans=` counts what the trace tree can show, because the tree is built
-        # from span.finish and span.error and the filtered three wrote neither. Until 2026-09-06
-        # they were counted here anyway, so a summary read `spans=3` over a tree with no children
-        # in it and a reader could not tell a suppressed span from a miscount. What the filter
-        # swallowed is reported beside it rather than folded in: "nothing happened" and "something
-        # happened below the level you are reading" are different answers.
+        # from span.finish and span.error and the filtered three wrote neither. Counting them here
+        # anyway would make a summary read `spans=3` over a tree with no children in it, and a
+        # reader could not tell a suppressed span from a miscount. What the filter swallowed is
+        # reported beside it rather than folded in: "nothing happened" and "something happened
+        # below the level you are reading" are different answers.
         assert data["child_span_count"] == 1
         assert data["filtered_child_span_count"] == 3
 
@@ -191,8 +191,8 @@ class TestChildSpanCostsNothingWhenFiltered:
 # NOTE: `except Exception` does not see asyncio.CancelledError, KeyboardInterrupt or SystemExit.
 # A request cancelled by uvicorn's graceful-shutdown timeout therefore emitted span.start and
 # nothing else, and the trace tree — built from span.finish and span.error — had no node for it.
-# Measured on 2026-09-02: ['span.start'] against ['span.start', 'span.error', 'request.summary']
-# for a RuntimeError in the same harness.
+# Measured: ['span.start'] against ['span.start', 'span.error', 'request.summary'] for a
+# RuntimeError in the same harness.
 class TestAnInterruptedSpanStillReportsItself:
     # FUNCTION: test_an_interrupted_root_span_leaves_an_error_and_a_summary
     # SUMMARY: Verify the three events appear, at WARNING, and the same object comes back out.
@@ -287,10 +287,11 @@ class TestAnInterruptedSpanStillReportsItself:
 # CLASS: tests.application.test_logging_api.TestASpanThatRejectsIsNotReportedAsAFailure
 # SUMMARY: A ConflictError/NotFoundError/etc. raised inside a span is the application working, not
 # failing — the same fact exception_handlers.py already acts on, applied here to the span itself.
-# NOTE: Until 2026-09-08 span() judged every exception the same way: ERROR, full traceback. A
-# nested span that raised a domain rejection — a repository call translating a duplicate name, an
-# application-layer span checking a precondition — wrote a record indistinguishable from a real
-# crash, moments before exception_handlers.py wrote the correct one for the very same exception.
+# NOTE: Without this distinction span() judges every exception the same way: ERROR, full
+# traceback. A nested span that raises a domain rejection — a repository call translating a
+# duplicate name, an application-layer span checking a precondition — would write a record
+# indistinguishable from a real crash, moments before exception_handlers.py writes the correct
+# one for the very same exception.
 # The integration-level version of this guard is
 # tests/application/test_client_errors_are_not_service_errors.py's
 # TestARejectionInsideANestedSpanIsNotAFailure, which drives a real request end to end; this class
@@ -372,8 +373,8 @@ class TestATruncatedLLMCallIsAWarning:
     # FUNCTION: test_a_malformed_finish_reason_does_not_take_the_logging_call_down
     # SUMMARY: Verify an unhashable value where a stop reason belongs is ignored, not fatal.
     # NOTE: `extra` is typed LogValue, which admits a list and a dict, so a provider answering with
-    # a malformed `response_metadata` reaches the membership test below. Before 2026-09-08 that
-    # raised TypeError: unhashable type — the logging call crashed the request it was describing,
+    # a malformed `response_metadata` reaches the membership test below, which raises TypeError:
+    # unhashable type unless guarded — the logging call would crash the request it was describing,
     # which is the one thing a logger must never do. Found by an independent review of this branch.
     @pytest.mark.unit
     @pytest.mark.parametrize("finish_reason", [[], {"stop": True}, 7])

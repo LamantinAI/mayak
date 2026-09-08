@@ -48,11 +48,10 @@ def _env_flag(name: str, default: bool) -> bool:
 # SUMMARY: Report which external systems this project declares, and which are switched on now.
 # OUTPUT: (dict[str, dict[str, Any]]): Integration name mapped to its declared and live state.
 def integrations_overview() -> dict[str, dict[str, Any]]:
-    # **LOGIC_STEP**: overview and bootstrap used to be built exclusively from the generated
-    # maps, so docs/project_context.json — the one place a project says which external systems
-    # it uses — never reached the agent through a query. An agent had to open .env by hand to
-    # learn whether the database was even part of this project. Reporting the declaration and
-    # the live toggle side by side also makes the two impossible to diverge unnoticed.
+    # **LOGIC_STEP**: docs/project_context.json is the one place a project says which external
+    # systems it uses. Reporting the declaration next to the live toggle here means an agent does
+    # not have to open .env by hand to learn whether the database is even part of this project —
+    # and the two cannot silently diverge.
     try:
         context = json.loads(_PROJECT_CONTEXT_PATH.read_text(encoding="utf-8"))
         declared = context.get("integrations", {})

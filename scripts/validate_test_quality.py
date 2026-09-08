@@ -51,15 +51,14 @@ _ARGUMENTLESS_CALL_ASSERTIONS = frozenset(
     }
 )
 
-# NOTE: test.span_output_pinned and test.span_output_unpinned were removed on 2026-09-08. Both
-# checked that a test LOOKED like it pinned a span's output — one asked whether a test that found
-# a span's finish event stated a value, the other whether every outcome-bearing span was named by
-# some test. That is an heuristic about presence, not about correctness: a new test style kept
-# needing the check widened to recognise it, and each widening opened a gap an unrelated shape
-# could walk through — `assert x is not None and len(events) == 2` satisfies "the test mentions
-# the span and makes an assertion" without proving anything about what the span reported. Span
-# behaviour is what the direct trace tests in tests/infrastructure/ and tests/functional/ exist to
-# pin; this module went back to checking that a test's own assertions can fail, not what shape a
+# NOTE: This module does not check whether a test LOOKS like it pins a span's output — whether a
+# test that found a span's finish event states a value, or whether every outcome-bearing span is
+# named by some test. That is a heuristic about presence, not about correctness: a new test style
+# would keep needing the check widened to recognise it, and each widening opens a gap an unrelated
+# shape could walk through — `assert x is not None and len(events) == 2` satisfies "the test
+# mentions the span and makes an assertion" without proving anything about what the span reported.
+# Span behaviour is what the direct trace tests in tests/infrastructure/ and tests/functional/
+# exist to pin; this module checks only that a test's own assertions can fail, not what shape a
 # test happens to take.
 _TEST_QUALITY_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
     "test.constant_assertion": {
@@ -523,9 +522,9 @@ def _query_constant_round_trips(tree: ast.AST, constants: set[str]) -> dict[str,
         if not isinstance(node, ast.Compare) or len(node.ops) != 1:
             continue
         # **LOGIC_STEP**: `is` states the identical tautology `==` does — both sides are the same
-        # object, so the comparison passes for any query text. Reading only ast.Eq here meant
-        # `assert sql is _SELECT_BY_STATUS` sailed through as an unrecognised comparison instead of
-        # the round trip it is; measured 2026-09-08 against exactly that line.
+        # object, so the comparison passes for any query text. Reading only ast.Eq here would let
+        # `assert sql is _SELECT_BY_STATUS` sail through as an unrecognised comparison instead of
+        # the round trip it is.
         if not isinstance(node.ops[0], (ast.Eq, ast.Is)):
             continue
         (right,) = node.comparators
@@ -563,20 +562,19 @@ def _query_constants_pinned_as_text(tree: ast.AST, constants: set[str]) -> set[s
                     pinned |= _names_stated_as_text(expression) & constants
         elif isinstance(op, ast.In):
             # **LOGIC_STEP**: `"WHERE id = %s" in _SELECT_BY_ID` pins the same fact a sliced `==`
-            # does, and used to count for nothing: only ast.Eq was read here, so this exact
-            # assertion — a correct pin, just spelled with `in` — left its constant reported as an
-            # unpinned round trip. Only one direction makes sense for `in`: the literal is the
-            # (necessarily shorter) needle, never the query itself, so this is not mirrored the way
-            # `==` is above.
+            # does. Reading only ast.Eq would leave this exact assertion — a correct pin, just
+            # spelled with `in` — reported as an unpinned round trip. Only one direction makes
+            # sense for `in`: the literal is the (necessarily shorter) needle, never the query
+            # itself, so this is not mirrored the way `==` is above.
             # **LOGIC_STEP**: The needle has to be a clause, not a word. `assert "" in _SELECT`
             # is true of every string ever written and `assert "SELECT" in _SELECT` of every query,
             # so either would let one meaningless line silence the rule for a whole module — the
             # same silence, reached by a shorter road than the round trip this rule was built to
-            # notice. Measured on 2026-09-08: with a one-word needle accepted, reversing
-            # `WHERE id = %s` to `WHERE status = %s` left the module reported clean, where the
-            # unpinned base had reported it. Two words is the line: `ORDER BY created_at DESC`
-            # and `id = %s` move when the clause moves; `SELECT` does not. This still only asks
-            # whether a trap is present, never whether the text it pins is the right text.
+            # notice. With a one-word needle accepted, reversing `WHERE id = %s` to
+            # `WHERE status = %s` would leave the module reported clean, where the unpinned base
+            # is reported. Two words is the line: `ORDER BY created_at DESC` and `id = %s` move
+            # when the clause moves; `SELECT` does not. This still only asks whether a trap is
+            # present, never whether the text it pins is the right text.
             if isinstance(node.left, ast.Constant) and _is_clause_shaped(node.left.value):
                 pinned |= _names_stated_as_text(right) & constants
     return pinned

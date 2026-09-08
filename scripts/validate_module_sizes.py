@@ -181,10 +181,10 @@ def collect_module_size_issues(root_dir: Path) -> list[ModuleSizeIssue]:
 
 # FUNCTION: collect_module_metrics
 # SUMMARY: Measure every production module without applying the budget, for a caller that wants the code-versus-documentation split rather than a pass/fail verdict.
-# NOTE: The surface this was written for — `query_ai_context.py metrics` — was deleted on
-# 2026-08-14, so today the only caller is this module's own test file. Kept rather than removed
-# because the split it reports is the answer to "why is this module over budget when half of it is
-# comments"; delete it, and the seven tests that pin the measurement, if nothing calls it by 2026-10.
+# NOTE: query_ai_context.py has no `metrics` command; the only caller today is this module's own
+# test file. Kept rather than removed because the split it reports is the answer to "why is this
+# module over budget when half of it is comments"; delete it, and the seven tests that pin the
+# measurement, if nothing calls it by 2026-10.
 # OUTPUT: (dict[str, ModuleMetrics]): Metrics keyed by repository-relative path.
 def collect_module_metrics(root_dir: Path) -> dict[str, ModuleMetrics]:
     measured: dict[str, ModuleMetrics] = {}

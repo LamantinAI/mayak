@@ -220,10 +220,10 @@ class TestRunAllTests:
 # CLASS: tests.application.test_run_all_tests.TestCoverageFloorAppliesToTheFullRunOnly
 # SUMMARY: Verify the total-coverage floor is asked for by the full run and by nothing else.
 # NOTE: The floor used to sit in pytest.ini's `addopts`, which pytest applies to every invocation.
-# Measured on 2026-09-08 in both projects of the duel: `uv run pytest tests/one_file.py` reported
-# every test passing and then exited 1 on total coverage, because three tests cannot cover
-# project/. A red exit that says nothing about the tests that ran teaches the reader to stop
-# reading red exits, so the floor now belongs to the one run that can honestly carry it.
+# `uv run pytest tests/one_file.py` reported every test passing and then exited 1 on total
+# coverage, because three tests cannot cover project/. A red exit that says nothing about the
+# tests that ran teaches the reader to stop reading red exits, so the floor now belongs to the one
+# run that can honestly carry it.
 class TestCoverageFloorAppliesToTheFullRunOnly:
     # FUNCTION: test_pytest_ini_does_not_impose_a_total_on_every_invocation
     # SUMMARY: Verify no coverage floor reaches a narrow run through pytest.ini's addopts.

@@ -3,13 +3,11 @@
 # SUMMARY: Diagnose the first blocking layer of `make quality-gates` — every tool step (lockfile,
 # lint, format, types, security, tests), every in-process validator, and the two drift checks —
 # without mutating the repository.
-# NOTE: Merged 2026-09 (audit item P7) from this file plus scripts/doctor_layers.py, which used to
-# carry the tool-step layers (gate-lockfile/lint/format/types/security/tests) and the validators
-# this module left unmodelled (test_quality, dependencies, secrets) separately. It existed because
-# this module once answered "doctor status: ok" while quality-gates was red — it modelled 14 of 23
-# steps, and the nine it missed included the test run, mypy and ruff. One module now names every
-# layer; the tool steps still shell out to `make gate-<name>` — the same targets quality-gates-steps
-# runs — so the flags and source lists stay defined once, in the Makefile.
+# NOTE: This module names every layer — tool steps and validators alike — in one place, because
+# modelling only some of them lets it answer "doctor status: ok" while quality-gates is red; a
+# doctor that leaves out the test run, mypy or ruff is worse than no doctor. The tool steps still
+# shell out to `make gate-<name>` — the same targets quality-gates-steps runs — so the flags and
+# source lists stay defined once, in the Makefile.
 
 from __future__ import annotations
 
@@ -36,11 +34,10 @@ from scripts.generate_ai_context import (
 # SUMMARY: Import error text when a validator module could not be loaded, otherwise None.
 # NOTE: Every validator this doctor diagnoses is imported here, guarded, so a validator that is
 # missing, renamed or syntactically broken is diagnosed rather than crashing the one tool whose job
-# is to diagnose a broken repository. Measured on 2026-08-13 — deleting scripts/validate_cbm.py
-# produced a raw ModuleNotFoundError from ai_query/common.py, not a diagnosis, before this guard
-# covered every import. The 2026-09 merge widened the guard to the three collectors formerly
-# imported unconditionally by scripts/doctor_layers.py (dependencies, secrets, test_quality), which
-# used to crash this module's own import instead of being diagnosed like everything else here.
+# is to diagnose a broken repository: without this guard, deleting scripts/validate_cbm.py produces
+# a raw ModuleNotFoundError from ai_query/common.py, not a diagnosis. The guard also covers
+# dependencies, secrets and test_quality — importing any of those three unconditionally would crash
+# this module's own import instead of being diagnosed like everything else here.
 UNAVAILABLE_VALIDATOR: str | None = None
 try:
     from scripts.validate_architecture import (
@@ -240,8 +237,8 @@ _GATE_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
     "doctor.layer_unavailable": {
         "meaning": (
             "The doctor could not import one of the validators it diagnoses, so that layer and "
-            "every layer below it went unchecked. Reported instead of the traceback this used to "
-            "produce, because a broken validator is exactly when a diagnosis is worth having."
+            "every layer below it went unchecked, reported here instead of as a raw traceback — "
+            "a broken validator is exactly when a diagnosis is worth having."
         ),
         "read_first": ["scripts/doctor_ai_context.py", "the validator named in the message"],
         "smallest_command_to_rerun": "uv run python scripts/doctor_ai_context.py",
@@ -554,8 +551,8 @@ def diagnose_early_layers() -> tuple[dict[str, object] | None, tuple[str, ...]]:
 
 
 # FUNCTION: diagnose_late_layers
-# SUMMARY: Diagnose the validators and the test suite that used to go unmodelled: test_quality,
-# dependencies, secrets, security, tests.
+# SUMMARY: Diagnose the validators and the test suite: test_quality, dependencies, secrets,
+# security, tests.
 def diagnose_late_layers() -> tuple[dict[str, object] | None, tuple[str, ...]]:
     executed: list[str] = []
     for name, diagnose_step in zip(LATE_LAYER_NAMES, _LATE_LAYERS):
@@ -724,8 +721,8 @@ def diagnose() -> dict[str, object]:
                     "category": "module_size",
                     "file": issue.path.as_posix(),
                     "line": issue.line,
-                    # One wording, produced by the issue itself — the doctor used to rebuild its
-                    # own sentence, which silently drifted the moment the budget grew a second unit.
+                    # One wording, produced by the issue itself — rebuilding the sentence here
+                    # would drift silently the moment the budget grows a second unit.
                     "message": issue.describe(),
                     "recommended_next_command": "uv run python scripts/validate_module_sizes.py",
                     "likely_fix_shape": (get_module_size_playbook(issue.rule_id) or {}).get(
@@ -738,10 +735,10 @@ def diagnose() -> dict[str, object]:
             ],
         }
 
-    # **LOGIC_STEP**: One layer for what used to be three (skills_frontmatter, project_context,
-    # script_paths) — the 2026-09 merge of their validators into
-    # scripts/validate_repository_metadata.py made the Makefile run one quality-gates step for all
-    # three, so the doctor names one blocking layer for it too.
+    # **LOGIC_STEP**: One doctor layer for skills_frontmatter, project_context and script_paths
+    # together — their validators live in scripts/validate_repository_metadata.py, and the
+    # Makefile runs one quality-gates step for all three, so the doctor names one blocking layer
+    # for it too.
     payload = _diagnose_validator_layer(
         "repository_metadata",
         collect_repository_metadata_issues(ROOT_DIR),

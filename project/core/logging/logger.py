@@ -184,10 +184,10 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
     #   by example in project/infrastructure/persistence/reference_task_repository.py, which is the
     #   copyable original.
     #   `agent.tool.<tool_name>` — one tool call inside an agent loop, e.g.
-    #   `agent.tool.search_docs`. Added 2026-09-08: two independent projects built on this template
-    #   each wrapped their own tool calls by hand to see which tool ran and with what arguments,
-    #   because the compact trace showed neither — a generic span name and nothing else, the tool
-    #   itself invisible next to the LLM call that requested it. Name the span this way and pass the
+    #   `agent.tool.search_docs`. Two independent projects built on this template each wrapped
+    #   their own tool calls by hand to see which tool ran and with what arguments, because the
+    #   compact trace showed neither — a generic span name and nothing else, the tool itself
+    #   invisible next to the LLM call that requested it. Name the span this way and pass the
     #   tool's arguments as `input_params` (below) and the compact renderer shows both: see
     #   trace_formatter.py's `_TOOL_SPAN_PREFIX` and the NOTE beside it.
     # FUNCTION: span
@@ -231,12 +231,12 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
         # error branch stay outside the guard: `error_count` and the ERROR-level `span.error` event
         # are read by the root span's summary, which production does emit.
         #
-        # `child_span_count` used to sit out here too, and that made the summary say things the log
-        # could not show: three filtered children produced `spans=3` over a tree with no children in
-        # it, and a reader had no way to tell a suppressed span from a miscount. Counted below
-        # instead, where each branch knows whether it wrote anything — and what the filter swallowed
-        # is reported separately rather than folded in, because "nothing happened" and "something
-        # happened at a level you are not reading" are different answers.
+        # `child_span_count` is counted below rather than up front, where each branch knows whether
+        # it wrote anything, and what the filter swallowed is reported separately rather than
+        # folded in — counting a filtered child the same as a real one would make the summary say
+        # things the log cannot show, such as `spans=3` over a tree with no children in it, with no
+        # way to tell a suppressed span from a miscount. "Nothing happened" and "something happened
+        # at a level you are not reading" are different answers.
         emit_lifecycle = self.isEnabledFor(span_level)
         _caller = self._resolve_caller() if emit_lifecycle else None
         start_ns = time.perf_counter_ns()
@@ -298,15 +298,16 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                 _caller = self._resolve_caller()
 
             # **LOGIC_STEP**: A ConflictError raised by a repository span, a NotFoundError from an
-            # application-layer span checking a precondition — every one of them used to be judged
-            # the same way every real failure is: ERROR, full traceback. exception_handlers.py
-            # answers the identical exception 409/404/422/401 a moment later, at WARNING with none,
-            # because it IS this application working, not failing. Until this check existed the two
-            # records disagreed, and the ERROR one — the one carrying a stack trace — read as the
-            # incident. is_client_rejection is the function exception_handlers.py itself asks a
-            # moment later, kept beside the exception hierarchy in project.domain.exceptions so
-            # this call site and that one cannot drift apart — TestBothCallSitesJudgeAlike pins
-            # that they answer alike.
+            # application-layer span checking a precondition — these are the application working
+            # as designed, not a real failure, so they log at WARNING with no traceback.
+            # exception_handlers.py answers the identical exception 409/404/422/401 a moment
+            # later, also at WARNING with none, because it IS this application working, not
+            # failing; judging both records the same way keeps them from disagreeing, which would
+            # otherwise make the ERROR-level, traceback-carrying record read as the incident.
+            # is_client_rejection is the function exception_handlers.py itself asks a moment
+            # later, kept beside the exception hierarchy in project.domain.exceptions so this call
+            # site and that one cannot drift apart — TestBothCallSitesJudgeAlike pins that they
+            # answer alike.
             event_level = logging.WARNING if rejection else logging.ERROR
             write_traceback = not rejection and not already_logged
             self.log_event(
@@ -346,13 +347,13 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             raise
         except BaseException as interruption:
             # **LOGIC_STEP**: asyncio.CancelledError, KeyboardInterrupt and SystemExit are not
-            # Exceptions, so the branch above never sees them — and until 2026-09-02 neither did
-            # the log. A request cancelled by uvicorn's graceful-shutdown timeout (30 s, set in
-            # project/launcher/main.py) emitted span.start and nothing else: no span.error, no
-            # span.finish, no request.summary. The trace tree is built from finish and error
-            # events alone, so the request was not in it at all. Measured with a fake log_event:
-            # ['span.start'] against ['span.start', 'span.error', 'request.summary'] for a
-            # RuntimeError in the same harness.
+            # Exceptions, so the branch above never sees them, and without this branch neither
+            # would the log. A request cancelled by uvicorn's graceful-shutdown timeout (30 s, set
+            # in project/launcher/main.py) would emit span.start and nothing else: no span.error,
+            # no span.finish, no request.summary. The trace tree is built from finish and error
+            # events alone, so the request would be missing from it entirely. Measured with a fake
+            # log_event: ['span.start'] against ['span.start', 'span.error', 'request.summary']
+            # for a RuntimeError in the same harness.
             duration_ms = (time.perf_counter_ns() - start_ns) / 1e6
             # **LOGIC_STEP**: An Exception raised while logging must not replace the
             # interruption. A handler already closing at shutdown would otherwise turn a
@@ -492,8 +493,8 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
         child_span_count = stats.get("child_span_count", 0)
         # **LOGIC_STEP**: What the level filter swallowed is reported next to what it kept, never
         # folded into it. `spans=` now counts what a reader can actually find in the tree, and
-        # `filtered=` tells them the rest happened at a level they are not reading — which is a
-        # different fact from "nothing else happened", and the one that used to be lost.
+        # `filtered=` tells them the rest happened at a level they are not reading — a
+        # different fact from "nothing else happened".
         filtered_child_span_count = stats.get("filtered_child_span_count", 0)
         error_count = stats.get("error_count", 0)
 

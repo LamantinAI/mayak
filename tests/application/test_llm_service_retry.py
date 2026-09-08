@@ -118,11 +118,11 @@ class TestRetryPolicy:
         assert result.content == "ok"
         assert instance._bound_llm.ainvoke.await_count == 3
         # **LOGIC_STEP**: Each failed attempt is logged as its own llm.call with success=False
-        # before the retry, and only the last one as success=True. Nothing read these calls until
-        # 2026-09-02: flipping the retry branch to success=True left every gate green, so a log
-        # in which every timeout looked like a completed call would have shipped. The two
-        # assertions on `TestTokenAccounting` read `call_args` — the last call only — and never
-        # execute the retry branch at all.
+        # before the retry, and only the last one as success=True. Without this test, nothing
+        # reads these calls: flipping the retry branch to success=True leaves every gate green, so
+        # a log in which every timeout looks like a completed call would ship. The two assertions
+        # on `TestTokenAccounting` read `call_args` — the last call only — and never execute the
+        # retry branch at all.
         calls = instance._logger.log_llm_call.call_args_list
         assert [call.kwargs["success"] for call in calls] == [False, False, True]
         assert calls[0].kwargs["error"] == "Request timed out."
@@ -176,11 +176,11 @@ class TestRetryPolicy:
 
 # CLASS: tests.application.test_llm_service_retry.TestProviderErrorsBecomeDomainErrors
 # SUMMARY: Every shape of provider failure, and the domain error the caller is given instead.
-# NOTE: Until 2026-09-04 the adapter re-raised the provider's own exception, so a dead API key, a
-# rate limit that outlived its retries and a provider outage were one indistinguishable 500 —
-# nothing in the kernel translated them, and no test asked. The point of the matrix is that the
-# caller's contract is the domain type, not the vendor's: a project that swaps langchain-openai
-# for another client changes this file and nothing downstream of it.
+# NOTE: Without this translation, a dead API key, a rate limit that outlived its retries and a
+# provider outage are one indistinguishable 500 — nothing in the kernel differentiates them. The
+# point of the matrix is that the caller's contract is the domain type, not the vendor's: a
+# project that swaps langchain-openai for another client changes this file and nothing downstream
+# of it.
 class TestProviderErrorsBecomeDomainErrors:
     # FUNCTION: test_rejected_credentials_are_named_as_the_upstream_side
     # SUMMARY: A provider that refuses our key raises the upstream-credential error, not the
@@ -342,11 +342,11 @@ class TestTokenAccounting:
 
 # CLASS: tests.application.test_llm_service_retry.TestFinishReasonReachesTheLog
 # SUMMARY: finish_reason must survive from the raw provider reply to the log_llm_call call site.
-# NOTE: Added 2026-09-04. `llm.call` used to log nothing about WHY the model stopped — a reply cut
-# off by the output-token or tool-schema limit (finish_reason="length") carried success=True and
-# looked identical to a complete answer. An agent debugging a live run against this template spent
-# the whole live-run stage of a session on a tool-argument Decimal field the model never finished
-# writing, because nothing in the log said the response was truncated. langchain-openai puts
+# NOTE: Without finish_reason in the log, a reply cut off by the output-token or tool-schema
+# limit (finish_reason="length") carries success=True and looks identical to a complete answer.
+# An agent debugging a live run against this template spent the whole live-run stage of a session
+# on a tool-argument Decimal field the model never finished writing, because nothing in the log
+# said the response was truncated. langchain-openai puts
 # finish_reason in AIMessage.response_metadata on every reply; this class pins that
 # _call_llm_with_retry reads it from there. What log_llm_call DOES with the value (WARNING
 # escalation) is tests/application/test_logging_api.py::TestATruncatedLLMCallIsAWarning — a

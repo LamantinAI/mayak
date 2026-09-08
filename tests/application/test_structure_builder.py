@@ -315,14 +315,14 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 # CLASS: tests.application.test_structure_builder.TestLiveRepoRegressionProbes
-# SUMMARY: Fix-cycle iteration 1 (Phase 7): the independent verifier's live probe found that AC3's
-#          synthetic-fixture test (TestHermeticProjectMap.test_gitignored_file_excluded_from_tree)
-#          supplies its OWN throwaway .gitignore rule, so it proves the git-index-driven enumeration
-#          mechanism respects whatever .gitignore says, but never proves THIS repository's actual
-#          root .gitignore covers the paths the original audit cited (.tiktoken_cache/, docs/research/).
-#          These tests run against the real repo root (not tmp_path) via subprocess, so they exercise
-#          the exact CLI entrypoint an agent/CI invokes and would have caught the FAIL the verifier
-#          found (real .tiktoken_cache/probe.bin -> "Drift detected" / exit 1) before it shipped.
+# SUMMARY: AC3's synthetic-fixture test
+#          (TestHermeticProjectMap.test_gitignored_file_excluded_from_tree) supplies its OWN
+#          throwaway .gitignore rule, so it proves the git-index-driven enumeration mechanism
+#          respects whatever .gitignore says, but never proves THIS repository's actual root
+#          .gitignore covers the paths the original audit cited (.tiktoken_cache/, docs/research/).
+#          These tests run against the real repo root (not tmp_path) via subprocess, so they
+#          exercise the exact CLI entrypoint an agent/CI invokes and would catch a real
+#          .tiktoken_cache/probe.bin producing "Drift detected" / exit 1.
 class TestLiveRepoRegressionProbes:
     # FUNCTION: test_tiktoken_cache_probe_excluded_from_real_repo_map
     # SUMMARY: AC3 (live) — creating .tiktoken_cache/__probe.bin under the real repo root must not
@@ -414,33 +414,35 @@ class TestLiveRepoRegressionProbes:
 
 
 # CLASS: tests.application.test_structure_builder.TestHookEnvironmentIsolation
-# SUMMARY: Fix-cycle iteration 2 (Phase 7): a pre-commit hook invocation of this test suite sets
-#          GIT_DIR/GIT_INDEX_FILE/GIT_PREFIX in its own process environment pointing at the REAL
-#          repository. Every git subprocess call this test file and scripts/structure_builder.py make
-#          used to inherit those variables silently, so fixture git operations that intended to target
-#          a throwaway tmp_path repo (git init/add/commit/worktree add) were actually applied to the
-#          real repository instead — confirmed by finding core.bare=true and a stray test identity
-#          (user.email=test@example.com, user.name=Test User) in the real repo's local config after a
-#          hook-context pytest run. hermetic_git_env() (imported from scripts.structure_builder) strips
-#          every GIT_*-prefixed variable before each git subprocess call; these tests prove that
-#          protection holds both for the test fixtures themselves and for structure_builder.py's own
-#          git ls-files call, under a deliberately hostile, hook-like environment.
+# SUMMARY: A pre-commit hook invocation of this test suite sets GIT_DIR/GIT_INDEX_FILE/GIT_PREFIX
+#          in its own process environment pointing at the REAL repository. Every git subprocess
+#          call this test file and scripts/structure_builder.py make used to inherit those
+#          variables silently, so fixture git operations that intended to target a throwaway
+#          tmp_path repo (git init/add/commit/worktree add) were actually applied to the real
+#          repository instead — confirmed by finding core.bare=true and a stray test identity
+#          (user.email=test@example.com, user.name=Test User) in the real repo's local config
+#          after a hook-context pytest run. hermetic_git_env() (imported from
+#          scripts.structure_builder) strips every GIT_*-prefixed variable before each git
+#          subprocess call; these tests prove that protection holds both for the test fixtures
+#          themselves and for structure_builder.py's own git ls-files call, under a deliberately
+#          hostile, hook-like environment.
 class TestHookEnvironmentIsolation:
     # FUNCTION: test_fixture_repo_init_lands_in_tmp_path_under_inherited_hook_env
-    # SUMMARY: Safety invariant requested by the coordinator: even with GIT_DIR/GIT_INDEX_FILE set in
-    #          this test process's own environment (simulating a pre-commit hook), _init_git_repo's
-    #          hermetic_git_env()-protected git calls must still create their repository in tmp_path —
-    #          not silently mutate whatever repository GIT_DIR/GIT_INDEX_FILE happen to point at.
+    # SUMMARY: Safety invariant: even with GIT_DIR/GIT_INDEX_FILE set in this test process's own
+    #          environment (simulating a pre-commit hook), _init_git_repo's
+    #          hermetic_git_env()-protected git calls must still create their repository in
+    #          tmp_path — not silently mutate whatever repository GIT_DIR/GIT_INDEX_FILE happen
+    #          to point at.
     @pytest.mark.unit
     def test_fixture_repo_init_lands_in_tmp_path_under_inherited_hook_env(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        # **LOGIC_STEP**: Simulate the pre-commit hook's environment: GIT_DIR/GIT_INDEX_FILE pointing
-        # at THIS actual repository's real .git, exactly as the coordinator's minimal repro showed
-        # (`GIT_DIR=.git GIT_INDEX_FILE=.git/index ...`). This is the hostile precondition that caused
-        # the real incident — fixture git calls inheriting these and silently mutating the real repo.
+        # **LOGIC_STEP**: Simulate the pre-commit hook's environment: GIT_DIR/GIT_INDEX_FILE
+        # pointing at THIS actual repository's real .git (`GIT_DIR=.git GIT_INDEX_FILE=.git/index
+        # ...`). This is the hostile precondition under which fixture git calls used to inherit
+        # these variables and silently mutate the real repo.
         monkeypatch.setenv("GIT_DIR", str(_REPO_ROOT / ".git"))
         monkeypatch.setenv("GIT_INDEX_FILE", str(_REPO_ROOT / ".git" / "index"))
         monkeypatch.setenv("GIT_PREFIX", "some/bogus/prefix/")
@@ -471,8 +473,8 @@ class TestHookEnvironmentIsolation:
         )
 
         # **LOGIC_STEP**: Also confirm the REAL repository's local config was not touched by the
-        # fixture's git calls under this hostile environment (the concrete symptom the coordinator
-        # found: a stray test identity / core.bare flip leaking into the real repo's local config).
+        # fixture's git calls under this hostile environment (the concrete symptom: a stray test
+        # identity / core.bare flip leaking into the real repo's local config).
         real_repo_config = subprocess.run(
             ["git", "-C", str(_REPO_ROOT), "config", "--local", "--get", "user.email"],
             capture_output=True,
@@ -485,17 +487,16 @@ class TestHookEnvironmentIsolation:
         )
 
     # FUNCTION: test_structure_builder_check_survives_hook_style_git_env_in_subprocess
-    # SUMMARY: Regression test for the exact bug the coordinator's minimal repro demonstrated:
-    #          `GIT_DIR=.git GIT_INDEX_FILE=.git/index <python> -m pytest ...` made
-    #          TestLiveRepoRegressionProbes fail with "fatal: ... index file open failed" / "this
-    #          operation must be run in a work tree" (git exit 128) because git subprocess calls
-    #          inherited those variables. This test invokes structure_builder.py --check as a
-    #          subprocess with GIT_DIR/GIT_INDEX_FILE explicitly injected into ITS environment (the
-    #          same shape a pre-commit hook produces), proving the fix (hermetic_git_env() inside
-    #          list_repo_files) holds even when the hostile variables are set on the immediate child
-    #          process, not just inherited transitively.
-    #          IMPORTANT METHODOLOGICAL NOTE (found while writing this test): asserting only
-    #          `returncode == 0` is NOT sufficient here. If list_repo_files' git call fails silently
+    # SUMMARY: Regression test for the bug where `GIT_DIR=.git GIT_INDEX_FILE=.git/index <python>
+    #          -m pytest ...` made TestLiveRepoRegressionProbes fail with "fatal: ... index file
+    #          open failed" / "this operation must be run in a work tree" (git exit 128) because git
+    #          subprocess calls inherited those variables. This test invokes structure_builder.py
+    #          --check as a subprocess with GIT_DIR/GIT_INDEX_FILE explicitly injected into ITS
+    #          environment (the same shape a pre-commit hook produces), proving the fix
+    #          (hermetic_git_env() inside list_repo_files) holds even when the hostile variables are
+    #          set on the immediate child process, not just inherited transitively.
+    #          IMPORTANT METHODOLOGICAL NOTE: asserting only `returncode == 0` is NOT sufficient
+    #          here. If list_repo_files' git call fails silently
     #          (returns None), _build_tree_content falls back to the iterdir()-based walk, which
     #          also produces exit 0 when the resulting tree happens to match the committed map — so
     #          a weak version of this test could pass for the WRONG reason (silently exercising the

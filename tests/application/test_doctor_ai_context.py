@@ -212,7 +212,8 @@ class TestDoctorAIContext:
         assert payload["issues"][0]["rule_id"] == "endpoint.no_direct_service_import"
 
     # FUNCTION: test_diagnose_reports_cbm_error
-    # SUMMARY: Verify the doctor catches CBM annotation issues and reports a rule_id derived from the message (no longer the legacy literal cbm.strict_core_missing_metadata).
+    # SUMMARY: Verify the doctor catches CBM annotation issues and reports a rule_id derived
+    # from the message.
     @pytest.mark.unit
     def test_diagnose_reports_cbm_error(
         self,
@@ -516,8 +517,8 @@ class TestGateLayersAreModelled:
     # SUMMARY: Read the commands `quality-gates` runs straight out of the Makefile.
     # OUTPUT: (list[str]): One entry per recipe line, sub-make lines resolved to their target name.
     # NOTE: The steps live in `quality-gates-steps`. `quality-gates` itself is two lines — run the
-    # steps, and on failure run the doctor — because the doctor used to hide behind a second target
-    # name that the rules told everyone to prefer over the one they would type by habit.
+    # steps, and on failure run the doctor — so finding the doctor does not depend on a habit of
+    # typing a second target name instead of the one people reach for automatically.
     @staticmethod
     def _quality_gate_steps() -> list[str]:
         makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
@@ -794,11 +795,12 @@ class TestDoctorSurvivesItsOwnTooling:
 
 # CLASS: tests.application.test_doctor_ai_context.TestDoctorRepeatsTheUnverifiedMigrationNotice
 # SUMMARY: Verify an "ok" doctor run still says when the migration check never reached a database.
-# NOTE: The skip is not an error, so it is filtered out of the blocking set and the doctor used to
-# report a clean run indistinguishable from a verified one. Measured in both projects of the
-# 2026-09-07 duel: a migration that dropped a column instead of renaming it passed every local
-# gate. The notice is read from validate_migrations.py's own issue rather than re-worded, so the
-# sentence is written once — this asserts both halves, that it is carried and that it is that one.
+# NOTE: The skip is not an error, so it is filtered out of the blocking set, and without this
+# notice the doctor reports a clean run indistinguishable from a verified one. Measured in both
+# projects of an independent duel: a migration that dropped a column instead of renaming it
+# passed every local gate. The notice is read from validate_migrations.py's own issue rather than
+# re-worded, so the sentence is written once — this asserts both halves, that it is carried and
+# that it is that one.
 class TestDoctorRepeatsTheUnverifiedMigrationNotice:
     # FUNCTION: test_the_skip_is_pulled_out_of_the_issue_batch
     # SUMMARY: Verify the skip's own message is what the doctor reports.
@@ -853,10 +855,10 @@ class TestDoctorRepeatsTheUnverifiedMigrationNotice:
     # FUNCTION: test_main_prints_the_notice_carried_by_an_ok_payload
     # SUMMARY: Verify the print survives — an "ok" payload holding the notice says so on stdout.
     # NOTE: The two tests above pin `_migrations_not_verified_notice` alone, which an independent
-    # review of this branch pointed out on 2026-09-08 is only a third of the path: deleting the
-    # print in `main()` or the call in `diagnose()` would have left them green and `make doctor`
-    # silent again — the exact silence this change exists to end. This covers the print, and the
-    # test below covers the call.
+    # review of this branch pointed out is only a third of the path: deleting the print in
+    # `main()` or the call in `diagnose()` would have left them green and `make doctor` silent
+    # again — the exact silence this change exists to end. This covers the print, and the test
+    # below covers the call.
     @pytest.mark.unit
     def test_main_prints_the_notice_carried_by_an_ok_payload(
         self,

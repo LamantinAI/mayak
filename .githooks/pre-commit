@@ -14,18 +14,15 @@ fi
 
 # Run the shared golden-path verification. `make quality-gates` refreshes the generated artifacts
 # itself (`refresh-generated-unless-strict`, since this hook does not set STRICT_GENERATED) before
-# running the `--check` steps, so a separate `make refresh-generated-docs` call here regenerated
-# the same artifacts a second time for nothing. It used to also stand in for a `quality-gates-no-regen`
-# twin skipping those checks — measured at 0.4 s together, not worth a hand-maintained second copy
-# of a twenty-step recipe, and the copy had already drifted from the original it claimed to mirror.
+# running the `--check` steps, so a separate `make refresh-generated-docs` call here would
+# regenerate the same artifacts a second time for nothing.
 echo "--- Pre-commit: running quality gates ---"
 make quality-gates
 
 # Auto-stage refreshed generated files.
-# The list used to be repeated here and had drifted, missing two outputs — so editing a skill
-# produced a regenerated file that was never staged, and the no-regen gate below cannot see it,
-# because it checks the freshly written file on disk, not the index. The commit went through
-# green with the generated output left behind.
+# A hand-kept copy of the list here would be exactly what drifts silently: missing even one output
+# means a regenerated file is never staged, and the commit goes through green with the generated
+# output left behind.
 #
 # Hand-written files are deliberately absent from this list. Listing one staged whatever the
 # author happened to have open, silently, into an unrelated commit. A generated-file hook must

@@ -28,7 +28,7 @@ Working notes:
 - Use focused queries before broad scans — `workset`, `before-edit`, `failure`, `symbol` — instead of a repo-wide grep.
 - `PROJECT.md` and `docs/project_context.json` carry the business domain; this file covers only the kernel.
 - If `.env` is missing, run `make init-project` (idempotent) — nothing else creates it. `make run-local`/`make migrate` need reachable PostgreSQL unless `POSTGRES_ENABLED=false`; bring one up with `docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d db`.
-- `make quality-gates` runs `make doctor` on failure and refreshes generated artifacts first, so a stale map is fixed, not red; `make ci-local` adds `STRICT_GENERATED=1` and fails on one instead. A narrow `pytest` run no longer fails on total coverage — that floor lives in `scripts/run_all_tests.py`'s full run, not `pytest.ini`.
+- `make quality-gates` runs `make doctor` on failure and refreshes generated artifacts first, so a stale map is fixed, not red; `make ci-local` adds `STRICT_GENERATED=1` and fails on one instead. A narrow `pytest` run does not fail on total coverage — that floor lives in `scripts/run_all_tests.py`'s full run, not `pytest.ini`.
 - Gates run none of your queries — a SQL defect is caught only if a test pins its clause as literal text, and a migration is verified only against a real database. See ADR-010.
 - A write to a generated path is refused by `.agents/hooks/pre-edit-guard.sh`, naming the file — the list is `make print-generated-paths`, shared with the pre-commit hook and both agents.
 - Finish with `make quality-gates`, and with `make test-e2e` as well when the diff touched persistence, endpoints, wiring, or a migration — a migration is the one change the gates cannot check at all without a database.

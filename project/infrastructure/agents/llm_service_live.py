@@ -96,10 +96,10 @@ class LLMServiceLiveMixin:
 
     # FUNCTION: _initialize_llm
     # SUMMARY: Initialize the live provider client, or leave mock placeholders, from global settings.
-    # NOTE: There used to be a three-tier resolution here — explicit overrides beat a per-agent
-    # AgentConfig, which beat global settings — and nothing in the template ever constructed either
-    # of the two upper tiers. A vertical that needs a second LLM endpoint builds its own service
-    # rather than inheriting a mechanism the kernel cannot demonstrate.
+    # NOTE: Kept to a single resolution tier — global settings — deliberately: a per-agent
+    # override mechanism would be machinery the kernel cannot demonstrate using, since nothing in
+    # the template ever constructs one. A vertical that needs a second LLM endpoint builds its
+    # own service rather than inheriting an unused mechanism.
     def _initialize_llm(self: _LLMServiceLiveContract) -> None:
         effective_mode = self._settings.agent.llm_mode
         effective_model = self._settings.llm.model

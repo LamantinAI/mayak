@@ -243,9 +243,7 @@ class ExceptionHandlerManager:
             )
 
         # **LOGIC_STEP**: Log which fields failed and why, and NOT what the caller sent:
-        # `_safe_validation_input` reduces every value to its type and length. The comment here
-        # said "including user input" until 2026-08-14, which described the opposite of what
-        # the code does and read as permission to add the payload back.
+        # `_safe_validation_input` reduces every value to its type and length.
         # **LOGIC_STEP**: A 422 is the request being wrong, never the service.
         logger.log_client_error(
             error_type="validation_error",
@@ -286,8 +284,8 @@ class ExceptionHandlerManager:
     async def _handle_generic_exception(self, request: Request, exc: Exception) -> JSONResponse:
         # **LOGIC_STEP**: The logging middleware already unwound and reset the trace ContextVar
         # by the time an unhandled exception reaches this handler, so this record — the only one
-        # naming the real cause — used to be written without a trace_id and was then dropped by
-        # every trace-reading tool. Restore it from request.state for the duration of the call.
+        # naming the real cause — needs its trace_id restored here or every trace-reading tool
+        # drops it. Restore it from request.state for the duration of the call.
         stashed_trace_id = getattr(request.state, "trace_id", None)
         trace_token = (
             set_trace_id(stashed_trace_id)

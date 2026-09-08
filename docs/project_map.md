@@ -221,7 +221,7 @@ Project Map: Mayak
 │   │   ├── test_trace_file_gate.py  ---  Verify the NDJSON trace file is switched on by its own setting and never by debug mode.
 │   │   ├── test_trace_formatter_against_real_output.py  ---  The renderer must work on the event shape THIS application emits, and on the shape it
 │   │   ├── test_trace_formatter_failure_visibility.py  ---  Regression guards proving a failed request is visible in the rendered trace tree.
-│   │   ├── test_trace_formatter_span_semantics.py  ---  Regression guards for the three trace_formatter.py changes made alongside logger.py and
+│   │   ├── test_trace_formatter_span_semantics.py  ---  Regression guards for three trace_formatter.py changes made alongside logger.py and
 │   │   ├── test_trace_formatter_summary.py  ---  The trace renderer must tell the truth about logs written before the outcome field existed.
 │   │   ├── test_validate_architecture.py  ---  Unit tests for the repository architecture boundary validator.
 │   │   ├── test_validate_cbm.py  ---  Unit tests for strict Code-Base Markup validation rules.
@@ -234,7 +234,7 @@ Project Map: Mayak
 │   │   ├── test_validate_runtime_ownership.py  ---  Unit tests for the runtime ownership validator.
 │   │   ├── test_validate_secrets.py  ---  Tests for the credential scanner: what it must catch, and what it must not shout about.
 │   │   ├── test_validate_test_quality.py  ---  Unit tests for the validator that rejects tests which cannot fail.
-│   │   └── test_validator_error_contract.py  ---  Contract test (T4 validator-error-contract) proving every scripts/validate_*.py JSON converter — plus the generate_ai_context.py drift-issue producer — surfaces rule_id, suggested_fix, read_first, next_commands, and stop_widening_condition on every emitted issue. This is the red->green fixation for the audit finding that stop_widening_condition was 0/10 in actual CLI JSON output despite living in every validator's internal rule-playbook dict.
+│   │   └── test_validator_error_contract.py  ---  Contract test proving every scripts/validate_*.py JSON converter — plus the generate_ai_context.py drift-issue producer — surfaces rule_id, suggested_fix, read_first, next_commands, and stop_widening_condition on every emitted issue. Measured: stop_widening_condition was 0/10 in actual CLI JSON output despite living in every validator's internal rule-playbook dict.
 │   ├── functional/
 │   │   ├── src/
 │   │   │   ├── __init__.py

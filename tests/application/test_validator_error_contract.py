@@ -1,5 +1,5 @@
 # FILE: test_validator_error_contract.py
-# SUMMARY: Contract test (T4 validator-error-contract) proving every scripts/validate_*.py JSON converter — plus the generate_ai_context.py drift-issue producer — surfaces rule_id, suggested_fix, read_first, next_commands, and stop_widening_condition on every emitted issue. This is the red->green fixation for the audit finding that stop_widening_condition was 0/10 in actual CLI JSON output despite living in every validator's internal rule-playbook dict.
+# SUMMARY: Contract test proving every scripts/validate_*.py JSON converter — plus the generate_ai_context.py drift-issue producer — surfaces rule_id, suggested_fix, read_first, next_commands, and stop_widening_condition on every emitted issue. Measured: stop_widening_condition was 0/10 in actual CLI JSON output despite living in every validator's internal rule-playbook dict.
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ import scripts.validate_repository_metadata as validate_repository_metadata
 
 
 # ATTRIBUTE: _REQUIRED_KEYS (tuple[str, ...])
-# SUMMARY: The five fields the 2026-07-04 audit matrix tracked across all 10 validators
+# SUMMARY: The five fields the audit matrix tracked across all 10 validators
 # (rule_id, suggested_fix, read_first, next_commands, stop_widening_condition), plus the
 # minimum location/severity fields every canon payload must also carry.
 _REQUIRED_KEYS = (
@@ -369,7 +369,7 @@ class TestWave6ValidatorsSatisfyContract:
     # FUNCTION: test_secrets_issue_satisfies_contract
     # SUMMARY: Verify validate_secrets' converter carries the full remediation canon.
     # NOTE: The file's own SUMMARY claims every `scripts/validate_*.py` converter is proven here.
-    # It was twelve of thirteen until 2026-08-14: `validate_secrets._issue_to_payload` has the same
+    # It was once twelve of thirteen: `validate_secrets._issue_to_payload` has the same
     # shape and runs in the same gate, and was never imported by this file.
     @pytest.mark.unit
     def test_secrets_issue_satisfies_contract(self) -> None:

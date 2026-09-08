@@ -82,14 +82,15 @@ class TestSyncAgentDocs:
         assert "make help" in claude_content
         assert "## Tech Stack" in claude_content
         # **LOGIC_STEP**: An "Architecture Reference" section used to sit here, pointing at
-        # ARCHITECTURE.md. That file was folded into docs/agent_rules.md on 2026-08-11, so the
-        # wrapper must now carry the contract rather than a pointer to a second document.
+        # ARCHITECTURE.md. That file was folded into docs/agent_rules.md, so the wrapper must now
+        # carry the contract rather than a pointer to a second document.
         assert "## Architecture Reference" not in claude_content
         assert "ARCHITECTURE.md" not in claude_content
         assert "- keep tests updated" in claude_content
 
     # FUNCTION: test_additional_sections_reach_the_wrapper
-    # SUMMARY: Regression guard: the renderer used to copy only `Task process:` and `Working notes:` and silently drop every other section, so a rule added to the shared source never reached the agent meant to follow it.
+    # SUMMARY: Regression guard: dropping an unrecognized section from the shared source silently
+    # drops it from the wrapper too, so a rule added there never reaches the agent meant to follow it.
     @pytest.mark.unit
     def test_additional_sections_reach_the_wrapper(
         self,
@@ -149,7 +150,7 @@ class TestSyncAgentDocs:
     # SUMMARY: One number, two documents: the vertical's file count must not drift between them.
     @pytest.mark.unit
     def test_the_quick_start_states_the_file_count_the_skill_states(self) -> None:
-        # **LOGIC_STEP**: The skill's heading went from nine files to eleven on 2026-08-13 and the
+        # **LOGIC_STEP**: The skill's heading once went from nine files to eleven while the
         # wrapper kept saying nine for a day short of a fortnight, because the two live in
         # different files and no gate compared them. Whichever number the skill's heading carries
         # is the one the shared source must repeat.
@@ -188,7 +189,8 @@ class TestSyncAgentDocs:
         assert claude_content.count("- branch before you edit") == 1
 
     # FUNCTION: test_wrapper_states_one_final_command
-    # SUMMARY: Regression guard: the renderer used to append a hardcoded `Finish with make quality-gates` below the one carried over from the shared source, telling the agent two different final commands three lines apart.
+    # SUMMARY: Regression guard: a hardcoded "Finish with" line appended below one already carried
+    # over from the shared source would tell the agent two different final commands.
     @pytest.mark.unit
     def test_wrapper_states_one_final_command(
         self,
@@ -246,7 +248,7 @@ class TestSyncAgentDocs:
         # **LOGIC_STEP**: The renderer matches a plain `Title:` line only. A heading carrying bold,
         # a trailing period, or a colon inside emphasis silently drops its whole section, and the
         # drift check stays green because it compares the wrapper against the same lossy render.
-        # That happened on 2026-08-04 to the rule about where a fact belongs, which never reached
+        # That happened once to the rule about where a fact belongs, which never reached
         # CLAUDE.md, so the loss is now an error rather than a surprise.
         shared_rules = tmp_path / "agent_rules.md"
         shared_rules.write_text(

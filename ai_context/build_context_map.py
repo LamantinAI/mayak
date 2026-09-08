@@ -45,12 +45,9 @@ def _quality_gates_by_concern() -> dict[str, list[str]]:
         "runtime_ownership": ["uv run python scripts/validate_runtime_ownership.py"],
         "full": ["make quality-gates"],
         # **LOGIC_STEP**: lint and types name their make target instead of respelling the command.
-        # They are the two steps that carry a source list, and both copies here had already
-        # drifted from the gate they claim to reproduce: the lint command listed bare top-level
-        # script names that moved under scripts/ long ago, and the type check covered `project`
-        # alone while MYPY_TARGETS covers five roots. These strings reach an agent through
-        # docs/ai_context_map.json, so a stale one is a command someone runs and believes. The
-        # entries below keep their direct spelling: a script with no source list cannot drift.
+        # A hand-copied command reaches an agent through docs/ai_context_map.json, so a stale one
+        # is a command someone runs and believes — the entries below keep their direct spelling
+        # instead: a script with no source list cannot drift.
         "lint": ["make gate-lint"],
         "migrations": ["uv run python scripts/validate_migrations.py"],
         "module_size": ["uv run python scripts/validate_module_sizes.py"],

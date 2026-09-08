@@ -173,8 +173,8 @@ class TestAWrongAnswerIsRejected:
     # NOTE: This is the case that separates `isinstance(value, str) and value in <frozenset>` from
     # the bare membership test. `["high"] in frozenset()` raises `TypeError: unhashable type`,
     # which is not a ProjectError, so it reaches the client as a 500 — from the one line written
-    # to make sure it could not. Measured in a field build on 2026-09-03, where a triage endpoint
-    # answered 500 for exactly this input. Assert the domain type, never bare `Exception`: an
+    # to make sure it could not. Measured in a field build, where a triage endpoint answered 500
+    # for exactly this input. Assert the domain type, never bare `Exception`: an
     # assertion on `Exception` passes on both the fix and the defect.
     @pytest.mark.unit
     async def test_a_list_where_a_string_was_expected_is_rejected(self) -> None:

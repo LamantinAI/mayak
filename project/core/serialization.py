@@ -46,10 +46,9 @@ REDACT_EXEMPT_KEYS = {
     "reasoning_tokens",
     "tokens_per_second",
     # The two names below are the span-level accumulators written by
-    # logger._emit_request_summary; the list was originally written against the
-    # per-call names emitted by llm.call and missed them, so every request
-    # summary reported "total_input_tokens": "***REDACTED***" next to a plain
-    # integer "input_tokens" from the same run. Guarded by
+    # logger._emit_request_summary — a different naming scheme from the per-call names emitted
+    # by llm.call, so leaving them out of this set reports "total_input_tokens":
+    # "***REDACTED***" next to a plain integer "input_tokens" from the same run. Guarded by
     # tests/application/test_serialization.py.
     "total_input_tokens",
     "total_output_tokens",

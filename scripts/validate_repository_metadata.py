@@ -2,13 +2,9 @@
 # FILE: validate_repository_metadata.py
 # SUMMARY: Three repository-metadata validators merged into one module: skills/commands frontmatter,
 # path-shaped literals inside scripts/*.py, and docs/project_context.json schema + cross-references.
-# NOTE: Merged 2026-09 (audit item P9) from validate_skills_frontmatter.py, validate_script_paths.py
-# and validate_project_context.py. Every collector, dataclass and rule_id is unchanged from its
-# source module; only the module boundary moved and the three playbook getters became one. The one
-# deliberate behaviour change is recorded at collect_project_context_issues below:
-# project_context.vertical_status_contradicts_wiring was dropped — the declared status in
-# project_context.json is a description, and scripts/validate_endpoint_wiring.py is what actually
-# checks the wiring.
+# NOTE: By design, this module does not flag project_context.vertical_status_contradicts_wiring —
+# the declared status in project_context.json is a description, and
+# scripts/validate_endpoint_wiring.py is what actually checks the wiring.
 
 from __future__ import annotations
 
@@ -668,9 +664,9 @@ def collect_project_context_issues(root_dir: Path) -> list[ProjectContextIssue]:
     """Load and validate docs/project_context.json, returning all found issues.
 
     Cross-referencing declared vertical status against the wiring files
-    (service_registration.py / router_registration.py) used to happen here too. It moved out on
-    purpose: status is a description, and scripts/validate_endpoint_wiring.py is the validator that
-    actually checks wiring — one fact belongs in one place.
+    (service_registration.py / router_registration.py) is deliberately not done here: status is a
+    description, and scripts/validate_endpoint_wiring.py is the validator that actually checks
+    wiring — one fact belongs in one place.
     """
     context_path = root_dir / "docs" / "project_context.json"
     if not context_path.exists():

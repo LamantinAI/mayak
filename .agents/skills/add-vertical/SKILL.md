@@ -53,8 +53,8 @@ anywhere in the tree.
 2. The ORM model in `orm_models.py`. Before the migration, not after — autogeneration compares this
    metadata against a database. Choose `ondelete` on every `ForeignKey(...)` here: autogenerate
    copies whatever the model says and decides nothing on its own, so a bare `ForeignKey(...)` passes
-   silently and the missing policy used to surface only as a 500 from the driver.
-   `tests/infrastructure/test_persistence_models.py::TestForeignKeysDeclareOnDelete` reports one now.
+   silently, and a missing policy would otherwise surface only as a 500 from the driver.
+   `tests/infrastructure/test_persistence_models.py::TestForeignKeysDeclareOnDelete` reports one instead.
    See `docs/adr/ADR-007-autocommit-and-explicit-transactions.md`, "A foreign key's deletion policy
    is a domain decision".
 3. **A running database, brought to head, before you autogenerate:**

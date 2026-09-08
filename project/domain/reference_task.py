@@ -20,10 +20,10 @@ ALLOWED_STATUSES = frozenset({DEFAULT_STATUS, "in_progress", "done"})
 
 # ATTRIBUTE: MAX_TITLE_LENGTH (int)
 # SUMMARY: Longest title the store can hold. One number, three consumers: the ORM column, the
-# request DTO, and the service. It used to live only in the last two, which meant a caller that
-# reached the service without passing through FastAPI — a background job, a queue consumer, a
-# test — could hand over a longer title and turn its own mistake into a database error surfacing
-# as a 500. A bound the domain owns applies to every caller.
+# request DTO, and the service. Living only in the DTO and the ORM column would let a caller
+# that reaches the service without passing through FastAPI — a background job, a queue
+# consumer, a test — hand over a longer title and turn its own mistake into a database error
+# surfacing as a 500. A bound the domain owns applies to every caller.
 MAX_TITLE_LENGTH = 200
 
 

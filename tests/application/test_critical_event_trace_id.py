@@ -25,9 +25,9 @@ class TestCriticalEventTraceId:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         # **LOGIC_STEP**: The middleware's `finally` resets the trace ContextVar while the
-        # exception is still propagating outward, so by the time this handler runs the record
-        # used to be written without a trace_id — and every trace reader drops such records,
-        # which is why a 500 rendered as a tree with no cause in it.
+        # exception is still propagating outward, so by the time this handler runs, without
+        # restoring it the record would carry no trace_id — and every trace reader drops such
+        # records, which is why a 500 would render as a tree with no cause in it.
         observed: dict[str, str | None] = {}
         original = exception_handlers.logger.log_critical
 

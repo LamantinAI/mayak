@@ -38,8 +38,8 @@ tool call is legible without a wrapper of the project's own.
 A `ProjectError` caught inside a `logger.span(...)` is judged the way `exception_handlers.py` judges
 it a moment later: `project.core.error_utils.is_client_rejection` separates ERROR with a traceback
 from WARNING without one. A routine 409 raised inside a `db.*` span used to read exactly like a
-crash, and in both projects of the 2026-09-07 duel the real errors drowned in those tracebacks. The
-compact renderer marks it `⚠`, distinct from `⊘` (cancelled) and `✗` (a genuine error).
+crash, and in both projects of a duel the real errors drowned in those tracebacks. The compact
+renderer marks it `⚠`, distinct from `⊘` (cancelled) and `✗` (a genuine error).
 
 ## A truncated LLM reply still reports success
 

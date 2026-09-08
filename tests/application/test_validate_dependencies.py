@@ -120,8 +120,8 @@ class TestUndeclaredImportIsReported:
 
     # FUNCTION: test_a_dynamically_imported_distribution_is_reported
     # SUMMARY: Verify importlib.import_module counts as an import for the declared-dependency check.
-    # NOTE: The same one-line bypass this validator shared with validate_architecture.py until
-    # 2026-09-02: only ast.Import/ast.ImportFrom were collected, so a package pulled in through
+    # NOTE: The same one-line bypass this validator shared with validate_architecture.py: only
+    # ast.Import/ast.ImportFrom were collected, so a package pulled in through
     # `importlib.import_module` was undeclared and unreported at once.
     @pytest.mark.unit
     def test_a_dynamically_imported_distribution_is_reported(self, tmp_path: Path) -> None:

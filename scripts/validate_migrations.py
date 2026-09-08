@@ -353,10 +353,10 @@ def _is_database_reachable() -> bool:
 
     # **LOGIC_STEP**: No user at all means there is nothing to try; an unconfigured checkout gets
     # its answer without waiting for a TCP timeout. The placeholder value itself is NOT a reason
-    # to answer no. `your_postgres_user` used to short-circuit to False, and the functional stack
-    # creates its database with exactly that name — compose passes POSTGRES_USER straight to the
-    # postgres image — so the one environment in this repository that HAS a database was the one
-    # environment where this function said it had none, and the migration gate skipped there too.
+    # to answer no: the functional stack creates its database with exactly the name
+    # `your_postgres_user` — compose passes POSTGRES_USER straight to the postgres image — so
+    # short-circuiting on that value would report the one environment in this repository that HAS
+    # a database as having none, skipping the migration gate there too.
     if not user:
         return False
 
@@ -385,8 +385,8 @@ def _is_database_reachable() -> bool:
 # any future reader cannot end up walking two differently-configured views of the same directory.
 def _script_directory_at(script_location: Path) -> Any:
     # **LOGIC_STEP**: ScriptDirectory reads alembic/versions/ and nothing else — env.py is not
-    # executed, so no connection is attempted and no .env is needed. Verified on 2026-09-02
-    # under `env -i`. That is what lets this run ahead of the reachability skip.
+    # executed, so no connection is attempted and no .env is needed. That is what lets this run
+    # ahead of the reachability skip.
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
@@ -635,11 +635,11 @@ def collect_migration_issues(
     )  # _build_commands uses module-level ROOT_DIR; preserved for symmetry with other validators.
     # **LOGIC_STEP**: The one part of this gate that needs no database runs first, ahead of both
     # skips below. A second head and a dangling down_revision are defects of the files in
-    # alembic/versions/, readable without connecting — and until 2026-09-02 a checkout without
-    # Postgres passed both green, although the comment on database_skip_is_allowed names exactly
-    # these two as what the CI backstop exists for. Ahead of the POSTGRES_ENABLED=false skip too:
-    # a project that uses no database today still ships its revision files, and a fork in them
-    # is still a fork.
+    # alembic/versions/, readable without connecting — running this after the skips would let a
+    # checkout without Postgres pass both green, although the comment on database_skip_is_allowed
+    # names exactly these two as what the CI backstop exists for. Ahead of the
+    # POSTGRES_ENABLED=false skip too: a project that uses no database today still ships its
+    # revision files, and a fork in them is still a fork.
     graph_issue = _revision_graph_issue()
     if graph_issue is not None:
         return [graph_issue]

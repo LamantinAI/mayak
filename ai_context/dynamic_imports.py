@@ -1,17 +1,16 @@
 # FILE: ai_context/dynamic_imports.py
 # SUMMARY: Recognise dynamic import calls so the import-boundary validators are not blind to them.
 # NOTE: Both validators that police imports — scripts/validate_architecture.py (the domain
-# allowlist) and scripts/validate_dependencies.py (the undeclared-dependency check) — walked the AST
+# allowlist) and scripts/validate_dependencies.py (the undeclared-dependency check) — walk the AST
 # looking only at ast.Import and ast.ImportFrom. `importlib.import_module("psycopg")` is neither: it
-# is an ordinary ast.Call, so one line lifted a forbidden driver into project/domain/ and pulled in
-# an undeclared distribution with `make quality-gates` fully green. Measured on 2026-09-02: three
-# lines added to project/domain/reference_task.py, gate exit 0, both validators reporting "passed".
-# One trick disabled two gates at once, which is why the detection lives here once rather than in
-# each of them.
+# is an ordinary ast.Call, so one line can lift a forbidden driver into project/domain/ and pull in
+# an undeclared distribution with `make quality-gates` fully green — three lines added to
+# project/domain/reference_task.py are enough, with both validators reporting "passed". One trick
+# disables two gates at once, which is why the detection lives here once rather than in each of
+# them.
 #
-# The names are resolved per FILE rather than per call, which is what the first version got wrong.
-# Matching on the attribute name alone flagged `registry.import_module("psycopg")` on an unrelated
-# object — a false positive an independent review reproduced the same day — and missed
+# The names are resolved per FILE rather than per call. Matching on the attribute name alone would
+# flag `registry.import_module("psycopg")` on an unrelated object and would miss
 # `from importlib import import_module as pull`, because the call no longer spells the name this
 # module knows. Reading the file's own import statements first fixes both: a call counts only when
 # the name it uses is bound to importlib in that file.

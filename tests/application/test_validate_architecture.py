@@ -59,8 +59,8 @@ class TestValidateArchitecture:
         )
 
         # **LOGIC_STEP**: The domain used to assert the same thing as application — that its
-        # declared dependencies were guidance rather than a gate. That flipped on 2026-08-12: the
-        # domain is now checked with an allowlist, so the declaration IS the gate. Anything reading
+        # declared dependencies were guidance rather than a gate. Now the domain is checked with
+        # an allowlist, so the declaration IS the gate. Anything reading
         # these rules to tell "intended architecture" from "the build stops you" has to see the
         # difference, which is why the flag is derived per layer rather than hardcoded True.
         assert (
@@ -112,8 +112,8 @@ class TestValidateArchitecture:
 
     # FUNCTION: test_validator_rejects_a_dynamically_imported_module
     # SUMMARY: Verify importlib.import_module and __import__ are checked like a written import.
-    # NOTE: The regression this pins is one line long. Until 2026-09-02 the walk skipped every node
-    # that was not ast.Import/ast.ImportFrom, so `importlib.import_module("psycopg")` in a domain
+    # NOTE: The regression this pins is one line long. The walk used to skip every node that was
+    # not ast.Import/ast.ImportFrom, so `importlib.import_module("psycopg")` in a domain
     # module left the full `make quality-gates` at exit 0 — measured, both this validator and
     # validate_dependencies.py reporting "passed". The parameters cover the three call shapes
     # ai_context/dynamic_imports.py claims to recognise; the variable form below is the documented
@@ -151,7 +151,7 @@ class TestValidateArchitecture:
 
     # FUNCTION: test_a_method_named_like_an_import_is_not_reported
     # SUMMARY: Verify only names this file bound to importlib count, not every `import_module`.
-    # NOTE: The regression an independent review reproduced on 2026-09-02: the first version of the
+    # NOTE: The regression this reproduces: the first version of the
     # detector matched any attribute called `import_module`, so an unrelated object with a method
     # of that name was reported as a forbidden import. A gate that fires on correct code is worse
     # than one that misses — this is the test that keeps the receiver check honest.
@@ -201,8 +201,8 @@ class TestValidateArchitecture:
     ) -> None:
         # **LOGIC_STEP**: These three are the regression. The rule used to ban the prefix
         # `langchain`, and prefix matching accepts only an exact name or `langchain.` with a dot —
-        # so `langchain_core`, imported on eight lines under `project/`, passed. Measured on
-        # 2026-08-12: a domain module importing it was green on lint, mypy and this validator.
+        # so `langchain_core`, imported on eight lines under `project/`, passed. Measured: a
+        # domain module importing it was green on lint, mypy and this validator.
         _write_fixture(tmp_path / "project" / "domain" / "bad_module.py", line)
 
         issues = collect_architecture_issues(tmp_path)

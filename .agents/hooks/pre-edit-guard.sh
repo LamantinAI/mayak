@@ -8,13 +8,13 @@
 # whole patch as `tool_input.command` with the paths inside it.
 #
 # Why a hook and not a rule in prose. "CLAUDE.md is a generated file and must not be edited
-# directly" is stated twice in CLAUDE.md itself, and until now nothing enforced it. The gate used to
-# catch the drift afterwards; since the gate learned to refresh generated artifacts itself, a manual
-# edit is simply overwritten on the next run — the work disappears without a word. A refusal at the
-# call site is the only place the agent still learns anything.
+# directly" is stated twice in CLAUDE.md itself, and nothing enforces it there. The gate refreshes
+# generated artifacts itself rather than failing on drift, so a manual edit is simply overwritten
+# on the next run — the work disappears without a word. A refusal at the call site is the only
+# place the agent still learns anything.
 #
-# The list is not repeated here. `make print-generated-paths` owns it, the pre-commit hook reads the
-# same target, and the copy that used to live in that hook had already drifted once: it named six of
+# The list is not repeated here. `make print-generated-paths` owns it, the pre-commit hook reads
+# the same target, and a hand-kept copy is exactly what drifts silently: it once named only six of
 # the eight outputs, so a regenerated file went unstaged and the commit passed with the output left
 # behind.
 #
