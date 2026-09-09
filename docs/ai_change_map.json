@@ -22,7 +22,7 @@
           "workset diff"
         ],
         "read_first": [
-          "CLAUDE.md",
+          "AGENTS.md",
           "uv run python scripts/query_ai_context.py overview"
         ],
         "source_files": [
@@ -69,7 +69,7 @@
           "failure rule endpoint.no_depends_without_alias"
         ],
         "read_first": [
-          "CLAUDE.md",
+          "AGENTS.md",
           "uv run python scripts/query_ai_context.py overview"
         ],
         "source_files": [
@@ -105,7 +105,7 @@
           "workset diff"
         ],
         "read_first": [
-          "CLAUDE.md",
+          "AGENTS.md",
           "uv run python scripts/query_ai_context.py overview"
         ],
         "source_files": [
@@ -147,7 +147,7 @@
           "workset diff"
         ],
         "read_first": [
-          "CLAUDE.md",
+          "AGENTS.md",
           "uv run python scripts/query_ai_context.py overview"
         ],
         "source_files": [
@@ -190,7 +190,7 @@
           "workset diff"
         ],
         "read_first": [
-          "CLAUDE.md",
+          "AGENTS.md",
           "uv run python scripts/query_ai_context.py overview"
         ],
         "source_files": [
@@ -227,7 +227,7 @@
           "workset diff"
         ],
         "read_first": [
-          "CLAUDE.md",
+          "AGENTS.md",
           "uv run python scripts/query_ai_context.py overview"
         ],
         "source_files": [
@@ -263,7 +263,7 @@
           "workset diff"
         ],
         "read_first": [
-          "CLAUDE.md",
+          "AGENTS.md",
           "uv run python scripts/query_ai_context.py overview"
         ],
         "source_files": [
@@ -304,7 +304,7 @@
           "workset diff"
         ],
         "read_first": [
-          "CLAUDE.md",
+          "AGENTS.md",
           "uv run python scripts/query_ai_context.py overview"
         ],
         "source_files": [
@@ -345,7 +345,7 @@
           "workset diff"
         ],
         "read_first": [
-          "CLAUDE.md",
+          "AGENTS.md",
           "uv run python scripts/query_ai_context.py overview"
         ],
         "source_files": [
@@ -378,7 +378,7 @@
           "workset diff"
         ],
         "read_first": [
-          "CLAUDE.md",
+          "AGENTS.md",
           "uv run python scripts/query_ai_context.py overview"
         ],
         "source_files": [
@@ -414,7 +414,7 @@
           "workset diff"
         ],
         "read_first": [
-          "CLAUDE.md",
+          "AGENTS.md",
           "uv run python scripts/query_ai_context.py overview"
         ],
         "source_files": [
@@ -453,7 +453,7 @@
           "failure rule endpoint.alias_chain_invalid"
         ],
         "read_first": [
-          "CLAUDE.md",
+          "AGENTS.md",
           "uv run python scripts/query_ai_context.py overview"
         ],
         "source_files": [
@@ -487,7 +487,7 @@
           "workset diff"
         ],
         "read_first": [
-          "CLAUDE.md",
+          "AGENTS.md",
           "uv run python scripts/query_ai_context.py overview"
         ],
         "source_files": []

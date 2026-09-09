@@ -5,8 +5,8 @@
 # Without this distinction every handled exception goes through log_error at ERROR whatever
 # status it produces, so a client's typo writes the same line a failing service does: an operator
 # grepping ERROR meets request validation, and `make format-trace`, which counts events whose id
-# starts with `error.` or `critical.`, reports a healthy trace as one with errors in it. CLAUDE.md
-# already says `client_error` is "4xx and routine"; the log must agree.
+# starts with `error.` or `critical.`, reports a healthy trace as one with errors in it.
+# `docs/tracing.md` already says `client_error` is "4xx and routine"; the log must agree.
 
 from __future__ import annotations
 

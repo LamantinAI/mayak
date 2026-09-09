@@ -39,7 +39,7 @@
     "vertical": "A self-contained feature slice spanning domain, application, infrastructure, and test layers.",
     "composition_root": "The single location (project/core/composition_root.py) where shared services are constructed and injected into FastAPI's app.state.",
     "service_registration": "Per-vertical service-construction helpers in project/core/service_registration.py (build_reference_services and verticals' own builders).",
-    "wiring_hotspot": "One of the four files that bind layers together; the list is in CLAUDE.md under 'How the kernel is shaped'.",
+    "wiring_hotspot": "One of the four files that bind layers together; the list is in AGENTS.md under 'How the kernel is shaped'.",
     "edit_zone": "Risk classification of a file: safe (small blast radius), caution (wiring change), expert (kernel/generators), generated_do_not_edit.",
     "kernel": "The reusable template surface — AI tooling, validators, composition root, semantic logging — meant to be inherited by every project built on Mayak.",
     "reference_implementation": "An example feature added on top of the kernel. The scaffold ships exactly one - the reference_task vertical - as the shape to copy and then delete.",

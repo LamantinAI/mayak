@@ -38,7 +38,7 @@ def query_bootstrap() -> QueryPayload:
     generated_do_not_edit = architecture_rules["edit_zones"]["generated_do_not_edit"]
     payload = {
         "read_first": [
-            "CLAUDE.md",
+            "AGENTS.md",
             "docs/architecture_rules.json",
             "uv run python scripts/query_ai_context.py overview",
         ],

@@ -58,7 +58,7 @@ _RUNTIME_OWNERSHIP_RULE_PLAYBOOKS = {
             "Direct os.getenv or os.environ access escaped the approved configuration zones."
         ),
         "read_first": [
-            "CLAUDE.md",
+            "AGENTS.md",
             "project/core/config.py",
             "docs/architecture_rules.json",
         ],
@@ -81,7 +81,7 @@ _RUNTIME_OWNERSHIP_RULE_PLAYBOOKS = {
             "A module outside the canonical runtime wiring path wrote to app.state.services."
         ),
         "read_first": [
-            "CLAUDE.md",
+            "AGENTS.md",
             "project/core/composition_root.py",
             "docs/architecture_rules.json",
         ],
@@ -105,7 +105,7 @@ _RUNTIME_OWNERSHIP_RULE_PLAYBOOKS = {
             "lifecycle path."
         ),
         "read_first": [
-            "CLAUDE.md",
+            "AGENTS.md",
             "project/core/composition_root.py",
             "project/core/lifecycle.py",
             "docs/architecture_rules.json",

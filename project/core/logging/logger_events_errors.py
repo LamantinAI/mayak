@@ -23,7 +23,7 @@ class SemanticLoggerIssueEventsMixin:
     # format-trace` counted them among a trace's errors, and an operator grepping ERROR met a
     # client's typo. WARNING keeps them visible without claiming the service broke, and the
     # `client_error.` prefix is what a reader filters on. ERROR stays for the failures that are
-    # this application's own, which is what CLAUDE.md already promised about `client_error`.
+    # this application's own, which is what `docs/tracing.md` promises about `client_error`.
     def log_client_error(
         self: SemanticLoggerEventContract,
         error_type: str,

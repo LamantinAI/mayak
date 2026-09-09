@@ -263,7 +263,7 @@ _GATE_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
             "ai_query, alembic, or a test suite — tests/functional, tests/application, "
             "tests/infrastructure, tests/integration and tests/conftest.py are all in scope."
         ),
-        "read_first": ["pyproject.toml", "CLAUDE.md"],
+        "read_first": ["pyproject.toml", "AGENTS.md"],
         "smallest_command_to_rerun": "make gate-types",
         "likely_fix_shape": (
             "Fix the annotation or the call the error names. The test suites are in scope on "
@@ -293,7 +293,7 @@ _GATE_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
             "The local suites — unit, infrastructure and integration — failed; the code is "
             "broken, not the tooling."
         ),
-        "read_first": ["CLAUDE.md"],
+        "read_first": ["AGENTS.md"],
         "smallest_command_to_rerun": "make test",
         "likely_fix_shape": (
             "Read the first failing assertion and fix the behaviour it names. Re-run the single "
@@ -788,7 +788,7 @@ def diagnose() -> dict[str, object]:
         blocking_layer="agent_docs_drift",
         command=("scripts/sync_agent_docs.py", "--check"),
         rule_id="drift.agent_docs.outdated",
-        target="CLAUDE.md",
+        target="AGENTS.md",
     )
     if drift_check is not None:
         return drift_check

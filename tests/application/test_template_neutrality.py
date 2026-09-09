@@ -79,8 +79,8 @@ def _files_containing(paths: list[Path], terms: tuple[str, ...]) -> list[str]:
 PROJECT_MAP_HEADING = "# Project Map"
 
 # ATTRIBUTE: CONTRACT_HEADING (str)
-# SUMMARY: The only heading the always-loaded wrapper may carry. It names the kernel's contract, not a domain.
-CONTRACT_HEADING = "# CLAUDE.md"
+# SUMMARY: The only heading the always-loaded contract may carry. It names the kernel's contract, not a domain.
+CONTRACT_HEADING = "# AGENTS.md"
 
 
 # FUNCTION: _working_copy_files
@@ -243,12 +243,13 @@ class TestProjectMapHeading:
 class TestKernelSurfacesCarryNoProjectName:
     # FUNCTION: test_the_operational_contract_heading_is_generic
     # SUMMARY: Verify the always-loaded wrapper opens with a heading no rename can invalidate.
-    # **LOGIC_STEP**: This used to read ARCHITECTURE.md, which was folded into the wrapper. The
-    # claim is unchanged — the first thing an agent reads must not carry a project name — only
-    # the file that carries it moved.
+    # **LOGIC_STEP**: This used to read ARCHITECTURE.md, then CLAUDE.md. The claim is unchanged —
+    # the first thing an agent reads must not carry a project name — only the file that carries it
+    # moved, and it now moved again: CLAUDE.md opens with a comment and imports AGENTS.md, so
+    # AGENTS.md is where the heading an agent actually loads lives.
     @pytest.mark.unit
     def test_the_operational_contract_heading_is_generic(self) -> None:
-        first_line = (_REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8").splitlines()[0].strip()
+        first_line = (_REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8").splitlines()[0].strip()
 
         assert first_line == CONTRACT_HEADING
 

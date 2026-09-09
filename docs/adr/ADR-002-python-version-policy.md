@@ -9,7 +9,7 @@ compatibility lane was removed with it.
 
 The supported floor is `requires-python` in `pyproject.toml`. The local toolchain is
 `.python-version`. `mypy` targets the floor, never the local toolchain. None of those numbers is
-repeated in prose anywhere — `CLAUDE.md` and `docs/architecture_rules.json` render them from the
+repeated in prose anywhere — `AGENTS.md` and `docs/architecture_rules.json` render them from the
 two files, and this document deliberately names neither.
 
 While the two numbers are equal, the template ships **no** compatibility lane: a job that re-runs

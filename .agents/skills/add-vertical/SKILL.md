@@ -3,7 +3,7 @@ name: add-vertical
 description: Use this skill when adding a new feature vertical to this template — a domain aggregate with its port, repository, application service, DTOs, endpoint, and tests. Trigger it for requests like "add an endpoint", "add a new entity", "build the X feature", or "wire up a new service".
 triggers: [vertical, endpoint, feature, aggregate, entity, wire]
 minimal_read_set:
-  - CLAUDE.md
+  - AGENTS.md
   - project/application/reference_task_service.py
   - project/core/service_registration.py
 validation_command: make quality-gates

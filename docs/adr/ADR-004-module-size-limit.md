@@ -15,7 +15,7 @@ Mayak is designed for LLM-first maintenance. Oversized modules degrade search, r
 ## Operationalization
 
 - `scripts/validate_module_sizes.py`
-- `CLAUDE.md`
+- `AGENTS.md`
 
 ## Consequences
 

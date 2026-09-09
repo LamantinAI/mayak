@@ -2,7 +2,7 @@
 
 The service logs semantic NDJSON with trace trees. This is the reference for reading one — what a
 span name means, which log level a given outcome gets, and how to tell a routine rejection from a
-real crash. `CLAUDE.md` points here and states only the one command an agent reaches for at the
+real crash. `AGENTS.md` points here and states only the one command an agent reaches for at the
 keyboard: `make format-trace ARGS="<logfile>"` (a local file) or `make logs` (a running container).
 
 ## Rendering a trace

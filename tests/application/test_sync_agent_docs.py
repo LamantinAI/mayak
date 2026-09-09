@@ -11,9 +11,9 @@ from scripts.sync_agent_docs import (
     AGENTS_PATH,
     CLAUDE_PATH,
     DROPPED_SECTION_RULE_ID,
+    IMPORT_LINE,
     ROOT_DIR,
     DroppedSectionError,
-    WRAPPER_READERS,
     build_documents,
     dropped_section_headings,
     main,
@@ -24,6 +24,16 @@ from scripts.sync_agent_docs import (
 # ATTRIBUTE: _REPO_ROOT (Path)
 # SUMMARY: Repository root, for the tests that compare two hand-written documents against each other.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# ATTRIBUTE: _IMPORT_TEXT (str)
+# SUMMARY: The import line as literal text. Written out rather than read from the generator, so a
+# guard cannot agree with a renderer that points the import at the wrong file.
+_IMPORT_TEXT = "@AGENTS.md"
+
+# ATTRIBUTE: _HTML_COMMENT (re.Pattern)
+# SUMMARY: A block HTML comment, which Claude Code strips before the file reaches the model — so
+# what the stub actually contributes to a session is whatever survives this substitution.
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
 # CLASS: tests.application.test_sync_agent_docs.TestCommandReference
@@ -49,17 +59,17 @@ class TestCommandReference:
     # annotations live and cannot drift, so the wrapper points at it instead of duplicating it.
     @pytest.mark.unit
     def test_no_static_command_catalogue_is_rendered(self) -> None:
-        claude_content = build_documents()[CLAUDE_PATH]
+        agents_content = build_documents()[AGENTS_PATH]
 
-        assert "## Common Commands" not in claude_content
-        assert "make help" in claude_content
+        assert "## Common Commands" not in agents_content
+        assert "make help" in agents_content
 
 
 # CLASS: tests.application.test_sync_agent_docs.TestSyncAgentDocs
-# SUMMARY: Verify shared rules are embedded into the generated CLAUDE.md wrapper.
+# SUMMARY: Verify shared rules are embedded into the one generated wrapper, AGENTS.md.
 class TestSyncAgentDocs:
     # FUNCTION: test_build_documents_embeds_shared_rules
-    # SUMMARY: Verify the generated root wrappers include the shared rules body and generation notice.
+    # SUMMARY: Verify the generated contract includes the shared rules body and generation notice.
     @pytest.mark.unit
     def test_build_documents_embeds_shared_rules(
         self,
@@ -76,17 +86,17 @@ class TestSyncAgentDocs:
         documents = build_documents()
 
         assert len(documents) == 2
-        claude_content = documents[CLAUDE_PATH]
-        assert "Generated from `docs/agent_rules.md`" in claude_content
-        assert "## Quick Start" in claude_content
-        assert "make help" in claude_content
-        assert "## Tech Stack" in claude_content
+        agents_content = documents[AGENTS_PATH]
+        assert "Generated from `docs/agent_rules.md`" in agents_content
+        assert "## Quick Start" in agents_content
+        assert "make help" in agents_content
+        assert "## Tech Stack" in agents_content
         # **LOGIC_STEP**: An "Architecture Reference" section used to sit here, pointing at
         # ARCHITECTURE.md. That file was folded into docs/agent_rules.md, so the wrapper must now
         # carry the contract rather than a pointer to a second document.
-        assert "## Architecture Reference" not in claude_content
-        assert "ARCHITECTURE.md" not in claude_content
-        assert "- keep tests updated" in claude_content
+        assert "## Architecture Reference" not in agents_content
+        assert "ARCHITECTURE.md" not in agents_content
+        assert "- keep tests updated" in agents_content
 
     # FUNCTION: test_additional_sections_reach_the_wrapper
     # SUMMARY: Regression guard: dropping an unrecognized section from the shared source silently
@@ -107,12 +117,12 @@ class TestSyncAgentDocs:
         )
         monkeypatch.setattr("scripts.sync_agent_docs.SHARED_RULES_PATH", shared_rules)
 
-        claude_content = build_documents()[CLAUDE_PATH]
+        agents_content = build_documents()[AGENTS_PATH]
 
-        assert "## Code versus memory" in claude_content
-        assert "- put the why in memory, the what in the code" in claude_content
-        assert "## Validator authoring conventions" in claude_content
-        assert "- define stable rule_id constants" in claude_content
+        assert "## Code versus memory" in agents_content
+        assert "- put the why in memory, the what in the code" in agents_content
+        assert "## Validator authoring conventions" in agents_content
+        assert "- define stable rule_id constants" in agents_content
 
     # FUNCTION: test_the_quick_start_comes_from_the_shared_source
     # SUMMARY: Regression guard: the Quick Start was a literal in the generator, so the one
@@ -137,14 +147,14 @@ class TestSyncAgentDocs:
         )
         monkeypatch.setattr("scripts.sync_agent_docs.SHARED_RULES_PATH", shared_rules)
 
-        claude_content = build_documents()[CLAUDE_PATH]
+        agents_content = build_documents()[AGENTS_PATH]
 
-        assert "- Copy the `invoice` vertical, all four files of it." in claude_content
-        assert "reference_task" not in claude_content.split("## Working Notes", 1)[0]
+        assert "- Copy the `invoice` vertical, all four files of it." in agents_content
+        assert "reference_task" not in agents_content.split("## Working Notes", 1)[0]
         # **LOGIC_STEP**: Once, not twice. "Start here" sits in _SECTIONS_RENDERED_SEPARATELY, and
         # the day it was excluded from the generic pass nothing else rendered it — the section
         # reached no wrapper at all while the tuple claimed someone else was handling it.
-        assert claude_content.count("- Copy the `invoice` vertical") == 1
+        assert agents_content.count("- Copy the `invoice` vertical") == 1
 
     # FUNCTION: test_the_quick_start_states_the_file_count_the_skill_states
     # SUMMARY: One number, two documents: the vertical's file count must not drift between them.
@@ -183,10 +193,10 @@ class TestSyncAgentDocs:
         )
         monkeypatch.setattr("scripts.sync_agent_docs.SHARED_RULES_PATH", shared_rules)
 
-        claude_content = build_documents()[CLAUDE_PATH]
+        agents_content = build_documents()[AGENTS_PATH]
 
-        assert claude_content.count("- keep tests updated") == 1
-        assert claude_content.count("- branch before you edit") == 1
+        assert agents_content.count("- keep tests updated") == 1
+        assert agents_content.count("- branch before you edit") == 1
 
     # FUNCTION: test_wrapper_states_one_final_command
     # SUMMARY: Regression guard: a hardcoded "Finish with" line appended below one already carried
@@ -205,9 +215,9 @@ class TestSyncAgentDocs:
         )
         monkeypatch.setattr("scripts.sync_agent_docs.SHARED_RULES_PATH", shared_rules)
 
-        claude_content = build_documents()[CLAUDE_PATH]
+        agents_content = build_documents()[AGENTS_PATH]
 
-        assert claude_content.count("Finish with") == 1
+        assert agents_content.count("Finish with") == 1
 
     # FUNCTION: test_main_check_json_reports_structured_drift_issue
     # SUMMARY: Verify JSON check mode emits stable remediation metadata when a generated wrapper is missing.
@@ -370,7 +380,7 @@ class TestUnparsedHeadingIsRefused:
 
 
 # CLASS: tests.application.test_sync_agent_docs.TestBothWrappersStayReadable
-# SUMMARY: Verify each generated wrapper still fits what the agent reading it will load.
+# SUMMARY: Verify each generated file still delivers what the agent reading it will load.
 class TestBothWrappersStayReadable:
     # FUNCTION: test_agents_md_fits_the_codex_budget
     # SUMMARY: Verify AGENTS.md stays under the size Codex reads by default.
@@ -388,24 +398,69 @@ class TestBothWrappersStayReadable:
             f"AGENTS.md is {size} bytes; Codex reads only the first {codex_default_budget}"
         )
 
-    # FUNCTION: test_the_two_wrappers_differ_only_where_they_must
-    # SUMMARY: Verify one source really produces one contract, not two that drift.
-    # **LOGIC_STEP**: The bodies are rendered from the same string, so any difference beyond the
-    # file's own name is a bug in the renderer rather than a deliberate per-agent rule. Comparing
-    # them with the names folded away is what makes that provable instead of assumed. The reader is
-    # folded before the file name because one reader string contains the other file's name.
+    # FUNCTION: test_claude_md_carries_nothing_but_the_import
+    # SUMMARY: Verify the stub adds no rule of its own, so no rule can reach one agent and not the other.
+    # **LOGIC_STEP**: This replaces the check that compared two rendered bodies for equality. There
+    # is one body now, so the drift it guarded against can only re-enter one way: a rule written
+    # into CLAUDE.md below the import. Claude Code would read it and Codex never would. Strip what
+    # Claude Code strips — the block comment — take the import out, and nothing may remain.
     @pytest.mark.unit
-    def test_the_two_wrappers_differ_only_where_they_must(self) -> None:
+    def test_claude_md_carries_nothing_but_the_import(self) -> None:
+        stub = build_documents()[CLAUDE_PATH]
+
+        remainder = _HTML_COMMENT.sub("", stub).replace(_IMPORT_TEXT, "", 1).strip()
+
+        assert remainder == "", (
+            f"CLAUDE.md carries {remainder!r} beyond its import; a rule written there reaches "
+            "Claude Code and never reaches Codex. It belongs in docs/agent_rules.md."
+        )
+
+    # FUNCTION: test_the_import_is_a_bare_unindented_line
+    # SUMMARY: Verify the import is an import — quoted or indented it is prose, and the session loads no rules at all.
+    # **LOGIC_STEP**: Claude Code skips `@` references inside code spans and fenced blocks, by
+    # design, and four spaces of indentation make a block of the line just as surely as a fence
+    # does — measured against the CLI, an indented import expands to nothing. So a well-meant edit
+    # that quotes the line for readability, or indents it under a bullet, silently empties the
+    # contract for every Claude session with every gate still green. This is the single point of
+    # failure the whole arrangement rests on. The comparison is against the literal text and the
+    # unstripped line: an earlier version read the renderer's own constant and stripped each line,
+    # and passed on both `@CLAUDE.md` and a four-space indent.
+    @pytest.mark.unit
+    def test_the_import_is_a_bare_unindented_line(self) -> None:
+        body = _HTML_COMMENT.sub("", build_documents()[CLAUDE_PATH])
+
+        assert _IMPORT_TEXT in body.splitlines()
+        assert f"`{_IMPORT_TEXT}`" not in body
+        assert "```" not in body
+
+    # FUNCTION: test_the_import_names_the_file_that_carries_the_rules
+    # SUMMARY: Pin the import target as literal text, since the two guards above read what the same constant produced.
+    # **LOGIC_STEP**: Both guards above compare the rendered stub against `_IMPORT_TEXT`. That is
+    # only worth anything if `_IMPORT_TEXT` is the name the rules actually live under: pointing
+    # `IMPORT_LINE` at CLAUDE.md itself would make the stub import itself, and every check that
+    # reads the renderer's own constant would still agree with it.
+    @pytest.mark.unit
+    def test_the_import_names_the_file_that_carries_the_rules(self) -> None:
+        assert IMPORT_LINE == _IMPORT_TEXT
+        assert AGENTS_PATH.name in _IMPORT_TEXT
+        assert AGENTS_PATH.exists()
+
+    # FUNCTION: test_the_rules_body_is_rendered_once
+    # SUMMARY: Verify a rule from the shared source reaches AGENTS.md and only AGENTS.md.
+    @pytest.mark.unit
+    def test_the_rules_body_is_rendered_once(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        shared_rules = tmp_path / "agent_rules.md"
+        shared_rules.write_text(
+            "# Shared Agent Wrapper Source\n\nWorking notes:\n- the one rule\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("scripts.sync_agent_docs.SHARED_RULES_PATH", shared_rules)
+
         documents = build_documents()
 
-        def fold(text: str) -> str:
-            # **LOGIC_STEP**: Every wrapper name, not just this file's own — a future section could
-            # name the sibling wrapper, and folding only one side would then report a difference
-            # that is really the same sentence in both files.
-            for path, reader in WRAPPER_READERS.items():
-                text = text.replace(reader, "READER").replace(path.name, "WRAPPER")
-            return text
-
-        folded = [fold(content) for content in documents.values()]
-
-        assert folded[0] == folded[1]
+        carrying = [path for path, text in documents.items() if "- the one rule" in text]
+        assert carrying == [AGENTS_PATH]

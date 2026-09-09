@@ -16,7 +16,7 @@ Most template work is about wiring, orchestration, and contracts, not live-provi
 
 - `project/core/config_settings_agent.py`
 - `README.md`
-- `CLAUDE.md`
+- `AGENTS.md`
 
 ## What mock mode does with tools (2026-08-13, revised 2026-09-08)
 

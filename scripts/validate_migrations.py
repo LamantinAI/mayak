@@ -148,7 +148,7 @@ _MIGRATIONS_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
         ),
         "read_first": [
             ".env",
-            "CLAUDE.md",
+            "AGENTS.md",
         ],
         "smallest_command_to_rerun": "uv run python scripts/validate_migrations.py",
         "likely_fix_shape": "No change expected; flip POSTGRES_ENABLED only if the project really uses a database.",

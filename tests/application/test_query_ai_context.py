@@ -47,7 +47,7 @@ class TestQueryAIContext:
         result = _query_bootstrap()
         payload: dict[str, Any] = result.payload
 
-        assert payload["read_first"][0] == "CLAUDE.md"
+        assert payload["read_first"][0] == "AGENTS.md"
         assert "docs/architecture_rules.json" in payload["read_first"]
         assert "uv run python scripts/query_ai_context.py overview" in payload["read_first"]
         assert payload["task_shortcuts"] == [
@@ -90,7 +90,7 @@ class TestQueryAIContext:
             "project/infrastructure/api/dependencies.py"
         )
         assert "project/core/logging/" in payload["cold_paths"]
-        assert "CLAUDE.md" in payload["read_last_paths"]
+        assert "AGENTS.md" in payload["read_last_paths"]
         assert (
             "failure rule endpoint.no_depends_without_alias"
             in payload["query_cli"]["supported_queries"]
@@ -277,7 +277,7 @@ class TestQueryAIContext:
         assert payload["regeneration"]["decision"] == "refresh-ai-context"
         assert "uv run python scripts/validate_endpoint_wiring.py" in payload["required_validators"]
         assert payload["recommended_diff_style"] == "minimal-diff"
-        assert payload["read_first"][0] == "CLAUDE.md"
+        assert payload["read_first"][0] == "AGENTS.md"
 
     # FUNCTION: test_query_workset_diff_recommends_e2e_for_a_persistence_change
     # SUMMARY: Verify final_gate adds `make test-e2e` when the diff touches persistence.
@@ -472,7 +472,7 @@ class TestQueryAIContext:
         assert payload["status"] == "empty"
         assert payload["changed_files"] == []
         assert payload["deleted_files"] == []
-        assert payload["read_first"] == ["CLAUDE.md"]
+        assert payload["read_first"] == ["AGENTS.md"]
 
     # FUNCTION: test_query_workset_diff_reports_git_repository_errors
     # SUMMARY: Verify workset diff queries surface a high-signal fallback message when git diff resolution is unavailable.
@@ -995,3 +995,29 @@ class TestEveryFileOfAVerticalFindsThatVerticalsTests:
         assert "triage" in names, (
             f"project/triage/{filename} did not strip to 'triage' — got {names}"
         )
+
+
+# CLASS: tests.application.test_query_ai_context.TestEditingTheContractSourceNamesBothWrappers
+# SUMMARY: Verify an edit to the shared rules source is told about both generated wrappers, not one.
+# NOTE: One command rewrites CLAUDE.md and AGENTS.md together, but both answers named only
+# CLAUDE.md. An agent that edited docs/agent_rules.md was therefore told its edit regenerated one
+# file, and a stale AGENTS.md — the file Codex reads and the one Claude Code now imports — was
+# invisible to `workset`. Nothing was red, because nothing compared the answer to the Makefile's
+# list. This states the pair by hand.
+class TestEditingTheContractSourceNamesBothWrappers:
+    # FUNCTION: test_editing_the_shared_source_regenerates_both_wrappers
+    # SUMMARY: Verify generated_artifacts_for_paths names AGENTS.md and CLAUDE.md for a source edit.
+    @pytest.mark.unit
+    @pytest.mark.parametrize("edited", ["docs/agent_rules.md", "scripts/sync_agent_docs.py"])
+    def test_editing_the_shared_source_regenerates_both_wrappers(self, edited: str) -> None:
+        artifacts = query_common.generated_artifacts_for_paths([edited])
+
+        assert "AGENTS.md" in artifacts
+        assert "CLAUDE.md" in artifacts
+
+    # FUNCTION: test_a_stale_wrapper_of_either_name_asks_for_the_same_command
+    # SUMMARY: Verify either wrapper, named as changed, routes to `make refresh-agent-docs`.
+    @pytest.mark.unit
+    @pytest.mark.parametrize("edited", ["AGENTS.md", "CLAUDE.md"])
+    def test_a_stale_wrapper_of_either_name_asks_for_the_same_command(self, edited: str) -> None:
+        assert "make refresh-agent-docs" in query_common.regeneration_targets_for_paths([edited])

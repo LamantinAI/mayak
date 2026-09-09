@@ -16,7 +16,7 @@ class TestAIQueryRouter:
 
         assert result.kind == "bootstrap"
         payload: dict[str, Any] = result.payload
-        assert payload["read_first"][0] == "CLAUDE.md"
+        assert payload["read_first"][0] == "AGENTS.md"
 
     @pytest.mark.unit
     def test_resolve_query_dispatches_failure_rule(self) -> None:

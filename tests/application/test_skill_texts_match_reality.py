@@ -585,9 +585,11 @@ class TestTheMemoryTagStaysGone:
 
 # ATTRIBUTE: _AGENT_FACING_DOCUMENTS (tuple[Path, ...])
 # SUMMARY: Every document an agent is told to read before it runs a command.
+# **LOGIC_STEP**: CLAUDE.md is not listed. It is an import stub with no prose of its own, so
+# scanning it would name no target and quietly contribute nothing; the contract it delivers is
+# AGENTS.md, which is scanned.
 _AGENT_FACING_DOCUMENTS: tuple[Path, ...] = (
     _REPO_ROOT / "README.md",
-    _REPO_ROOT / "CLAUDE.md",
     _REPO_ROOT / "AGENTS.md",
     _REPO_ROOT / "docs" / "agent_rules.md",
     _ADD_VERTICAL,
