@@ -511,8 +511,7 @@ class TestExtendedCheckedLayers:
 # SUMMARY: Verify the doctor can name a blocking layer for every step `make quality-gates` runs.
 # NOTE: The doctor answered "doctor status: ok" on a red suite, twice, on two different failures.
 # It modelled 14 of the 23 steps and the nine it missed included the test run, mypy and ruff —
-# while ARCHITECTURE.md and the rendered contract both say to run it first to find the blocking
-# layer.
+# while the rendered contract says to run it first to find the blocking layer.
 class TestGateLayersAreModelled:
     # FUNCTION: _quality_gate_steps
     # SUMMARY: Read the commands `quality-gates` runs straight out of the Makefile.
