@@ -28,8 +28,7 @@ _LOGGING_PACKAGE = Path(__file__).resolve().parents[2] / "project" / "core" / "l
 # NOTE: The parametrised test below takes its cases from REDACT_KEYS itself, so deleting
 # "password" from the set also deletes the case that would have noticed: the suite went from ten
 # cases to nine, stayed green, and `safe_serialize({"password": "hunter2"})` returned the password
-# in clear. Measured on 2026-09-02 — the comment on that test had claimed the opposite since the
-# first commit. Only a copy that does not move with the set can see the set shrink; this is the
+# in clear. Only a copy that does not move with the set can see the set shrink; this is the
 # same reason `test.sql_constant_round_trip` demands a clause pinned as text. Removing a key
 # means editing this tuple in the same change, which is the point.
 _REDACTED_KEY_NAMES = (
@@ -137,7 +136,7 @@ class TestSerialization:
         # **LOGIC_STEP**: Every other test in this class spells its keys in lower case, so the
         # `.lower().replace("-", "_")` in _redact_key had no test at all: removing it left 49
         # tests green while `Authorization` — the spelling every header arrives in — went
-        # through in clear. Found by a reviewer's mutation on 2026-09-02.
+        # through in clear.
         serialized = safe_serialize({key: "leaked-value"})
 
         assert serialized[key] == "***REDACTED***"

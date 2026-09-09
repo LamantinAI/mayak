@@ -215,8 +215,8 @@ def _top_level_imports(tree: ast.AST) -> list[tuple[str, int]]:
             if node.level == 0 and node.module:
                 found.append((node.module.split(".")[0], node.lineno))
     # **LOGIC_STEP**: A module pulled in by importlib.import_module("x") is as undeclared as one
-    # pulled in by `import x`, and until 2026-09-02 only the second was checked — so the dynamic
-    # spelling imported a transitively-installed distribution with this gate green.
+    # pulled in by `import x`; checking only the written form lets the dynamic spelling import a
+    # transitively-installed distribution with this gate green.
     # ai_context/dynamic_imports.py owns which call shapes count and why.
     found.extend((target.split(".")[0], line) for target, line in dynamic_import_targets(tree))
     return found

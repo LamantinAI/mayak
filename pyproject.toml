@@ -82,8 +82,8 @@ select = [
     # zero findings on the current kernel, so nothing existing needs fixing.
     #
     # Named one by one rather than selecting the whole ASYNC family, so that adding a code is a
-    # decision someone made rather than a family that grew. ASYNC240 was excluded until 2026-08-24
-    # for a concrete reason that no longer exists: it fired on
+    # decision someone made rather than a family that grew. ASYNC240 was excluded for a concrete
+    # reason that no longer exists: it fired on
     # project/infrastructure/api/middleware.py, where a microsecond Path().stat() sized a
     # FileResponse and would have had to become anyio.Path to satisfy the rule. That middleware is
     # pure ASGI now and reads Content-Length off the response headers instead, so there is no

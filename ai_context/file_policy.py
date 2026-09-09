@@ -411,10 +411,8 @@ FILE_POLICY_INDEX: dict[str, dict[str, object]] = {
         ),
         "layer": "tooling",
         # **LOGIC_STEP**: Empty on purpose. This field is matched by name against the task keys in
-        # docs/ai_change_map.json, and it used to name `add_validator_layer` and
-        # `extend_drift_check`, neither of which exists there — so `before-edit file` advertised
-        # task guidance and returned `task_guidance: []`. No real key covers the validator layer
-        # today; an invented name reads as guidance and delivers nothing, an empty list is honest.
+        # docs/ai_change_map.json, and no real key covers the validator layer today. An invented
+        # name reads as guidance and delivers nothing — an empty list is honest.
         "common_tasks": [],
         "kernel_or_reference": "template_kernel",
         "classification_reason": (

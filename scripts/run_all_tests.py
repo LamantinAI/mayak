@@ -112,12 +112,12 @@ def _build_test_steps(
                     "tests/integration",
                     "-q",
                     # **LOGIC_STEP**: The floor is asked for here rather than in pytest.ini's
-                    # addopts, where it used to live. addopts reach every pytest invocation, so
-                    # `uv run pytest tests/one_file.py` measured the whole of project/ against a
-                    # suite that ran three tests and exited red on total coverage while every test
-                    # it ran passed. An agent that meets that twice learns to read red as noise,
-                    # which is the opposite of what a floor is for. Only the full run can honestly
-                    # be held to a total, and this is the full run.
+                    # addopts. addopts reach every pytest invocation, so `uv run pytest
+                    # tests/one_file.py` would measure the whole of project/ against a suite that
+                    # ran three tests and exit red on total coverage while every test it ran
+                    # passed. An agent that meets that twice learns to read red as noise, which is
+                    # the opposite of what a floor is for. Only the full run can honestly be held
+                    # to a total, and this is the full run.
                     f"--cov-fail-under={COVERAGE_FLOOR_PERCENT}",
                 ),
                 cwd=ROOT_DIR,

@@ -141,7 +141,7 @@ def looks_like_a_service_registry(node: ast.Dict) -> bool:
 def returned_registry_dicts(tree: ast.AST) -> list[ast.Dict]:
     # Read what each function RETURNS, one function at a time. `services = {...}` is the kernel's
     # own spelling, not a rule the language enforces, so a builder returning the literal inline or
-    # binding it to another name is equally legal — and used to extract to nothing.
+    # binding it to another name is equally legal.
     # Per function, not per module: two builders in one file may both call their local mapping
     # `registry`, and a single file-wide name -> literal map would let the second silently answer
     # for the first.

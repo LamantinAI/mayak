@@ -19,12 +19,12 @@ from ai_context.validator_contract import build_validator_issue_payload
 # a project with two verticals, every domain import in existence was `__future__`, `dataclasses`,
 # `datetime`, `typing`, `uuid`, or another `project.domain` module — 21 imports, six roots.
 #
-# It used to be a blacklist naming `langchain`, `fastapi`, `sqlalchemy`, `openai` and six more, and
-# on 2026-08-12 that list was measured to miss the one import a vertical author would actually
-# write. `_matches_prefix` compares exactly or on `prefix + "."`, so `langchain_core` — imported on
-# eight lines across five modules under `project/`, thirteen counting the tests
-# (`git grep -c 'from langchain_core'`) — did not match `langchain`, and neither did
-# `langchain_openai`. A domain module importing either passed lint, mypy and this validator.
+# A blacklist naming individual libraries — `langchain`, `fastapi`, `sqlalchemy`, `openai` and
+# whatever else comes to mind — reliably misses the one import a vertical author actually writes.
+# `_matches_prefix` compares exactly or on `prefix + "."`, so `langchain_core` — imported on eight
+# lines across five modules under `project/`, thirteen counting the tests
+# (`git grep -c 'from langchain_core'`) — does not match a `langchain` entry, and neither does
+# `langchain_openai`. A domain module importing either passes lint, mypy and this validator.
 #
 # The failure is structural, not a typo: a blacklist bans what somebody remembered, in the spelling
 # they remembered it in, and every library released after it was written is allowed by default. An
@@ -137,8 +137,7 @@ _ARCHITECTURE_RULE_PLAYBOOKS = {
             "A domain module imported something outside its allowlist. The domain may import the "
             "Python standard library and project.domain, and nothing else — the rule is a "
             "whitelist rather than a list of banned libraries, so anything nobody thought to ban "
-            "is rejected too. This rule was a blacklist until 2026-08-12, when `langchain_core` "
-            "was measured to slip past a ban written as `langchain`."
+            "is rejected too."
         ),
         "suggested_fix": (
             "Keep domain modules framework-free by moving external concerns into "
@@ -493,10 +492,10 @@ def validate_python_source(path: Path, repo_root: Path) -> list[ArchitectureIssu
         ]
     issues: list[ArchitectureIssue] = []
 
-    # **LOGIC_STEP**: Written imports and called ones are checked the same way. Until 2026-09-02
-    # only the first kind was collected, so `importlib.import_module("psycopg")` in a domain module
-    # passed the whole gate — see ai_context/dynamic_imports.py for the measurement, for why the
-    # call's names are resolved against this file's own imports, and for what still escapes.
+    # **LOGIC_STEP**: Written imports and called ones are checked the same way, so an
+    # `importlib.import_module("psycopg")` call in a domain module is caught as surely as a written
+    # import is. Collecting only the written kind left the call free of every gate. See ai_context/dynamic_imports.py for the measurement, for why the call's
+    # names are resolved against this file's own imports, and for what still escapes.
     imported: list[tuple[str, int]] = []
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):

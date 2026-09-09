@@ -1,11 +1,10 @@
 # FILE: project/core/logging/trace_formatter.py
 # SUMMARY: NDJSON-to-text tree transformer for LLM-friendly trace visualization.
-# NOTE: The parsing side — SpanNode, LeafEvent, _parse_events, _build_tree — moved to
-# project.core.logging.trace_tree on 2026-09-08 to stay under scripts/validate_module_sizes.py's
-# per-module budget; see that module's own header for why. Nothing downstream of this file's public
-# functions changed, and every name below is re-exported at the same spot it used to be defined so
-# an existing `from project.core.logging.trace_formatter import SpanNode` (or `_build_tree`, for a
-# test reaching past the public API) keeps working.
+# NOTE: The parsing side — SpanNode, LeafEvent, _parse_events, _build_tree — lives in
+# project.core.logging.trace_tree, split out to stay under scripts/validate_module_sizes.py's
+# per-module budget; see that module's own header for why. Every name below is re-exported at
+# the same spot so an existing `from project.core.logging.trace_formatter import SpanNode` (or
+# `_build_tree`, for a test reaching past the public API) keeps working.
 
 from __future__ import annotations
 
@@ -455,8 +454,8 @@ def _cli() -> None:
 
     # **LOGIC_STEP**: Distinguish "nothing matched" from "nothing was NDJSON at all". Piping
     # `docker compose logs` without --no-log-prefix feeds every line through prefixed with the
-    # service name; the parser then skips all of them and the old code printed a bare
-    # "(no events found)", which reads as "the service logged nothing".
+    # service name; the parser then skips all of them, and a bare "(no events found)" would read
+    # as "the service logged nothing" instead of naming the actual cause.
     if lines and not any(line.lstrip().startswith("{") for line in lines):
         print(
             f"(no NDJSON found in {len(lines)} input line(s) — every line was skipped. "

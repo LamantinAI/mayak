@@ -97,8 +97,8 @@ class TestQueryAIContext:
         )
         assert "add_endpoint" in payload["task_names"]
         assert "runtime_enforced" in payload["layers"]["domain"]
-        # **LOGIC_STEP**: The domain's declared dependencies became a real gate on 2026-08-12, so
-        # this layer reports runtime_enforced where every other layer still reports guidance. The
+        # **LOGIC_STEP**: The domain's declared dependencies are a real gate, so this layer
+        # reports runtime_enforced where every other layer still reports guidance. The
         # application layer is asserted alongside it to keep the contrast visible.
         assert (
             payload["layers"]["domain"]["not_enforced_in_validator"]["rule_strength"]
@@ -207,7 +207,7 @@ class TestQueryAIContext:
             _query_before_edit("/tmp/does-not-exist.py")
 
     # FUNCTION: test_query_before_edit_unknown_path_message_lists_next_actions
-    # SUMMARY: Verify the unknown-path KeyError carries actionable next-action guidance for the agent (P1 from 2026-05-12 evolution report).
+    # SUMMARY: Verify the unknown-path KeyError carries actionable next-action guidance for the agent.
     @pytest.mark.unit
     def test_query_before_edit_unknown_path_message_lists_next_actions(self) -> None:
         # **LOGIC_STEP**: The error message must name both remediation surfaces (FILE_POLICY_INDEX and EDIT_ZONES) and signpost a Next actions section so the agent does not need to read source to decide what to do.
@@ -238,9 +238,6 @@ class TestQueryAIContext:
 
     # FUNCTION: test_query_workset_diff_aggregates_zones_tasks_validators_and_regeneration
     # SUMMARY: Verify a workset payload carries the aggregation an agent acts on, not only the file list.
-    # NOTE: This used to go through `workset files <paths>`, a second way to reach the same handler
-    # that was removed on 2026-08-14 after three months of measurement: 11 calls against 50 for
-    # `workset diff`, and nothing it could answer that `diff` or `before-edit file` could not.
     @pytest.mark.unit
     def test_query_workset_diff_aggregates_zones_tasks_validators_and_regeneration(
         self,
@@ -321,10 +318,9 @@ class TestQueryAIContext:
 
     # FUNCTION: test_before_edit_on_a_persistence_file_recommends_e2e_too
     # SUMMARY: Verify the per-file answer names the same final gate `workset diff` does.
-    # NOTE: `workset diff` learned this on 2026-09-08 and `before-edit file` did not — its payload
-    # kept a hardcoded ["make quality-gates"], and it is the more misleading of the two: it is
-    # asked about one file, usually immediately before that file is edited. Found by an independent
-    # review of this branch.
+    # NOTE: `before-edit file`'s payload kept a hardcoded ["make quality-gates"], out of sync with
+    # `workset diff` — the more misleading gap of the two: it is asked about one file, usually
+    # immediately before that file is edited.
     @pytest.mark.unit
     def test_before_edit_on_a_persistence_file_recommends_e2e_too(self) -> None:
         context_map, _change_map, _rules = query_common.context_bundle()
@@ -341,9 +337,7 @@ class TestQueryAIContext:
     # SUMMARY: Verify a revision under alembic/versions/ also asks for the gate that runs it.
     # NOTE: A migration is the one change `make quality-gates` cannot check at all without a
     # database: with none reachable `scripts/validate_migrations.py` announces the skip and stays
-    # green, and `make test-e2e` is the only local gate that executes the revision. Added after an
-    # independent review of this branch pointed out the prefix list stopped at persistence and
-    # endpoints on 2026-09-08.
+    # green, and `make test-e2e` is the only local gate that executes the revision.
     @pytest.mark.unit
     def test_query_workset_diff_recommends_e2e_for_a_migration(
         self,
@@ -552,10 +546,10 @@ class TestQueryAIContext:
 
     # FUNCTION: test_query_symbol_finds_a_class_by_exact_name
     # SUMMARY: Verify symbol queries locate a class definition without a repo-wide grep.
-    # NOTE: `symbol` did not exist before 2026-09-08 — mapping a name to its file and line meant
-    # falling back to grep, which `before-edit file <path>` and `workset diff` cannot help with
-    # since both key off a file path, not a name. This command is deliberately narrow: an exact
-    # `ast` name match over first-party sources, not a fuzzy or substring search.
+    # NOTE: Mapping a name to its file and line otherwise means falling back to grep, which
+    # `before-edit file <path>` and `workset diff` cannot help with since both key off a file
+    # path, not a name. This command is deliberately narrow: an exact `ast` name match over
+    # first-party sources, not a fuzzy or substring search.
     @pytest.mark.unit
     def test_query_symbol_finds_a_class_by_exact_name(self) -> None:
         result = _query_symbol("AgentSettings")
@@ -584,8 +578,8 @@ class TestQueryAIContext:
     # SUMMARY: Verify a name bound inside a function body is not reported as a field.
     # NOTE: The walk reached every scope, so `symbol result` answered with 75 matches, 24 of them
     # ordinary locals labelled `attribute` — noise, and a different claim than "function, class or
-    # field". Measured by a second independent review on 2026-09-08. A definition is still found
-    # wherever it sits, nested helpers included; only bindings are scoped.
+    # field". A definition is still found wherever it sits, nested helpers included; only bindings
+    # are scoped.
     @pytest.mark.unit
     def test_query_symbol_ignores_a_local_variable(self) -> None:
         payload: dict[str, Any] = _query_symbol("result").payload
@@ -966,7 +960,7 @@ class TestEveryFileOfAVerticalFindsThatVerticalsTests:
                 "project/infrastructure/api/dependencies.py",
                 "tests/application/test_validate_dependencies.py",
             ),
-            ("project/core/config.py", "tests/application/test_validate_project_context.py"),
+            ("project/core/config.py", "tests/application/test_validate_repository_metadata.py"),
         ],
     )
     def test_a_file_named_after_no_vertical_pulls_in_no_verticals_tests(

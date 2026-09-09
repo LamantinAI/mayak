@@ -49,7 +49,9 @@ class TestLLMService:
         assert readiness["provider_reachable"] is None
 
     # FUNCTION: test_call_generates_a_mock_tool_call_whatever_the_prompt_says
-    # SUMMARY: Regression guard: the mock used to require one of five English words in the prompt, so an agentic vertical with a domain vocabulary could not be exercised without a live provider.
+    # SUMMARY: Regression guard: without this, the mock requires one of five English words in the
+    # prompt, so an agentic vertical with a domain vocabulary cannot be exercised without a live
+    # provider.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         "prompt",
@@ -153,7 +155,9 @@ class TestMockToolSelectionIsDeterministic:
 # SUMMARY: Verify one vertical binding tools cannot change what another vertical sees.
 class TestBindingIsPerCaller:
     # FUNCTION: test_a_second_binding_does_not_steal_the_first_ones_tools
-    # SUMMARY: Regression guard: CompositionRoot builds one LLMService for the whole app, and bind_tools used to write into it, so the last vertical to bind replaced every earlier binding with no error.
+    # SUMMARY: Regression guard: CompositionRoot builds one LLMService for the whole app; if
+    # bind_tools wrote into it directly instead of returning a bound copy, the last vertical to
+    # bind would replace every earlier binding with no error.
     @pytest.mark.unit
     async def test_a_second_binding_does_not_steal_the_first_ones_tools(
         self,
@@ -382,10 +386,10 @@ class TestReadinessProbeCaching:
 # SUMMARY: Verify a service built from process-wide settings lands in mock mode, not the live path.
 # NOTE: This is the trap for tests/conftest.py::pin_llm_mode_toggle, and it is the only test here
 # that reads real settings instead of the fixture's. Every other test in this file patches
-# get_settings, so all of them stayed green on 2026-09-08 while an operator's own .env carried
-# AGENT_LLM_MODE=live and any test constructing LLMService() directly built a real provider client.
-# Delete the fixture and this goes red on that machine; it is green everywhere the environment is
-# silent, which is every fresh checkout and CI.
+# get_settings, so all of them stay green while an operator's own .env carries AGENT_LLM_MODE=live
+# and any test constructing LLMService() directly builds a real provider client. Delete the
+# fixture and this goes red on that machine; it is green everywhere the environment is silent,
+# which is every fresh checkout and CI.
 class TestMockModeSurvivesTheOperatorsEnvironment:
     # FUNCTION: test_settings_read_from_the_environment_select_mock_mode
     # SUMMARY: Verify unpatched settings put the service in mock mode.

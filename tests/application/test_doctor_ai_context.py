@@ -13,22 +13,20 @@ import pytest
 from ai_context.errors import ContextBuildError, ContextIssue
 from scripts.doctor_ai_context import (
     LAYER_UNAVAILABLE_RULE_ID,
-    _migrations_not_verified_notice,
-    diagnose,
-    diagnose_full,
-    main,
-    unavailable_validator_payload,
-)
-from scripts.doctor_layers import (
     SECURITY_LAYER,
     LATE_LAYER_NAMES,
     REENTRY_ENV_VAR,
     TESTS_LAYER,
     TOOL_LAYERS,
     ToolLayer,
+    _migrations_not_verified_notice,
+    diagnose,
     diagnose_early_layers,
+    diagnose_full,
     diagnose_tool_layer,
     get_doctor_layer_playbook,
+    main,
+    unavailable_validator_payload,
 )
 from scripts.validate_architecture import ArchitectureIssue
 from scripts.validate_cbm import ValidationIssue
@@ -214,7 +212,8 @@ class TestDoctorAIContext:
         assert payload["issues"][0]["rule_id"] == "endpoint.no_direct_service_import"
 
     # FUNCTION: test_diagnose_reports_cbm_error
-    # SUMMARY: Verify the doctor catches CBM annotation issues and reports a rule_id derived from the message (no longer the legacy literal cbm.strict_core_missing_metadata).
+    # SUMMARY: Verify the doctor catches CBM annotation issues and reports a rule_id derived
+    # from the message.
     @pytest.mark.unit
     def test_diagnose_reports_cbm_error(
         self,
@@ -383,11 +382,7 @@ class TestDoctorAIContext:
         # **LOGIC_STEP**: Stub the layers added by the validator-recovery bundle so the
         # OK path is reachable in this isolated test.
         monkeypatch.setattr(
-            "scripts.doctor_ai_context.collect_skills_frontmatter_issues",
-            lambda _root: [],
-        )
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.collect_project_context_issues",
+            "scripts.doctor_ai_context.collect_repository_metadata_issues",
             lambda _root: [],
         )
         monkeypatch.setattr(
@@ -408,7 +403,7 @@ class TestDoctorAIContext:
         assert payload["status"] == "ok"
         assert "context" in payload["checked_layers"]
         assert "module_size" in payload["checked_layers"]
-        assert "project_context" in payload["checked_layers"]
+        assert "repository_metadata" in payload["checked_layers"]
         assert "file_policy" in payload["checked_layers"]
         assert "agent_docs_drift" in payload["checked_layers"]
         assert payload["final_gate"] == "make quality-gates"
@@ -485,7 +480,7 @@ class TestExtendedCheckedLayers:
         if payload.get("status") == "ok":
             layers = set(payload.get("checked_layers", []))
             assert {
-                "project_context",
+                "repository_metadata",
                 "migrations",
                 "file_policy",
                 "agent_docs_drift",
@@ -500,8 +495,7 @@ class TestExtendedCheckedLayers:
                 "runtime_ownership",
                 "cbm",
                 "module_size",
-                "skills_frontmatter",
-                "project_context",
+                "repository_metadata",
                 "migrations",
                 "file_policy",
                 "agent_docs_drift",
@@ -523,8 +517,8 @@ class TestGateLayersAreModelled:
     # SUMMARY: Read the commands `quality-gates` runs straight out of the Makefile.
     # OUTPUT: (list[str]): One entry per recipe line, sub-make lines resolved to their target name.
     # NOTE: The steps live in `quality-gates-steps`. `quality-gates` itself is two lines — run the
-    # steps, and on failure run the doctor — because the doctor used to hide behind a second target
-    # name that the rules told everyone to prefer over the one they would type by habit.
+    # steps, and on failure run the doctor — so finding the doctor does not depend on a habit of
+    # typing a second target name instead of the one people reach for automatically.
     @staticmethod
     def _quality_gate_steps() -> list[str]:
         makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
@@ -559,10 +553,8 @@ class TestGateLayersAreModelled:
             "$(UV) run python scripts/validate_module_sizes.py": "module_size",
             "$(UV) run python scripts/validate_test_quality.py": "test_quality",
             "$(UV) run python scripts/validate_dependencies.py": "dependencies",
-            "$(UV) run python scripts/validate_skills_frontmatter.py": "skills_frontmatter",
-            "$(UV) run python scripts/validate_project_context.py": "project_context",
+            "$(UV) run python scripts/validate_repository_metadata.py": "repository_metadata",
             "$(UV) run python scripts/validate_file_policy.py": "file_policy",
-            "$(UV) run python scripts/validate_script_paths.py": "script_paths",
             "$(UV) run python scripts/validate_secrets.py": "secrets",
             "$(MAKE) --no-print-directory security-scan": "security",
             "$(UV) run python scripts/structure_builder.py --check": "project_map_drift",
@@ -803,11 +795,12 @@ class TestDoctorSurvivesItsOwnTooling:
 
 # CLASS: tests.application.test_doctor_ai_context.TestDoctorRepeatsTheUnverifiedMigrationNotice
 # SUMMARY: Verify an "ok" doctor run still says when the migration check never reached a database.
-# NOTE: The skip is not an error, so it is filtered out of the blocking set and the doctor used to
-# report a clean run indistinguishable from a verified one. Measured in both projects of the
-# 2026-09-07 duel: a migration that dropped a column instead of renaming it passed every local
-# gate. The notice is read from validate_migrations.py's own issue rather than re-worded, so the
-# sentence is written once — this asserts both halves, that it is carried and that it is that one.
+# NOTE: The skip is not an error, so it is filtered out of the blocking set, and without this
+# notice the doctor reports a clean run indistinguishable from a verified one. Measured in both
+# projects of an independent duel: a migration that dropped a column instead of renaming it
+# passed every local gate. The notice is read from validate_migrations.py's own issue rather than
+# re-worded, so the sentence is written once — this asserts both halves, that it is carried and
+# that it is that one.
 class TestDoctorRepeatsTheUnverifiedMigrationNotice:
     # FUNCTION: test_the_skip_is_pulled_out_of_the_issue_batch
     # SUMMARY: Verify the skip's own message is what the doctor reports.
@@ -862,10 +855,10 @@ class TestDoctorRepeatsTheUnverifiedMigrationNotice:
     # FUNCTION: test_main_prints_the_notice_carried_by_an_ok_payload
     # SUMMARY: Verify the print survives — an "ok" payload holding the notice says so on stdout.
     # NOTE: The two tests above pin `_migrations_not_verified_notice` alone, which an independent
-    # review of this branch pointed out on 2026-09-08 is only a third of the path: deleting the
-    # print in `main()` or the call in `diagnose()` would have left them green and `make doctor`
-    # silent again — the exact silence this change exists to end. This covers the print, and the
-    # test below covers the call.
+    # review of this branch pointed out is only a third of the path: deleting the print in
+    # `main()` or the call in `diagnose()` would have left them green and `make doctor` silent
+    # again — the exact silence this change exists to end. This covers the print, and the test
+    # below covers the call.
     @pytest.mark.unit
     def test_main_prints_the_notice_carried_by_an_ok_payload(
         self,

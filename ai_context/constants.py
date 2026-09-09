@@ -36,9 +36,8 @@ EDIT_ZONES = {
         # tests/application/ — including the functional suite the change protocol now requires.
         "tests/",
         # Prose. Editing a document breaks nothing at runtime, and a reader who asks about one
-        # should be told that rather than met with `Unknown or unindexed file policy path` — the
-        # answer README.md, every ADR and docs/adr/README.md gave until now. The generated files
-        # under docs/ keep their own zone: the longest matching pattern wins.
+        # should be told that rather than met with `Unknown or unindexed file policy path`. The
+        # generated files under docs/ keep their own zone: the longest matching pattern wins.
         "docs/",
         "README.md",
         "LICENSE",
@@ -48,17 +47,14 @@ EDIT_ZONES = {
         "project/infrastructure/api/dependencies.py",
         "project/core/service_registration.py",
         "project/infrastructure/api/router_registration.py",
-        # The three paths a typical vertical touches first. before-edit used to exit 1 with
-        # `Unknown or unindexed file policy path` on all of them, so the guidance channel was
-        # missing exactly where the change protocol sends the agent. Their own evolution reports
-        # named this the largest single source of friction three times running.
+        # The three paths a typical vertical touches first — the guidance channel needs to cover
+        # them because the change protocol sends the agent to them first.
         "project/domain/",
         "project/infrastructure/persistence/",
-        # The whole alembic tree, not only versions/: env.py sits outside it and was unindexed.
+        # The whole alembic tree, not only versions/ — env.py sits outside versions/ too.
         "alembic/",
-        # Deployment surfaces. Unindexed until POSTGRES_ENABLED made them part of an ordinary
-        # change: an agent making the database optional edits all four and would otherwise hit
-        # `Unknown or unindexed file policy path` on every one of them.
+        # Deployment surfaces: an agent making the database optional edits all four, and would
+        # otherwise hit `Unknown or unindexed file policy path` on every one of them.
         "docker-compose.yml",
         "docker-compose.postgres.yml",
         "entrypoint.sh",
@@ -116,10 +112,9 @@ EDIT_ZONES = {
     ],
     "generated_do_not_edit": [
         "CLAUDE.md",
-        # The Codex half of the same generated pair. `make print-generated-paths` has always
-        # listed it and the pre-edit guard has always refused writes to it, but this list named
-        # only its Claude counterpart — so `before-edit AGENTS.md` exited 1 rather than saying
-        # the one thing that matters about the file.
+        # The Codex half of the same generated pair — CLAUDE.md's twin. Listing it here too lets
+        # `before-edit AGENTS.md` say the one thing that matters about the file, instead of
+        # `Unknown or unindexed file policy path`.
         "AGENTS.md",
         "docs/ai_context_map.json",
         "docs/ai_change_map.json",
@@ -160,11 +155,9 @@ QUERY_SHORTCUTS = [
 
 # ATTRIBUTE: QUERY_COMMAND_NAMES (list[str])
 # SUMMARY: Every top-level command scripts/query_ai_context.py accepts, named once.
-# NOTE: Two copies of this list existed, and both had rotted in different directions. The one in
-# scripts/generate_ai_context.py still offered `service`, `dependency`, `route`, `task`, `plan`,
-# `recipe`, `impact`, `tests-for`, `next-checks`, `regenerate-for`, `policy`, `why`, `classify` and
-# `minimal-context` as "temporarily unavailable" — fourteen commands removed long ago — so an agent
-# meeting a degraded context was handed a menu of things that do not exist.
+# NOTE: This is the single source for the command list. A duplicate copy elsewhere can rot
+# silently in the other direction — still naming a command that was removed — and hand an agent
+# meeting a degraded context a menu of things that do not exist.
 QUERY_COMMAND_NAMES = [
     "bootstrap",
     "overview",

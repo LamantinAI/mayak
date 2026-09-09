@@ -1,5 +1,5 @@
 # FILE: test_validator_error_contract.py
-# SUMMARY: Contract test (T4 validator-error-contract) proving every scripts/validate_*.py JSON converter — plus the generate_ai_context.py drift-issue producer — surfaces rule_id, suggested_fix, read_first, next_commands, and stop_widening_condition on every emitted issue. This is the red->green fixation for the audit finding that stop_widening_condition was 0/10 in actual CLI JSON output despite living in every validator's internal rule-playbook dict.
+# SUMMARY: Contract test proving every scripts/validate_*.py JSON converter — plus the generate_ai_context.py drift-issue producer — surfaces rule_id, suggested_fix, read_first, next_commands, and stop_widening_condition on every emitted issue. Measured: stop_widening_condition was 0/10 in actual CLI JSON output despite living in every validator's internal rule-playbook dict.
 
 from __future__ import annotations
 
@@ -21,25 +21,25 @@ from scripts.validate_migrations import _issue_to_payload as _migrations_issue_t
 from scripts.validate_module_sizes import MAX_CODE_LINES
 from scripts.validate_module_sizes import _issue_to_json as _module_size_issue_to_json
 from scripts.validate_module_sizes import collect_module_size_issues
-from scripts.validate_project_context import collect_project_context_issues
-from scripts.validate_project_context import (
-    _issue_to_payload as _project_context_issue_to_payload,
+from scripts.validate_repository_metadata import collect_project_context_issues
+from scripts.validate_repository_metadata import (
+    _project_context_issue_to_payload,
 )
 from scripts.validate_runtime_ownership import collect_runtime_ownership_issues
 from scripts.validate_runtime_ownership import (
     _issue_to_payload as _runtime_ownership_issue_to_payload,
 )
-from scripts.validate_script_paths import collect_script_path_issues
-from scripts.validate_script_paths import _issue_to_payload as _script_paths_issue_to_payload
-from scripts.validate_skills_frontmatter import collect_skills_frontmatter_issues
-from scripts.validate_skills_frontmatter import (
-    _issue_to_payload as _skills_frontmatter_issue_to_payload,
+from scripts.validate_repository_metadata import collect_script_path_issues
+from scripts.validate_repository_metadata import _script_paths_issue_to_payload
+from scripts.validate_repository_metadata import collect_skills_frontmatter_issues
+from scripts.validate_repository_metadata import (
+    _skills_frontmatter_issue_to_payload,
 )
-import scripts.validate_skills_frontmatter as validate_skills_frontmatter
+import scripts.validate_repository_metadata as validate_repository_metadata
 
 
 # ATTRIBUTE: _REQUIRED_KEYS (tuple[str, ...])
-# SUMMARY: The five fields the 2026-07-04 audit matrix tracked across all 10 validators
+# SUMMARY: The five fields the audit matrix tracked across all 10 validators
 # (rule_id, suggested_fix, read_first, next_commands, stop_widening_condition), plus the
 # minimum location/severity fields every canon payload must also carry.
 _REQUIRED_KEYS = (
@@ -232,11 +232,11 @@ class TestValidatorErrorContract:
     def test_skills_frontmatter_issue_satisfies_contract(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(validate_skills_frontmatter, "ROOT_DIR", tmp_path)
+        monkeypatch.setattr(validate_repository_metadata, "ROOT_DIR", tmp_path)
         skills_dir = tmp_path / "skills" / "broken_skill"
         skills_dir.mkdir(parents=True)
         (skills_dir / "SKILL.md").write_text("# No frontmatter\n", encoding="utf-8")
-        monkeypatch.setattr(validate_skills_frontmatter, "SKILL_DIRS", [tmp_path / "skills"])
+        monkeypatch.setattr(validate_repository_metadata, "SKILL_DIRS", [tmp_path / "skills"])
 
         issues = collect_skills_frontmatter_issues(tmp_path)
         assert issues, "expected at least one forced skills_frontmatter violation"
@@ -369,7 +369,7 @@ class TestWave6ValidatorsSatisfyContract:
     # FUNCTION: test_secrets_issue_satisfies_contract
     # SUMMARY: Verify validate_secrets' converter carries the full remediation canon.
     # NOTE: The file's own SUMMARY claims every `scripts/validate_*.py` converter is proven here.
-    # It was twelve of thirteen until 2026-08-14: `validate_secrets._issue_to_payload` has the same
+    # It was once twelve of thirteen: `validate_secrets._issue_to_payload` has the same
     # shape and runs in the same gate, and was never imported by this file.
     @pytest.mark.unit
     def test_secrets_issue_satisfies_contract(self) -> None:

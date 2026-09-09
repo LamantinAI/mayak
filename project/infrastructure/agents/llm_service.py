@@ -67,12 +67,13 @@ class LLMService(
     # FUNCTION: bind_tools
     # SUMMARY: Return a view of this service bound to the given tools, leaving the shared instance untouched.
     # OUTPUT: (LLMService): A copy carrying these tools. Keep it — the receiver, not the caller's variable, is bound.
-    # NOTE: This used to write `self._mock_tools` and return `self`. CompositionRoot builds exactly
-    # one LLMService and hands the same object to every vertical, so a second agentic vertical
-    # binding its own tools silently replaced the first one's — last caller wins, no error, wrong
-    # tools on the next request. The copy is shallow on purpose: `_llm`, `_settings` and `_logger`
-    # are shared, so nothing re-opens a provider client, while `_mock_tools` and `_bound_llm` are
-    # per-binding. langchain's own `bind_tools` already returns a new runnable rather than mutating.
+    # NOTE: Mutating `self._mock_tools` and returning `self` would corrupt shared state:
+    # CompositionRoot builds exactly one LLMService and hands the same object to every vertical,
+    # so a second agentic vertical binding its own tools would silently replace the first one's —
+    # last caller wins, no error, wrong tools on the next request. The copy is shallow on
+    # purpose: `_llm`, `_settings` and `_logger` are shared, so nothing re-opens a provider
+    # client, while `_mock_tools` and `_bound_llm` are per-binding. langchain's own `bind_tools`
+    # already returns a new runnable rather than mutating.
     def bind_tools(self, tools: list[Any]) -> "LLMService":
         bound = copy.copy(self)
         bound._mock_tools = list(tools)

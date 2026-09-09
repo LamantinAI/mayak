@@ -4,8 +4,8 @@
 #
 # NOTE: The flag is a data-retention decision wearing the clothes of a verbosity setting. Nothing
 # announced it, so a project turned it on to debug an agent and left it on — which is how a
-# customer's email address reached a log file. The warning and the scrubbing were added on
-# 2026-09-06 with no test of their own; this is that test.
+# customer's email address reached a log file. The warning and the scrubbing shipped with no test
+# of their own; this is that test.
 
 from __future__ import annotations
 

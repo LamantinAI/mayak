@@ -26,10 +26,10 @@ class ObservabilitySettings(BaseSettings):
     # stdout — and an eval stand wants the trace without them, while a developer wants the
     # ergonomics without a growing file of prompt text on disk. Coupling the two takes one of
     # those two people's choice away.
-    # NOTE: Renamed from `deep_trace_enabled` / ENABLE_DEEP_TRACE on 2026-08-20. The old name
-    # described a depth of tracing this flag does not control; what it controls is whether the run
-    # is written out in full. A `.env` still setting the retired variable gets the default, with no
-    # warning, so rename it when taking this kernel version.
+    # NOTE: Renamed from `deep_trace_enabled` / ENABLE_DEEP_TRACE — that name described a depth
+    # of tracing this flag does not control; what it controls is whether the run is written out
+    # in full. A `.env` still setting the retired variable gets the default, with no warning, so
+    # rename it when taking this kernel version.
     full_trace_enabled: bool = Field(
         default=False,
         validation_alias="ENABLE_FULL_TRACE",

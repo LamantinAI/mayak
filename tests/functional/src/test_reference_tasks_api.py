@@ -174,8 +174,8 @@ async def test_two_sequential_patches_of_different_fields_both_survive(
 # FUNCTION: test_concurrent_patches_never_lose_a_write_that_reported_success
 # SUMMARY: Verify two patches racing for the same task either both apply or one is refused — never
 # both answering 200 while one of the two changes is gone.
-# NOTE: This is the test the unit suite cannot write, and the one an agent-written vertical failed
-# on 2026-09-02: its UPDATE matched on the id alone, so both requests reported success and the
+# NOTE: This is the test the unit suite cannot write, and the one an agent-written vertical failed:
+# its UPDATE matched on the id alone, so both requests reported success and the
 # database kept only the later write. The two requests below patch DIFFERENT fields, which is what
 # makes the loss invisible to a client — nothing about the payloads conflicts, only the states they
 # were computed from. The assertion is the invariant rather than a fixed outcome, because the

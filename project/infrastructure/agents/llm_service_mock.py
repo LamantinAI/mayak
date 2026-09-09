@@ -81,15 +81,16 @@ class LLMServiceMockMixin:
     # SUMMARY: Select the next bound tool, in binding order, that this conversation has not yet
     # called — the mechanism that turns one mock tool call into a cycle over every bound tool.
     # OUTPUT: (str | None): Next tool to call, or None once every bound tool has answered.
-    # NOTE: Until 2026-09-08 mock mode always answered `_mock_tools[0]` and finalized the instant
-    # any ToolMessage reached the tail of the conversation — so binding a second or third tool
-    # changed nothing observable: the extra tools were dead weight. Two field builds hit this
-    # independently and both wrote their own tool-selection layer on top of the mock to get a real
-    # multi-tool loop running (see docs/adr/ADR-003-mock-first-llm-mode.md). Measured before this
-    # fix, with three tools sharing a single compatible {"query": str} schema so an argument
-    # mismatch could not also be the cause: round 1 called the first tool, round 2 finalized with
-    # a text summary — the second and third tool were never reached even though two more rounds
-    # were available. Scanning every ToolMessage in the conversation, not only the trailing block,
+    # NOTE: Cycling through bound tools in order matters: always answering `_mock_tools[0]` and
+    # finalizing the instant any ToolMessage reaches the tail of the conversation would make
+    # every extra bound tool dead weight — binding a second or third tool would change nothing
+    # observable. Two field builds hit exactly that independently, each writing its own
+    # tool-selection layer on top of the mock to get a real multi-tool loop running (see
+    # docs/adr/ADR-003-mock-first-llm-mode.md). Measured with three tools sharing a single
+    # compatible {"query": str} schema so an argument mismatch could not also be the cause:
+    # without this cycling, round 1 calls the first tool and round 2 finalizes with a text
+    # summary — the second and third tool are never reached even though two more rounds are
+    # available. Scanning every ToolMessage in the conversation, not only the trailing block,
     # is deliberate: after round two the round-one ToolMessage is no longer trailing, so a
     # trailing-only scan would forget the first tool was already called and call it again.
     def _next_uncalled_tool_name(
@@ -175,14 +176,14 @@ class LLMServiceMockMixin:
 
     # FUNCTION: _collect_tool_messages
     # SUMMARY: Collect every tool message in the conversation, in the order they occurred.
-    # NOTE: This used to be `_extract_trailing_tool_messages`, returning only the contiguous block
-    # at the end of the list. That was correct for a single-tool loop, where the one and only
-    # ToolMessage is always trailing when the mock is asked to finalize. A three-tool loop calls
-    # this again after each round, and by round three the round-one and round-two ToolMessages are
-    # separated from the tail by the AIMessages in between — a trailing-only scan would both
-    # forget they were ever called (see `_next_uncalled_tool_name`) and drop them from the final
-    # summary. Scanning the whole conversation costs nothing extra a mock response is not already
-    # paying for and fixes both.
+    # NOTE: A trailing-only scan — only the contiguous block of ToolMessages at the end of the
+    # list — is correct for a single-tool loop, where the one and only ToolMessage is always
+    # trailing when the mock is asked to finalize. A three-tool loop calls this again after each
+    # round, and by round three the round-one and round-two ToolMessages are separated from the
+    # tail by the AIMessages in between — a trailing-only scan would both forget they were ever
+    # called (see `_next_uncalled_tool_name`) and drop them from the final summary. Scanning the
+    # whole conversation costs nothing extra a mock response is not already paying for and fixes
+    # both.
     def _collect_tool_messages(
         self: _LLMServiceMockContract, messages: list[BaseMessage]
     ) -> list[ToolMessage]:
@@ -197,10 +198,10 @@ class LLMServiceMockMixin:
     #         conversation has no human turn at all.
     # NOTE: The cycle over bound tools has to remember what it already called within one answer and
     # forget it at the next question. Scanning the whole conversation gets the first half right and
-    # the second half badly wrong: measured on 2026-09-08, a second question in the same
-    # conversation got no tool call at all, because every tool still counted as answered from the
-    # first one. The trailing-only scan this replaced had the opposite failure — it forgot mid-answer
-    # and called the first tool forever. The turn is the unit that makes both correct.
+    # the second half badly wrong: measured, a second question in the same conversation got no tool
+    # call at all, because every tool still counted as answered from the first one. A trailing-only
+    # scan has the opposite failure — it forgets mid-answer and calls the first tool forever. The
+    # turn is the unit that makes both correct.
     def _current_turn(
         self: _LLMServiceMockContract, messages: list[BaseMessage]
     ) -> list[BaseMessage]:
@@ -220,9 +221,9 @@ class LLMServiceMockMixin:
     # `{"query": <last human message>}` satisfies a tool whose schema happens to be `{query:
     # str}`, and any schema whose only REQUIRED field is a compatible `query` — optional fields
     # with defaults are filled in by the tool's own model — and nothing else: a required Decimal,
-    # a nested object, or an enum field fails
-    # `tool.ainvoke(...)` with the same pydantic ValidationError this file used to produce on the
-    # very first call, args or no cycle. Generating a schema-valid instance for an arbitrary
+    # a nested object, or an enum field fails `tool.ainvoke(...)` with the same pydantic
+    # ValidationError regardless of args or the cycle above. Generating a schema-valid instance
+    # for an arbitrary
     # pydantic model is a small library in its own right — guessing a Decimal that also satisfies
     # a domain invariant like "must be positive", or an enum member that means what the test
     # needs it to mean, is not something a generic mock can do without dragging real domain

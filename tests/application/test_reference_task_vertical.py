@@ -223,7 +223,7 @@ class TestServiceRules:
 
     # FUNCTION: test_update_clears_a_nullable_field_when_the_caller_asks_for_null
     # SUMMARY: Verify an explicit null empties the column instead of being read as "not supplied".
-    # NOTE: The trap this pins was live in this file's own vertical on 2026-09-02: with
+    # NOTE: The trap this pins was live in this file's own vertical: with
     # `details: str | None = None` the service could not tell `{"details": null}` from a body that
     # never mentioned details, so a nullable column could never be emptied and the request still
     # answered 200. Every vertical with a nullable column would have copied it.
@@ -437,7 +437,7 @@ class TestServiceRules:
         # **LOGIC_STEP**: 200 as a literal, on purpose. Every other test here builds its string
         # as `"x" * MAX_TITLE_LENGTH`, so all of them move with the constant and none can see it
         # move — while alembic/versions/001_initial_reference_tasks_schema.py carries
-        # `String(length=200)` and does not move with it. Measured on 2026-09-02:
+        # `String(length=200)` and does not move with it. Measured:
         # MAX_TITLE_LENGTH = 50 left `make quality-gates` green and was caught only by
         # `alembic check` against a live database. Raising the bound is a schema change: add an
         # ALTER migration, then change this number in the same commit.

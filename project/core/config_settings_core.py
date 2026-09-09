@@ -107,9 +107,8 @@ class LLMSettings(BaseSettings):
     # SUMMARY: Tiktoken model name used for token counting.
     # Handed to ChatOpenAI, which loads the matching encoding lazily — only when something asks it
     # to count tokens, which the kernel never does. A project that does count, and runs without
-    # network access, vendors the encoding for THIS model and points TIKTOKEN_CACHE_DIR at it. The
-    # template used to ship such a cache; it held cl100k_base while this default needs o200k_base,
-    # so it promised offline counting it could not deliver.
+    # network access, vendors the encoding for THIS model and points TIKTOKEN_CACHE_DIR at it —
+    # a cache built for a different model promises offline counting it cannot deliver.
     tiktoken_model_name: str = Field(
         default="gpt-4o-mini",
         description="Tiktoken model name for token counting",
@@ -143,8 +142,8 @@ class ServerSettings(BaseSettings):
     # only correct value — binding 127.0.0.1 makes the service unreachable from outside its own
     # network namespace, so the published port answers nothing. Exposure is decided by the port
     # mapping and the network in front of it, not here. Suppressed with a reason rather than left
-    # failing: the CI security job had been red on main since before 2026-08-05 for this one
-    # finding, which is how a gate stops being read.
+    # failing: a security gate that stays red for a finding nobody will fix is how a gate stops
+    # being read at all.
     host: str = Field(
         default="0.0.0.0",  # nosec B104
         min_length=1,
@@ -165,11 +164,10 @@ class ServerSettings(BaseSettings):
 
     # ATTRIBUTE: cors_allow_credentials (bool)
     # SUMMARY: Whether CORS responses include Access-Control-Allow-Credentials.
-    # Used to be a hardcoded True in composition_root.py, with no supported way to turn it off.
-    # Default true keeps every existing deployment behaving exactly as it does today. The reason
-    # this needed to become a setting at all — a wildcard origin combined with credentials is the
-    # actual vulnerability, not the wildcard alone — is explained where the guard that depends on
-    # it lives: project/core/config_runtime.py, Settings.validate_runtime.
+    # Default true keeps deployments that never set this variable behaving as before it existed.
+    # The reason this needs to be a setting at all — a wildcard origin combined with credentials
+    # is the actual vulnerability, not the wildcard alone — is explained where the guard that
+    # depends on it lives: project/core/config_runtime.py, Settings.validate_runtime.
     cors_allow_credentials: bool = Field(
         default=True, description="Whether CORS responses allow credentials"
     )
@@ -201,9 +199,8 @@ class PostgresSettings(BaseSettings):
 
     # ATTRIBUTE: pool_size (int)
     # SUMMARY: Upper bound on connections in the shared AsyncConnectionPool.
-    # It used to be AGENT_DB_POOL_SIZE — a database knob living in the agent settings class, so
-    # the one setting that decides how many connections the service holds was the last place
-    # anyone tuning the database would look.
+    # Lives under PostgresSettings, not the agent settings class, so anyone tuning the database
+    # finds the one setting that decides how many connections it holds where they'd look first.
     pool_size: int = Field(
         default=20,
         gt=0,

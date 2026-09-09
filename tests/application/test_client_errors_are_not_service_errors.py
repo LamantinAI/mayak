@@ -2,11 +2,11 @@
 # SUMMARY: A 4xx is the application working. This pins that it is recorded that way — at WARNING,
 # under `client_error.*` — and that a 5xx still is not.
 #
-# Until 2026-09-06 every handled exception went through log_error at ERROR whatever status it
-# produced, so a client's typo wrote the same line a failing service does: an operator grepping
-# ERROR met request validation, and `make format-trace`, which counts events whose id starts with
-# `error.` or `critical.`, reported a healthy trace as one with errors in it. CLAUDE.md already
-# said `client_error` is "4xx and routine"; the log did not.
+# Without this distinction every handled exception goes through log_error at ERROR whatever
+# status it produces, so a client's typo writes the same line a failing service does: an operator
+# grepping ERROR meets request validation, and `make format-trace`, which counts events whose id
+# starts with `error.` or `critical.`, reports a healthy trace as one with errors in it. CLAUDE.md
+# already says `client_error` is "4xx and routine"; the log must agree.
 
 from __future__ import annotations
 
@@ -123,16 +123,17 @@ class TestAClientErrorReadsAsOne:
 
 
 # CLASS: tests.application.test_client_errors_are_not_service_errors.TestARejectionInsideANestedSpanIsNotAFailure
-# SUMMARY: The hole the class above did not cover: exception_handlers.py has judged 4xx-vs-5xx
-# correctly since 2026-09-06, but a ConflictError raised INSIDE a nested span — a repository call,
-# an application-layer span; see project/infrastructure/persistence/reference_task_repository.py
-# for the copyable pattern every vertical's own db.* span follows — never reached that handler
-# first. project.core.logging.logger.span()'s own `except Exception` branch saw it, and until
-# 2026-09-08 judged every exception the same way: ERROR level, full traceback, whatever it was
-# going to become. Two independent agents building real projects on this template each lost the
-# live-run stage of their session to that trace — a duplicate-name 409 that read exactly like a
-# crash. No vertical shipped by this template raises a ConflictError from inside a span yet, so
-# this test wires the shape by hand, the same way it appears in a project that copied the pattern.
+# SUMMARY: The hole the class above did not cover: exception_handlers.py judges 4xx-vs-5xx
+# correctly, but a ConflictError raised INSIDE a nested span — a repository call, an
+# application-layer span; see project/infrastructure/persistence/reference_task_repository.py for
+# the copyable pattern every vertical's own db.* span follows — never reaches that handler first.
+# project.core.logging.logger.span()'s own `except Exception` branch sees it first, and without
+# the fix this test pins, judges every exception the same way: ERROR level, full traceback,
+# whatever it was going to become. Two independent agents building real projects on this template
+# each lost the live-run stage of their session to that trace — a duplicate-name 409 that read
+# exactly like a crash. No vertical shipped by this template raises a ConflictError from inside a
+# span yet, so this test wires the shape by hand, the same way it appears in a project that
+# copied the pattern.
 class TestARejectionInsideANestedSpanIsNotAFailure:
     # FUNCTION: test_a_conflict_raised_inside_a_span_carries_no_error_level_and_no_traceback
     # SUMMARY: A request that ends 409 must show no ERROR-level record and no captured traceback.
@@ -188,7 +189,7 @@ class TestARejectionInsideANestedSpanIsNotAFailure:
         # **LOGIC_STEP**: And the request's own summary counts no error. Levels were fixed first
         # and this counter was left behind, so `request.summary` still said error_count=1 and
         # `make format-trace` still printed `errors=1` over a request the same trace calls a
-        # client_error. Found by an independent review of this branch on 2026-09-08.
+        # client_error. Found by an independent review of this branch.
         summaries = [
             event["kwargs"]["data"]
             for event in log_capture
@@ -200,12 +201,12 @@ class TestARejectionInsideANestedSpanIsNotAFailure:
 
 # CLASS: tests.application.test_client_errors_are_not_service_errors.TestBothCallSitesJudgeAlike
 # SUMMARY: Verify the span and the exception handler cannot disagree about what counts as routine.
-# NOTE: They used to decide separately — the span through `is_client_rejection`, the handler
-# through `_project_error_status(exc) >= 500`. Both gave the same answers, which is exactly why a
-# drift would have gone unnoticed: adding a domain error mapped to 503 would have made the handler
-# call it a failure and the span still call it routine, and the log would carry both verdicts for
-# one exception. The handler now asks the same function; this pins the equivalence that made the
-# swap safe, so a future status mapping cannot quietly break it.
+# NOTE: The span and the handler must not compute this independently — two separate expressions
+# that happen to agree are exactly the situation where a drift goes unnoticed: a domain error
+# mapped to 503 could make one call it a failure while the other still calls it routine, and the
+# log would carry both verdicts for one exception. The handler asks `is_client_rejection`, the
+# same function the span uses; this pins the equivalence that makes sharing it safe, so a future
+# status mapping cannot quietly break it.
 class TestBothCallSitesJudgeAlike:
     # FUNCTION: test_every_domain_error_gets_one_verdict
     # SUMMARY: Verify rejection and sub-500 status agree for every shipped ProjectError subclass.

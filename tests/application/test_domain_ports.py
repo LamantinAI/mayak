@@ -16,10 +16,10 @@ class TestLLMPort:
     @pytest.mark.unit
     async def test_protocol_can_be_implemented_and_called(self) -> None:
         # **LOGIC_STEP**: The keyword-only `system` is what makes this a conforming
-        # implementation. `LLMPort.call` grew it on 2026-08-11, this fake did not, and the
-        # annotation below stopped being satisfied — invisibly, because `tests/application` is
-        # outside MYPY_TARGETS and a Protocol is not checked at runtime. The port's own comment
-        # names this exact shape as the one that stops conforming.
+        # implementation. If `LLMPort.call` gains a parameter like this and the fake does not
+        # follow, the annotation below stops being satisfied — invisibly, because
+        # `tests/application` is outside MYPY_TARGETS and a Protocol is not checked at runtime.
+        # The port's own comment names this exact shape as the one that stops conforming.
         class _FakeLLM:
             async def call(self, prompt: str, *, system: Optional[str] = None) -> str:
                 _ = system

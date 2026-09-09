@@ -148,7 +148,7 @@ async def test_update_writes_the_new_state_and_returns_it(
 # NOTE: This is the deterministic version of the race, staged by hand: read, let somebody else
 # write, then try to write from the first read. A repository whose UPDATE matched on the id alone
 # returns the row here and erases the other writer's title, with every unit test still green —
-# measured on 2026-09-02 on an agent-written vertical that had exactly that shape. Only a real
+# measured on an agent-written vertical that had exactly that shape. Only a real
 # database can show it, because the condition lives in the WHERE clause, not in Python.
 @pytest.mark.asyncio
 async def test_update_refuses_a_row_another_writer_moved(

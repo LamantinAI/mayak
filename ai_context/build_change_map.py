@@ -337,10 +337,10 @@ def build_change_map() -> dict[str, object]:
                 "schema-valid project_context.json",
             ],
             "minimal_checks": [
-                "uv run python scripts/validate_project_context.py",
+                "uv run python scripts/validate_repository_metadata.py",
             ],
             "tests_to_run": [
-                "tests/application/test_validate_project_context.py",
+                "tests/application/test_validate_repository_metadata.py",
             ],
             "verify": ["make quality-gates"],
         },

@@ -10,14 +10,13 @@ PYTHON_SOURCES = project tests ai_context ai_query scripts
 # the one suite no local gate executes — `make test` skips it and `make test-e2e` needs Docker;
 # type errors there used to surface twenty minutes into an e2e run. tests/conftest.py is listed so
 # that reaching it does not depend on an import existing: mypy does follow it in from
-# tests/application, which imports it, but not from tests/infrastructure, which does not — measured
-# both ways on 2026-08-18. A project that drops the tests/application imports would otherwise stop
+# tests/application, which imports it, but not from tests/infrastructure, which does not —
+# measured both ways. A project that drops the tests/application imports would otherwise stop
 # checking its own fixtures without noticing.
 #
-# The unit suites were outside this list until 2026-08-18, on the theory that running a test checks
-# it. Running does not check an annotation. `adapter: SomePort = _Fake()` is an assertion no
+# Running a test does not check an annotation. `adapter: SomePort = _Fake()` is an assertion no
 # interpreter evaluates and no Protocol enforces at runtime, so a fake whose signature had drifted
-# from LLMPort kept a green test that proved nothing. Adding the suites cost 240 one-time fixes.
+# from LLMPort kept a green test that proved nothing.
 MYPY_TARGETS = project scripts ai_context ai_query alembic tests/functional tests/application tests/infrastructure tests/integration tests/support tests/conftest.py
 
 # Does this project use a relational store? Asked through the same reader the migration gate
@@ -49,9 +48,9 @@ SMOKE_PROJECT = $(shell echo $(notdir $(CURDIR)) | tr '[:upper:]' '[:lower:]')-s
 SMOKE_APP_PORT ?= $(shell echo $$(( $(WORKTREE_HASH) % 1000 + 18000 )))
 SMOKE_POSTGRES_PORT ?= $(shell echo $$(( $(WORKTREE_HASH) % 1000 + 15000 )))
 
-# A database per worktree — `db-up-worktree` and `db-down-worktree` below. Measured in the field on
-# 2026-09-03: fifteen git worktrees of one project against a single PostgreSQL container, because
-# two things quietly agree on one socket. `.env.sample` ships POSTGRES_HOST=localhost and
+# A database per worktree — `db-up-worktree` and `db-down-worktree` below. Measured in the field:
+# fifteen git worktrees of one project against a single PostgreSQL container, because two things
+# quietly agree on one socket. `.env.sample` ships POSTGRES_HOST=localhost and
 # POSTGRES_PORT=5432, and scripts/create_env_file.py randomises only the password — by design, a
 # host and a port are not secrets — so every worktree's own .env names the same address. And the
 # advice this Makefile itself prints when the database is unreachable (`docker compose ... up -d
@@ -130,11 +129,11 @@ ai-autofix: ## Validation | Auto-format + fix lint + CBM
 	$(UV) run python scripts/validate_cbm.py --fix
 
 # The five steps that run a tool rather than one of this repository's validators, each as its own
-# target. scripts/doctor_layers.py runs these same targets when diagnosing a failed gate, so the
-# flags and the source lists have exactly one definition. The doctor used to model 14 of the 23
-# quality-gates steps and answered "doctor status: ok" while the suite was red on one of the nine
-# it did not model — copying `ruff check $(PYTHON_SOURCES)` into Python would have made that two
-# copies to keep in step instead of one.
+# target. scripts/doctor_ai_context.py runs these same targets when diagnosing a failed gate, so
+# the flags and the source lists have exactly one definition — a doctor that reimplemented these
+# checks in Python could silently drift from the Makefile and report "ok" while the suite is red;
+# copying `ruff check $(PYTHON_SOURCES)` into Python would have made that two copies to keep in
+# step instead of one.
 gate-lockfile:
 	@$(UV) lock --check
 
@@ -150,16 +149,10 @@ gate-types:
 gate-tests:
 	@$(UV) run python scripts/run_all_tests.py --skip-functional
 
-# The one validation command. There used to be three — `ai-workset-check` for the current diff,
-# `ai-fast-check` in the middle, and this one — and the ladder was measured on the fourth template
-# run: ai-fast-check took 15.0 s against this target's 14.8 s, so the middle rung was slower than
-# the thing it was a cheap alternative to. Re-measured on 2026-09-04, after bandit joined the
-# steps: 16.2 s in total, of which the suite is 12.4 and everything else 3.8 — bandit is 0.2 of
-# that, and about 2 s of the suite's own growth is two of its tests running bandit over throwaway
-# files. (The total read 14.2 until 2026-08-14, against parts that add to 14.8 — the two halves
-# were measured and the total was typed.) The narrow loop did buy ~12 s, and paid for them by never running mypy
-# and by resolving no tests at all for 22 of the 50 files under project/ — a green "workset checks
-# passed" on a diff that fails this target with 5 type errors and 24 broken tests.
+# The one validation command. A leaner two-step ladder — a fast diff-only check and a slower full
+# one — existed before this and was removed: the fast rung ran no mypy and resolved no tests at
+# all for roughly half the files under project/, so a green fast check could sit next to this
+# target failing with real type errors and broken tests.
 #
 # If the suite ever grows past ~30 s, the answer is test selection from coverage data, not a
 # hand-maintained file→test map that goes stale silently.
@@ -208,17 +201,17 @@ refresh-generated-unless-strict:
 		echo "$$changed" | sed 's/^/  /'; \
 	fi
 
-# Checksums before and after, not `git status`. The first version compared the working tree against
-# HEAD, which is a different question: an artifact regenerated back to its committed content is
-# invisible to git and would have been refreshed in silence. What the reader needs to know is that
-# the refresh CHANGED something, whichever direction it moved.
+# Checksums before and after, not `git status`: comparing the working tree against HEAD is a
+# different question — an artifact regenerated back to its committed content is invisible to git
+# and would be refreshed in silence. What the reader needs to know is that the refresh CHANGED
+# something, whichever direction it moved.
 checksum-generated:
 	@find $(GENERATED_PATHS) -type f 2>/dev/null | sort | xargs shasum 2>/dev/null || true
 
-# The doctor is wired into the failure path above rather than living behind a second target name.
-# `quality-gates-with-doctor` existed for that, CLAUDE.md told everyone to prefer it, and the
-# plain target stayed as the one you would reach for by habit — two names for "check my work",
-# differing only in whether you get the diagnosis. Recursion is not a concern: the doctor spawns
+# The doctor is wired into the failure path above rather than living behind a second target name:
+# a habit of reaching for the plain target regardless made a second name for "check my work" — one
+# that differs only in whether you get the diagnosis — pointless to maintain. Recursion is not a
+# concern: the doctor spawns
 # the `gate-*` targets with MAYAK_DOCTOR_SUBPROCESS=1, and a doctor running inside that process
 # skips its tool layers instead of shelling out again.
 quality-gates-steps:
@@ -234,10 +227,8 @@ quality-gates-steps:
 	$(UV) run python scripts/validate_module_sizes.py
 	$(UV) run python scripts/validate_test_quality.py
 	$(UV) run python scripts/validate_dependencies.py
-	$(UV) run python scripts/validate_skills_frontmatter.py
-	$(UV) run python scripts/validate_project_context.py
+	$(UV) run python scripts/validate_repository_metadata.py
 	$(UV) run python scripts/validate_file_policy.py
-	$(UV) run python scripts/validate_script_paths.py
 	$(UV) run python scripts/validate_secrets.py
 	@$(MAKE) --no-print-directory security-scan
 	$(UV) run python scripts/structure_builder.py --check
@@ -245,11 +236,11 @@ quality-gates-steps:
 	$(UV) run python scripts/sync_agent_docs.py --check
 	@$(MAKE) --no-print-directory gate-tests
 
-# The pre-commit hook used to call a `quality-gates-no-regen` twin of the target above, on the
-# grounds that `refresh-generated-docs` had just run and re-checking the generators was wasted
-# work. Measured: those five `--check` invocations cost 0.4 s together. A second copy of a
-# twenty-step recipe, kept in step by hand, is not worth four tenths of a second — and the copy
-# had already drifted, missing the four generator checks the original gained.
+# No separate `quality-gates-no-regen` twin of the target above exists for the pre-commit hook to
+# call, even though `refresh-generated-docs` has just run there and re-checking the generators is
+# redundant: those five `--check` invocations cost 0.4 s together. A second copy of a twenty-step
+# recipe, kept in step by hand, is not worth four tenths of a second — a hand-kept copy is exactly
+# what drifts silently.
 
 # Intentionally update pyproject.toml dependencies and refresh uv.lock.
 # Default `quality-gates` enforces `uv lock --check` to detect accidental drift —
@@ -267,12 +258,12 @@ update-deps:
 # date and a link to the advisory and the tracking issue — never by lowering this back to
 # informational, which is how a real CVE and an unreachable tool look identical again.
 #
-# `--with pip-audit` matters. The recipe used to call `$(UV) run pip-audit`, and pip-audit is
-# declared nowhere — so it never started, the trailing `|| true` swallowed the spawn error, and
-# both this target and the CI job that calls it were green while auditing nothing. Any non-zero
-# exit is now fatal for the same reason: pip-audit exits 1 when it finds a CVE and above 1 when
-# the tool itself failed to run, and a build that tolerated either shape of failure is a build
-# that cannot tell "vulnerable" from "did not check."
+# `--with pip-audit` matters: pip-audit is declared nowhere as a project dependency, so calling it
+# bare (`$(UV) run pip-audit`) never starts it, and a trailing `|| true` would swallow the spawn
+# error — leaving both this target and the CI job that calls it green while auditing nothing. Any
+# non-zero exit is fatal for the same reason: pip-audit exits 1 when it finds a CVE and above 1
+# when the tool itself failed to run, and a build that tolerates either shape of failure is a
+# build that cannot tell "vulnerable" from "did not check."
 #
 # The requirements file goes to a `mktemp` path, not a fixed /tmp name. The fixed name carried
 # the template's own name into every project built from it, and two checkouts auditing at the
@@ -296,13 +287,13 @@ audit-deps:
 # what it would report instead of the finding. `-ll` reports medium severity and above; the three `# nosec B608` markers in
 # the reference repository are load-bearing — without them this exits 1.
 #
-# Called from `quality-gates-steps` above, not only from `ci-local`. Until 2026-09-04 this target
-# was a lane of `ci-local` alone, so the command an agent actually runs while working — `make
-# quality-gates` — never asked bandit anything, and only the pipeline could see a finding. Costs
-# 0.5 s with a warm uv cache. What that blindness hid in the field was a `# nosec B608` an agent
-# had placed on the closing-paren line of a multi-line query instead of the literal's own line:
-# bandit resolves the marker by physical line, so it suppressed nothing, and the finding was
-# real — but ruff, mypy and every validator here passed, because none of them is bandit.
+# Called from `quality-gates-steps` above, not only from `ci-local`, so the command an agent
+# actually runs while working — `make quality-gates` — asks bandit too, not only the pipeline.
+# Costs 0.5 s with a warm uv cache. Running bandit only from the pipeline hides findings from the
+# person who can act on them: in the field, an agent had placed a `# nosec B608` on the
+# closing-paren line of a multi-line query instead of the literal's own line. Bandit resolves the
+# marker by physical line, so it suppressed nothing, and the finding was real — but ruff, mypy and
+# every validator here passed, because none of them is bandit.
 security-scan: ## Validation | bandit security scan over project/
 	@$(UV) run bandit -q -r project -ll
 
@@ -311,22 +302,32 @@ security-scan: ## Validation | bandit security scan over project/
 # something. Each lane below corresponds to a job in .github/workflows/ci.yml; adding a job
 # there without adding it here puts the two back out of step, which is how a gate starts lying.
 #
-# There is no security lane either, since 2026-09-04: `quality-gates` runs bandit itself, and both
-# gate lanes below already invoke it, so a third invocation of the same command bought nothing.
-# `make security-scan` remains as a target for anyone who wants only that check.
+# There is no security lane either: `quality-gates` runs bandit itself, so a separate invocation
+# here would buy nothing. `make security-scan` remains as a target for anyone who wants only that
+# check.
 #
 # There is no minimum-Python lane. requires-python and .python-version now name the same version,
 # so such a lane could only re-run the suite on the interpreter lane 1 already used — a gate that
 # cannot fail. Reinstate it the day the two numbers diverge again; ADR-002 says how.
-# STRICT_GENERATED=1 on both gate lanes: this command answers "would the pipeline pass?", and
+#
+# Lane 2 runs only `gate-tests` and the migration validator under POSTGRES_ENABLED=false, mirroring
+# the `no-postgres-path` CI job rather than the whole gate a second time: nothing else under that
+# flag reads it — the test run pins POSTGRES_ENABLED=true for itself either way
+# (tests/conftest.py's pin_postgres_toggle), and validate_migrations.py treats the flag as "no
+# relational store, nothing to verify" and never opens a connection regardless. Re-running every
+# DB-independent step — lint, mypy, architecture, bandit, and the rest — a second time would
+# check nothing that flag actually changes.
+#
+# STRICT_GENERATED=1 stays on lane 1 only: that command answers "would the pipeline pass?", and
 # there a stale generated artifact is a failure, not something to fix on the fly. Plain
 # `make quality-gates` refreshes instead — by the time you reach ci-local the artifacts are
-# already fresh, so this lane only fires for someone who skipped the gate entirely.
-ci-local: ## Validation | Everything CI runs, locally: gates, both Postgres modes, audit, e2e
+# already fresh, so this lane only fires for someone who skipped the gate entirely. Lane 2 sets
+# nothing of the sort: `gate-tests` never touches a generated artifact, so there is nothing to guard.
+ci-local: ## Validation | Everything CI runs, locally: the full gate, the no-Postgres path, audit, e2e
 	@echo "===> 1/5 quality-gates"
 	@STRICT_GENERATED=1 $(MAKE) --no-print-directory quality-gates
-	@echo "===> 2/5 quality-gates without PostgreSQL"
-	@STRICT_GENERATED=1 POSTGRES_ENABLED=false $(MAKE) --no-print-directory quality-gates
+	@echo "===> 2/5 tests and migrations without PostgreSQL"
+	@POSTGRES_ENABLED=false $(MAKE) --no-print-directory gate-tests && POSTGRES_ENABLED=false $(UV) run python scripts/validate_migrations.py
 	@echo "===> 3/5 dependency audit"
 	@$(MAKE) --no-print-directory audit-deps
 	@echo "===> 4/5 diff coverage"
@@ -463,8 +464,9 @@ migrate: ## Run | Apply pending Alembic migrations
 		echo "POSTGRES_ENABLED=false — no relational store, nothing to migrate."; \
 	fi
 
-# The Docker image migrates in entrypoint.sh; local runs used to skip it entirely, so a fresh
-# checkout served a green /health/ready against a database with no tables. Same order both ways.
+# The Docker image migrates in entrypoint.sh. `run-local` depends on `migrate` above so a fresh
+# checkout cannot serve a green /health/ready against a database with no tables. Same order both
+# ways.
 run-local: migrate ## Run | Migrate, then start the app locally (needs a reachable PostgreSQL unless POSTGRES_ENABLED=false)
 	$(UV) run python -m project.launcher.main
 
@@ -481,7 +483,7 @@ format-trace: ## Reading a running service | Render a local NDJSON file: ARGS="<
 # NDJSON parser skips all of them.
 # The compose output lands in a temporary file, not in a pipe. A pipe's exit status is the
 # formatter's, so a broken compose file or a stopped stack printed "(no events found)" and
-# exited 0 — the same answer as a service that logged nothing. Measured on 2026-09-02 with
+# exited 0 — the same answer as a service that logged nothing. Measured with
 # COMPOSE_FILE=nonexistent.yml. `set -o pipefail` would be the one-line fix, and the /bin/sh
 # that make uses is dash on Debian and Ubuntu, where that is an illegal option.
 # Which Compose project the two recipes below read. Three projects appear in this Makefile and
@@ -489,7 +491,7 @@ format-trace: ## Reading a running service | Render a local NDJSON file: ARGS="<
 # `$(WORKTREE_PROJECT)` (what `db-up-worktree` starts the database under), and Compose's own
 # directory-derived default (what a bare `docker compose up -d` from README uses).
 # The default here is the worktree's, because that is where the app actually runs once a checkout
-# has a worktree database: measured on 2026-09-07, two agents each built a project on this
+# has a worktree database: measured in the field, two agents each built a project on this
 # template and both ended up with `wt-<checkout>-<digest>-app-1`, having extended
 # `db-up-worktree`'s own `-p` to the whole stack. Without any `-p`, `docker compose logs` falls
 # back to the directory-derived name — the exact collision `db-up-worktree`'s comment documents
@@ -513,8 +515,8 @@ logs: ## Reading a running service | Render the container's semantic log as a tr
 LOGS_DIR ?= logs
 
 # Same source, unrendered, for grepping. Writes to $(LOGS_DIR)/container-<timestamp>.ndjson.
-# A failed compose call removes the file it was writing and exits non-zero; before 2026-09-02 the
-# recipe went on to print the path of an empty file and exit 0.
+# A failed compose call removes the file it was writing and exits non-zero — otherwise the recipe
+# would print the path of an empty file and exit 0, claiming success.
 logs-raw: ## Reading a running service | Dump the container's raw NDJSON under $(LOGS_DIR)
 	@mkdir -p $(LOGS_DIR)
 	@out="$(LOGS_DIR)/container-$$(date -u +%Y-%m-%dT%H-%M-%S).ndjson"; \

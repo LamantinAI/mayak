@@ -244,9 +244,9 @@ class TestRedactionCoversRealCredentialShapes:
             "glpat-abcdefghijklmnopqrst",  # allow-secret: fixture for the scrubber
             "xoxb-1234567890-abcdefghij",  # allow-secret: fixture for the scrubber
             "AKIAIOSFODNN7EXAMPLE",  # allow-secret: fixture for the scrubber
-            # **LOGIC_STEP**: measured 2026-08-24 — delete the one line in redaction.py this
-            # fixture exists to prove, `re.compile(r"sk-[A-Za-z0-9]{20,}")`, and rerun the two
-            # dedicated secret-guard files with `--no-cov`:
+            # **LOGIC_STEP**: to verify this fixture catches a regression, delete the one line it
+            # exists to prove in redaction.py, `re.compile(r"sk-[A-Za-z0-9]{20,}")`, and rerun the
+            # two dedicated secret-guard files with `--no-cov`:
             # `uv run python -m pytest tests/application/test_secret_leak_guards.py
             # tests/application/test_logging_redaction.py -q --no-cov`
             # Only this one parametrize case fails. Every other test in both files, every other
@@ -262,11 +262,10 @@ class TestRedactionCoversRealCredentialShapes:
             # is OpenAI-compatible. Thirty-two characters after the prefix, not GitHub push
             # protection's forty-eight (see BLOCKED_SHAPES below): still clears the `{20,}` in
             # `redaction.py` while staying pushable.
-            # NOTE: this comment used to state "the rest of the suite" as an absolute test
-            # count. It drifted twice in one session (760 -> 737 -> 741) as unrelated concurrent
-            # work added tests elsewhere under tests/application, and no gate rereads a comment
-            # to catch a stale one — so the count is gone; the claim above needs only the shape
-            # of the result, which stays true at any suite size.
+            # NOTE: an absolute test count for "the rest of the suite" drifts as unrelated
+            # concurrent work adds tests elsewhere under tests/application, and no gate rereads
+            # a comment to catch a stale one — so the claim above needs only the shape of the
+            # result, which stays true at any suite size.
             "sk-" + "a" * 32,  # allow-secret: fixture for the scrubber
             # **LOGIC_STEP**: `sk_test_` with sixteen characters, not `sk_live_` with twenty-four.
             # The longer live shape is what GitHub push protection matches, and it refused the

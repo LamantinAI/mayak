@@ -480,7 +480,7 @@
         "docs/project_context.json"
       ],
       "minimal_checks": [
-        "uv run python scripts/validate_project_context.py"
+        "uv run python scripts/validate_repository_metadata.py"
       ],
       "minimal_context": {
         "focus_queries": [
@@ -493,7 +493,7 @@
         "source_files": []
       },
       "tests_to_run": [
-        "tests/application/test_validate_project_context.py"
+        "tests/application/test_validate_repository_metadata.py"
       ],
       "verify": [
         "make quality-gates"

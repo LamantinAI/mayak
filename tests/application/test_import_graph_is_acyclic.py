@@ -1,8 +1,8 @@
 # FILE: tests/application/test_import_graph_is_acyclic.py
 # SUMMARY: Guard the one defect the whole suite is structurally blind to — an import cycle inside
 # project/ that only breaks when a module is imported first.
-# NOTE: On 2026-09-08 `python -c "import project.core.error_utils"` raised ImportError on a tree
-# whose 1129 tests were green. error_utils imported project.core.logging.redaction; importing any
+# NOTE: `python -c "import project.core.error_utils"` raised ImportError on a tree whose 1129
+# tests were green. error_utils imported project.core.logging.redaction; importing any
 # submodule runs that package's __init__, which imports logger, which imported error_utils back —
 # a module still half-built. The suite never saw it because conftest.py imports the logging package
 # long before anything reaches error_utils, so every test ran in the one import order that works.
@@ -50,7 +50,7 @@ def _module_files(package_root: Path) -> dict[str, Path]:
 # is an edge too — but only for an importer outside that package. Inside it, `__init__` is already
 # running and is not re-entered, which is why sibling modules referring to each other are not a
 # cycle. Getting this wrong in either direction is the difference between a rule that catches the
-# 2026-09-08 defect and one that goes red on the shipped logging package.
+# error_utils defect above and one that goes red on the shipped logging package.
 def _import_edges(package_root: Path) -> dict[str, set[str]]:
     modules = _module_files(package_root)
     package_name = package_root.name
@@ -150,8 +150,9 @@ class TestNoImportCycleUnderProject:
 # CLASS: tests.application.test_import_graph_is_acyclic.TestCycleDetectionMechanism
 # SUMMARY: Verify the detector above finds a cycle and does not invent one, on a package built here.
 # **LOGIC_STEP**: Without this the guard passes vacuously on a clean tree forever, and the day it
-# matters is the day nobody knows whether it works. The fixture reproduces the exact 2026-09-08
-# shape: a module importing a submodule of a package whose `__init__` imports it back.
+# matters is the day nobody knows whether it works. The fixture reproduces the exact shape of the
+# error_utils defect above: a module importing a submodule of a package whose `__init__` imports
+# it back.
 class TestCycleDetectionMechanism:
     # FUNCTION: test_a_package_reimporting_its_importer_is_reported
     # SUMMARY: Verify the ancestor-package edge is what closes the cycle, as it did in the defect.

@@ -95,7 +95,7 @@ class TestValidateMigrations:
 
     # FUNCTION: test_not_verified_banner_appears_only_when_the_gate_actually_skipped
     # SUMMARY: The banner marks an unverified skip and only an unverified skip — never a real pass.
-    # **LOGIC_STEP**: This is the trap for the 2026-09-07 finding: the old skip message read
+    # **LOGIC_STEP**: This is the trap for a real finding: the old skip message read
     # like every other passing line in a `make quality-gates` run, so a migration that dropped a
     # column instead of renaming it cleared every local gate on both projects the audit built from
     # this template. The banner text has to be present on the skip path and absent on the path
@@ -121,8 +121,7 @@ class TestValidateMigrations:
         # **LOGIC_STEP**: The commands are recorded, not merely swallowed. Asserting only the exit
         # code and the absent banner left this green when `_build_commands()` returned nothing at
         # all — a run that verifies neither `upgrade head` nor `check` and reports a clean pass,
-        # which is the very state the banner exists to make visible. Found by a second independent
-        # review on 2026-09-08.
+        # which is the very state the banner exists to make visible.
         commands: list[list[str]] = []
 
         def _record(argv: list[str], *args: object, **kwargs: object) -> None:
@@ -468,7 +467,7 @@ def _script_directory(root: Path, chain: dict[str, str | None]) -> Path:
 # CLASS: tests.application.test_validate_migrations.TestRevisionGraphIsCheckedWithoutADatabase
 # SUMMARY: Verify a fork or a dangling down_revision turns the gate red before the database skip.
 # NOTE: The comment on database_skip_is_allowed names "a second alembic head or a dangling
-# down_revision" as what the CI backstop exists for — and until 2026-09-02 both passed a checkout
+# down_revision" as what the CI backstop exists for — and both used to pass a checkout
 # without Postgres green, because every alembic command sat behind the reachability check. Neither
 # defect needs a database to see: ScriptDirectory reads the files. Measured: two revisions sharing
 # a down_revision, `make quality-gates` exit 0, "migration validation skipped".
@@ -603,7 +602,7 @@ class TestRevisionGraphIsCheckedWithoutADatabase:
 # CLASS: tests.application.test_validate_migrations.TestADatabaseAheadOfThisBranch
 # SUMMARY: Verify a database stamped with a revision this branch lacks is named as such, before
 # alembic is asked a question it can only answer opaquely.
-# NOTE: Measured 2026-09-06 in a project built from this template: fifteen worktrees against one
+# NOTE: Measured in a project built from this template: fifteen worktrees against one
 # PostgreSQL container. An agent on one branch ran `alembic upgrade head`; a worktree on a branch
 # without that revision then met `Can't locate revision identified by 'af0035d05498'` — reproduced
 # verbatim — which arrived as migrations.upgrade_failure, whose playbook offered to reset the

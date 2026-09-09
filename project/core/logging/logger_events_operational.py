@@ -12,13 +12,14 @@ from project.core.logging.logger_types import LogPayload, LogValue
 # ATTRIBUTE: _TRUNCATED_FINISH_REASONS (frozenset[str])
 # SUMMARY: finish_reason values meaning the provider stopped because it hit a limit, not because
 # it was done — a completion cut off mid-JSON by the output-token or tool-schema cap.
-# NOTE: Added 2026-09-08. A response truncated this way used to read as an ordinary successful
-# `llm.call`: `success=True`, INFO level, nothing distinguishing it from a normal reply — the
-# response_metadata langchain hands back on every call already carries `finish_reason`, and nothing
-# read it. An agent in a live-run experiment on this template spent the whole stage of that run
-# diagnosing a tool-argument Decimal field the model never finished writing, because the log said
-# the call succeeded. "length" is the one OpenAI-compatible value this means; the others
-# (`stop`, `tool_calls`, `content_filter`, `function_call`) are normal completions and stay INFO.
+# NOTE: Without this, a response truncated this way reads as an ordinary successful `llm.call`:
+# `success=True`, INFO level, nothing distinguishing it from a normal reply — the
+# response_metadata langchain hands back on every call already carries `finish_reason`, and
+# nothing reads it. An agent in a live-run experiment on this template spent the whole stage of
+# that run diagnosing a tool-argument Decimal field the model never finished writing, because
+# the log said the call succeeded. "length" is the one OpenAI-compatible value this means; the
+# others (`stop`, `tool_calls`, `content_filter`, `function_call`) are normal completions and
+# stay INFO.
 _TRUNCATED_FINISH_REASONS = frozenset({"length"})
 
 

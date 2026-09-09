@@ -136,8 +136,8 @@ class TestGenerateAIContext:
         )
 
         # **LOGIC_STEP**: Asserted against extract_service_registry_entries, the function the
-        # generator actually runs. These three cases used to exercise a second, parallel extractor
-        # that no production path called — the tests were green and the real walker was untested.
+        # generator actually runs — not a second, parallel extractor that no production path
+        # calls, which would keep the tests green while the real walker stayed untested.
         result = extract_service_registry_entries(source_path, tmp_path, "core")
 
         assert sorted(result) == ["alpha", "beta"]
@@ -193,11 +193,11 @@ class TestGenerateAIContext:
     # FUNCTION: test_extract_services_from_a_returned_dict_literal
     # SUMMARY: Verify a registry returned inline, with no local variable at all, is still read.
     # NOTE: `services = {...}` is the reference vertical's spelling, not a rule the language
-    # enforces, and the extractor used to accept nothing else. A builder returning the literal
-    # extracts to an empty registry, which docs/ai_context_map.json then reports as a project
-    # with no services — with no gate going red, because that map is generated and agrees with
-    # itself. Not seen in a real project: every one built from this template so far copied the
-    # reference spelling. Found by reading the extractor against the shapes an agent may write.
+    # enforces. An extractor recognizing only that shape misses a builder that returns the literal
+    # instead: it extracts to an empty registry, which docs/ai_context_map.json then reports as a
+    # project with no services — with no gate going red, because that map is generated and agrees
+    # with itself. Not seen in a real project: every one built from this template so far copied
+    # the reference spelling. Found by reading the extractor against the shapes an agent may write.
     @pytest.mark.unit
     def test_extract_services_from_a_returned_dict_literal(self, tmp_path: Path) -> None:
         source_path = tmp_path / "services_returned_literal.py"
@@ -451,9 +451,9 @@ class TestGenerateAIContext:
                 "scope": "forbidden_import_prefixes",
             },
         ]
-        # **LOGIC_STEP**: Index 0 is the domain, and its declared dependencies stopped being
-        # guidance on 2026-08-12 — they are the allowlist the validator enforces. Application, at
-        # index 1, still declares intent nothing checks, which is what this flag exists to say.
+        # **LOGIC_STEP**: Index 0 is the domain, and its declared dependencies are not mere
+        # guidance — they are the allowlist the validator enforces. Application, at index 1, still
+        # declares intent nothing checks, which is what this flag exists to say.
         guidance_rules = payload["enforcement_model"]["guidance_only_rules"]
         assert guidance_rules[0]["layer"] == "domain"
         assert guidance_rules[0]["not_whitelist_gate"] is False

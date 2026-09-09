@@ -97,7 +97,7 @@ class TestScanLine:
     def test_the_openrouter_shape_needs_its_own_pattern(self) -> None:
         # **LOGIC_STEP**: The two halves of the trade-off, pinned together. An OpenRouter key is
         # caught by its own fixed-prefix pattern; the dashed identifiers that a relaxed `sk-` rule
-        # would also catch stay silent. Remeasured on 2026-08-14 over every git-tracked file: the
+        # would also catch stay silent. Remeasured over every git-tracked file: the
         # shipped rule matches 3 strings, all fixtures, and allowing dashes in the tail takes that
         # to 7 — the four extra are ordinary hyphenated identifiers. Reproduce with:
         #   git ls-files -z | xargs -0 grep -onE 'sk-(proj-)?[A-Za-z0-9-]{20,}'

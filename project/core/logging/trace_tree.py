@@ -1,15 +1,14 @@
 # FILE: project/core/logging/trace_tree.py
 # SUMMARY: Parses NDJSON trace events into the SpanNode/LeafEvent tree trace_formatter.py renders.
 #
-# Split out of trace_formatter.py on 2026-09-08, purely to stay under
-# scripts/validate_module_sizes.py's per-module executable-line budget — the tool-span and
-# domain-rejection work landed in the same commit as the pre-existing "not genuinely large, mostly
-# comments" file ai_context/line_metrics.py used trace_formatter.py itself as its worked example
-# of, and that comment is now describing a smaller file than the one it names; whoever next edits
+# Split out of trace_formatter.py, purely to stay under
+# scripts/validate_module_sizes.py's per-module executable-line budget — ai_context/line_metrics.py
+# used trace_formatter.py as its worked example of a "not genuinely large, mostly comments" file,
+# and that comment now describes a smaller file than the one it names; whoever next edits
 # ai_context/line_metrics.py should re-measure rather than trust the old figure. No behavior moved
 # — trace_formatter.py's public functions call straight through to this module's, and every test
-# that imported from trace_formatter.py before this split still does; SpanNode, LeafEvent,
-# _build_tree and _parse_events are re-exported there unchanged.
+# that imports from trace_formatter.py still works; SpanNode, LeafEvent, _build_tree and
+# _parse_events are re-exported there unchanged.
 
 from __future__ import annotations
 
@@ -42,9 +41,9 @@ class SpanNode:
     # similar raised inside this span that exception_handlers.py answers with a 4xx, not the
     # application failing. Also WARNING, like `interrupted`, and kept as its own field rather than
     # inferred from the level so the two are never rendered as the same thing: one means "stopped",
-    # the other means "this is the application working as intended". Added 2026-09-08 alongside
-    # project.core.logging.logger.span()'s own classification; absent on older logs, which read as
-    # False and keep rendering exactly as they did before this field existed.
+    # the other means "this is the application working as intended". Mirrors
+    # project.core.logging.logger.span()'s own classification; absent on older logs, which read
+    # as False and keep rendering exactly as they did before this field existed.
     client_rejection: bool = False
     # ATTRIBUTE: input_params (dict[str, Any])
     # SUMMARY: The span's own `span.start.data.input_params`, captured only for spans named
@@ -71,8 +70,8 @@ _VENDOR_MARKERS = ("site-packages", "/.venv/", "<frozen ")
 # ATTRIBUTE: _TOOL_SPAN_PREFIX (str)
 # SUMMARY: Span-name prefix for one tool call inside an agent loop — see the convention documented
 # beside project.core.logging.logger.SemanticLogger.span.
-# NOTE: Added 2026-09-08. The compact renderer showed a span's name and duration and nothing about
-# what it did; for `db.*` spans that is enough because `output` carries the outcome (`row_found`,
+# NOTE: The compact renderer shows a span's name and duration and nothing about what it did by
+# default; for `db.*` spans that is enough because `output` carries the outcome (`row_found`,
 # `rows_written`, …), but a tool call's interesting fact is what it was CALLED WITH, and that lives
 # in `input_params` on `span.start`, which `_build_tree` otherwise never reads. Scoped to this one
 # prefix rather than to every span: `input_params` on an `http_request` or `db.*` span can hold a
@@ -257,9 +256,9 @@ def _build_tree(
             # application's own failure (ERROR, full traceback), an interruption — asyncio
             # cancellation, Ctrl-C — cut it short (WARNING, `client_rejection` absent), and a
             # routine domain rejection heading for a 4xx (also WARNING, `client_rejection: true`).
-            # Before this field existed both WARNING cases looked identical here, so a duplicate
-            # name inside a nested span rendered with ⊘ — the "stopped" mark a cancelled request
-            # gets — which was as misleading as the ERROR-plus-traceback it replaced.
+            # Without `client_rejection`, the two WARNING cases are indistinguishable here: a
+            # routine rejection would render with the same ⊘ "stopped" mark a genuine cancellation
+            # gets — as misleading as the ERROR-plus-traceback treatment it replaces.
             node.client_rejection = bool(data.get("client_rejection", False))
             node.interrupted = ev.get("level") == "WARNING" and not node.client_rejection
             node.seq = seq
@@ -273,10 +272,10 @@ def _build_tree(
             ok = data.get("success", True)
             # **LOGIC_STEP**: `finish_reason == "length"` on an otherwise-successful call means the
             # provider was cut off mid-answer by an output-token or tool-schema limit — the exact
-            # shape that read as a plain ✓ here until 2026-09-08, because success and finish_reason
-            # are two different facts on the same response and only the first was ever rendered.
-            # This is the compact-trace half of the fix; log_llm_call carries the same field (and
-            # the WARNING level) into the raw NDJSON itself.
+            # shape that would otherwise read as a plain ✓ here, because success and finish_reason
+            # are two different facts on the same response and only the first is rendered without
+            # this check. This is the compact-trace half of the fix; log_llm_call carries the same
+            # field (and the WARNING level) into the raw NDJSON itself.
             finish_reason = data.get("finish_reason")
             truncated = bool(ok) and finish_reason == "length"
             mark = "✗" if not ok else ("⚠" if truncated else "✓")
@@ -301,9 +300,9 @@ def _build_tree(
             # **LOGIC_STEP**: A 4xx is the application working — it read a request it could
             # not serve and said so — so it is marked apart from a failure rather than sharing
             # the ✗ of one. It is rendered at all because the alternative, silence, is worse: the
-            # rejection's cause was the one thing a reader opened the trace for, and when these
-            # records moved to `client_error.` on 2026-09-06 they matched no branch here and were
-            # parsed and dropped.
+            # rejection's cause was the one thing a reader opened the trace for, and this branch
+            # must match whatever event_id prefix these records actually carry
+            # (`client_error.`) or they are silently parsed and dropped.
             mark = next(m for prefix, m in _LEAF_MARKS.items() if eid.startswith(prefix))
             head = f"{mark} {failure}"
             if exception_type:

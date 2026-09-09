@@ -42,7 +42,7 @@ jobs:
       # Locally `make quality-gates` regenerates a stale artifact and prints a notice, because the
       # fix is always the same command. Here it must be a failure instead: no later step will
       # rerun the generator, so a green pipeline over a stale map would publish the drift. This is
-      # the flag `make ci-local` sets on the same two lanes.
+      # the flag `make ci-local` sets on its own full-gate lane.
       STRICT_GENERATED: "1"
     steps:
       - name: Checkout
@@ -64,15 +64,21 @@ jobs:
       - name: Run canonical quality gates
         run: make quality-gates
 
-  # Second leg: the same gates for a project that declares no relational store. Without it the
-  # POSTGRES_ENABLED=false path is exercised by nobody and rots within a release — the whole
-  # point of the flag is that a project can rely on it.
-  quality-gates-without-postgres:
+  # Second leg: the one code path `quality-gates` above cannot exercise — a project that declares
+  # no relational store. Nothing in the gate reads that flag except two steps: the test run, which
+  # pins POSTGRES_ENABLED=true for itself regardless (tests/conftest.py's pin_postgres_toggle
+  # fixture, so the flag never reaches a single test either way), and
+  # scripts/validate_migrations.py, which treats the flag as "no relational store, nothing to
+  # verify" and returns an informational pass without opening a connection. Every other step —
+  # lint, format, mypy, architecture, bandit, the rest of quality-gates-steps — is identical under
+  # either value of the flag, so running the whole gate a second time would buy nothing but CI
+  # minutes. This job runs only those two, under POSTGRES_ENABLED=false, so the "declares no
+  # relational store" branch of validate_migrations.py still gets exercised in the pipeline and
+  # not only by its own unit test.
+  no-postgres-path:
     runs-on: ubuntu-latest
     env:
       POSTGRES_ENABLED: "false"
-      # Same reason as the lane above: here a stale generated artifact is a failure, not a fix.
-      STRICT_GENERATED: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -90,8 +96,16 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen
 
-      - name: Run canonical quality gates without a database
-        run: make quality-gates
+      # Not "the suite under POSTGRES_ENABLED=false": tests/conftest.py's autouse
+      # pin_postgres_toggle sets the flag back to true for every test, and the handful that
+      # exercise the disabled path set it to false themselves. What this step does prove is that
+      # collection, settings construction and every import survive the flag being off in the
+      # environment — which happens before any fixture runs.
+      - name: Collect and run the suite with the flag off in the environment
+        run: make gate-tests
+
+      - name: Verify the migration gate treats POSTGRES_ENABLED=false as informational
+        run: uv run python scripts/validate_migrations.py
 
   # The only job that opens a real database connection. `make quality-gates` runs
   # run_all_tests.py --skip-functional, so nothing inside it ever reaches a driver: a broken
@@ -182,11 +196,8 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen
 
-      # Through the make target, not a second spelling. This line used to be
-      # `uv run --with mypy mypy project scripts ai_context ai_query`, which had already drifted
-      # from the Makefile in two ways: it omitted tests/functional (in MYPY_TARGETS on purpose —
-      # that suite is checked nowhere else) and it installed mypy ephemerally instead of the
-      # pinned dev dependency. A copy of a gate step is a gate step that can go stale silently.
+      # Through the make target, not a second spelling. A copy of a gate step is a gate step that
+      # can go stale silently.
       - name: Mypy full-project type-check
         run: make gate-types
 
@@ -242,57 +253,11 @@ jobs:
         # above the `audit-deps` target in the Makefile, and deliberately not repeated here.
         run: make audit-deps
 
-  unit-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+  # Removed: unit-tests ran tests/application alone — a strict subset of what quality-gates'
+  # gate-tests step already runs (tests/application + tests/infrastructure + tests/integration).
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Sync dependencies
-        run: uv sync --frozen
-
-      # --cov-fail-under=0: the floor is owned by scripts/run_all_tests.py, which asks for it on
-      # the full local run and nowhere else (COVERAGE_FLOOR_PERCENT there); it left pytest.ini's
-      # addopts on 2026-09-08 precisely because a subset run cannot honestly be held to a project
-      # total. Passing 0 explicitly here keeps that true whatever a future addopts line does, and
-      # says so at the job that would otherwise fail on arithmetic rather than on a real problem.
-      # The floor belongs to the full suite (quality-gates) and to diff-coverage.
-      - name: Run unit tests
-        run: uv run python -m pytest tests/application -q --cov-fail-under=0
-
-  infrastructure-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Sync dependencies
-        run: uv sync --frozen
-
-      # Same reason as the unit-tests job: a five-test directory cannot carry a project-wide floor.
-      # This job had been red on main since before 2026-08-05 for exactly that arithmetic.
-      - name: Run infrastructure tests
-        run: uv run python -m pytest tests/infrastructure -q --cov-fail-under=0
+  # Removed: infrastructure-tests ran tests/infrastructure alone — the same subset relationship,
+  # and covered by the identical gate-tests step inside quality-gates.
 
   diff-coverage:
     runs-on: ubuntu-latest
@@ -318,8 +283,6 @@ jobs:
       - name: Diff coverage gate (changed lines vs origin/main, threshold 80%)
         # Both halves — the coverage run and the diff-cover call — live in the Makefile target, so
         # the documented local mirror (`make diff-coverage`) cannot drift from what CI enforces.
-        # They used to be copied here line for line, and a change to the threshold or the test
-        # paths in one place left the other silently behind.
         run: make diff-coverage
 
 # ---------------------------------------------------------------------------
@@ -334,7 +297,7 @@ jobs:
 # above and run only on the default branch, e.g.:
 #
 #   deploy:
-#     needs: [quality-gates, unit-tests]
+#     needs: [quality-gates, functional-tests]
 #     if: github.ref == 'refs/heads/main'
 #     runs-on: ubuntu-latest
 #     steps: ...

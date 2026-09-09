@@ -389,11 +389,11 @@ def _enclosing_function(
 # SUMMARY: Return the 1-based lines carrying a real logic-step marker comment token.
 # INPUT: source (str): Module source, already known to parse.
 # OUTPUT: (set[int]): Lines where the marker stands as a comment, not as text inside a string.
-# NOTE: The rule below used to select its lines by substring over the raw file text, so a module
-# that merely NAMES the marker — a keyword table, a docstring explaining the convention, a test
-# fixture — was reported as carrying a misplaced one. This validator's own rule table is such a
-# module: scanned without the `project/` scope filter it reported itself, on the very string it
-# uses to classify this rule's message. The tokenizer is the only reliable way to tell a real
+# NOTE: Selecting lines by substring over the raw file text would flag a module that merely NAMES
+# the marker — a keyword table, a docstring explaining the convention, a test fixture — as
+# carrying a misplaced one. This validator's own rule table is such a module: scanned without the
+# `project/` scope filter it would report itself, on the very string it uses to classify this
+# rule's message. The tokenizer is the only reliable way to tell a real
 # comment from a `#` inside a string literal, which is why ai_context/line_metrics.py tokenizes
 # rather than scanning text. Note the marker is spelled nowhere in this comment block for the
 # same reason it is a rule: a marker outside a function body is a violation, header comments
@@ -838,11 +838,11 @@ def get_cbm_rule_playbook(rule_id: str) -> dict | None:
     fix_map: dict[str, str] = {}
     for _keyword, rid, fix in _CBM_RULE_MAP:
         fix_map[rid] = fix
-    # **LOGIC_STEP**: The prefix is not enough. Until 2026-08-14 any `cbm.<anything>` produced a
-    # full, plausible playbook — `failure rule cbm.this_does_not_exist` answered with the generic
-    # meaning and exit 0, while every other rule family answered "Unknown failure rule ID" and
-    # exit 1. An agent that mistyped a rule id, or invented one from a half-remembered message,
-    # got a confident answer about a rule that does not exist.
+    # **LOGIC_STEP**: The prefix is not enough — matching on prefix alone would let any
+    # `cbm.<anything>` produce a full, plausible playbook: `failure rule cbm.this_does_not_exist`
+    # would answer with the generic meaning and exit 0, while every other rule family answers
+    # "Unknown failure rule ID" and exit 1. An agent that mistyped a rule id, or invented one from
+    # a half-remembered message, would get a confident answer about a rule that does not exist.
     # **LOGIC_STEP**: `cbm.unknown` is a real answer from classify_issue — the fallback for a
     # message no keyword matched — so it keeps its playbook; anything else outside the map does not.
     if rule_id not in fix_map and rule_id != "cbm.unknown":

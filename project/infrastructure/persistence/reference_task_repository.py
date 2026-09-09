@@ -19,12 +19,12 @@ from project.domain.reference_task import ReferenceTask, normalize_task_id
 # a request whose query returned the wrong rows rendered as `OK 200, 0 spans` — indistinguishable
 # from a correct one.
 #
-# `level=logging.INFO` on each of them is the second half of that, and it was missing until
-# 2026-09-06: a child span defaults to DEBUG, production runs at INFO, so these spans existed,
-# cost nothing, and showed nothing. An operator reading a real trace saw the request and no
-# database work inside it — the same `0 spans` the spans were added to prevent. A vertical's own
-# spans inherit that default; ask for the level when the span is something an operator needs to
-# see, which for a database call it is.
+# `level=logging.INFO` on each of them is the second half of that: a child span defaults to
+# DEBUG, production runs at INFO, so without this, these spans would exist, cost nothing, and
+# show nothing. An operator reading a real trace would see the request and no database work
+# inside it — the same `0 spans` the spans above were added to prevent. A vertical's own spans
+# inherit that default; ask for the level when the span is something an operator needs to see,
+# which for a database call it is.
 #
 # The price, measured on this machine with a handler that writes nothing: 3639 ns per span
 # filtered against 21682 ns written. Three spans per request at 1000 rps is 1.1 % of one core

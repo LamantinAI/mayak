@@ -49,7 +49,7 @@ and with the number of agents making them at once.
 
 **A poor fit** for a thin CRUD service you will write once and rarely touch. The template charges its
 tax before the first endpoint: hexagonal layering the build enforces, a comment header on every
-file, class, function and attribute, thirteen validators to satisfy, and a pull request per change.
+file, class, function and attribute, eleven validators to satisfy, and a pull request per change.
 On a small MVP that tax is real and there is not enough change ahead of you to repay it. Write it by
 hand.
 
@@ -174,7 +174,7 @@ the example afterwards.
 Three commands, in order of cost:
 
 ```bash
-make quality-gates    # ~15 s — lint, format, types, thirteen validators, unit and integration tests
+make quality-gates    # ~15 s — lint, format, types, eleven validators, unit and integration tests
 make test-e2e         # ~25 s — the functional suite against a real Postgres in Docker
 make ci-local         # ~75 s — everything the pipeline runs, both database modes included
 ```

@@ -88,7 +88,7 @@ CONTRACT_HEADING = "# CLAUDE.md"
 # .gitignore excludes.
 # NOTE: `git ls-files -z` alone reports the index, and a file is not in the index until someone
 # runs `git add`. That is the whole time a new vertical is being drafted, which is exactly when
-# the project's name leaks into a file that shipped from the template. Measured on 2026-09-03:
+# the project's name leaks into a file that shipped from the template. Measured:
 # a freshly written, un-added file carrying the project name passed all three guards below and
 # only became visible after the commit that made it tracked. `--others --exclude-standard` adds
 # precisely what `git add .` would pick up, so a .gitignored artifact (.venv, coverage.xml, a
@@ -235,7 +235,7 @@ class TestProjectMapHeading:
 # keep it that way; the name is read from the project's own context file, so they hold in a
 # renamed project too.
 # A third guard used to forbid the project's own name anywhere under project/ outside
-# config_settings_core.py's documented default. The template owner reversed that on 2026-09-08:
+# config_settings_core.py's documented default. The template owner reversed that:
 # a project is free to name itself in its own prompt file and in comments, so the blanket sweep
 # over project/ is gone. Only the fallback default in config_settings_core.py stays pinned, by
 # tests/application/test_config.py::test_default_values, because that one is not decoration — it
@@ -243,9 +243,9 @@ class TestProjectMapHeading:
 class TestKernelSurfacesCarryNoProjectName:
     # FUNCTION: test_the_operational_contract_heading_is_generic
     # SUMMARY: Verify the always-loaded wrapper opens with a heading no rename can invalidate.
-    # **LOGIC_STEP**: This used to read ARCHITECTURE.md, which was folded into the wrapper on
-    # 2026-08-11. The claim is unchanged — the first thing an agent reads must not carry a
-    # project name — only the file that carries it moved.
+    # **LOGIC_STEP**: This used to read ARCHITECTURE.md, which was folded into the wrapper. The
+    # claim is unchanged — the first thing an agent reads must not carry a project name — only
+    # the file that carries it moved.
     @pytest.mark.unit
     def test_the_operational_contract_heading_is_generic(self) -> None:
         first_line = (_REPO_ROOT / "CLAUDE.md").read_text(encoding="utf-8").splitlines()[0].strip()

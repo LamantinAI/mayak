@@ -254,11 +254,10 @@ class TestLogFileGateIsDocumentedAsItself:
 # FUNCTION: _debug_gated_guards_in_validate_runtime
 # SUMMARY: Count the reads of `self.project.debug` inside Settings.validate_runtime.
 # OUTPUT: (int): How many startup guards the flag switches off — one read per guard.
-# NOTE: Every read, in whatever expression. The first version counted only `not
-# self.project.debug`, and a guard written as `self.project.debug is False` — the same gate,
-# one operator away — was invisible to it, so the tuple, README and the startup event all
-# stayed at three while a fourth guard went undocumented. Counted on the AST, not the text: a
-# comment in that method quotes the expression.
+# NOTE: Every read, in whatever expression — counting only `not self.project.debug` would miss a
+# guard written as `self.project.debug is False` (the same gate, one operator away), leaving the
+# tuple, README and the startup event stuck at three while a fourth guard goes undocumented.
+# Counted on the AST, not the text: a comment in that method quotes the expression.
 def _debug_gated_guards_in_validate_runtime() -> int:
     tree = ast.parse(textwrap.dedent(inspect.getsource(Settings.validate_runtime)))
     return sum(
@@ -272,9 +271,9 @@ def _debug_gated_guards_in_validate_runtime() -> int:
 # SUMMARY: Verify README and both env samples credit APP_DEBUG with the guards it relaxes, and no more.
 # NOTE: README's row said "Starlette's own error page" — an effect composition_root.py removed when
 # it hard-wired FastAPI(debug=False) — and .env.sample named two of the three guards the flag
-# switches off. Measured on 2026-09-02. The list is read out of config_runtime.py, and the number
-# of debug-gated conditions out of validate_runtime's own AST, so a fourth guard or a removed one
-# fails here instead of quietly leaving the prose behind again.
+# switches off. The list is read out of config_runtime.py, and the number of debug-gated
+# conditions out of validate_runtime's own AST, so a fourth guard or a removed one fails here
+# instead of quietly leaving the prose behind again.
 class TestDebugFlagIsDocumentedAsItself:
     # FUNCTION: test_the_tuple_counts_every_guard_the_flag_gates
     # SUMMARY: Verify GUARDS_RELAXED_BY_DEBUG has one entry per `not self.project.debug` condition.

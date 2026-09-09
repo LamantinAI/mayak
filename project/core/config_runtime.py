@@ -101,12 +101,11 @@ _SETTINGS_OVERRIDE: Optional["Settings"] = None
 # ATTRIBUTE: GUARDS_RELAXED_BY_DEBUG (tuple[str, ...])
 # SUMMARY: The startup checks in validate_runtime() that APP_DEBUG=true switches off, each named
 # by the variable it protects.
-# NOTE: One flag, three guards — and the documentation named two of them next to a fourth
-# effect that does not exist: "Starlette's own error page" has been dead since
-# composition_root.py hard-wired FastAPI(debug=False). Measured on 2026-09-02. This tuple is
-# what README.md and .env.sample are checked against, and what the startup event lists, so the
-# three places cannot describe the flag three different ways again. A new guard gated on
-# `not self.project.debug` is added here in the same change; the test in
+# NOTE: One flag, three guards — composition_root.py hard-wires FastAPI(debug=False), so
+# "Starlette's own error page" is never a real effect of this flag and documentation must not
+# claim it is. This tuple is what README.md and .env.sample are checked against, and what the
+# startup event lists, so the three places cannot describe the flag three different ways.
+# A new guard gated on `not self.project.debug` belongs here first; the test in
 # tests/application/test_env_sample_matches_code.py counts them.
 GUARDS_RELAXED_BY_DEBUG = (
     "SERVER_CORS_ORIGINS",
@@ -161,27 +160,23 @@ class Settings:
         api_key = self.llm.api_key.get_secret_value().strip()
 
         # **LOGIC_STEP**: Reject wildcard CORS in non-debug mode with a membership test, not
-        # equality. This guard used to read `self.server.cors_origins == ["*"]`, which only ever
-        # caught the single-element list. Starlette's CORSMiddleware decides allow-all with
+        # equality: Starlette's CORSMiddleware decides allow-all with
         # `allow_all_origins = "*" in allow_origins` (a membership test over the whole list), so
-        # SERVER_CORS_ORIGINS=["https://app.example.com", "*"] walked straight past the old check.
-        # Reproduced 2026-08-24: with that two-element list, APP_DEBUG=false and credentials on, a
-        # request carrying `Origin: https://evil.attacker.test` came back with
+        # an equality check against `["*"]` alone would miss
+        # SERVER_CORS_ORIGINS=["https://app.example.com", "*"]. With that list, APP_DEBUG=false
+        # and credentials on, a request carrying `Origin: https://evil.attacker.test` gets back
         # `access-control-allow-origin: https://evil.attacker.test` and
-        # `access-control-allow-credentials: true` — Starlette echoed the attacker's origin and
-        # sent credentials with it, the textbook credentialed-wildcard hole: any site can make
-        # authenticated cross-origin requests as a logged-in user.
+        # `access-control-allow-credentials: true` — the textbook credentialed-wildcard hole: any
+        # site can make authenticated cross-origin requests as a logged-in user.
         #
-        # `allow_credentials` used to be a hardcoded True in composition_root.py, which is what
-        # made a wildcard dangerous unconditionally. It is now SERVER_CORS_ALLOW_CREDENTIALS
-        # (ServerSettings.cors_allow_credentials, default true) and the guard below was narrowed to
-        # match Starlette's own condition for the dangerous branch —
+        # The guard is narrowed to match Starlette's own condition for the dangerous branch —
         # `if self.allow_all_origins and self.allow_credentials: self.allow_explicit_origin(...)`
-        # in CORSMiddleware — refusing the wildcard only when credentials are actually enabled. A
-        # wildcard WITHOUT credentials is the ordinary, safe public-API shape: no credential ever
-        # rides on the response, so echoing the origin back is harmless. `not self.project.debug`
-        # stays exactly as it was — a wildcard under APP_DEBUG=true is intentional for local
-        # development and must keep working regardless of the credentials flag.
+        # in CORSMiddleware — refusing the wildcard only when SERVER_CORS_ALLOW_CREDENTIALS
+        # (ServerSettings.cors_allow_credentials, default true) is actually enabled. A wildcard
+        # WITHOUT credentials is the ordinary, safe public-API shape: no credential ever rides on
+        # the response, so echoing the origin back is harmless. `not self.project.debug` is
+        # deliberate too — a wildcard under APP_DEBUG=true is intentional for local development
+        # and must keep working regardless of the credentials flag.
         if (
             not self.project.debug
             and self.server.cors_allow_credentials
@@ -199,11 +194,12 @@ class Settings:
 
         # **LOGIC_STEP**: Collect what `.env.sample` offers as placeholders, so the checks below
         # reject the sample's own values and not just one hardcoded word.
-        # NOTE: The password check used to compare against the literal "postgres" and nothing else.
-        # Measured: `your_postgres_password` — the value this very repository ships in
-        # .env.sample — along with `changeme` and `password`, all started in production
-        # without a word. Comparing against the sample file keeps the two in step by construction:
-        # change the placeholder there and the guard follows, with no second place to remember.
+        # NOTE: Compared against the sample file's placeholders, not only the literal "postgres":
+        # `your_postgres_password` — the value this very repository ships in .env.sample — along
+        # with `changeme` and `password`, would all start in production without a word if only
+        # one literal were checked. Comparing against the sample file keeps the two in step by
+        # construction: change the placeholder there and the guard follows, with no second place
+        # to remember.
         placeholder_secrets = _sample_placeholder_secrets()
 
         # **LOGIC_STEP**: Reject default PostgreSQL password in non-debug mode — but only when
@@ -244,11 +240,9 @@ class Settings:
         if self.agent.llm_mode == "live" and not api_key:
             raise ValueError("OPENAI_COMPATIBLE_API_KEY is required when AGENT_LLM_MODE=live")
 
-        # **LOGIC_STEP**: Validate prompt directory and default prompt file existence.
-        # NOTE: The file check used to be missing while this comment already claimed it, so
-        # AGENT_SYSTEM_PROMPT_NAME could name a file that was never there and nothing said a
-        # word until the first agent tried to read it. tests/functional/.env.sample was in exactly
-        # that state.
+        # **LOGIC_STEP**: Validate prompt directory and default prompt file existence, so a
+        # misconfigured AGENT_SYSTEM_PROMPT_NAME fails at startup instead of the first time an
+        # agent tries to read the file.
         prompts_dir = self.agent.prompts_dir.resolve()
         if not prompts_dir.exists() or not prompts_dir.is_dir():
             raise ValueError(

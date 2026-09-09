@@ -205,8 +205,8 @@ def _log_with_cancelled_then_ok() -> list[str]:
 # SUMMARY: Verify a cancelled request is shown as stopped, in the tree and in the inventory note.
 # NOTE: logger.span writes an interruption as span.error at WARNING and a summary of `cancelled`,
 # and the renderer used to treat both as a failure: the same ✗ as a 500 on the root line, and
-# "1 with errors" in the note for a request the server was told to stop. Found by a reviewer on
-# 2026-09-02, the day the WARNING level was introduced to keep the two apart.
+# "1 with errors" in the note for a request the server was told to stop — until the WARNING level
+# was introduced to keep the two apart.
 class TestCancelledIsNotFailed:
     # FUNCTION: test_root_span_is_marked_stopped_not_failed
     # SUMMARY: Verify the root line carries ⊘ and the exception type, never ✗.

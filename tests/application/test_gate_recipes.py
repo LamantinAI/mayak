@@ -64,7 +64,7 @@ class TestDiffCoverageAnnouncesWhatItCannotSee:
 
 # CLASS: tests.application.test_gate_recipes.TestToolStepsHaveOneDefinition
 # SUMMARY: Verify no caller re-spells a gate step instead of calling the target that owns it.
-# NOTE: scripts/doctor_layers.py runs these targets to diagnose a failed gate. A second spelling
+# NOTE: scripts/doctor_ai_context.py runs these targets to diagnose a failed gate. A second spelling
 # of `ruff check $(PYTHON_SOURCES)` anywhere means the doctor and the gate can disagree about what
 # the step is — which is the class of defect this repository keeps paying for.
 class TestToolStepsHaveOneDefinition:
@@ -98,10 +98,10 @@ class TestToolStepsHaveOneDefinition:
         )
 
     # FUNCTION: test_the_doctor_names_targets_that_exist
-    # SUMMARY: Verify every make target scripts/doctor_layers.py invokes is declared.
+    # SUMMARY: Verify every make target scripts/doctor_ai_context.py invokes is declared.
     @pytest.mark.unit
     def test_the_doctor_names_targets_that_exist(self) -> None:
-        source = (_REPO_ROOT / "scripts" / "doctor_layers.py").read_text(encoding="utf-8")
+        source = (_REPO_ROOT / "scripts" / "doctor_ai_context.py").read_text(encoding="utf-8")
         makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
         named = set(re.findall(r'"(gate-[a-z]+)"', source))
 
@@ -126,9 +126,9 @@ class TestToolStepsHaveOneDefinition:
         [
             ("ruff", re.compile(r"(?:uv run |uv run --with ruff )ruff (?:check|format)\s+\w")),
             ("mypy", re.compile(r"(?:uv run |uv run --with mypy )mypy\s+\w")),
-            # **LOGIC_STEP**: bandit joined the list on 2026-09-04, when the gate started running
-            # it: the CI job spelled the whole command itself, so a flag added to the target would
-            # have left CI scanning with the old one and nobody would have seen the two diverge.
+            # **LOGIC_STEP**: bandit is included because the CI job spells the whole command
+            # itself, so a flag added to the target would leave CI scanning with the old one and
+            # nobody would see the two diverge.
             ("bandit", re.compile(r"(?:uv run |uv run --with bandit )bandit\s+-")),
         ],
     )
@@ -170,9 +170,9 @@ class TestToolStepsHaveOneDefinition:
 
 # CLASS: tests.application.test_gate_recipes.TestTheSecurityScanIsPartOfTheGate
 # SUMMARY: Verify the suite an agent runs while working is the one that runs bandit.
-# NOTE: Until 2026-09-04 `security-scan` was a lane of `make ci-local` and nothing else, so
-# `make quality-gates` was green on code bandit would reject and only the pipeline could see it.
-# Nobody runs `ci-local` between edits; that is what makes the difference load-bearing.
+# NOTE: If `security-scan` were only a lane of `make ci-local`, `make quality-gates` would be
+# green on code bandit would reject, and only the pipeline could see it. Nobody runs `ci-local`
+# between edits; that is what makes the difference load-bearing.
 class TestTheSecurityScanIsPartOfTheGate:
     # FUNCTION: test_the_gate_runs_the_security_scan
     # SUMMARY: Verify the step list behind `make quality-gates` calls the security-scan target.
@@ -346,20 +346,20 @@ class TestTheWorktreeDatabaseIsThisWorktreesAlone:
 # SUMMARY: Every job in .github/workflows/ci.yml and the local command that covers it.
 # NOTE: The value is either a `make` target `ci-local` runs as one of its lanes, or the sentinel
 # below for a job whose check is a step inside `make quality-gates` rather than a lane of its own.
-# This table is the coupling between the pipeline and the local command — the thing that was a
-# comment in the Makefile until 2026-08-14 and therefore checked by nobody.
+# This table is the coupling between the pipeline and the local command, checked here as code
+# rather than left as a comment nobody verifies.
 _INSIDE_THE_GATE_SUITE = "inside make quality-gates"
 _CI_JOB_TO_LOCAL_COVER: dict[str, str] = {
     "quality-gates": "quality-gates",
-    "quality-gates-without-postgres": "quality-gates",
+    # Not _INSIDE_THE_GATE_SUITE: this job no longer runs the gate at all, only the two
+    # DB-relevant steps (gate-tests, validate_migrations.py) under POSTGRES_ENABLED=false.
+    "no-postgres-path": "gate-tests",
     "functional-tests": "test-e2e",
     "security": _INSIDE_THE_GATE_SUITE,
     "dependency-audit": "audit-deps",
     "diff-coverage": "diff-coverage",
     "secret-scan": _INSIDE_THE_GATE_SUITE,
     "type-check": _INSIDE_THE_GATE_SUITE,
-    "unit-tests": _INSIDE_THE_GATE_SUITE,
-    "infrastructure-tests": _INSIDE_THE_GATE_SUITE,
 }
 
 
@@ -376,9 +376,9 @@ def _ci_job_names() -> set[str]:
 
 # CLASS: tests.application.test_gate_recipes.TestPipelineAndLocalCommandCoverTheSameGround
 # SUMMARY: Verify `make ci-local` still answers "would the pipeline pass?" — the claim it is named for.
-# NOTE: The pipeline was believed dead from 2026-08-06 to 2026-08-14 and kept running the whole
-# time, green, on every push to main. A workflow nobody watches drifts from the local command that
-# claims to mirror it, and the drift is invisible precisely because both are green. Two of these
+# NOTE: A workflow nobody watches can quietly drift from the local command that claims to mirror
+# it — once, this pipeline was believed dead while it kept running the whole time, green, on
+# every push to main, and the drift stayed invisible because both stayed green. Two of these
 # tests exist so adding or removing a job cannot be a silent decision.
 class TestPipelineAndLocalCommandCoverTheSameGround:
     # FUNCTION: test_every_ci_job_has_a_declared_local_cover
@@ -400,11 +400,11 @@ class TestPipelineAndLocalCommandCoverTheSameGround:
     # SUMMARY: Verify each make target the table names is actually a lane of the ci-local recipe.
     @pytest.mark.unit
     def test_every_named_lane_exists_in_ci_local(self) -> None:
-        # **LOGIC_STEP**: Only the lines that invoke something count. This test read the whole
-        # recipe as one string until 2026-08-14, and every lane is preceded by an
-        # `@echo "===> 1/6 quality-gates"` banner naming it — so deleting the invocation and
-        # leaving the banner kept the test green while the lane stopped running. Measured: removing
-        # the `$(MAKE) ... quality-gates` line passed. The echo lines are stripped first.
+        # **LOGIC_STEP**: Only the lines that invoke something count — every lane is preceded by
+        # an `@echo "===> 1/6 quality-gates"` banner naming it, so a test that read the whole
+        # recipe as one string stayed green even after deleting the invocation and leaving the
+        # banner behind. Measured: removing the `$(MAKE) ... quality-gates` line passed. The echo
+        # lines are stripped first.
         invocations = "\n".join(
             line for line in _recipe("ci-local") if not line.startswith("echo ")
         )
@@ -422,12 +422,11 @@ class TestPipelineAndLocalCommandCoverTheSameGround:
     @pytest.mark.unit
     def test_every_announced_lane_actually_runs_something(self) -> None:
         # **LOGIC_STEP**: The test above cannot see a deleted lane whose target name still appears
-        # elsewhere in the recipe — `quality-gates` runs twice, once per Postgres mode, so removing
-        # the first invocation leaves the name behind and every assertion green. Measured on
-        # 2026-08-14. What no substring check can fake is the arithmetic: the recipe announces
+        # elsewhere in the recipe, so removing one invocation can leave the name behind and every
+        # assertion green. What no substring check can fake is the arithmetic: the recipe announces
         # `===> i/N` for each lane, so N banners must be matched by N commands.
         # **LOGIC_STEP**: `_recipe` strips the leading `@`, so a banner arrives as
-        # `echo "===> 1/6 quality-gates"`.
+        # `echo "===> 1/5 quality-gates"`.
         lines = [line for line in _recipe("ci-local") if line]
         banners = re.findall(r'echo "===> (\d+)/(\d+) ', "\n".join(lines))
         commands = [line for line in lines if not line.startswith("echo ")]
@@ -445,36 +444,40 @@ class TestPipelineAndLocalCommandCoverTheSameGround:
             f"ci-local announces {len(banners)} lanes and runs {len(commands)} commands"
         )
 
-    # FUNCTION: test_both_gate_jobs_refuse_a_stale_generated_artifact
-    # SUMMARY: Verify the pipeline runs the gates in strict mode, as `ci-local` does.
+    # FUNCTION: test_the_gate_job_refuses_a_stale_generated_artifact
+    # SUMMARY: Verify the pipeline runs the gate in strict mode, as `ci-local` does.
     @pytest.mark.unit
-    def test_both_gate_jobs_refuse_a_stale_generated_artifact(self) -> None:
+    def test_the_gate_job_refuses_a_stale_generated_artifact(self) -> None:
         # **LOGIC_STEP**: Locally the gate regenerates a stale artifact and prints a notice,
         # because the fix is always the same command. In the pipeline there is nobody to rerun the
         # generator, so the same situation has to fail instead — otherwise "CI is green" and "the
-        # local gate is green" stop meaning the same thing. Measured on 2026-08-14: the flag was
-        # documented in the Makefile as something the pipeline sets, and the pipeline did not.
+        # local gate is green" stop meaning the same thing. The flag was documented in the
+        # Makefile as something the pipeline sets, while the pipeline itself did not set it.
+        # **LOGIC_STEP**: Only one job runs `make quality-gates` now — `no-postgres-path` calls
+        # `gate-tests` and the migration validator directly, neither of which touches a generated
+        # artifact, so there is nothing there for STRICT_GENERATED to guard.
         workflow = (_REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         strict_lanes = workflow.count('STRICT_GENERATED: "1"')
 
-        assert strict_lanes == 2, (
-            f"expected both quality-gates jobs to set STRICT_GENERATED, found {strict_lanes}"
+        assert strict_lanes == 1, (
+            f"expected the one full quality-gates job to set STRICT_GENERATED, found {strict_lanes}"
         )
 
 
 # CLASS: tests.application.test_gate_recipes.TestDocumentedTargetsRunWithoutAPrompt
 # SUMMARY: Verify every target the command list advertises is pre-approved in .claude/settings.json.
-# NOTE: `make migrate` was documented in the generated command list for months and missing from the
-# permission allowlist — the one target of nineteen that stopped an agent mid-task with a permission
-# prompt. Two lists of the same commands, kept in step by nobody, is the same defect class the
+# NOTE: `make migrate` carried a help annotation for months and was missing from the permission
+# allowlist — the one target of nineteen that stopped an agent mid-task with a permission prompt.
+# Two lists of the same commands, kept in step by nobody, is the same defect class the
 # GENERATED_PATHS list already fixed for the hooks.
 class TestDocumentedTargetsRunWithoutAPrompt:
     # FUNCTION: test_every_documented_target_is_pre_approved
     # SUMMARY: Verify the help annotations and the permission allowlist name the same targets.
     @pytest.mark.unit
     def test_every_documented_target_is_pre_approved(self) -> None:
-        # **LOGIC_STEP**: The help annotations are the source of the command list in CLAUDE.md, so
-        # this compares what an agent is told to run against what it may run without asking. A
+        # **LOGIC_STEP**: The help annotations are what `make help` prints, which is where the
+        # wrapper now sends the reader instead of carrying a second copy of the list. This compares
+        # what an agent is told to run against what it may run without asking. A
         # target that should stay behind a prompt belongs in the exemption tuple below with the
         # reason written down — not silently absent from one of the two lists.
         exempt_from_pre_approval: tuple[str, ...] = ()
@@ -528,8 +531,8 @@ class TestGeneratedArtifactsAreRefreshedNotReported:
     def test_ci_local_asks_for_the_strict_behaviour(self) -> None:
         # **LOGIC_STEP**: ci-local answers "would the pipeline pass?". There a stale artifact is a
         # failure — fixing it on the fly would hide exactly what the pipeline would reject.
-        # **LOGIC_STEP**: Lines that INVOKE the gate, not the `echo` announcing the lane — the
-        # first version of this matched the progress messages and failed on its own banner.
+        # **LOGIC_STEP**: Lines that INVOKE the gate, not the `echo` announcing the lane — without
+        # this filter, a banner mentioning quality-gates would match and count as a lane on its own.
         gate_lanes = [
             line for line in _recipe("ci-local") if "quality-gates" in line and "$(MAKE)" in line
         ]
@@ -571,10 +574,10 @@ class TestGeneratedArtifactsAreRefreshedNotReported:
 # CLASS: tests.application.test_gate_recipes.TestGeneratedFilesRefuseTheEdit
 # SUMMARY: Verify the PreToolUse hook is installed and actually denies a write to every generated
 # path, running the hook rather than reading it.
-# NOTE: "CLAUDE.md is a generated file and must not be edited directly" is stated twice in CLAUDE.md
-# and, until this hook, enforced nowhere. The drift check used to catch it after the fact; once the
-# gate learned to refresh generated artifacts itself, a hand edit is simply overwritten on the next
-# run and the work disappears silently. The hook is the only place the agent still learns anything.
+# NOTE: "CLAUDE.md is a generated file and must not be edited directly" is stated twice in
+# CLAUDE.md but enforced only here. The drift check cannot catch this any more: once the gate
+# refreshes generated artifacts itself, a hand edit is simply overwritten on the next run and the
+# work disappears silently. The hook is the only place the agent still learns anything.
 class TestGeneratedFilesRefuseTheEdit:
     # FUNCTION: _decision
     # SUMMARY: Run the hook against one absolute path and return its decision, or None for allow.
@@ -820,11 +823,12 @@ class TestLogTargetsReportAFailedCompose:
 
     # FUNCTION: test_logs_raw_is_unaffected_by_files_already_in_the_repositorys_own_logs_dir
     # SUMMARY: Trap for the LOGS_DIR isolation above — a decoy file in the real logs/ changes nothing.
-    # **LOGIC_STEP**: This is what the two tests above used to get wrong: a file appearing in this
-    # checkout's own logs/ while they ran, from a source that has nothing to do with the recipe
+    # **LOGIC_STEP**: This guards what the two tests above can get wrong: a file appearing in this
+    # checkout's own logs/ while they run, from a source that has nothing to do with the recipe
     # under test. Writing that decoy here and staying green is the fix; reverting either test above
-    # to compare against `_REPO_ROOT / "logs"` instead of an isolated LOGS_DIR turns this red, since
-    # the decoy this test writes is then exactly the kind of concurrent write that broke them.
+    # to compare against `_REPO_ROOT / "logs"` instead of an isolated LOGS_DIR turns this red,
+    # since the decoy this test writes is then exactly the kind of concurrent write that would
+    # break them.
     @pytest.mark.unit
     def test_logs_raw_is_unaffected_by_files_already_in_the_repositorys_own_logs_dir(
         self, tmp_path: Path
@@ -867,15 +871,13 @@ class TestLogTargetsReportAFailedCompose:
 # CLASS: tests.application.test_gate_recipes.TestLogTargetsReadThisWorktreesComposeProject
 # SUMMARY: Verify `make logs` and `make logs-raw` scope `docker compose logs` to this worktree's
 # own Compose project — the one `db-up-worktree` started — instead of the bare compose default.
-# NOTE: Without `-p $(WORKTREE_PROJECT)` compose falls back to the directory-derived project name,
-# the same collision TestTheWorktreeDatabaseIsThisWorktreesAlone guards `db-up-worktree` and
-# `db-down-worktree` against: two worktrees agree on one name, so this read whichever project
-# happened to own it — another checkout's container, or nothing — instead of this worktree's own
-# app. `db-up-worktree`/`db-down-worktree` already carried the fix; `logs`/`logs-raw` were the pair
-# still unscoped on 2026-09-07, when two agents each built a project on this template and both
-# ran their app under the worktree project. `LOGS_PROJECT` defaults to it and can be pointed at
-# the directory-derived project a bare `docker compose up` creates instead — the assertion is
-# that a project is named at all, not which one.
+# NOTE: Without `-p $(WORKTREE_PROJECT)` compose falls back to the directory-derived project name
+# — the same collision TestTheWorktreeDatabaseIsThisWorktreesAlone guards `db-up-worktree` and
+# `db-down-worktree` against: two worktrees can agree on one name, so this would read whichever
+# project happened to own it — another checkout's container, or nothing — instead of this
+# worktree's own app. `LOGS_PROJECT` defaults to the worktree project and can be pointed at the
+# directory-derived project a bare `docker compose up` creates instead — the assertion is that a
+# project is named at all, not which one.
 class TestLogTargetsReadThisWorktreesComposeProject:
     # FUNCTION: test_the_compose_logs_call_is_scoped_to_the_worktree_project
     # SUMMARY: Verify neither recipe's `docker compose logs` call runs without `-p`.

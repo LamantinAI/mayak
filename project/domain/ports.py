@@ -16,10 +16,10 @@ from project.domain.reference_task import ReferenceTask
 # kernel does not instantiate it: the shipped reference vertical is deliberately storage-only, so
 # nothing in the template consumes an LLM yet. A vertical that needs one wraps the shared
 # LLMService in build_reference_services — `MyService(llm_port=PromptLLMAdapter(llm_service))` —
-# in the same place a service receives its repository. Named generically on purpose: this docstring
-# used to point at the shipped vertical by name, so deleting that vertical left a dangling
-# reference in a file the removal checklist only told you to edit for other reasons. The signature
-# uses primitive str types deliberately —
+# in the same place a service receives its repository. Named generically on purpose: naming the
+# shipped vertical here would leave a dangling reference the moment someone deletes that
+# vertical, in a file the removal checklist doesn't tell you to touch for that reason. The
+# signature uses primitive str types deliberately —
 # a domain module may import the standard library and project.domain and nothing else (enforced as
 # an allowlist by scripts/validate_architecture.py:_DOMAIN_ALLOWED_PREFIXES), and LLMService speaks
 # in langchain

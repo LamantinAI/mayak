@@ -85,7 +85,7 @@ def load_export_profile_patterns(root_path: Path) -> list[str]:
 # RAISES: RuntimeError: If neither source yields a usable name.
 def resolve_project_name(root_path: Path) -> str:
     # **LOGIC_STEP**: Primary source — docs/project_context.json:project_name (schema-validated by
-    # scripts/validate_project_context.py, so this is expected to exist and be well-formed in every
+    # scripts/validate_repository_metadata.py, so this is expected to exist and be well-formed in every
     # real invocation).
     context_path = root_path / PROJECT_CONTEXT_PATH
     if context_path.exists():
@@ -98,9 +98,8 @@ def resolve_project_name(root_path: Path) -> str:
             if isinstance(name, str) and name.strip():
                 return name.strip()
 
-    # **LOGIC_STEP**: Fallback source — pyproject.toml's [project].name. The import used to sit
-    # behind try/except ImportError because tomllib is stdlib only from 3.11 and the floor was
-    # 3.10; the floor is now 3.13, so the guard could only ever take its live branch.
+    # **LOGIC_STEP**: Fallback source — pyproject.toml's [project].name. tomllib is stdlib from
+    # Python 3.11; the floor is 3.13 (ADR-002), so no ImportError guard is needed here.
     pyproject_path = root_path / PYPROJECT_TOML_PATH
     if pyproject_path.exists():
         try:
@@ -401,10 +400,9 @@ def _build_tree_content(root_dir: Path) -> str:
     sys.stdout = buffer
     try:
         # **LOGIC_STEP**: The two-line preamble is generated rather than typed above the marker.
-        # It used to sit outside the markers, where `--check` cannot see it — the comparison copies
-        # everything outside them straight from the file being checked, so `expected == actual`
-        # there by construction. It spent two days pointing at ARCHITECTURE.md, deleted on
-        # 2026-08-11, and the gate reported the map up to date every time.
+        # Text outside the markers is invisible to `--check`: the comparison copies everything
+        # outside them straight from the file being checked, so `expected == actual` there by
+        # construction — a stale line there (e.g. pointing at a deleted doc) would pass silently.
         print("This file is the generated reference tree for repository navigation.")
         print("Read `docs/agent_rules.md` for the operational contract and change workflow.")
         print()

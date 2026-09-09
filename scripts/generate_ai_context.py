@@ -140,11 +140,11 @@ def _print_degraded_payload(
     print(f"status: {payload['degraded_status']}")
     for issue in payload["issues"]:
         print(f"- {issue['message']}")
-        # **LOGIC_STEP**: Print the registered rule_id alongside the message. the validator-recovery rule in docs/agent_rules.md
-        # tells the agent to call `failure rule <rule_id>` with what it just saw, and the only
-        # identifier on screen used to be degraded_status — a layer name ("generated_outdated"),
-        # not a rule_id ("drift.generated.outdated"), so the prescribed next command answered
-        # "Unknown failure rule ID". Guarded by tests/application/test_generate_ai_context.py.
+        # **LOGIC_STEP**: Print the registered rule_id alongside the message. The validator-recovery
+        # rule in docs/agent_rules.md tells the agent to call `failure rule <rule_id>` with what it
+        # just saw; degraded_status is a layer name ("generated_outdated"), not a rule_id
+        # ("drift.generated.outdated"), so printing only that leaves the prescribed command failing
+        # with "Unknown failure rule ID". Guarded by tests/application/test_generate_ai_context.py.
         # Guarded with .get: ContextIssue payloads (syntax_error path) carry issue_type only.
         rule_id = issue.get("rule_id")
         if rule_id:

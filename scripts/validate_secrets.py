@@ -78,9 +78,9 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("GitHub fine-grained token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{50,}\b")),
     ("GitLab personal access token", re.compile(r"\bglpat-[A-Za-z0-9_-]{20,}\b")),
     ("Slack token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
-    # The three shapes this scanner used to miss entirely. A connection string is the most likely
-    # credential to be committed from this template specifically — it ships a DSN in .env.sample
-    # and builds one in config — and it carries the password in the clear.
+    # Of the shapes this scanner checks, a connection string is the most likely credential to be
+    # committed from this template specifically — it ships a DSN in .env.sample and builds one in
+    # config — and it carries the password in the clear.
     #
     # The character class excludes `{ } $ % < >` from both userinfo halves, which is what keeps
     # this from crying wolf: every DSN the repository legitimately contains is an interpolation

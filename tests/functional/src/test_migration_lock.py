@@ -1,6 +1,6 @@
 # FILE: tests/functional/src/test_migration_lock.py
 # SUMMARY: Prove that two processes migrating the same fresh database at once both succeed.
-# NOTE: This is the regression test for the defect measured on 2026-09-02: entrypoint.sh runs
+# NOTE: This is the regression test for the defect measured: entrypoint.sh runs
 # `alembic upgrade head` in every container, so two replicas started together against a database
 # that has never been migrated both tried to create `alembic_version`, and one died with
 # `psycopg.errors.UniqueViolation` on `pg_type_typname_nsp_index`. Reproduced four times before the

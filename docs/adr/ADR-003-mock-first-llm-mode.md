@@ -31,14 +31,13 @@ tool call's result back as a `ToolMessage`, call again — the mock visits all t
 binding order, then finalizes. `tests/application/test_mock_agent_multi_tool_loop.py` is that loop
 run to completion, with structured arguments, no key, no network; copy its shape into a vertical.
 
-Until 2026-08-13 the first branch also required one of five English words in the prompt
-(`template`, `capabilities`, `workflow`, `plan`, `reference`). A vertical whose prompts use any
-other vocabulary therefore never exercised its own agent loop outside a live provider, which CI has
-no key for. The keywords are gone; binding a tool is the signal.
+A prompt-keyword gate on this branch previously excluded any vertical whose prompts did not use one
+of a fixed set of English words, leaving its agent loop untested outside a live provider (CI has no
+key for one). Binding a tool is the signal, not the prompt's wording.
 
-Until 2026-09-08 the mock could only ever call the *first* bound tool, once: any `ToolMessage` at
-the tail of the conversation finalized the answer immediately, so a second or third bound tool was
-dead weight — binding three tools and running the loop still visited exactly one. Two field builds
+Before this revision the mock could only ever call the *first* bound tool, once: any `ToolMessage`
+at the tail of the conversation finalized the answer immediately, so a second or third bound tool
+was dead weight — binding three tools and running the loop still visited exactly one. Two field builds
 that each built a real agent on three or four tools hit this independently and both wrote their own
 tool-selection layer on top of `LLMService` to route around it, which is exactly the layer this ADR
 had claimed a vertical would not need. Measured before the fix, with three tools sharing one

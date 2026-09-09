@@ -12,6 +12,7 @@ Current ADRs:
 - `ADR-007-autocommit-and-explicit-transactions.md`
 - `ADR-008-readiness-criticality.md`
 - `ADR-009-provider-errors-at-the-llm-boundary.md`
+- `ADR-010-what-the-gates-do-not-see.md`
 
 Guidelines:
 - Add a short ADR when a durable architectural or workflow decision changes.

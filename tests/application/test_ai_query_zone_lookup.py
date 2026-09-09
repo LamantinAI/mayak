@@ -205,10 +205,10 @@ class TestEveryApplicationFileHasAPolicy:
 
     # FUNCTION: test_the_most_specific_pattern_wins_over_a_broader_one
     # SUMMARY: A file under an expert prefix stays expert even though a caution prefix also matches.
-    # NOTE: This is the regression the `project/` catch-all above would otherwise have caused.
-    # zone_via_edit_zones_patterns used to return the FIRST matching zone while iterating zones in
-    # dict order, and `caution` is declared before `expert` — so the catch-all silently demoted
-    # the whole logging kernel from expert/high to caution/medium. Seventeen files, no gate red.
+    # NOTE: This is the regression the `project/` catch-all above would otherwise have caused. If
+    # zone_via_edit_zones_patterns returned the FIRST matching zone while iterating zones in dict
+    # order, and `caution` is declared before `expert`, the catch-all would silently demote the
+    # whole logging kernel from expert/high to caution/medium. Seventeen files, no gate red.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         ("path", "expected_zone"),

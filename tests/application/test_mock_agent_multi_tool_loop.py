@@ -3,9 +3,9 @@
 # bound tools with structured arguments (Decimal, a nested object, an enum), driven end to end by
 # LLMService in mock mode, with no key and no network. Copy this file's shape into a vertical.
 #
-# Before 2026-09-08 this test could not be written against the shipped mock at all. Two field
-# builds hit the same wall independently and both wrote their own tool-selection layer on top of
-# `LLMService` to get here — see the NOTE on `_next_uncalled_tool_name` in
+# This test could not be written against the shipped mock until it gained real tool-selection:
+# two field builds hit the same wall independently and both wrote their own tool-selection layer
+# on top of `LLMService` to get here — see the NOTE on `_next_uncalled_tool_name` in
 # project/infrastructure/agents/llm_service_mock.py for what was actually broken and how it was
 # measured, and docs/adr/ADR-003-mock-first-llm-mode.md for what mock mode now guarantees.
 
@@ -165,8 +165,8 @@ class TestThreeToolAgentLoopOnMock:
         )
 
         # **LOGIC_STEP**: Selection is positional and complete — every bound tool exactly once,
-        # in binding order. This is the defect that made a 3-tool loop unreachable on the shipped
-        # mock: before the fix this list stopped at one entry no matter how many tools were bound.
+        # in binding order. Without it, a 3-tool loop is unreachable on the shipped mock: this
+        # list stops at one entry no matter how many tools are bound.
         assert called_in_order == ["lookup_customer", "price_order", "send_confirmation"]
         # **LOGIC_STEP**: The final call carried no tool call and produced the summary branch —
         # the loop actually ended instead of hitting the round budget in `_run_agent_loop`.
@@ -204,11 +204,11 @@ class TestThreeToolAgentLoopOnMock:
     # FUNCTION: test_the_loop_advances_when_the_tool_result_carries_no_name
     # SUMMARY: Drive the same loop with `ToolMessage(content=..., tool_call_id=...)` — no `name` —
     # and check the cycle still visits every tool once.
-    # NOTE: `ToolMessage.name` is optional, and the shortest hand-written loop omits it. Selection
-    # read only that field until 2026-09-08, so an unnamed result taught the mock nothing: it
-    # answered with the first bound tool again, and again, until the caller's own round budget
-    # stopped it. Found by an independent review of this branch, not by the loop above, because
-    # the loop above happens to set the name.
+    # NOTE: `ToolMessage.name` is optional, and the shortest hand-written loop omits it. If
+    # selection reads only that field, an unnamed result teaches the mock nothing: it answers with
+    # the first bound tool again, and again, until the caller's own round budget stops it. Found
+    # by an independent review of this branch, not by the loop above, because the loop above
+    # happens to set the name.
     @pytest.mark.unit
     async def test_the_loop_advances_when_the_tool_result_carries_no_name(self) -> None:
         with patch(
@@ -237,8 +237,8 @@ class TestThreeToolAgentLoopOnMock:
         assert called_in_order == ["lookup_customer", "price_order", "send_confirmation"]
         # **LOGIC_STEP**: And the summary names those tools too. Selection learned to resolve an
         # unnamed result through the call it answers; the summary kept reading `.name` and printed
-        # `None: <result>` for the same message. Found by a second independent review on
-        # 2026-09-08 — one fix, two readers, and only one of them had been updated.
+        # `None: <result>` for the same message. Found by a second independent review — one fix,
+        # two readers, and only one of them had been updated.
         summary = messages[-1]
         assert isinstance(summary, AIMessage)
         assert "None:" not in str(summary.content)
@@ -248,9 +248,9 @@ class TestThreeToolAgentLoopOnMock:
     # FUNCTION: test_a_result_answering_no_known_call_does_not_consume_a_tool
     # SUMMARY: Verify an unnamed result is matched to the call it answers, not to a position.
     # NOTE: The loop test above walks a happy path where "first result answers the first call" and
-    # "the id says so" agree, so it stays green against an implementation that just counts results.
-    # A second review made exactly that mutation on 2026-09-08 and watched it pass. Here the id
-    # matches nothing, so only an implementation that reads it gets the answer right.
+    # "the id says so" agree, so it stays green against an implementation that just counts
+    # results — a review made exactly that mutation and watched it pass. Here the id matches
+    # nothing, so only an implementation that reads it gets the answer right.
     @pytest.mark.unit
     async def test_a_result_answering_no_known_call_does_not_consume_a_tool(self) -> None:
         with patch(
@@ -278,10 +278,10 @@ class TestThreeToolAgentLoopOnMock:
     # FUNCTION: test_a_second_question_starts_the_cycle_over
     # SUMMARY: Verify the tools a previous answer used are available again for the next question.
     # NOTE: The cycle has to remember within one answer and forget between answers. Scanning the
-    # whole conversation got the first right and the second wrong: measured on 2026-09-08, a second
-    # question in the same conversation received no tool call at all, because every tool still
-    # counted as answered from the first one. A conversation is the normal case for an assistant,
-    # so this was a regression against the single-tool behaviour the template shipped before.
+    # whole conversation gets the first right and the second wrong: a second question in the same
+    # conversation receives no tool call at all, because every tool still counts as answered from
+    # the first one. A conversation is the normal case for an assistant, so this is a regression
+    # against single-tool behaviour.
     @pytest.mark.unit
     async def test_a_second_question_starts_the_cycle_over(self) -> None:
         with patch(

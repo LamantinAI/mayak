@@ -103,7 +103,7 @@ def fastapi_app(test_settings: _FixtureSettings) -> Generator[FastAPI, None, Non
 # FUNCTION: app_without_postgres
 # SUMMARY: Assemble the application with the relational store switched off.
 # OUTPUT: (Generator[FastAPI, None, None]): Application built with postgres.enabled False.
-# NOTE: Here rather than in a vertical's own test file, which is where it lived until 2026-08-14 —
+# NOTE: Here rather than in a vertical's own test file, which is where it used to live —
 # in two files at once, in two shapes. Every storage-backed vertical needs it to prove its half of
 # ADR-006 (routes absent, service key present and None), so a project's second vertical copied it
 # and the day the shipped vertical was deleted its copy went with it. Takes no arguments and builds

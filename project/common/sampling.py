@@ -2,12 +2,10 @@
 # SUMMARY: Decide whether one liveness-probe request should be logged, so an orchestrator polling
 # /health every few seconds does not bury the log in identical lines.
 #
-# NOTE: This module used to be 240 lines: a `SamplingConfig` reading four rates from settings with
-# an environment-variable fallback path, a `Sampler` singleton behind double-checked locking with a
-# thread-local RNG, `get_config` / `update_config` for runtime adjustment, and five module-level
-# convenience functions. Exactly one of them was ever called, from exactly one line of middleware —
-# the rest was machinery for a configurability nobody used. What survives is the call site's actual
-# need: one rate, one function.
+# NOTE: Kept deliberately minimal: a runtime-adjustable config object, a locked singleton
+# sampler, and several convenience functions would all be machinery for a configurability
+# nobody uses, since exactly one call site ever needs one rate. What this module offers is
+# that actual need: one rate, one function.
 #
 # A project that grows a second sampled endpoint adds a rate here; adding it back is a few lines,
 # and it will be shaped by a call site that exists rather than by one imagined in advance.

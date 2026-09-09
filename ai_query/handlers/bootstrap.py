@@ -42,9 +42,8 @@ def query_bootstrap() -> QueryPayload:
             "docs/architecture_rules.json",
             "uv run python scripts/query_ai_context.py overview",
         ],
-        # NOTE: Both lists below used to be typed out here as literals, alongside the same content
-        # in architecture_rules.json and in ARCHITECTURE.md. Three copies, none compared. They are
-        # now projections of the generated contract, which is the machine source of truth.
+        # NOTE: Both lists below are projections of the generated contract, the machine source of
+        # truth — keep them derived rather than typed out as literals, or a copy drifts silently.
         "source_of_truth_order": _source_of_truth_order(architecture_rules["source_of_truth"]),
         "core_wiring_files": sorted(architecture_rules["wiring_files"].values()),
         "task_shortcuts": list(context_map["query_cli"]["shortcuts"]),
