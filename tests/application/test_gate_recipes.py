@@ -740,7 +740,48 @@ class TestBothAgentsRunTheSameGuard:
 
         assert self.GUARD in claude
         assert self.GUARD in codex
-        assert len(list(_REPO_ROOT.glob("**/pre-edit-guard.sh"))) == 1
+        assert len(_copies_outside_nested_checkouts(_REPO_ROOT, "**/pre-edit-guard.sh")) == 1
+
+    # FUNCTION: test_a_nested_checkout_is_not_a_second_copy
+    # SUMMARY: Verify a worktree inside the tree does not read as one agent having grown its own guard.
+    # **LOGIC_STEP**: The count above was a plain `**/` glob, which counts the guard once per
+    # checkout. `git worktree add .claude/worktrees/<name>`, which this template's own workflow
+    # asks for, put a second copy in the tree and turned this test red with nothing in the
+    # repository changed — reproduced on the main checkout after PR 11 while every worktree stayed
+    # green. A git worktree carries a `.git` file at its own root, and that is what tells a nested
+    # checkout apart from an agent that really did grow its own copy.
+    @pytest.mark.unit
+    def test_a_nested_checkout_is_not_a_second_copy(self, tmp_path: Path) -> None:
+        (tmp_path / ".agents" / "hooks").mkdir(parents=True)
+        (tmp_path / ".agents" / "hooks" / "pre-edit-guard.sh").write_text("#!/bin/sh\n")
+        nested = tmp_path / ".claude" / "worktrees" / "review"
+        (nested / ".agents" / "hooks").mkdir(parents=True)
+        (nested / ".agents" / "hooks" / "pre-edit-guard.sh").write_text("#!/bin/sh\n")
+        (nested / ".git").write_text("gitdir: /elsewhere/.git/worktrees/review\n")
+
+        copies = _copies_outside_nested_checkouts(tmp_path, "**/pre-edit-guard.sh")
+
+        assert [path.relative_to(tmp_path) for path in copies] == [
+            Path(".agents/hooks/pre-edit-guard.sh")
+        ]
+
+
+# FUNCTION: _copies_outside_nested_checkouts
+# SUMMARY: Files matching a glob, minus those living inside a checkout nested in this one.
+# INPUT: root (Path): Directory the glob and the emptiness check are anchored to.
+# INPUT: pattern (str): Glob relative to root, `**/` included when the search is recursive.
+# OUTPUT: (list[Path]): Absolute paths that belong to this checkout and no other.
+def _copies_outside_nested_checkouts(root: Path, pattern: str) -> list[Path]:
+    copies: list[Path] = []
+    for path in sorted(root.glob(pattern)):
+        # **LOGIC_STEP**: Every directory between the match and the root, except the root itself —
+        # whose own `.git` is the one this checkout is meant to have. A git worktree writes a
+        # `.git` file at its root, a clone writes a directory; `exists()` covers both.
+        enclosing = list(path.relative_to(root).parents)[:-1]
+        if any((root / directory / ".git").exists() for directory in enclosing):
+            continue
+        copies.append(path)
+    return copies
 
 
 # FUNCTION: _with_docker_shim
