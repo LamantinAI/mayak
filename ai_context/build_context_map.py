@@ -122,7 +122,7 @@ def build_context_map() -> dict[str, object]:
             ),
         },
         "core_entrypoints": [
-            "CLAUDE.md",
+            "AGENTS.md",
             "docs/architecture_rules.json",
             "scripts/query_ai_context.py",
             "project/core/composition_root.py",

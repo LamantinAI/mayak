@@ -12,7 +12,7 @@
     "alembic/versions/"
   ],
   "core_entrypoints": [
-    "CLAUDE.md",
+    "AGENTS.md",
     "docs/architecture_rules.json",
     "scripts/query_ai_context.py",
     "project/core/composition_root.py",
@@ -637,7 +637,7 @@
     ]
   },
   "read_last_paths": [
-    "CLAUDE.md",
+    "AGENTS.md",
     "docs/agent_rules.md",
     "docs/adr/"
   ],

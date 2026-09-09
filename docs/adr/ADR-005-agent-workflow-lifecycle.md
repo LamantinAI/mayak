@@ -11,7 +11,7 @@ from the query CLI, plan with the cheapest query that answers the question, chec
 editing anything outside the `safe` zone, edit, validate narrow-then-wide, and recover through
 `make doctor` when a gate fails.
 
-The steps themselves are written once, in `docs/agent_rules.md` and the `CLAUDE.md` it generates,
+The steps themselves are written once, in `docs/agent_rules.md` and the `AGENTS.md` it generates,
 and the commands come from the `Makefile`. This ADR deliberately does not restate either.
 
 ## Rationale
@@ -23,15 +23,15 @@ A canonical lifecycle removes that variance.
 Restating the lifecycle here is what this ADR used to do, and it is exactly how the rule broke: this
 file spelled out all six phases with their commands, the operational contract spelled out the same steps,
 and nothing compared them. When the canonical final command became `make quality-gates`,
-`CLAUDE.md` and `docs/agent_rules.md` were updated together and this document was
+`AGENTS.md` and `docs/agent_rules.md` were updated together and this document was
 not — so an agent that read the ADR ran the wrong command and never learned it was wrong. An ADR
 records *why a decision was made*; the procedure belongs where the agent already looks.
 
 ## Operationalization
 
-- `CLAUDE.md` — Task process and Working notes: the steps, in order.
+- `AGENTS.md` — Task process and Working notes: the steps, in order.
 - `make help` — the commands, rendered from the Makefile's own annotations.
-- `docs/agent_rules.md` — Working Notes, which generate `CLAUDE.md`.
+- `docs/agent_rules.md` — Working Notes, which generate `AGENTS.md`.
 - `scripts/query_ai_context.py` — every query used in the lifecycle, registered in
   `ai_context/constants.py:QUERY_SUPPORTED_COMMANDS`.
 - `scripts/doctor_ai_context.py` — recovery diagnostics.

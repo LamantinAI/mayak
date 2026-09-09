@@ -111,9 +111,10 @@ EDIT_ZONES = {
         "scripts/",
     ],
     "generated_do_not_edit": [
+        # The import stub Claude Code reads; it carries no rules of its own — ADR-011.
         "CLAUDE.md",
-        # The Codex half of the same generated pair — CLAUDE.md's twin. Listing it here too lets
-        # `before-edit AGENTS.md` say the one thing that matters about the file, instead of
+        # The rendered contract the stub imports and Codex reads directly. Listing both lets
+        # `before-edit` on either say the one thing that matters about the file, instead of
         # `Unknown or unindexed file policy path`.
         "AGENTS.md",
         "docs/ai_context_map.json",
@@ -200,7 +201,7 @@ COLD_PATHS = [
 ]
 
 READ_LAST_PATHS = [
-    "CLAUDE.md",
+    "AGENTS.md",
     "docs/agent_rules.md",
     "docs/adr/",
 ]

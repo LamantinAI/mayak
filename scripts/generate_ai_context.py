@@ -72,7 +72,7 @@ def generated_output_issues(
                         "suggested_fix": (
                             "Regenerate the AI-facing derived artifacts before continuing."
                         ),
-                        "read_first": ["CLAUDE.md", "docs/ai_change_map.json"],
+                        "read_first": ["AGENTS.md", "docs/ai_change_map.json"],
                         "next_checks": [
                             "make refresh-generated-docs",
                             "uv run python scripts/generate_ai_context.py --check",
@@ -96,7 +96,7 @@ def generated_output_issues(
                         "suggested_fix": (
                             "Regenerate the derived artifacts after changing wiring, contracts, or agent docs."
                         ),
-                        "read_first": ["CLAUDE.md", "docs/ai_context_map.json"],
+                        "read_first": ["AGENTS.md", "docs/ai_context_map.json"],
                         "next_checks": [
                             "make refresh-generated-docs",
                             "uv run python scripts/generate_ai_context.py --check",
@@ -194,7 +194,7 @@ def main() -> int:
                 ),
                 "repair_protocol": list(issue["repair_protocol"]),
                 "read_first": [
-                    "CLAUDE.md",
+                    "AGENTS.md",
                     "docs/ai_context_map.json",
                     "docs/architecture_rules.json",
                 ],

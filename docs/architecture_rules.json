@@ -803,7 +803,7 @@
     ]
   },
   "read_last_paths": [
-    "CLAUDE.md",
+    "AGENTS.md",
     "docs/agent_rules.md",
     "docs/adr/"
   ],
@@ -830,14 +830,14 @@
       "docs/agent_rules.md",
       "docs/project_map.md",
       "docs/adr/README.md",
-      "CLAUDE.md"
+      "AGENTS.md"
     ],
     "generated_navigation": [
       "docs/ai_context_map.json",
       "docs/ai_change_map.json"
     ],
     "machine_contract": "docs/architecture_rules.json",
-    "narrative_architecture": "CLAUDE.md",
+    "narrative_architecture": "AGENTS.md",
     "operational_query_interface": "scripts/query_ai_context.py"
   },
   "template_kernel_paths": [

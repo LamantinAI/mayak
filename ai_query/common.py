@@ -32,7 +32,7 @@ _DRIFT_RULE_PLAYBOOKS = {
         "meaning": "A generated agent wrapper file is missing from the checked-in repository state.",
         "smallest_files_to_read": [
             "docs/agent_rules.md",
-            "CLAUDE.md",
+            "AGENTS.md",
         ],
         "smallest_command_to_rerun": "uv run python scripts/sync_agent_docs.py --check",
         "likely_fix_shape": (
@@ -52,7 +52,7 @@ _DRIFT_RULE_PLAYBOOKS = {
         "meaning": "A generated agent wrapper file no longer matches docs/agent_rules.md.",
         "smallest_files_to_read": [
             "docs/agent_rules.md",
-            "CLAUDE.md",
+            "AGENTS.md",
         ],
         "smallest_command_to_rerun": "uv run python scripts/sync_agent_docs.py --check",
         "likely_fix_shape": (
@@ -96,7 +96,7 @@ _DRIFT_RULE_PLAYBOOKS = {
     "drift.generated.missing": {
         "meaning": "A generated AI context file is missing from the checked-in repository state.",
         "smallest_files_to_read": [
-            "CLAUDE.md",
+            "AGENTS.md",
             "docs/ai_context_map.json",
         ],
         "smallest_command_to_rerun": "uv run python scripts/generate_ai_context.py --check",
@@ -114,7 +114,7 @@ _DRIFT_RULE_PLAYBOOKS = {
     "drift.generated.outdated": {
         "meaning": "A generated AI context artifact no longer matches the repository sources.",
         "smallest_files_to_read": [
-            "CLAUDE.md",
+            "AGENTS.md",
             "docs/ai_context_map.json",
             "docs/architecture_rules.json",
         ],
@@ -991,7 +991,9 @@ def generated_artifacts_for_paths(paths: list[str]) -> list[str]:
         "docs/agent_rules.md",
         "scripts/sync_agent_docs.py",
     }:
-        add(["CLAUDE.md"])
+        # One command rewrites both wrappers; naming only one left the other's staleness invisible
+        # to an agent asking what its edit regenerates.
+        add(["AGENTS.md", "CLAUDE.md"])
     if normalized_paths & {
         "docs/ai_context_map.json",
         "docs/ai_change_map.json",
@@ -1043,6 +1045,7 @@ def regeneration_targets_for_paths(paths: list[str]) -> list[str]:
     if normalized_paths & {
         "docs/agent_rules.md",
         "scripts/sync_agent_docs.py",
+        "AGENTS.md",
         "CLAUDE.md",
     }:
         add("make refresh-agent-docs")
@@ -1329,7 +1332,7 @@ def workset_payload(
         list(dict.fromkeys(affected_service_keys)),
     )
     read_first = [
-        "CLAUDE.md",
+        "AGENTS.md",
         *sort_paths_by_risk(existing_changed_files, architecture_rules)[:3],
     ]
     return {

@@ -47,7 +47,7 @@ class TestQueryAIContext:
         result = _query_bootstrap()
         payload: dict[str, Any] = result.payload
 
-        assert payload["read_first"][0] == "CLAUDE.md"
+        assert payload["read_first"][0] == "AGENTS.md"
         assert "docs/architecture_rules.json" in payload["read_first"]
         assert "uv run python scripts/query_ai_context.py overview" in payload["read_first"]
         assert payload["task_shortcuts"] == [
@@ -90,7 +90,7 @@ class TestQueryAIContext:
             "project/infrastructure/api/dependencies.py"
         )
         assert "project/core/logging/" in payload["cold_paths"]
-        assert "CLAUDE.md" in payload["read_last_paths"]
+        assert "AGENTS.md" in payload["read_last_paths"]
         assert (
             "failure rule endpoint.no_depends_without_alias"
             in payload["query_cli"]["supported_queries"]
@@ -277,7 +277,7 @@ class TestQueryAIContext:
         assert payload["regeneration"]["decision"] == "refresh-ai-context"
         assert "uv run python scripts/validate_endpoint_wiring.py" in payload["required_validators"]
         assert payload["recommended_diff_style"] == "minimal-diff"
-        assert payload["read_first"][0] == "CLAUDE.md"
+        assert payload["read_first"][0] == "AGENTS.md"
 
     # FUNCTION: test_query_workset_diff_recommends_e2e_for_a_persistence_change
     # SUMMARY: Verify final_gate adds `make test-e2e` when the diff touches persistence.
@@ -472,7 +472,7 @@ class TestQueryAIContext:
         assert payload["status"] == "empty"
         assert payload["changed_files"] == []
         assert payload["deleted_files"] == []
-        assert payload["read_first"] == ["CLAUDE.md"]
+        assert payload["read_first"] == ["AGENTS.md"]
 
     # FUNCTION: test_query_workset_diff_reports_git_repository_errors
     # SUMMARY: Verify workset diff queries surface a high-signal fallback message when git diff resolution is unavailable.

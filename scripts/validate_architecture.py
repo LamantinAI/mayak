@@ -114,7 +114,7 @@ _ARCHITECTURE_RULE_PLAYBOOKS = {
             "through the composition-root wiring flow instead of importing infrastructure."
         ),
         "read_first": [
-            "CLAUDE.md",
+            "AGENTS.md",
             "docs/architecture_rules.json",
             "project/core/composition_root.py",
         ],
@@ -146,7 +146,7 @@ _ARCHITECTURE_RULE_PLAYBOOKS = {
             "gets its own dataclass here, and the adapter translates."
         ),
         "read_first": [
-            "CLAUDE.md",
+            "AGENTS.md",
             "project/domain/ports.py",
             "docs/architecture_rules.json",
         ],
@@ -175,7 +175,7 @@ _ARCHITECTURE_RULE_PLAYBOOKS = {
             "instead of importing those modules from infrastructure."
         ),
         "read_first": [
-            "CLAUDE.md",
+            "AGENTS.md",
             "project/core/composition_root.py",
             "project/core/service_registration.py",
             "docs/architecture_rules.json",

@@ -291,7 +291,7 @@ Notes worth knowing:
 | Document | What it answers |
 |---|---|
 | `docs/agent_rules.md` | the operating contract: where a fact goes, how the kernel is shaped, what each gate enforces |
-| `CLAUDE.md`, `AGENTS.md` | the same contract, generated for Claude Code and for Codex — do not edit either directly |
+| `AGENTS.md` | the operating contract as an agent loads it: Codex directly, Claude Code through the `CLAUDE.md` that imports it — do not edit either directly |
 | `docs/adr/` | why the load-bearing decisions were made, one dated document each |
 | `docs/project_map.md` | generated file tree with a one-line summary per module |
 | `PROJECT.md` | what a given project does — the file you rewrite first |

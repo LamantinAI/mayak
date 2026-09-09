@@ -76,7 +76,7 @@ def _build_minimal_context(task_name: str, task_metadata: dict[str, object]) -> 
     )
     return {
         "read_first": [
-            "CLAUDE.md",
+            "AGENTS.md",
             "uv run python scripts/query_ai_context.py overview",
         ],
         "focus_queries": focus_queries,

@@ -1,7 +1,7 @@
 # Project Context
 
 > This file describes **WHAT** the project does (business domain).
-> `CLAUDE.md` describes **HOW** the kernel works (technical structure).
+> `AGENTS.md` describes **HOW** the kernel works (technical structure).
 >
 > The machine-readable counterpart lives in `docs/project_context.json`.
 
@@ -89,7 +89,7 @@ machine-readable copies, which the vertical references by id, are in
 | vertical | A self-contained feature slice spanning domain, application, infrastructure, and test layers. |
 | composition_root | The single location (`project/core/composition_root.py`) where shared services are constructed and injected into FastAPI's `app.state`. |
 | service_registration | Per-vertical service-construction helpers in `project/core/service_registration.py`. |
-| wiring_hotspot | One of the four files that bind layers together; the list is in CLAUDE.md under "How the kernel is shaped". |
+| wiring_hotspot | One of the four files that bind layers together; the list is in AGENTS.md under "How the kernel is shaped". |
 | edit_zone | Risk classification of a file: safe / caution / expert / generated_do_not_edit. |
 | kernel | The reusable template surface — AI tooling, validators, composition root, semantic logging — inherited by every project built on Mayak. |
 | mayak | This template repository itself. The kernel referenced above. |

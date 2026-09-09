@@ -859,7 +859,7 @@ def get_cbm_rule_playbook(rule_id: str) -> dict | None:
             "annotations. CBM markers help AI agents and developers navigate the codebase."
         ),
         "suggested_fix": suggested_fix + autofix_note,
-        "read_first": ["CLAUDE.md"],
+        "read_first": ["AGENTS.md"],
         "smallest_command_to_rerun": "uv run python scripts/validate_cbm.py",
         "likely_fix_shape": ("Add or correct the CBM comment tag above the reported definition."),
         "next_checks": [

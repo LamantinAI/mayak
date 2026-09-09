@@ -33,7 +33,7 @@ _ENDPOINT_RULE_PLAYBOOKS = {
             "from project/infrastructure/api/dependencies.py."
         ),
         "read_first": [
-            "CLAUDE.md",
+            "AGENTS.md",
             "project/infrastructure/api/dependencies.py",
             "docs/architecture_rules.json",
         ],
@@ -60,7 +60,7 @@ _ENDPOINT_RULE_PLAYBOOKS = {
             "project/infrastructure/api/dependencies.py."
         ),
         "read_first": [
-            "CLAUDE.md",
+            "AGENTS.md",
             "project/infrastructure/api/dependencies.py",
             "docs/architecture_rules.json",
         ],
@@ -88,7 +88,7 @@ _ENDPOINT_RULE_PLAYBOOKS = {
             "application service type directly."
         ),
         "read_first": [
-            "CLAUDE.md",
+            "AGENTS.md",
             "project/infrastructure/api/dependencies.py",
             "docs/architecture_rules.json",
         ],
@@ -116,7 +116,7 @@ _ENDPOINT_RULE_PLAYBOOKS = {
             "depends on a known service key."
         ),
         "read_first": [
-            "CLAUDE.md",
+            "AGENTS.md",
             "project/infrastructure/api/dependencies.py",
             "docs/architecture_rules.json",
         ],
@@ -145,7 +145,7 @@ _ENDPOINT_RULE_PLAYBOOKS = {
             "service construction."
         ),
         "read_first": [
-            "CLAUDE.md",
+            "AGENTS.md",
             "project/infrastructure/api/dependencies.py",
             "docs/architecture_rules.json",
         ],
@@ -175,7 +175,7 @@ _ENDPOINT_RULE_PLAYBOOKS = {
         ),
         "read_first": [
             "project/infrastructure/api/router_registration.py",
-            "CLAUDE.md",
+            "AGENTS.md",
         ],
         "smallest_command_to_rerun": "uv run python scripts/validate_endpoint_wiring.py",
         "likely_fix_shape": (

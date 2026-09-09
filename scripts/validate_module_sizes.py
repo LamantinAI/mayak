@@ -288,7 +288,7 @@ def get_module_size_playbook(rule_id: str | None = None) -> dict | None:
                 "Find a group of functions that talk mostly to each other and give them their "
                 "own module in the same package. A private helper travels with its caller."
             ),
-            "read_first": ["CLAUDE.md"],
+            "read_first": ["AGENTS.md"],
             "smallest_command_to_rerun": "uv run python scripts/validate_module_sizes.py",
             "likely_fix_shape": (
                 "One new file beside the original, the chosen group moved into it, imports "
@@ -316,7 +316,7 @@ def get_module_size_playbook(rule_id: str | None = None) -> dict | None:
                 "Split the function into named steps in the same module. Each extracted step "
                 "should be nameable in a few words; if it is not, the seam is in the wrong place."
             ),
-            "read_first": ["CLAUDE.md"],
+            "read_first": ["AGENTS.md"],
             "smallest_command_to_rerun": "uv run python scripts/validate_module_sizes.py",
             "likely_fix_shape": (
                 "Extract cohesive blocks of the body into private helpers next to it, leaving the "

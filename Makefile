@@ -78,8 +78,8 @@ WORKTREE_PROJECT := wt-$(shell basename "$(CURDIR)" | tr '[:upper:]' '[:lower:]'
 #   make db-up-worktree WORKTREE_POSTGRES_PORT=25999
 WORKTREE_POSTGRES_PORT ?= $(shell echo $$(( $(WORKTREE_HASH) % 10000 + 20000 )))
 
-# Prints every target carrying a `## Group | description` annotation. The same annotations are the
-# only source of the command list in CLAUDE.md, so this and the wrapper can never disagree.
+# Prints every target carrying a `## Group | description` annotation. The wrapper points here
+# rather than repeating the list, so this and the contract cannot disagree.
 help:
 	@grep -hE '^[a-z0-9-]+:[^#]*##' $(MAKEFILE_LIST) \
 		| sed -E 's/^([a-z0-9-]+):[^#]*## *([^|]+)\| *(.*)$$/\2\t\1\t\3/' \

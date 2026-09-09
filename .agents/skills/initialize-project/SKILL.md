@@ -3,7 +3,7 @@ name: initialize-project
 description: Use this skill when asked to initialize, bootstrap, or set up a repository created from the Mayak template so local development is ready. Trigger it for requests like "initialize the project", "bootstrap this repo", "set up the project locally", or "prepare the repo for work".
 triggers: [init, bootstrap, setup, initialize]
 minimal_read_set:
-  - CLAUDE.md
+  - AGENTS.md
   - docs/project_context.json
 validation_command: make quality-gates
 ---
@@ -33,7 +33,7 @@ nothing to do with what you were changing.
    real. Skipping it leaves `uv.lock` naming the template package, and `uv lock --check` — the
    first line of `make quality-gates` — fails on a file you did not touch.
 5. `make refresh-generated-docs`. `docs/project_map.md` renders the project name from
-   `docs/project_context.json`, and `CLAUDE.md` is generated too; without this the next gate fails
+   `docs/project_context.json`, and the agent wrappers are generated too; without this the next gate fails
    on artifact drift rather than on your work.
 6. Decide whether this project needs a relational store. If it does not — a vector-search-only or
    stateless service — set `POSTGRES_ENABLED=false` in `.env` and say so in the `postgres` entry of

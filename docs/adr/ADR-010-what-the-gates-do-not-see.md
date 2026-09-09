@@ -10,7 +10,7 @@ Accepted (2026-09-08)
 a query is only caught if some test pins its clause as literal text. The one step that opens a
 connection is the migration gate below, and it asks the database about Alembic's state, not
 yours; with no database it downgrades to an informational skip.
-`CLAUDE.md` states the two consequences and nothing else: finish with `make quality-gates`, and add
+`AGENTS.md` states the two consequences and nothing else: finish with `make quality-gates`, and add
 `make test-e2e` when the diff touches persistence, endpoints, wiring, or a migration. The measurements
 below are why those two sentences are load-bearing rather than routine advice.
 

@@ -74,6 +74,7 @@ Project Map: Mayak
 │   │   ├── ADR-008-readiness-criticality.md
 │   │   ├── ADR-009-provider-errors-at-the-llm-boundary.md
 │   │   ├── ADR-010-what-the-gates-do-not-see.md
+│   │   ├── ADR-011-one-rendered-wrapper.md
 │   │   └── README.md
 │   ├── agent_rules.md
 │   ├── ai_change_map.json

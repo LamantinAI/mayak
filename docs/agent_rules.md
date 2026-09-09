@@ -1,8 +1,9 @@
 # Shared Agent Wrapper Source
 
-This file is the shared source generating `CLAUDE.md` and `AGENTS.md` — one operational contract
-under the two names the agents look for. Claude Code reads the first, Codex the second, neither
-the other's; there is no second document to read first.
+This file is the shared source generating `AGENTS.md`, the one operational contract, and the
+`CLAUDE.md` that imports it. Codex reads `AGENTS.md` directly; Claude Code reads `CLAUDE.md` and
+expands its `@AGENTS.md` import at session start, because Claude Code does not read `AGENTS.md`
+itself. One document holds the rules either way — ADR-011.
 
 Start here:
 - Copy the `reference_task` vertical. It is the one worked example and it exists to be copied — eleven files plus three wiring edits; `.agents/skills/add-vertical` carries the order and the removal list for when your own vertical replaces it. A project that has replaced it edits this line and nothing else: the wrapper's Quick Start is generated from these bullets.

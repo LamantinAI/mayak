@@ -13,6 +13,7 @@ Current ADRs:
 - `ADR-008-readiness-criticality.md`
 - `ADR-009-provider-errors-at-the-llm-boundary.md`
 - `ADR-010-what-the-gates-do-not-see.md`
+- `ADR-011-one-rendered-wrapper.md`
 
 Guidelines:
 - Add a short ADR when a durable architectural or workflow decision changes.
@@ -20,7 +21,7 @@ Guidelines:
 - Link to the affected files or scripts when the rule is operationalized in code.
 
 When an ADR is the right place — one of three, and only one holds any given fact
-(`CLAUDE.md`, "Where a fact goes — one fact, one place"):
+(`AGENTS.md`, "Where a fact goes — one fact, one place"):
 
 | The fact is needed | It goes |
 |---|---|

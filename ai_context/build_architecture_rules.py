@@ -147,7 +147,7 @@ def build_architecture_rules() -> dict[str, object]:
             ],
             "machine_contract": "docs/architecture_rules.json",
             "operational_query_interface": "scripts/query_ai_context.py",
-            "narrative_architecture": "CLAUDE.md",
+            "narrative_architecture": "AGENTS.md",
             "generated_navigation": [
                 "docs/ai_context_map.json",
                 "docs/ai_change_map.json",
@@ -156,7 +156,7 @@ def build_architecture_rules() -> dict[str, object]:
                 "docs/agent_rules.md",
                 "docs/project_map.md",
                 "docs/adr/README.md",
-                "CLAUDE.md",
+                "AGENTS.md",
             ],
         },
         "query_cli": {

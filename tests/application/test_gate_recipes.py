@@ -574,8 +574,8 @@ class TestGeneratedArtifactsAreRefreshedNotReported:
 # CLASS: tests.application.test_gate_recipes.TestGeneratedFilesRefuseTheEdit
 # SUMMARY: Verify the PreToolUse hook is installed and actually denies a write to every generated
 # path, running the hook rather than reading it.
-# NOTE: "CLAUDE.md is a generated file and must not be edited directly" is stated twice in
-# CLAUDE.md but enforced only here. The drift check cannot catch this any more: once the gate
+# NOTE: "generated and must not be edited directly" is stated in CLAUDE.md's own comment and in
+# the AGENTS.md bullet that CLAUDE.md imports, but enforced only here. The drift check cannot catch this any more: once the gate
 # refreshes generated artifacts itself, a hand edit is simply overwritten on the next run and the
 # work disappears silently. The hook is the only place the agent still learns anything.
 class TestGeneratedFilesRefuseTheEdit:

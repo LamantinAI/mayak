@@ -51,7 +51,7 @@ class TestGenerateAIContext:
         assert "shared" in payload["service_keys"]
         assert "vertical" in payload["service_keys"]
         assert payload["core_entrypoints"][:3] == [
-            "CLAUDE.md",
+            "AGENTS.md",
             "docs/architecture_rules.json",
             "scripts/query_ai_context.py",
         ]
@@ -398,7 +398,7 @@ class TestGenerateAIContext:
             "project/infrastructure/api/dependencies.py"
         )
         assert "project/core/logging/" in payload["cold_paths"]
-        assert "CLAUDE.md" in payload["read_last_paths"]
+        assert "AGENTS.md" in payload["read_last_paths"]
         assert payload["cbm_policy"]["optional_detail"] == [
             "attributes",
             "private helpers",
