@@ -25,6 +25,11 @@ from scripts.sync_agent_docs import (
 # SUMMARY: Repository root, for the tests that compare two hand-written documents against each other.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# ATTRIBUTE: _IMPORT_TEXT (str)
+# SUMMARY: The import line as literal text. Written out rather than read from the generator, so a
+# guard cannot agree with a renderer that points the import at the wrong file.
+_IMPORT_TEXT = "@AGENTS.md"
+
 # ATTRIBUTE: _HTML_COMMENT (re.Pattern)
 # SUMMARY: A block HTML comment, which Claude Code strips before the file reaches the model — so
 # what the stub actually contributes to a session is whatever survives this substitution.
@@ -403,26 +408,42 @@ class TestBothWrappersStayReadable:
     def test_claude_md_carries_nothing_but_the_import(self) -> None:
         stub = build_documents()[CLAUDE_PATH]
 
-        remainder = _HTML_COMMENT.sub("", stub).replace(IMPORT_LINE, "", 1).strip()
+        remainder = _HTML_COMMENT.sub("", stub).replace(_IMPORT_TEXT, "", 1).strip()
 
         assert remainder == "", (
             f"CLAUDE.md carries {remainder!r} beyond its import; a rule written there reaches "
             "Claude Code and never reaches Codex. It belongs in docs/agent_rules.md."
         )
 
-    # FUNCTION: test_the_import_is_a_bare_line
-    # SUMMARY: Verify the import is an import — inside backticks or a fence it is prose, and the session loads no rules at all.
+    # FUNCTION: test_the_import_is_a_bare_unindented_line
+    # SUMMARY: Verify the import is an import — quoted or indented it is prose, and the session loads no rules at all.
     # **LOGIC_STEP**: Claude Code skips `@` references inside code spans and fenced blocks, by
-    # design, so a well-meant edit that quotes the line for readability silently empties the
-    # contract for every Claude session, with every gate still green. This is the single point of
-    # failure the whole arrangement rests on, so it is pinned as text, not assumed.
+    # design, and four spaces of indentation make a block of the line just as surely as a fence
+    # does — measured against the CLI, an indented import expands to nothing. So a well-meant edit
+    # that quotes the line for readability, or indents it under a bullet, silently empties the
+    # contract for every Claude session with every gate still green. This is the single point of
+    # failure the whole arrangement rests on. The comparison is against the literal text and the
+    # unstripped line: an earlier version read the renderer's own constant and stripped each line,
+    # and passed on both `@CLAUDE.md` and a four-space indent.
     @pytest.mark.unit
-    def test_the_import_is_a_bare_line(self) -> None:
+    def test_the_import_is_a_bare_unindented_line(self) -> None:
         body = _HTML_COMMENT.sub("", build_documents()[CLAUDE_PATH])
 
-        assert IMPORT_LINE in [line.strip() for line in body.splitlines()]
-        assert f"`{IMPORT_LINE}`" not in body
+        assert _IMPORT_TEXT in body.splitlines()
+        assert f"`{_IMPORT_TEXT}`" not in body
         assert "```" not in body
+
+    # FUNCTION: test_the_import_names_the_file_that_carries_the_rules
+    # SUMMARY: Pin the import target as literal text, since the two guards above read what the same constant produced.
+    # **LOGIC_STEP**: Both guards above compare the rendered stub against `_IMPORT_TEXT`. That is
+    # only worth anything if `_IMPORT_TEXT` is the name the rules actually live under: pointing
+    # `IMPORT_LINE` at CLAUDE.md itself would make the stub import itself, and every check that
+    # reads the renderer's own constant would still agree with it.
+    @pytest.mark.unit
+    def test_the_import_names_the_file_that_carries_the_rules(self) -> None:
+        assert IMPORT_LINE == _IMPORT_TEXT
+        assert AGENTS_PATH.name in _IMPORT_TEXT
+        assert AGENTS_PATH.exists()
 
     # FUNCTION: test_the_rules_body_is_rendered_once
     # SUMMARY: Verify a rule from the shared source reaches AGENTS.md and only AGENTS.md.

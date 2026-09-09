@@ -31,15 +31,19 @@ all this costs an agent nothing and is still there for whoever opens the file.
 
 ## Consequences
 
-Startup context is unchanged: the import expands to the same words the copy used to hold. What
-changes is that there is one place to edit and no second copy to keep equal.
+Startup context carries the same rules, not a shorter set: the import expands to every bullet the
+copy used to hold. Three things are worded differently — the heading, the opening line, and the
+bullet naming the generated files — because each of them describes the file it sits in. What changes
+is that there is one place to edit and no second copy to keep equal.
 
 `CLAUDE.md` must stay empty of rules. A rule written below the import would reach Claude Code and
 never reach Codex — the drift the deleted equality test used to catch. `test_sync_agent_docs.py`
 now pins that instead: strip the comment, remove the import, and nothing may remain.
 
-The import must stay a bare line. Inside backticks or a fenced block it is prose, not an import, and
-every Claude session then starts with no rules while every gate stays green. That is pinned too.
+The import must stay a line of its own, unindented. Claude Code skips an `@` reference inside a code
+span or a fenced block, and four spaces of indentation make a block of it just as surely — measured,
+not assumed. Either way every Claude session starts with no rules while every gate stays green, so
+the line is pinned as literal text, unstripped.
 
 Every pointer that used to send an agent to `CLAUDE.md` for the contract now names `AGENTS.md` —
 playbook `read_first` lists, `core_entrypoints`, `READ_LAST_PATHS`, both skills' `minimal_read_set`,
