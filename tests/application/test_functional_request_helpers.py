@@ -77,3 +77,43 @@ async def test_a_request_helper_reads_an_empty_204_body_as_text(helper_name: str
     result = await send_request("/reference-tasks/00000000-0000-0000-0000-000000000000")
 
     assert result == {"status": 204, "body": ""}
+
+
+# FUNCTION: test_the_get_helper_keeps_a_filter_written_into_the_path
+# SUMMARY: Verify a query string in the path reaches the server, alone and next to `params`.
+# NOTE: httpx replaces a query string already in the URL with `params` — for an empty dict too,
+# which was the helper's default. `make_get_request("/sessions?hall_id=7")` therefore fetched the
+# unfiltered list, and a filter test asserted against it and passed. Found by the bench2
+# measurement (2026-09-24): three such calls in one project, one in another, each a filter test
+# that could not fail. A real httpx client is used on purpose — the stand-in client above would
+# never merge anything and so could not show the loss.
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("params", "expected"),
+    [
+        (None, {"status": "pending"}),
+        ({"limit": "2"}, {"status": "pending", "limit": "2"}),
+    ],
+)
+async def test_the_get_helper_keeps_a_filter_written_into_the_path(
+    params: dict[str, str] | None,
+    expected: dict[str, str],
+) -> None:
+    conftest = _load_functional_conftest()
+    sent: list[httpx.URL] = []
+
+    # FUNCTION: _record
+    # SUMMARY: Keep the URL the helper actually sent and answer with an empty list.
+    def _record(request: httpx.Request) -> httpx.Response:
+        sent.append(request.url)
+        return httpx.Response(200, json=[])
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(_record)) as client:
+        send_request = await conftest.make_get_request.__wrapped__(client)
+        if params is None:
+            await send_request("/reference-tasks?status=pending")
+        else:
+            await send_request("/reference-tasks?status=pending", params)
+
+    assert dict(sent[0].params) == expected
