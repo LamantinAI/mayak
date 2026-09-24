@@ -391,6 +391,7 @@
    "replace": "sa.Column(\"title\", sa.String(length=100), nullable=False),",
    "breaks": "the column is shorter than the bound the service and the DTO enforce, so a valid long title answers 500",
    "expect": [
+    "test_alembic_head_matches_the_orm_metadata",
     "test_the_title_bound_is_the_number_the_migration_wrote"
    ],
    "mechanism": "e2e only (alembic head vs ORM metadata); test_the_title_bound_is_the_number_the_migration_wrote pins the constant, not the migration"
