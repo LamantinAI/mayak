@@ -59,29 +59,31 @@ def _imports_of_the_vertical(root: Path) -> list[str]:
 _PATH = re.compile(r"(?<![\w<>./-])((?:[\w.-]+/)+[\w.-]+\.(?:py|json|md|sh|toml))")
 
 
-# The paths an agent in the project is told to act on — the checks the file policy names for an
-# edit (rendered into docs/ai_context_map.json) and the commands in the skills' code blocks — that
-# the project does not have. A command naming a removed file fails the moment an agent follows it.
+# The paths an agent in the project is told to act on — every one the generated maps name (the
+# checks and tests to run for an edit, what `before-edit` answers from) and every one in the
+# skills' code blocks — that the project does not have. A check naming a removed file fails the
+# moment an agent follows it.
 def _missing_paths_an_agent_is_told_to_use(root: Path) -> list[str]:
-    missing: list[str] = []
-
-    def commands(node: object) -> list[str]:
+    def strings(node: object) -> list[str]:
         if isinstance(node, dict):
-            return [c for value in node.values() for c in commands(value)]
+            return [s for key, value in node.items() for s in [key, *strings(value)]]
         if isinstance(node, list):
-            return [c for value in node for c in commands(value)]
-        return [node] if isinstance(node, str) and node.startswith("uv run ") else []
+            return [s for value in node for s in strings(value)]
+        return [node] if isinstance(node, str) else []
 
-    context_map = json.loads((root / "docs/ai_context_map.json").read_text(encoding="utf-8"))
-    sources = [("docs/ai_context_map.json", "\n".join(commands(context_map)))]
+    sources: list[tuple[str, str]] = []
+    for generated in ("docs/ai_context_map.json", "docs/ai_change_map.json"):
+        tree = json.loads((root / generated).read_text(encoding="utf-8"))
+        sources.append((generated, "\n".join(strings(tree))))
     for skill in sorted(root.glob(".agents/skills/*/SKILL.md")):
         blocks = re.findall(r"```[a-z]*\n(.*?)```", skill.read_text(encoding="utf-8"), re.S)
         sources.append((str(skill.relative_to(root)), "\n".join(blocks)))
-    for source, text in sources:
-        missing += [
-            f"{source}: {path}" for path in _PATH.findall(text) if not (root / path).exists()
-        ]
-    return missing
+    return [
+        f"{source}: {path}"
+        for source, text in sources
+        for path in _PATH.findall(text)
+        if not (root / path).exists()
+    ]
 
 
 # Inside the pre-commit hook git exports GIT_DIR, and the copy these tests make once ran its

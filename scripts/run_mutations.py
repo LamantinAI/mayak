@@ -58,7 +58,9 @@ _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 # the digests the template ships, and every defect changes a file, so each would count as caught by
 # a checksum instead of by a test of what the code does: on 2026-09-24 the manifest test turned up
 # in every catch of a run. The template's own tests measure its tools, not the vertical.
-_WITHOUT_TEMPLATE_TESTS = "--ignore=tests/template"
+# `--deselect`, not `--ignore`: run_all_tests.py names tests/template on the command line, and
+# pytest does not ignore a path it was given; deselection drops the collected tests by node id.
+_WITHOUT_TEMPLATE_TESTS = "--deselect=tests/template/"
 
 
 # What one tier did with one version of the code.

@@ -272,10 +272,13 @@ CUTS: tuple[Cut, ...] = (
     ),
 )
 
-# A check the file policy names for editing a tool, and a test the project no longer has: the
-# template's tool tests leave with tests/template, and a command naming one fails when run.
-_POLICY = "ai_context/file_policy.py"
-_POLICY_TEMPLATE_TEST = '"uv run pytest tests/template/'
+# The list items naming a template tool test as the check to run, in the two files the generated
+# maps are built from: the tests leave with tests/template, and a check naming one fails when an
+# agent runs it. Each item sits on a line of its own there.
+_TEMPLATE_TEST_ITEMS = {
+    "ai_context/file_policy.py": '"uv run pytest tests/template/',
+    "ai_context/build_change_map.py": '"tests/template/',
+}
 
 
 @dataclass
@@ -502,10 +505,9 @@ def build_plan(root: Path) -> Plan | str:
             removed.append((cut.path, taken))
 
     edited["docs/project_context.json"] = _project_context(_read(root, "docs/project_context.json"))
-    policy = _read(root, _POLICY).splitlines(keepends=True)
-    edited[_POLICY] = "".join(
-        line for line in policy if not line.lstrip().startswith(_POLICY_TEMPLATE_TEST)
-    )
+    for path, item in _TEMPLATE_TEST_ITEMS.items():
+        lines = _read(root, path).splitlines(keepends=True)
+        edited[path] = "".join(line for line in lines if not line.lstrip().startswith(item))
 
     deleted = set(SAMPLE_SHA256)
     for path in TEMPLATE_ONLY:
