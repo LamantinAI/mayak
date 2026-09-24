@@ -102,6 +102,9 @@ _OPEN_TITLE_INDEX = "uq_reference_tasks_open_title"
 # in-process lock reaches — can write between them. Measured in bench2 (2026-09): a rule held by
 # asyncio.Lock and a prior read let 28 of 30 duplicates through with two processes. Matched by
 # constraint name, so a violation of some other unique rule is not reported as this one.
+# Copying it for a rule held by an EXCLUDE constraint — no overlapping intervals — catch
+# psycopg.errors.ExclusionViolation instead: that is what PostgreSQL raises there, and a
+# UniqueViolation handler lets it through as a 500.
 @asynccontextmanager
 async def _open_title_taken_is_a_conflict(title: str) -> AsyncIterator[None]:
     try:
