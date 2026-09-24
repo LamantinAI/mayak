@@ -47,7 +47,7 @@ Project Map: Mayak
 │   │   ├── before_edit.py
 │   │   ├── bootstrap.py  ---  Session cold-start payload: what to read first, in what order of authority, and where the wiring lives.
 │   │   ├── failure.py
-│   │   ├── overview.py  ---  Repository root used to read the hand-maintained project context.
+│   │   ├── overview.py
 │   │   ├── symbol.py
 │   │   └── workset.py
 │   ├── __init__.py  ---  Query helpers for the Mayak AI context CLI.
@@ -163,25 +163,25 @@ Project Map: Mayak
 │   └── __init__.py  ---  Root package for the application.
 ├── scripts/
 │   ├── __init__.py
-│   ├── create_env_file.py  ---  Create .env from .env.sample on a fresh checkout, replacing the sample's placeholder
-│   ├── doctor_ai_context.py  ---  Diagnose the first blocking layer of `make quality-gates` — every tool step (lockfile,
-│   ├── generate_ai_context.py  ---  Generate or verify the AI-friendly repository context artifacts consumed by onboarding docs and query tooling.
-│   ├── query_ai_context.py  ---  Query the AI context artifacts through stable commands so agents can inspect wiring, impact, and validation guidance without broad repo scans.
-│   ├── run_all_tests.py  ---  Canonical test runner for AI agents and developers that executes the project's local and functional test suites through one entrypoint.
-│   ├── run_mutations.py  ---  Break the reference vertical one defect at a time and record which test suite, and which test, notices.
+│   ├── create_env_file.py
+│   ├── doctor_ai_context.py
+│   ├── generate_ai_context.py
+│   ├── query_ai_context.py
+│   ├── run_all_tests.py
+│   ├── run_mutations.py
 │   ├── structure_builder.py  ---  A utility script to generate a project tree map with file summaries extracted from CBM tags, using the git index (tracked + untracked-not-ignored files) so the map is hermetic across worktrees and checkouts.
-│   ├── sync_agent_docs.py  ---  Generate or verify the agent instruction wrappers from the shared agent rules source.
+│   ├── sync_agent_docs.py
 │   ├── validate_architecture.py  ---  Repository utility that enforces the hexagonal architecture import boundaries for production modules.
-│   ├── validate_cbm.py  ---  Repository utility that validates required Code-Base Markup annotations in production Python files.
-│   ├── validate_dependencies.py  ---  Quality gate rejecting runtime imports that no declared dependency provides.
-│   ├── validate_endpoint_wiring.py  ---  Repository utility that validates endpoint-facing dependency wiring contracts for FastAPI endpoint modules.
-│   ├── validate_file_policy.py  ---  Validate ai_context.file_policy.FILE_POLICY_INDEX entries for required keys, valid zones, and on-disk path correctness.
-│   ├── validate_migrations.py  ---  Quality gate that verifies Alembic migrations are up to date with the SQLAlchemy metadata.
-│   ├── validate_module_sizes.py  ---  Enforce a production-module budget measured in executable lines, so documentation never counts against a module's size.
-│   ├── validate_repository_metadata.py  ---  Three repository-metadata validators merged into one module: skills/commands frontmatter,
-│   ├── validate_runtime_ownership.py  ---  Repository utility that enforces ownership boundaries for shared runtime resources, env access, and app.state service wiring.
-│   ├── validate_secrets.py  ---  Scan tracked text files for credential-shaped literals so a key cannot reach a commit.
-│   └── validate_test_quality.py  ---  Quality gate rejecting tests that cannot fail — constant assertions and assertion-free test bodies.
+│   ├── validate_cbm.py  ---  Check that every Python file under project/ opens with its header — `# FILE:` and `# SUMMARY:`.
+│   ├── validate_dependencies.py
+│   ├── validate_endpoint_wiring.py
+│   ├── validate_file_policy.py
+│   ├── validate_migrations.py
+│   ├── validate_module_sizes.py
+│   ├── validate_repository_metadata.py
+│   ├── validate_runtime_ownership.py
+│   ├── validate_secrets.py
+│   └── validate_test_quality.py
 ├── tests/
 │   ├── application/
 │   │   ├── test_ai_query_router.py  ---  Unit tests for the ai_query router dispatcher.
@@ -232,7 +232,7 @@ Project Map: Mayak
 │   │   ├── test_trace_formatter_span_semantics.py  ---  Regression guards for three trace_formatter.py changes made alongside logger.py and
 │   │   ├── test_trace_formatter_summary.py  ---  The trace renderer must tell the truth about logs written before the outcome field existed.
 │   │   ├── test_validate_architecture.py  ---  Unit tests for the repository architecture boundary validator.
-│   │   ├── test_validate_cbm.py  ---  Unit tests for strict Code-Base Markup validation rules.
+│   │   ├── test_validate_cbm.py  ---  The file-header check: what it refuses, what it lets through, and that it reaches project/.
 │   │   ├── test_validate_dependencies.py  ---  Unit tests for the validator that ties runtime imports to declared dependencies.
 │   │   ├── test_validate_endpoint_wiring.py  ---  Unit tests for the endpoint-facing wiring contract validator.
 │   │   ├── test_validate_file_policy.py  ---  Unit tests for the FILE_POLICY_INDEX schema validator.

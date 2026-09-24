@@ -193,7 +193,7 @@ Without Docker, point it at a database you control with `TEST_DATABASE_URL`; a p
 entrypoint, and HTTP against the running container — a change to endpoints, wiring or a migration
 is finished by `make test-e2e`.
 
-`make ai-autofix` fixes formatting, lint and comment markup in one pass. Never hand-edit generated
+`make ai-autofix` fixes formatting and lint in one pass. Never hand-edit generated
 files — `CLAUDE.md`, `AGENTS.md`, `docs/project_map.md` and `docs/ai_*.json` are rewritten from
 their sources, and a pre-edit hook refuses the write.
 

@@ -123,10 +123,9 @@ refresh-project-map: ## Refresh generated artifacts | Regenerate docs/project_ma
 # immediately followed by a red `structure_builder --check`.
 refresh-generated-docs: refresh-ai-context refresh-agent-docs refresh-project-map ## Refresh generated artifacts | All of the above, in dependency order
 
-ai-autofix: ## Validation | Auto-format + fix lint + CBM
+ai-autofix: ## Validation | Auto-format + fix lint
 	$(UV) run ruff format $(PYTHON_SOURCES)
 	$(UV) run ruff check --fix $(PYTHON_SOURCES)
-	$(UV) run python scripts/validate_cbm.py --fix
 
 # The five steps that run a tool rather than one of this repository's validators, each as its own
 # target. scripts/doctor_ai_context.py runs these same targets when diagnosing a failed gate, so
