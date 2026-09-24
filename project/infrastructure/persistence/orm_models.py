@@ -7,7 +7,7 @@ from sqlalchemy import DateTime, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-from project.domain.reference_task import MAX_TITLE_LENGTH
+from project.domain.reference_task import CLOSED_STATUS, MAX_TITLE_LENGTH
 
 
 # CLASS: project.infrastructure.persistence.orm_models.Base
@@ -66,3 +66,18 @@ class ReferenceTaskORM(Base):
         nullable=False,
         server_default=func.now(),
     )
+
+
+# ATTRIBUTE: OPEN_TITLE_INDEX (Index)
+# SUMMARY: At most one open reference task per title, compared case-insensitively.
+# NOTE: The rule spans rows, so the single-row updated_at token cannot hold it, and neither can a
+# check the service runs before writing — two requests both read "free" and both write. The
+# database holds it, in the statement that writes, for every writer at once: ADR-007, "Where the
+# single-row token does not reach". Declared here so `alembic check` compares it with migration
+# b5e2c1a9d4f0, which creates it; the repository turns its violation into ConflictError by name.
+OPEN_TITLE_INDEX = Index(
+    "uq_reference_tasks_open_title",
+    func.lower(ReferenceTaskORM.title),
+    unique=True,
+    postgresql_where=ReferenceTaskORM.status != CLOSED_STATUS,
+)

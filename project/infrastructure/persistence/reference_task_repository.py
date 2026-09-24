@@ -4,13 +4,17 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Mapping
 
+from psycopg.errors import UniqueViolation
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from project.core.logging.logger import get_logger
+from project.domain.exceptions import ConflictError
 from project.domain.reference_task import ReferenceTask, normalize_task_id
 
 # ATTRIBUTE: logger (SemanticLogger)
@@ -84,6 +88,30 @@ _UPDATE_BY_ID = (
 )
 
 
+# ATTRIBUTE: _OPEN_TITLE_INDEX (str)
+# SUMMARY: The unique index that holds "one open task per title" (migration b5e2c1a9d4f0).
+_OPEN_TITLE_INDEX = "uq_reference_tasks_open_title"
+
+
+# FUNCTION: _open_title_taken_is_a_conflict
+# SUMMARY: Turn a write that would open a second task with a title into the domain's ConflictError.
+# RAISES: ConflictError: When the violated constraint is the open-title index; any other unique
+#         violation — a duplicate id — propagates unchanged.
+# NOTE: The rule is enforced by the index, not checked here first: a read that finds the title free
+# and a write that follows are two statements, and a second request — in another process, where no
+# in-process lock reaches — can write between them. Measured in bench2 (2026-09): a rule held by
+# asyncio.Lock and a prior read let 28 of 30 duplicates through with two processes. Matched by
+# constraint name, so a violation of some other unique rule is not reported as this one.
+@asynccontextmanager
+async def _open_title_taken_is_a_conflict(title: str) -> AsyncIterator[None]:
+    try:
+        yield
+    except UniqueViolation as exc:
+        if exc.diag.constraint_name != _OPEN_TITLE_INDEX:
+            raise
+        raise ConflictError(f"An open reference task titled '{title}' already exists") from exc
+
+
 # FUNCTION: row_to_reference_task
 # SUMMARY: Convert one driver row into a domain object, normalizing driver-native types.
 # INPUT: row (Mapping[str, Any]): Row produced by psycopg's dict_row factory.
@@ -118,7 +146,10 @@ class ReferenceTaskRepository:
     # INPUT: task (ReferenceTask): Domain object to persist.
     async def add(self, task: ReferenceTask) -> None:
         with logger.span("db.reference_task.add", task_id=task.id, level=logging.INFO) as span:
-            async with self._pool.connection() as connection:
+            async with (
+                self._pool.connection() as connection,
+                _open_title_taken_is_a_conflict(task.title),
+            ):
                 cursor = await connection.execute(
                     "INSERT INTO reference_tasks "
                     "(id, title, details, status, created_at, updated_at) "
@@ -195,7 +226,10 @@ class ReferenceTaskRepository:
             "db.reference_task.update", task_id=canonical_id, level=logging.INFO
         ) as span:
             async with self._pool.connection() as connection:
-                async with connection.cursor(row_factory=dict_row) as cursor:
+                async with (
+                    connection.cursor(row_factory=dict_row) as cursor,
+                    _open_title_taken_is_a_conflict(task.title),
+                ):
                     await cursor.execute(
                         _UPDATE_BY_ID,
                         (

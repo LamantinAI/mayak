@@ -58,7 +58,8 @@ Project Map: Mayak
 ├── alembic/
 │   ├── versions/
 │   │   ├── 001_initial_reference_tasks_schema.py
-│   │   └── 7300d4656a8d_add_updated_at_to_reference_tasks.py
+│   │   ├── 7300d4656a8d_add_updated_at_to_reference_tasks.py
+│   │   └── b5e2c1a9d4f0_one_open_reference_task_per_title.py
 │   ├── env.py  ---  Alembic migration environment configuration for PostgreSQL schema management.
 │   ├── README
 │   └── script.py.mako

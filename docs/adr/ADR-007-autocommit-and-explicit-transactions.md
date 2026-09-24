@@ -148,10 +148,23 @@ own code does, which is what the `fetchone()` branch above is for. Either way th
 application layer sees is `ConflictError`, the same shape as the zero-row `RETURNING` above, so the
 API answers 409 rather than showing the client a driver exception as a 500.
 
-The reference vertical cannot demonstrate this fix. It has one row per aggregate and no set-level
-invariant to violate, so — exactly as it could not show a transaction spanning two statements, and
-could not show the read-modify-write case before 2026-09-02 — copying `ReferenceTaskRepository`
-alone will not carry this pattern into a vertical that needs it.
+Since 2026-09-24 the reference vertical carries the first mechanism, so copying it carries the
+pattern. Its rule — at most one open task per title, compared case-insensitively — is the partial
+unique index `uq_reference_tasks_open_title` (`ON reference_tasks (lower(title)) WHERE status <>
+'done'`, migration `b5e2c1a9d4f0`, declared in `orm_models.py` so `alembic check` compares the two);
+`ReferenceTaskRepository` turns a violation of that index, by constraint name, into `ConflictError`
+and lets any other unique violation through. No service-side check runs first and none is needed:
+the index sees the row, not the request, so a create, a rename and a reopen by status alone are all
+refused by the same rule. `tests/db/test_reference_task_repository.py` proves it across two OS
+processes that have both read the title as free before either writes.
+
+**Not an in-process lock.** `asyncio.Lock` or `threading.Lock` around a read-check-write does not
+hold a rule between requests: a second worker process, a second replica or a background job never
+takes it. Measured in bench2 (2026-09): a service that held its no-overlap rule that way let 28 of
+30 duplicates through with two processes, and let a status-only PATCH and a row past the first page
+of its own check through with one. The lock is not forbidden by a validator — a lock guarding local
+state is legitimate, and syntax cannot tell the two apart — so this sentence is the rule: a rule
+between rows lives in the database, as a constraint or as `FOR UPDATE` in the writing transaction.
 
 ## A foreign key's deletion policy is a domain decision, not a schema detail (added 2026-09-08)
 
