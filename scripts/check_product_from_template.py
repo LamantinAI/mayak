@@ -68,6 +68,11 @@ def copy_checkout(source: Path, target: Path) -> None:
         elif origin.is_file():
             shutil.copy2(origin, destination)
     _run(["git", "init", "-q"], target)
+    # No automatic maintenance in the copy. After a commit git may pack the loose objects in a
+    # detached process, and whoever copies or deletes the directory next races it: git 2.55 in CI
+    # did so with ~300 objects, and a test copying the checkout failed on .git/objects/<xx>.
+    _run(["git", "config", "maintenance.auto", "false"], target)
+    _run(["git", "config", "gc.auto", "0"], target)
     _run(["git", "add", "-A"], target)
     _run(
         [

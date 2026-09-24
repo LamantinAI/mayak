@@ -109,6 +109,30 @@ def test_copying_the_checkout_leaves_the_repository_that_runs_it_alone(
     assert (copy / ".git").is_dir()
 
 
+# Git 2.55 in CI packed a fresh copy's loose objects in a detached maintenance run right after its
+# commit, while the next test was copying the directory: shutil.Error on .git/objects/<xx> in the
+# diff-coverage job on 2026-09-24. Here a commit that would repack at once, in the foreground.
+@pytest.mark.unit
+def test_a_commit_in_the_copy_starts_no_maintenance_under_it(tmp_path: Path) -> None:
+    copy_checkout(_REPO_ROOT, tmp_path)
+    (tmp_path / "next.txt").write_text("next\n", encoding="utf-8")
+    subprocess.run(["git", "add", "next.txt"], cwd=tmp_path, env=hermetic_env(), check=True)
+
+    subprocess.run(
+        [
+            "git",
+            *("-c", "gc.auto=1", "-c", "gc.autoDetach=false", "-c", "maintenance.autoDetach=false"),
+            *("-c", "user.name=probe", "-c", "user.email=probe@example.invalid"),
+            *("commit", "-qm", "next"),
+        ],
+        cwd=tmp_path,
+        env=hermetic_env(),
+        check=True,
+    )
+
+    assert list((tmp_path / ".git/objects/pack").glob("*.pack")) == []
+
+
 class TestTheExtractionMatchesTheTemplate:
     # Stale digests make every project refuse — "a file of the vertical differs" — for an edit the
     # template made itself. Regenerate with `--print-manifest` in the same commit as the edit.

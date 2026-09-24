@@ -1,6 +1,8 @@
 # FILE: tests/template/test_run_all_tests.py
 # SUMMARY: Unit tests for the canonical all-tests runner script used by AI agents and developers.
 
+import dataclasses
+import sys
 from pathlib import Path
 
 import pytest
@@ -14,8 +16,30 @@ from scripts.run_all_tests import (
     _ensure_functional_env,
     _parse_args,
     _parse_env_file,
+    _run_command,
     env_sample_drift,
 )
+
+
+# A shell exporting POSTGRES_USER made Compose create test-db under that user while the app read
+# another from tests/functional/.env and exited. The functional step's process — here a Python
+# one standing in for Compose — must not see the shell's POSTGRES_* at all.
+@pytest.mark.unit
+def test_the_functional_stack_takes_no_postgres_setting_from_the_shell(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("POSTGRES_USER", "scaffold_ci")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "from-the-shell")
+    (functional,) = _build_test_steps(skip_functional=False, functional_only=True)
+    seen = tmp_path / "seen.txt"
+    probe = (
+        f"import os, pathlib; pathlib.Path({str(seen)!r}).write_text("
+        "' '.join(sorted(k for k in os.environ if k.startswith('POSTGRES_'))))"
+    )
+
+    _run_command(dataclasses.replace(functional, command=(sys.executable, "-c", probe)))
+
+    assert seen.read_text(encoding="utf-8") == ""
 
 
 class TestRunAllTests:
