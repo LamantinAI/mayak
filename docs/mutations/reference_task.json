@@ -608,7 +608,7 @@
   }
  ],
  "baseline": {
-  "commit": "3f46b75",
+  "commit": "a03d1f1",
   "results": {
    "create_blank_title_allowed": {
     "verdict": "caught:fast",
@@ -1031,6 +1031,14 @@
       "test_a_malformed_request_body_is_a_client_error",
       "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
       "test_create_refuses_a_blank_or_overlong_title_before_writing"
+     ]
+    }
+   },
+   "validation_field_not_rendered": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing"
      ]
     }
    }
