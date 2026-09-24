@@ -46,7 +46,7 @@ tag-like text inside strings was untouched) deleted the label lines and turned `
 in `project/`, `tests/` and `alembic/` was judged one by one — deleted when it restated the code,
 kept as a plain comment when it said something the code does not (about 1 290 went, 660 stayed).
 Token streams without comments were compared before and after for every changed file. Lines of
-Python: `project/` 8 281 → 7 331, `tests/` 21 186 → 18 735, the repository 43 895 → 39 409.
+Python: `project/` 8 281 → 7 331, `tests/` 21 186 → 18 735, the repository 43 895 → 39 389.
 
 ## Operationalization
 
