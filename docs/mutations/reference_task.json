@@ -395,10 +395,88 @@
     "test_the_title_bound_is_the_number_the_migration_wrote"
    ],
    "mechanism": "direct, db tier: `alembic check` on a database migrated from nothing (e2e only before the db tier); test_the_title_bound_is_the_number_the_migration_wrote pins the constant, not the migration"
+  },
+  {
+   "id": "span_row_count_lost",
+   "kind": "tracing",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "span.output[\"row_count\"] = len(rows)",
+   "replace": "pass",
+   "breaks": "the list query's span no longer says how many rows came back, so a query that silently matches nothing reads like one that worked",
+   "expect": [
+    "test_list_records_how_many_rows_came_back"
+   ],
+   "mechanism": "direct, through a mocked pool (tests/infrastructure)"
+  },
+  {
+   "id": "span_level_left_at_debug",
+   "kind": "tracing",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "with logger.span(\"db.reference_task.get\", task_id=canonical_id, level=logging.INFO) as span:",
+   "replace": "with logger.span(\"db.reference_task.get\", task_id=canonical_id) as span:",
+   "breaks": "the read's span is written at DEBUG, below what production logs, so a trace shows the request and no database work inside it",
+   "expect": [
+    "test_a_query_span_is_written_at_the_level_production_runs_at"
+   ],
+   "mechanism": "direct, through a mocked pool (tests/infrastructure)"
+  },
+  {
+   "id": "readiness_ignores_database",
+   "kind": "health",
+   "file": "project/infrastructure/api/endpoints/health.py",
+   "find": "        critical_statuses.add(checks[\"database\"][\"status\"])",
+   "replace": "        pass",
+   "breaks": "/health/ready answers healthy while the database is down or unmigrated",
+   "expect": [],
+   "mechanism": "direct: tests/application/test_health_endpoints.py (kernel, not the vertical)"
+  },
+  {
+   "id": "readiness_skips_migration_check",
+   "kind": "health",
+   "file": "project/infrastructure/api/endpoints/health.py",
+   "find": "migrated = bool(row[0]) if row else False",
+   "replace": "migrated = True",
+   "breaks": "/health/ready answers healthy against a reachable database that was never migrated",
+   "expect": [],
+   "mechanism": "direct: tests/application/test_health_endpoints.py (kernel, not the vertical)"
+  },
+  {
+   "id": "migration_downgrade_noop",
+   "kind": "schema",
+   "file": "alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py",
+   "find": "    op.drop_column(\"reference_tasks\", \"updated_at\")\n",
+   "replace": "    pass\n",
+   "breaks": "downgrading the updated_at migration leaves the column behind, so a later upgrade fails on a column that already exists",
+   "expect": [],
+   "mechanism": "GAP: no test runs a downgrade; alembic check compares only the head"
+  },
+  {
+   "id": "migration_index_dropped",
+   "kind": "schema",
+   "file": "alembic/versions/001_initial_reference_tasks_schema.py",
+   "find": "    op.create_index(\n        \"ix_reference_tasks_status_created_at\",\n        \"reference_tasks\",\n        [\"status\", \"created_at\"],\n        unique=False,\n    )\n",
+   "replace": "    pass\n",
+   "breaks": "the list query's index is never created; every list becomes a sequential scan",
+   "expect": [
+    "test_alembic_head_matches_the_orm_metadata"
+   ],
+   "mechanism": "direct, db tier: `alembic check` sees the index the ORM declares"
+  },
+  {
+   "id": "migration_primary_key_dropped",
+   "kind": "schema",
+   "file": "alembic/versions/001_initial_reference_tasks_schema.py",
+   "find": "            primary_key=True,\n            nullable=False,\n        ),\n        sa.Column(\"title\"",
+   "replace": "            nullable=False,\n        ),\n        sa.Column(\"title\"",
+   "breaks": "the id column is not a primary key: two tasks can share one id, and an update by id then writes both",
+   "expect": [
+    "test_alembic_head_matches_the_orm_metadata"
+   ],
+   "mechanism": "GAP: `alembic check` does not compare primary keys, and no test stores two tasks under one id"
   }
  ],
  "baseline": {
-  "commit": "a936d06",
+  "commit": "514a168",
   "results": {
    "create_blank_title_allowed": {
     "verdict": "caught:fast",
@@ -755,6 +833,57 @@
       "test_alembic_head_matches_the_orm_metadata"
      ]
     }
+   },
+   "span_row_count_lost": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_list_records_how_many_rows_came_back"
+     ]
+    }
+   },
+   "span_level_left_at_debug": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_a_query_span_is_written_at_the_level_production_runs_at"
+     ]
+    }
+   },
+   "readiness_ignores_database": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_missing_pool_is_still_a_fault_when_database_is_enabled",
+      "test_readiness_database_failure_message_hides_internal_details",
+      "test_readiness_database_unhealthy_still_503_regardless_of_llm_criticality",
+      "test_readiness_returns_503_when_database_is_unavailable"
+     ]
+    }
+   },
+   "readiness_skips_migration_check": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_check_database_reports_unmigrated_schema"
+     ]
+    }
+   },
+   "migration_downgrade_noop": {
+    "verdict": "missed",
+    "caught_by": {}
+   },
+   "migration_index_dropped": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_alembic_head_matches_the_orm_metadata"
+     ]
+    }
+   },
+   "migration_primary_key_dropped": {
+    "verdict": "missed",
+    "caught_by": {}
    }
   }
  }

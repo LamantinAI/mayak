@@ -213,7 +213,7 @@ Project Map: Mayak
 │   │   ├── test_optional_postgres.py  ---  Guards for POSTGRES_ENABLED — the kernel must assemble, report ready and stay
 │   │   ├── test_prompt_llm_adapter.py  ---  Tests that PromptLLMAdapter really satisfies the domain's LLMPort contract.
 │   │   ├── test_query_ai_context.py  ---  Unit tests for the AI context query CLI helpers.
-│   │   ├── test_reference_task_vertical.py  ---  Unit coverage for the reference vertical — service rules, static wiring, and the HTTP
+│   │   ├── test_reference_task_vertical.py  ---  The reference vertical's rules decided before anything is written, and its wiring — no database.
 │   │   ├── test_request_summary_outcome.py  ---  Regression tests proving request.summary reports the real result of a request.
 │   │   ├── test_run_all_tests.py  ---  Unit tests for the canonical all-tests runner script used by AI agents and developers.
 │   │   ├── test_sampling.py  ---  Cover the health-check log sampler, which had no test of its own before.
@@ -248,12 +248,13 @@ Project Map: Mayak
 │   │   ├── docker-compose.yml
 │   │   ├── stack.py  ---  Start, locate and stop the db tier's PostgreSQL for this checkout.
 │   │   ├── test_migrations_match_models.py  ---  Verify the migrations build a schema that matches the ORM metadata, inside `make test`.
-│   │   └── test_reference_task_repository.py  ---  The reference repository's SQL, run against a real PostgreSQL and judged by what it returns.
+│   │   ├── test_reference_task_repository.py  ---  The reference repository's SQL, run against a real PostgreSQL and judged by what it returns.
+│   │   └── test_reference_tasks_api.py  ---  The reference vertical over HTTP, in process, on the real repository: status codes, filters, conflicts.
 │   ├── functional/
 │   │   ├── src/
 │   │   │   ├── __init__.py
 │   │   │   ├── test_migration_lock.py  ---  Prove that two processes migrating the same fresh database at once both succeed.
-│   │   │   └── test_reference_tasks_api.py  ---  Functional proof that the reference vertical answers over real HTTP against a real
+│   │   │   └── test_reference_tasks_api.py  ---  Smoke test of the reference vertical in the built image: HTTP into the container, rows in its database.
 │   │   ├── utils/
 │   │   │   ├── __init__.py
 │   │   │   ├── helpers.py  ---  Helper classes and settings for functional tests.
@@ -268,8 +269,7 @@ Project Map: Mayak
 │   │   └── settings.py  ---  Base settings class for functional tests.
 │   ├── infrastructure/
 │   │   ├── __init__.py  ---  Infrastructure layer test package.
-│   │   ├── test_persistence_models.py  ---  Verify the kernel placeholder ORM (ReferenceTaskORM) declares the expected schema.
-│   │   └── test_reference_task_repository.py  ---  Fast checks for the row -> domain mapper; the driver contract itself is proven functionally.
+│   │   └── test_persistence_models.py  ---  Verify the kernel placeholder ORM (ReferenceTaskORM) declares the expected schema.
 │   ├── integration/
 │   │   ├── __init__.py  ---  Integration test package. Runtime integration coverage without Docker-heavy functional flows.
 │   │   ├── test_composition_root_lifecycle.py  ---  Smoke test that the assembled FastAPI app responds to /health/ inside a real lifespan.

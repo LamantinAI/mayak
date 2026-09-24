@@ -26,9 +26,9 @@ before writing your own — every constraint below is already satisfied in them.
 | 6 | `project/application/<name>_service.py` | Orchestration and business rules. Depends on the Protocol, never on the repository. |
 | 7 | `project/application/<name>_dtos.py` | Request and response models, plus `from_domain`. |
 | 8 | `project/infrastructure/api/endpoints/<name>s.py` | Router and handlers. Parse, delegate, convert. |
-| 9 | `tests/application/test_<name>_vertical.py` | Service rules, wiring, HTTP surface — against a fake repository. |
-| 10 | `tests/infrastructure/test_<name>_repository.py` | The row mapper and the parameterisation of every query, without a database. |
-| 11 | `tests/db/test_<name>_repository.py` and `tests/functional/src/test_<name>s_api.py` | The queries against a real PostgreSQL inside `make test` (the db tier); HTTP against the built image in `make test-e2e`. |
+| 9 | `tests/application/test_<name>_vertical.py` | What the service decides before writing — bounds, closed sets, an empty or null patch — over a stub of the port that stores nothing; and the wiring. No database. |
+| 10 | `tests/db/test_<name>_repository.py` | The queries against a real PostgreSQL (the db tier, inside `make test`): the whole row back, filter, order, page, the write condition, id spellings, the spans. |
+| 11 | `tests/db/test_<name>s_api.py` and `tests/functional/src/test_<name>s_api.py` | HTTP in process over the real repository — status codes, a non-default filter, a staged race; and one smoke path through the built image in `make test-e2e`. |
 
 Every file here is type-checked — `MYPY_TARGETS` covers every test suite, so a hand-written fake
 that drifts from the Protocol fails `make gate-types` even though pytest cannot see the drift.
@@ -75,9 +75,11 @@ anywhere in the tree.
    of its own and runs `alembic upgrade head` and `alembic check` there.
 4. `make refresh-generated-docs`, as soon as the first new file exists — a missing or extra file
    moves `docs/project_map.md`, which every gate compares against the tree.
-5. Repository, then `tests/infrastructure/test_<name>_repository.py`, then
-   `tests/db/test_<name>_repository.py` — the db tier is the one place in `make test` where your
-   queries actually run; `tests/db/conftest.py` gives it `db_pool`, every table emptied. Wrap each method in
+5. Repository, then `tests/db/test_<name>_repository.py` — the db tier is the one place in
+   `make test` where your queries actually run; `tests/db/conftest.py` gives it `db_pool`, every
+   table emptied. Judge a query by the rows it returns, on data chosen so a wrong one shows: rows
+   inserted in the reverse of the expected order, a page one smaller than the matches, a row of
+   the other status that sorts first. A mock of the pool proves only what its author imagined. Wrap each method in
    `with logger.span("db.<name>.<op>", ...)` and put the outcome in `span.output` (a row count, a
    found/not-found flag), which only survives the success path — a driver error translated into a
    domain one is asserted on `span.error`, not on an output line before `raise`.
@@ -208,8 +210,8 @@ git rm project/domain/reference_task.py \
        project/infrastructure/persistence/reference_task_repository.py \
        project/infrastructure/api/endpoints/reference_tasks.py \
        tests/application/test_reference_task_vertical.py \
-       tests/infrastructure/test_reference_task_repository.py \
        tests/db/test_reference_task_repository.py \
+       tests/db/test_reference_tasks_api.py \
        tests/functional/src/test_reference_tasks_api.py \
        docs/mutations/reference_task.json \
        scripts/run_mutations.py

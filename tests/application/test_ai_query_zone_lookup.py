@@ -111,7 +111,7 @@ class TestVerticalPathsAreClassified:
             "project/infrastructure/persistence/reference_task_repository.py",
             "alembic/versions/0001_initial.py",
             "tests/db/test_reference_task_repository.py",
-            "tests/infrastructure/test_reference_task_repository.py",
+            "tests/db/test_reference_tasks_api.py",
         ],
     )
     def test_vertical_paths_resolve_to_a_zone(self, path: str) -> None:
