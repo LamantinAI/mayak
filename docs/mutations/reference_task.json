@@ -15,10 +15,10 @@
   {
    "id": "create_blank_title_allowed",
    "kind": "rule",
-   "file": "project/application/reference_task_service.py",
-   "find": "\n        if not title.strip():",
-   "replace": "\n        if False:",
-   "breaks": "a blank title is stored instead of answering 422",
+   "file": "project/domain/reference_task.py",
+   "find": "\n    if not title.strip():",
+   "replace": "\n    if False:",
+   "breaks": "a blank title is stored, by a create or an update, instead of answering 422",
    "expect": [
     "test_create_rejects_a_blank_title"
    ],
@@ -27,10 +27,10 @@
   {
    "id": "create_title_limit_off_by_one",
    "kind": "rule",
-   "file": "project/application/reference_task_service.py",
-   "find": "\n        if len(title) > MAX_TITLE_LENGTH:",
-   "replace": "\n        if len(title) >= MAX_TITLE_LENGTH:",
-   "breaks": "a title of exactly the maximum length is refused",
+   "file": "project/domain/reference_task.py",
+   "find": "\n    if len(title) > MAX_TITLE_LENGTH:",
+   "replace": "\n    if len(title) >= MAX_TITLE_LENGTH:",
+   "breaks": "a title of exactly the maximum length is refused, by a create or an update",
    "expect": [
     "test_create_accepts_a_title_of_exactly_the_maximum_length"
    ],
@@ -40,8 +40,8 @@
    "id": "list_status_check_removed",
    "kind": "rule",
    "file": "project/application/reference_task_service.py",
-   "find": "\n        if status not in ALLOWED_STATUSES:",
-   "replace": "\n        if False:",
+   "find": "        check_status(status)\n        if not 1 <= limit",
+   "replace": "        if not 1 <= limit",
    "breaks": "listing by an unknown status answers 200 with an empty page instead of 422",
    "expect": [
     "test_list_rejects_status_outside_the_domain_set",
@@ -78,7 +78,7 @@
   {
    "id": "update_null_title_accepted",
    "kind": "rule",
-   "file": "project/application/reference_task_service.py",
+   "file": "project/domain/reference_task.py",
    "find": "if title is None:",
    "replace": "if False:",
    "breaks": "an explicit null title reaches the NOT NULL column and answers 500 instead of 422",
@@ -88,23 +88,31 @@
    "mechanism": "direct"
   },
   {
-   "id": "update_title_limit_off_by_one",
+   "id": "update_title_not_checked",
    "kind": "rule",
    "file": "project/application/reference_task_service.py",
-   "find": "\n            if len(title) > MAX_TITLE_LENGTH:",
-   "replace": "\n            if len(title) >= MAX_TITLE_LENGTH:",
-   "breaks": "an update to a title of exactly the maximum length is refused",
-   "expect": [
-    "test_update_accepts_a_title_of_exactly_the_maximum_length"
-   ],
+   "find": "else check_title(title),",
+   "replace": "else title,",
+   "breaks": "an update skips the title checks: a blank title is stored, a null or an overlong one answers 500 instead of 422",
+   "expect": [],
+   "mechanism": "direct"
+  },
+  {
+   "id": "create_title_not_checked",
+   "kind": "rule",
+   "file": "project/application/reference_task_service.py",
+   "find": "title=check_title(title),",
+   "replace": "title=title,",
+   "breaks": "a create skips the title checks: a blank title is stored, an overlong one answers 500 instead of 422",
+   "expect": [],
    "mechanism": "direct"
   },
   {
    "id": "update_status_check_removed",
    "kind": "rule",
    "file": "project/application/reference_task_service.py",
-   "find": "\n            if status not in ALLOWED_STATUSES:",
-   "replace": "\n            if False:",
+   "find": "else check_status(status),",
+   "replace": "else status,",
    "breaks": "an update can store a status outside the domain's closed set",
    "expect": [
     "test_update_rejects_a_status_outside_the_domain_set"
@@ -155,8 +163,8 @@
    "id": "update_deleted_answers_conflict",
    "kind": "rule",
    "file": "project/application/reference_task_service.py",
-   "find": "if await self._repository.get(task_id) is None:",
-   "replace": "if False:",
+   "find": "            await self.get_task(task_id)\n            raise ConflictError(",
+   "replace": "            raise ConflictError(",
    "breaks": "an update of a task deleted meanwhile answers 409 (retry) instead of 404",
    "expect": [
     "test_update_of_a_deleted_task_is_a_404_not_a_conflict"
@@ -324,8 +332,8 @@
    "id": "create_answers_200",
    "kind": "http",
    "file": "project/infrastructure/api/endpoints/reference_tasks.py",
-   "find": "status_code=http_status.HTTP_201_CREATED,",
-   "replace": "status_code=http_status.HTTP_200_OK,",
+   "find": "status_code=http_status.HTTP_201_CREATED)",
+   "replace": "status_code=http_status.HTTP_200_OK)",
    "breaks": "a create answers 200 instead of 201",
    "expect": [
     "test_create_returns_201_and_the_stored_task",
@@ -389,7 +397,7 @@
    "file": "alembic/versions/001_initial_reference_tasks_schema.py",
    "find": "sa.Column(\"title\", sa.String(length=200), nullable=False),",
    "replace": "sa.Column(\"title\", sa.String(length=100), nullable=False),",
-   "breaks": "the column is shorter than the bound the service and the DTO enforce, so a valid long title answers 500",
+   "breaks": "the column is shorter than the bound the domain enforces, so a valid long title answers 500",
    "expect": [
     "test_alembic_head_matches_the_orm_metadata",
     "test_the_title_bound_is_the_number_the_migration_wrote"
@@ -578,15 +586,6 @@
     "caught_by": {
      "fast": [
       "test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writing"
-     ]
-    }
-   },
-   "update_title_limit_off_by_one": {
-    "verdict": "caught:fast",
-    "caught_by": {
-     "fast": [
-      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
-      "test_update_writes_the_patch_conditioned_on_the_timestamp_it_read"
      ]
     }
    },

@@ -17,81 +17,41 @@ from project.core.logging.logger import get_logger
 from project.domain.exceptions import ConflictError
 from project.domain.reference_task import ReferenceTask, normalize_task_id
 
-# Module logger, used to give every database call its own span under the request.
-# Without these spans the database is invisible to the trace. Measured on a live container:
-# a request whose query returned the wrong rows rendered as `OK 200, 0 spans` — indistinguishable
-# from a correct one.
-#
-# `level=logging.INFO` on each of them is the second half of that: a child span defaults to
-# DEBUG, production runs at INFO, so without this, these spans would exist, cost nothing, and
-# show nothing. An operator reading a real trace would see the request and no database work
-# inside it — the same `0 spans` the spans above were added to prevent. A vertical's own spans
-# inherit that default; ask for the level when the span is something an operator needs to see,
-# which for a database call it is.
-#
-# The price, measured on this machine with a handler that writes nothing: 3639 ns per span
-# filtered against 21682 ns written. Three spans per request at 1000 rps is 1.1 % of one core
-# against 6.5 %. That is what visibility costs, and it is worth saying out loud rather than
-# discovering under load.
+# Every call gets its own span at INFO with its outcome in span.output: without them a query that
+# returned the wrong rows reads `OK 200, 0 spans`, and a child span left at its DEBUG default is
+# dropped in production — docs/tracing.md, "A database call is a span an operator can see".
 logger = get_logger(__name__)
 
-# Shared by every read query so the row mapper sees a stable shape.
 _COLUMNS = "id, title, details, status, created_at, updated_at"
 
-# bandit reports B608 (hardcoded_sql_expressions) on both constants below, and the
-# suppression is a claim rather than a mute button. What earns it: the only interpolated value is
-# `_COLUMNS`, defined two lines up, while every value that comes from a caller travels as a `%s`
-# parameter psycopg binds server-side. bandit cannot tell those apart — it flags any f-string
-# shaped like SQL, at Low confidence, and `-ll` filters by severity so Low confidence still fails
-# the job. A vertical that interpolates a caller-supplied table, column, or sort direction has a
-# real injection and must not carry these markers over with the pattern.
-#
-# Hoisting the queries out of the `execute()` calls does not remove the finding — measured; it
-# only moves it. It is done anyway because the query text is then built once at import instead of
-# on every call.
-#
-# The markers stay bare, and this comment never spells the marker out. bandit scans every
-# comment in the file for it, reads the words that follow as test ids, and prints a warning line
-# per word — and worse, a marker written inside prose suppresses the finding from the wrong
-# place. Reasoning goes above the code; the marker itself carries only the rule id.
+# bandit flags these f-strings as B608 (SQL built from strings), and the suppression is a claim:
+# the only interpolated value is _COLUMNS above, while every caller value travels as a `%s`
+# parameter bound server-side. A vertical that interpolates a caller-supplied table, column or
+# sort direction has a real injection and must not copy the marker. The marker carries only the
+# rule id — bandit reads words after it as test ids — so its reason lives here, above the code.
 _SELECT_BY_ID = f"SELECT {_COLUMNS} FROM reference_tasks WHERE id = %s"  # nosec B608
 
 _SELECT_BY_STATUS = (
-    # Same reasoning as _SELECT_BY_ID above: only _COLUMNS is interpolated.
     f"SELECT {_COLUMNS} FROM reference_tasks "  # nosec B608
     "WHERE status = %s ORDER BY created_at DESC LIMIT %s"
 )
 
-# `AND updated_at = %s` is the whole point of this statement, and the reason a vertical that
-# needs an update copies THIS rather than writing the obvious `WHERE id = %s`. Without it two
-# requests that read the same task and change different fields both report success and the second
-# write silently erases the first — a lost update. With it, the second write matches no row, the
-# repository returns None, and the service turns that into a 409 the caller can retry.
-#
-# RETURNING is not decoration either: it makes the write and the read of the stored state one
-# statement, so the answer cannot be a row somebody changed again in between, and it keeps this
-# method to a single `execute()` — which is what makes the pool's autocommit correct here rather
-# than something to wrap in a transaction. See docs/adr/ADR-007-autocommit-and-explicit-transactions.md.
-# Same nosec reasoning as the two queries above: only _COLUMNS is interpolated, every caller value
-# travels as a bound parameter.
+# `AND updated_at = %s` is the point: a write computed from a stale read matches no row instead of
+# erasing the other writer's change. RETURNING makes the write and the read of what was stored one
+# statement, which is what makes the pool's autocommit correct here — ADR-007.
 _UPDATE_BY_ID = (
     "UPDATE reference_tasks SET title = %s, details = %s, status = %s, updated_at = %s "  # nosec B608
     f"WHERE id = %s AND updated_at = %s RETURNING {_COLUMNS}"
 )
 
-
 # The unique index that holds "one open task per title", created by migration b5e2c1a9d4f0.
 _OPEN_TITLE_INDEX = "uq_reference_tasks_open_title"
 
 
-# The rule is enforced by the index, not checked here first: a read that finds the title free
-# and a write that follows are two statements, and a second request — in another process, where no
-# in-process lock reaches — can write between them. Measured in bench2 (2026-09): a rule held by
-# asyncio.Lock and a prior read let 28 of 30 duplicates through with two processes. Matched by
-# constraint name, so a violation of some other unique rule is not reported as this one.
-# Copying it for a rule held by an EXCLUDE constraint — no overlapping intervals — catch
-# psycopg.errors.ExclusionViolation instead: that is what PostgreSQL raises there, and a
-# UniqueViolation handler lets it through as a 500.
+# The index holds the rule, not a read before the write: another process can write between the
+# two, and no in-process lock reaches it (ADR-007). Matched by constraint name, so a duplicate id
+# is not reported as this rule. A rule held by an EXCLUDE constraint raises ExclusionViolation
+# instead — catch that, or it passes this handler as a 500.
 @asynccontextmanager
 async def _open_title_taken_is_a_conflict(title: str) -> AsyncIterator[None]:
     try:
@@ -102,13 +62,9 @@ async def _open_title_taken_is_a_conflict(title: str) -> AsyncIterator[None]:
         raise ConflictError(f"An open reference task titled '{title}' already exists") from exc
 
 
-# row: Produced by psycopg's dict_row factory.
+# The driver's types stop here: psycopg hands back uuid.UUID for a uuid column (Decimal for numeric),
+# and the domain holds a str.
 def row_to_reference_task(row: Mapping[str, Any]) -> ReferenceTask:
-    # psycopg returns a uuid.UUID for a uuid column and a Decimal for numeric,
-    # regardless of how SQLAlchemy is configured — SQLAlchemy is not on this path at runtime.
-    # Converting here is what keeps the driver's types out of the domain. Skipping this line is
-    # the classic failure: unit tests pass against a mock that yields str, and the first real
-    # request fails deep inside serialization.
     return ReferenceTask(
         id=str(row["id"]),
         title=row["title"],
@@ -119,9 +75,8 @@ def row_to_reference_task(row: Mapping[str, Any]) -> ReferenceTask:
     )
 
 
-# Reference implementation of ReferenceTaskRepositoryPort.
 class ReferenceTaskRepository:
-    # Built by CompositionRoot; repositories never open their own.
+    # The pool is built by CompositionRoot; a repository never opens its own.
     def __init__(self, connection_pool: AsyncConnectionPool) -> None:
         self._pool = connection_pool
 
@@ -144,21 +99,9 @@ class ReferenceTaskRepository:
                         task.updated_at,
                     ),
                 )
-                # What the driver says it wrote, not the fact that the call
-                # returned. The other three spans report their outcome and this one reported only
-                # that it happened, which reads the same in a trace whether a row landed or not.
                 span.output["rows_written"] = cursor.rowcount
 
     async def get(self, task_id: str) -> ReferenceTask | None:
-        # Canonicalised before the driver sees it, and answered here when it cannot
-        # be. The id column is a uuid, and psycopg meets a malformed literal with
-        # InvalidTextRepresentation — an unhandled exception that reaches the client as 500.
-        # Measured on a live container: GET /reference-tasks/does-not-exist answered
-        # "InternalServerError". No row can carry an id that is not a UUID, so the honest answer for
-        # one is the answer this method already has for a miss. The canonical form is what goes to
-        # the driver, not the caller's spelling: Python accepts `urn:uuid:...` where PostgreSQL does
-        # not, so passing the original string through would have reproduced the same 500 for a
-        # narrower set of inputs.
         canonical_id = normalize_task_id(task_id)
         if canonical_id is None:
             return None
@@ -167,13 +110,9 @@ class ReferenceTaskRepository:
                 async with connection.cursor(row_factory=dict_row) as cursor:
                     await cursor.execute(_SELECT_BY_ID, (canonical_id,))
                     row = await cursor.fetchone()
-            # The outcome, not just the timing. A query that silently matches
-            # nothing and one that returns the row look identical in a trace that records only
-            # duration — that is the shape the missing spans hid.
             span.output["row_found"] = row is not None
         return None if row is None else row_to_reference_task(row)
 
-    # Newest first.
     async def list_by_status(self, status: str, limit: int = 50) -> list[ReferenceTask]:
         with logger.span(
             "db.reference_task.list_by_status", status=status, limit=limit, level=logging.INFO
@@ -191,8 +130,6 @@ class ReferenceTaskRepository:
         expected_updated_at: datetime,
     ) -> ReferenceTask | None:
         # None when no row matched the condition — the row moved since the read, or is gone.
-        # Canonicalised for the same reason `get` does it: the id column is a uuid,
-        # and a malformed literal reaches the client as a 500 rather than as the miss it is.
         canonical_id = normalize_task_id(task.id)
         if canonical_id is None:
             return None
@@ -216,9 +153,5 @@ class ReferenceTaskRepository:
                         ),
                     )
                     row = await cursor.fetchone()
-            # The outcome, not just the timing — and here the two outcomes mean
-            # completely different things to whoever reads the trace. A miss is either a row
-            # somebody else wrote first or a row that is gone, and both are worth seeing without
-            # correlating a 409 back to a query that looked like every other one.
             span.output["row_written"] = row is not None
         return None if row is None else row_to_reference_task(row)
