@@ -198,6 +198,7 @@ Project Map: Mayak
 │   │   ├── test_health_endpoints.py  ---  Endpoint tests for liveness and readiness health contracts.
 │   │   ├── test_import_graph_is_acyclic.py  ---  Guard the one defect the whole suite is structurally blind to — an import cycle inside
 │   │   ├── test_launcher_shutdown.py  ---  Verify SIGTERM leaves the launcher's post-uvicorn shutdown work enough time to finish.
+│   │   ├── test_launcher_workers.py  ---  Verify SERVER_WORKERS above one starts several worker processes, each able to build the application.
 │   │   ├── test_lifecycle_and_log_rotation.py  ---  Cover the two kernel modules nothing exercised — the lifespan body and log rotation.
 │   │   ├── test_llm_service.py  ---  Unit tests for mock-mode LLM service behavior and readiness semantics.
 │   │   ├── test_llm_service_retry.py  ---  Tests for the retry policy and token accounting of live LLM calls.
@@ -219,6 +220,7 @@ Project Map: Mayak
 │   │   ├── test_structure_builder.py  ---  Unit tests for project-map generation targeting the dedicated reference document.
 │   │   ├── test_sync_agent_docs.py  ---  Unit tests for the generated agent wrapper sync script.
 │   │   ├── test_template_neutrality.py  ---  Guard every way a stale project name creeps back into a template that must stay neutral.
+│   │   ├── test_tool_argument_schema.py  ---  Verify a language-model tool's parameters reach the provider's schema under their own names.
 │   │   ├── test_trace_file_gate.py  ---  Verify the NDJSON trace file is switched on by its own setting and never by debug mode.
 │   │   ├── test_trace_formatter_against_real_output.py  ---  The renderer must work on the event shape THIS application emits, and on the shape it
 │   │   ├── test_trace_formatter_failure_visibility.py  ---  Regression guards proving a failed request is visible in the rendered trace tree.

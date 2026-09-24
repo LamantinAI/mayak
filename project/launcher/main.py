@@ -8,6 +8,7 @@ from types import FrameType
 from typing import Optional
 
 import uvicorn
+from fastapi import FastAPI
 from pydantic import ValidationError
 
 from project.core.composition_root import CompositionRoot
@@ -51,6 +52,31 @@ def _install_termination_handler() -> None:
 def _restore_termination_default() -> None:
     for termination_signal in _TERMINATION_SIGNALS:
         signal.signal(termination_signal, signal.SIG_DFL)
+
+
+# ATTRIBUTE: APPLICATION_FACTORY (str)
+# SUMMARY: Where uvicorn imports the application from — in this process with one worker, in each
+# worker process with several.
+# NOTE: An import string, not the application object. With SERVER_WORKERS above one uvicorn starts
+# separate processes that each import the application, and it refuses an object outright: the
+# process ended at startup with exit code 3, so the setting was unusable. Found by the bench2
+# measurement (2026-09-24), where one process had also hidden that an asyncio.Lock guarding a
+# booking rule does not hold across processes — tests/application/test_launcher_workers.py.
+APPLICATION_FACTORY = "project.launcher.main:create_app"
+
+
+# FUNCTION: create_app
+# SUMMARY: Build the FastAPI application with its lifespan; what every worker process calls.
+# NOTE: Logging is not configured here: uvicorn applies the log config main() passes it in every
+# worker before calling this, and settings were validated once, in main(), before any worker exists.
+# With ENABLE_FULL_TRACE and several workers that config gives each worker its own FileHandler on
+# the one run file main() created; the trace summary is still rendered once, by this process, after
+# the workers exit. Checked 2026-09-24 with two workers: one file, lines from all three processes,
+# no line torn, summary at the top. Spans do not cross processes, so each worker's traces stand alone.
+def create_app() -> FastAPI:
+    settings = get_settings()
+    lifespan = create_lifespan(settings, get_logger(__name__))
+    return CompositionRoot().build_application(lifespan=lifespan)
 
 
 # FUNCTION: main
@@ -145,18 +171,8 @@ def main() -> None:
                 new_value=env_info,
             )
 
-            # **LOGIC_STEP**: Create lifespan manager for async resources.
-            lifespan = create_lifespan(settings, logger)
-
-            # **LOGIC_STEP**: Build FastAPI application using composition root pattern.
-            composition_root = CompositionRoot()
-            # Integrate lifespan into application creation
-            app = composition_root.build_application(lifespan=lifespan)
-
-            # **LOGIC_STEP**: Store log file path for middleware (debug trace summary).
-            app.state.log_file_path = log_file_path
-
-            # **LOGIC_STEP**: Start FastAPI server with uvicorn.
+            # **LOGIC_STEP**: Start FastAPI server with uvicorn. The application itself is built by
+            # create_app(), which uvicorn calls — see APPLICATION_FACTORY for why not here.
             logger.log_system_event(
                 event_name="server_starting",
                 category="lifecycle",
@@ -185,11 +201,12 @@ def main() -> None:
             # START SERVER
             # Uvicorn now owns the event loop and signal handling.
             uvicorn.run(
-                app,
+                APPLICATION_FACTORY,
+                factory=True,
                 host=settings.server.host,
                 port=settings.server.port,
                 workers=settings.server.workers if not settings.project.debug else 1,
-                reload=False,  # Explicitly disabled to ensure stability with app instance
+                reload=False,
                 log_level="debug" if settings.project.debug else "info",
                 # Disabled in favour of the semantic request.summary from AILoggingMiddleware —
                 # a substitution that only holds while that summary is actually emitted, which

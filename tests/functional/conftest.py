@@ -112,9 +112,14 @@ async def make_post_request(http_client: httpx.AsyncClient) -> SendRequest:
 # OUTPUT: (Callable): Async function that sends GET and returns status/body dict.
 @pytest_asyncio.fixture(scope="function", loop_scope="function")
 async def make_get_request(http_client: httpx.AsyncClient) -> SendRequest:
-    async def inner(path: str, params: dict[str, Any] = {}) -> ApiResponse:
-        url = test_settings.service_url + path
-        response = await http_client.get(url, params=params)
+    async def inner(path: str, params: dict[str, Any] | None = None) -> ApiResponse:
+        # **LOGIC_STEP**: Merged into the URL rather than passed as `params=`. httpx replaces a
+        # query string already in the URL with `params` — an empty dict included, which was this
+        # helper's default — so `inner("/sessions?hall_id=7")` fetched the unfiltered list and a
+        # filter test passed against it. Found by the bench2 measurement (2026-09-24); guarded by
+        # tests/application/test_functional_request_helpers.py. A key in both places takes `params`.
+        url = httpx.URL(test_settings.service_url + path).copy_merge_params(params or {})
+        response = await http_client.get(url)
         body = (
             response.json()
             if response.content
