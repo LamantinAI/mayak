@@ -34,22 +34,24 @@ class ReferenceTask:
 # DTO declares types only. The service calls them on every path that writes or filters.
 def check_title(title: str | None) -> str:
     if title is None:
-        raise ValidationError("title must not be null")
+        raise ValidationError("title must not be null", field="title")
     if not title.strip():
-        raise ValidationError("title must not be empty")
+        raise ValidationError("title must not be empty", field="title")
     if len(title) > MAX_TITLE_LENGTH:
         raise ValidationError(
-            f"title must be at most {MAX_TITLE_LENGTH} characters, got {len(title)}"
+            f"title must be at most {MAX_TITLE_LENGTH} characters, got {len(title)}", field="title"
         )
     return title
 
 
 def check_status(status: str | None) -> str:
     if status is None:
-        raise ValidationError("status must not be null")
+        raise ValidationError("status must not be null", field="status")
     if status not in ALLOWED_STATUSES:
         allowed = ", ".join(sorted(ALLOWED_STATUSES))
-        raise ValidationError(f"Unknown status '{status}'. Allowed statuses: {allowed}")
+        raise ValidationError(
+            f"Unknown status '{status}'. Allowed statuses: {allowed}", field="status"
+        )
     return status
 
 

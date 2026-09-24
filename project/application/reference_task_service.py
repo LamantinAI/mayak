@@ -61,7 +61,9 @@ class ReferenceTaskService:
     async def list_tasks(self, status: str, limit: int = 50) -> list[ReferenceTask]:
         check_status(status)
         if not 1 <= limit <= MAX_LIST_LIMIT:
-            raise ValidationError(f"limit must be between 1 and {MAX_LIST_LIMIT}, got {limit}")
+            raise ValidationError(
+                f"limit must be between 1 and {MAX_LIST_LIMIT}, got {limit}", field="limit"
+            )
         return await self._repository.list_by_status(status, limit)
 
     # Read-modify-write, the shape of every non-trivial update: read, stamp a new updated_at, and

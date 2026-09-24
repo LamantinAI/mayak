@@ -114,8 +114,13 @@ async def test_a_request_outside_the_rules_answers_422_and_writes_nothing(
         stored = (await client.get("/reference-tasks")).json()
 
     assert [response.status_code for response in refused] == [422] * len(refused)
-    assert refused[0].json()["error"]["status_code"] == 422
     assert stored["items"] == [created]
+    # Each refusal names its field, as a 422 from the framework did while the DTOs held the bounds.
+    fields = [
+        [detail["field"] for detail in response.json()["error"].get("details", [])]
+        for response in refused
+    ]
+    assert fields == [["title"]] * 2 + [[]] + [["title"]] * 2 + [["status"]] * 3 + [["limit"]] * 2
 
 
 # Verify a patch touches only its fields, moves the token, clears on null, and does not block the next.

@@ -34,6 +34,7 @@ class ReferenceTaskResponse(CoreModel):
     created_at: datetime
     updated_at: datetime  # a client re-reads it before it patches again
 
+    # Field by field on purpose: a field the domain gains stays off the wire until it is named here.
     @classmethod
     def from_domain(cls, task: ReferenceTask) -> ReferenceTaskResponse:
         return cls(

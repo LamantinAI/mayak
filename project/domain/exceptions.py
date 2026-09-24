@@ -6,8 +6,13 @@ class ProjectError(Exception):
     pass
 
 
+# `field` names the input a rule refused, when there is one: the 422 then carries it in
+# `details`, in the shape a request the framework itself refuses gets, so a client can point at the
+# field whichever layer said no.
 class ValidationError(ProjectError):
-    pass
+    def __init__(self, message: str, field: str | None = None) -> None:
+        super().__init__(message)
+        self.field = field
 
 
 class NotFoundError(ProjectError):

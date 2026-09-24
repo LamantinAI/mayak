@@ -421,6 +421,18 @@
    "mechanism": "direct"
   },
   {
+   "id": "validation_field_not_rendered",
+   "kind": "http",
+   "file": "project/infrastructure/api/exception_handlers.py",
+   "find": "if isinstance(exc, ValidationError) and exc.field is not None:",
+   "replace": "if False:",
+   "breaks": "a 422 from a domain rule no longer says which field it refused, so a client cannot point at it",
+   "expect": [
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing"
+   ],
+   "mechanism": "direct"
+  },
+  {
    "id": "routes_not_registered",
    "kind": "wiring",
    "file": "project/infrastructure/api/router_registration.py",
