@@ -15,6 +15,8 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 
+from scripts.structure_builder import hermetic_git_env
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Names this template used to carry. A rename adds the retired name here.
@@ -87,6 +89,7 @@ def _working_copy_files(root: Path = _REPO_ROOT) -> list[Path]:
     result = run(
         ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=root,
+        env=hermetic_git_env(),
         capture_output=True,
         text=True,
         check=True,
@@ -160,7 +163,7 @@ class TestForbiddenTermsMechanism:
 class TestWorkingCopyEnumerationMechanism:
     @pytest.mark.unit
     def test_a_file_not_yet_added_is_still_enumerated(self, tmp_path: Path) -> None:
-        run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        run(["git", "init", "-q"], cwd=tmp_path, check=True, env=hermetic_git_env())
         (tmp_path / "new_vertical.md").write_text("drafted, never added", encoding="utf-8")
 
         found = {path.name for path in _working_copy_files(root=tmp_path)}
@@ -169,7 +172,7 @@ class TestWorkingCopyEnumerationMechanism:
 
     @pytest.mark.unit
     def test_an_ignored_file_is_not_enumerated(self, tmp_path: Path) -> None:
-        run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        run(["git", "init", "-q"], cwd=tmp_path, check=True, env=hermetic_git_env())
         (tmp_path / ".gitignore").write_text("scratch.md\n", encoding="utf-8")
         (tmp_path / "scratch.md").write_text("drafted, ignored", encoding="utf-8")
 

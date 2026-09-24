@@ -14,6 +14,8 @@ from subprocess import CompletedProcess, run
 
 import pytest
 
+from scripts.structure_builder import hermetic_git_env
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # The tool steps that must exist as their own target, because more than one caller runs them.
@@ -512,6 +514,7 @@ class TestGeneratedFilesRefuseTheEdit:
             [str(_REPO_ROOT / ".agents" / "hooks" / "pre-edit-guard.sh")],
             input=payload,
             cwd=cwd,
+            env=hermetic_git_env(),
             capture_output=True,
             text=True,
             check=True,
@@ -557,7 +560,9 @@ class TestGeneratedFilesRefuseTheEdit:
     # branch turns this red rather than passing on an empty case.
     @pytest.mark.unit
     def test_a_file_inside_a_generated_directory_is_refused(self, tmp_path: Path) -> None:
-        run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        # Without git's own variables: run from the pre-commit hook, an inherited GIT_DIR made this
+        # re-initialise the repository being committed and set core.bare=true on its main checkout.
+        run(["git", "init", "-q"], cwd=tmp_path, check=True, env=hermetic_git_env())
         (tmp_path / "Makefile").write_text(
             "print-generated-paths:\n\t@echo rendered\n", encoding="utf-8"
         )
