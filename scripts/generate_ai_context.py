@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # FILE: generate_ai_context.py
-# SUMMARY: Generate or verify the AI-friendly repository context artifacts consumed by onboarding docs and query tooling.
+# Generate or verify the AI-friendly repository context artifacts consumed by onboarding docs and query tooling.
 
 from __future__ import annotations
 
@@ -23,8 +23,7 @@ from ai_context.rendering import build_generated_outputs, render_json
 from ai_context.validator_contract import build_validator_issue_payload
 
 
-# ATTRIBUTE: _DRIFT_STOP_WIDENING_CONDITIONS (dict[str, str])
-# SUMMARY: stop_widening_condition text for the two rule_ids this module emits directly.
+# stop_widening_condition text for the two rule_ids this module emits directly.
 # Duplicated (not imported) from ai_query.common._DRIFT_RULE_PLAYBOOKS to avoid a circular
 # import (ai_query.common imports from this module). Keep both copies in sync if the wording
 # changes — covered by tests/application/test_validator_error_contract.py.
@@ -140,7 +139,7 @@ def _print_degraded_payload(
     print(f"status: {payload['degraded_status']}")
     for issue in payload["issues"]:
         print(f"- {issue['message']}")
-        # **LOGIC_STEP**: Print the registered rule_id alongside the message. The validator-recovery
+        # Print the registered rule_id alongside the message. The validator-recovery
         # rule in docs/agent_rules.md tells the agent to call `failure rule <rule_id>` with what it
         # just saw; degraded_status is a layer name ("generated_outdated"), not a rule_id
         # ("drift.generated.outdated"), so printing only that leaves the prescribed command failing

@@ -10,15 +10,11 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from project.domain.reference_task import CLOSED_STATUS, MAX_TITLE_LENGTH
 
 
-# CLASS: project.infrastructure.persistence.orm_models.Base
-# EXTENDS: sqlalchemy.orm.DeclarativeBase
 # SUMMARY: Base class for all ORM models using SQLAlchemy's typed declarative base.
 class Base(DeclarativeBase):
     pass
 
 
-# CLASS: project.infrastructure.persistence.orm_models.ReferenceTaskORM
-# EXTENDS: project.infrastructure.persistence.orm_models.Base
 # SUMMARY: Table backing the shipped reference vertical. Alembic reads this metadata; nothing reads the ORM at runtime, because ReferenceTaskRepository speaks raw psycopg. Verticals add their own tables alongside it and delete this one with the rest of the example.
 class ReferenceTaskORM(Base):
     __tablename__ = "reference_tasks"
@@ -30,23 +26,18 @@ class ReferenceTaskORM(Base):
         ),
     )
 
-    # ATTRIBUTE: id (Mapped[str])
     # SUMMARY: Stable task identifier.
     id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False), primary_key=True)
 
-    # ATTRIBUTE: title (Mapped[str])
     # SUMMARY: Human-readable task title.
     title: Mapped[str] = mapped_column(String(MAX_TITLE_LENGTH), nullable=False)
 
-    # ATTRIBUTE: details (Mapped[str | None])
     # SUMMARY: Optional task description.
     details: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # ATTRIBUTE: status (Mapped[str])
     # SUMMARY: Workflow status of the task.
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
 
-    # ATTRIBUTE: created_at (Mapped[datetime])
     # SUMMARY: Timestamp when the task was created.
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -54,9 +45,8 @@ class ReferenceTaskORM(Base):
         server_default=func.now(),
     )
 
-    # ATTRIBUTE: updated_at (Mapped[datetime])
     # SUMMARY: Timestamp of the last write; the repository's update matches on it.
-    # NOTE: No `onupdate=func.now()` here on purpose. Nothing reads this ORM at runtime — the
+    # No `onupdate=func.now()` here on purpose. Nothing reads this ORM at runtime — the
     # repository speaks raw psycopg — so a SQLAlchemy-side default would fire for nobody, while
     # making it look as though the column maintained itself. The value is set by the application
     # service and sent as a parameter, which is also what lets the update use it as an optimistic
@@ -68,9 +58,8 @@ class ReferenceTaskORM(Base):
     )
 
 
-# ATTRIBUTE: OPEN_TITLE_INDEX (Index)
 # SUMMARY: At most one open reference task per title, compared case-insensitively.
-# NOTE: The rule spans rows, so the single-row updated_at token cannot hold it, and neither can a
+# The rule spans rows, so the single-row updated_at token cannot hold it, and neither can a
 # check the service runs before writing — two requests both read "free" and both write. The
 # database holds it, in the statement that writes, for every writer at once: ADR-007, "Where the
 # single-row token does not reach". Declared here so `alembic check` compares it with migration

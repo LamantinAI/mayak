@@ -19,7 +19,7 @@ from scripts.generate_ai_context import (
     generated_output_issues,
 )
 
-# **LOGIC_STEP**: The ten playbook getters this module needs are imported inside failure_playbook()
+# The ten playbook getters this module needs are imported inside failure_playbook()
 # instead of at module scope, next to the three that already were. Each is used in exactly one
 # place — the resolution chain — and importing them at module level ties every consumer of
 # ai_query.common, the doctor included, to all ten: deleting scripts/validate_cbm.py, say, would
@@ -308,7 +308,7 @@ def file_policy_entry(
     if metadata is not None:
         return normalized_path, metadata
 
-    # **LOGIC_STEP**: Fallback — derive a minimal policy payload for files that
+    # Fallback — derive a minimal policy payload for files that
     # belong to a known EDIT_ZONES classification but lack an explicit
     # FILE_POLICY entry. Reserves the KeyError for paths truly outside the
     # project tree.
@@ -354,7 +354,7 @@ def _derived_file_policy(
     zone = zone_info["zone"]
     risk = zone_info["risk"]
 
-    # **LOGIC_STEP**: Heuristic layer assignment from path prefix.
+    # Heuristic layer assignment from path prefix.
     layer_map = {
         "project/core/": "core",
         "project/infrastructure/": "infrastructure",
@@ -371,7 +371,7 @@ def _derived_file_policy(
             layer = layer_name
             break
 
-    # **LOGIC_STEP**: kernel_or_reference heuristic — match against the
+    # kernel_or_reference heuristic — match against the
     # template_kernel_paths block surfaced in architecture_rules.
     template_kernel_paths = architecture_rules.get("template_kernel_paths", []) or []
     kernel_or_reference = "unclassified"
@@ -386,7 +386,7 @@ def _derived_file_policy(
             kernel_or_reference = "template_kernel"
             break
 
-    # **LOGIC_STEP**: Diff-style default per zone — minimal for high-risk
+    # Diff-style default per zone — minimal for high-risk
     # surfaces, content-local for safe-zone iteration.
     if zone in {"expert", "generated_do_not_edit"}:
         diff_style = "minimal-diff"
@@ -428,12 +428,12 @@ def _derived_file_policy(
 
 
 def failure_playbook(rule_id: str) -> dict[str, object]:
-    # **LOGIC_STEP**: Imported here rather than at module scope. scripts.doctor_ai_context pulls in
+    # Imported here rather than at module scope. scripts.doctor_ai_context pulls in
     # the collectors for every validator, and importing that chain at the top of this module ties
     # every `query_ai_context.py` invocation to it for the sake of a handful of rule ids.
     from scripts.doctor_ai_context import get_doctor_layer_playbook
 
-    # **LOGIC_STEP**: These were missing while nothing printed their rule_ids, and became a live
+    # These were missing while nothing printed their rule_ids, and became a live
     # defect the moment the doctor grew layers for dependencies, test quality and secrets: it
     # started naming ids on screen that `failure rule` answered "Unknown failure rule ID" for.
     # Covered by tests/application/test_doctor_ai_context.py, parametrised over every rule_id any
@@ -549,7 +549,7 @@ def unique_paths(paths: list[str]) -> list[str]:
 
 
 def zone_via_edit_zones_patterns(path: str, edit_zones: dict[str, list[str]]) -> dict[str, str]:
-    # **LOGIC_STEP**: The most specific pattern wins, not the first one found: returning on first
+    # The most specific pattern wins, not the first one found: returning on first
     # match while iterating zones in dict order would let a broad prefix in one zone shadow an
     # exact one in another. `project/` in `caution` — needed so the 21 unclassified files below it
     # get a policy — would otherwise silently demote `project/core/logging/` from expert/high to
@@ -588,7 +588,7 @@ def zone_for_path(path: str, architecture_rules: dict[str, object]) -> dict[str,
     zone = zone_via_edit_zones_patterns(normalized_path, edit_zones)
     if zone["zone"] != "unclassified" or "/" in normalized_path:
         return zone
-    # **LOGIC_STEP**: A file at the repository root that nothing else claims. Every directory here
+    # A file at the repository root that nothing else claims. Every directory here
     # has a catch-all, the root had none, and adding an ordinary CHANGELOG.md or .editorconfig
     # therefore turned the gate red until somebody edited ai_context/constants.py — a papercut
     # inherited by every project built on this template. Caution rather than safe because a root
@@ -744,7 +744,7 @@ def service_test_candidates(service_key: str) -> list[str]:
             base_name = base_name[: -len(suffix)]
             break
     candidates = [
-        # **LOGIC_STEP**: `test_<name>_vertical.py` is the name .agents/skills/add-vertical prescribes and
+        # `test_<name>_vertical.py` is the name .agents/skills/add-vertical prescribes and
         # the shipped vertical uses, and it was the one spelling missing here. The consequence was
         # not a worse suggestion but a silent one: `make quality-gates` on a changed service
         # printed "no likely tests for this workset", ran zero tests, and reported "workset checks
@@ -757,7 +757,7 @@ def service_test_candidates(service_key: str) -> list[str]:
 
 
 def name_matched_test_candidates(normalized_path: str) -> list[str]:
-    # **LOGIC_STEP**: The convention this repository already follows — tests/<suite>/test_<stem>.py
+    # The convention this repository already follows — tests/<suite>/test_<stem>.py
     # next to project/<anything>/<stem>.py. Before this, mapping went only through the service
     # registry and the route inventory, so a changed repository, ORM module or middleware returned
     # `likely_tests: []` while two files named after it sat in tests/. Measured: a diff of eight
@@ -778,9 +778,8 @@ def name_matched_test_candidates(normalized_path: str) -> list[str]:
     )
 
 
-# ATTRIBUTE: _LAYER_SUFFIXES (tuple[str, ...])
-# SUMMARY: Suffixes a vertical's file carries to say which layer it belongs to.
-# NOTE: The order matters only in that the first match wins; no stem here ends in two of them.
+# Suffixes a vertical's file carries to say which layer it belongs to.
+# The order matters only in that the first match wins; no stem here ends in two of them.
 # `_agent`, `_mock`, `_tools` and `_verdict` cover an agentic vertical's own file shapes —
 # `<name>_agent.py`, `<name>_mock.py`, `<name>_tools.py`, `<name>_verdict.py`. Without one of these
 # suffixes listed, that file keeps it through `vertical_names_for_path`, the derived "name" is
@@ -806,17 +805,15 @@ _LAYER_SUFFIXES = (
     "_verdict",
 )
 
-# ATTRIBUTE: _RUNNABLE_TEST_SUITES (tuple[str, ...])
-# SUMMARY: The suites the narrow loop is allowed to run — functional needs Docker and a database.
+# The suites the narrow loop is allowed to run — functional needs Docker and a database.
 _RUNNABLE_TEST_SUITES = ("tests/application", "tests/infrastructure")
 
-# ATTRIBUTE: _SHORTEST_VERTICAL_NAME (int)
-# SUMMARY: Below this a name is too generic to match test files by, so nothing is guessed.
+# Below this a name is too generic to match test files by, so nothing is guessed.
 _SHORTEST_VERTICAL_NAME = 4
 
 
 def vertical_names_for_path(normalized_path: str) -> list[str]:
-    # **LOGIC_STEP**: The name of the thing, recovered from the file that implements one layer of
+    # The name of the thing, recovered from the file that implements one layer of
     # it. `reference_task_service.py`, `reference_task_repository.py` and the plural endpoint
     # module `reference_tasks.py` are all the `reference_task` vertical, and its tests are named
     # after the vertical rather than after any one of those files. Both spellings are returned
@@ -837,7 +834,7 @@ def vertical_names_for_path(normalized_path: str) -> list[str]:
 
 
 def registered_vertical_names(context_map: dict[str, object]) -> set[str]:
-    # **LOGIC_STEP**: The wiring is the authority on which verticals exist. Reading it from the
+    # The wiring is the authority on which verticals exist. Reading it from the
     # context map rather than from docs/project_context.json keeps this working in a project that
     # has not filled that file in — and that file's declared status is a description, checked by
     # nothing, since the rule comparing it against the wiring was removed.
@@ -853,7 +850,7 @@ def registered_vertical_names(context_map: dict[str, object]) -> set[str]:
 
 
 def vertical_test_candidates(normalized_path: str, known_verticals: Iterable[str]) -> list[str]:
-    # **LOGIC_STEP**: Named after the vertical, not spelled exactly like the file. Before this,
+    # Named after the vertical, not spelled exactly like the file. Before this,
     # mapping was by exact stem, so `before-edit` on the shipped vertical's domain model and on
     # its endpoint module both answered with no tests at all, while four files named after that
     # vertical sat in tests/ — the tool was empty for the one vertical the template ships, and
@@ -881,7 +878,7 @@ def vertical_test_candidates(normalized_path: str, known_verticals: Iterable[str
 
 
 def changed_test_is_its_own_candidate(normalized_path: str) -> list[str]:
-    # **LOGIC_STEP**: A changed test is a test to run, and nothing else maps it. This is a
+    # A changed test is a test to run, and nothing else maps it. This is a
     # complement to the by-name rule above, never a replacement: on a diff that touches only
     # production code it contributes nothing, which is why it cannot be the whole fix. Restricted
     # to the two suites the narrow loop is allowed to run, for the same reason as above.
@@ -918,7 +915,7 @@ def validator_recommendations_for_paths(paths: list[str]) -> list[str]:
     if any(path.startswith("project/") for path in normalized_paths):
         add("uv run python scripts/validate_architecture.py")
         add("uv run python scripts/validate_runtime_ownership.py")
-    # **LOGIC_STEP**: A hand-edited or hand-written revision is exactly what this validator exists
+    # A hand-edited or hand-written revision is exactly what this validator exists
     # for, and it was the one file class that got an empty required_validators list.
     if any(path.startswith("alembic/") for path in normalized_paths):
         add("uv run python scripts/validate_migrations.py")
@@ -1122,9 +1119,8 @@ def matching_tasks_for_paths(
     return sorted(dict.fromkeys(matches))
 
 
-# ATTRIBUTE: _E2E_GATE_PATH_PREFIXES (tuple[str, ...])
-# SUMMARY: Directory prefixes docs/agent_rules.md names as finished only by `make test-e2e`.
-# NOTE: `make quality-gates` runs none of the project's own queries, so a persistence-only change
+# Directory prefixes docs/agent_rules.md names as finished only by `make test-e2e`.
+# `make quality-gates` runs none of the project's own queries, so a persistence-only change
 # needs `make test-e2e` too — reversing an ORDER BY clause under
 # project/infrastructure/persistence/ leaves every quality-gates check green. Wiring files are
 # matched separately below, against architecture_rules["wiring_files"], because they are exact
@@ -1132,7 +1128,7 @@ def matching_tasks_for_paths(
 _E2E_GATE_PATH_PREFIXES = (
     "project/infrastructure/persistence/",
     "project/infrastructure/api/endpoints/",
-    # **LOGIC_STEP**: A migration belongs here for a reason the other two do not share: it is the
+    # A migration belongs here for a reason the other two do not share: it is the
     # one change `make quality-gates` cannot check at all without a database. With none reachable
     # `scripts/validate_migrations.py` announces that it skipped and stays green, so `make
     # test-e2e`, which runs the same check against the functional stack's own database, is the
@@ -1169,7 +1165,7 @@ def tests_payload(
     }
 
 
-# **LOGIC_STEP**: `architecture_rules` is threaded in for one line — the final gate. A hardcoded
+# `architecture_rules` is threaded in for one line — the final gate. A hardcoded
 # ["make quality-gates"] here would be the more misleading of the two places that defect can live:
 # `before-edit file` is asked about ONE file, usually right before editing it, so a reader looking
 # at a repository path needs to hear about `make test-e2e` too, not just that the gates finish the
@@ -1184,7 +1180,7 @@ def tests_for_file(
     integration_tests: list[str] = []
 
     for service_key, service_metadata in context_map["service_registry"].items():
-        # **LOGIC_STEP**: Two paths identify a service, and only one of them was checked.
+        # Two paths identify a service, and only one of them was checked.
         # service_file_path() derives the module that defines the constructor; `source_file` is
         # where the service is actually registered. project/core/service_registration.py is a
         # Wiring Hotspot with its own TestWiring suite, and because it is never a constructor's
@@ -1232,7 +1228,7 @@ def tests_for_file(
                 "tests/application/test_logging_redaction.py",
             ]
         )
-    # **LOGIC_STEP**: A changed migration's path is outside project/, so the architecture check
+    # A changed migration's path is outside project/, so the architecture check
     # alone would leave it with no validator at all. The ledger test is the one that goes red when
     # a revision and the ORM metadata disagree, and it is cheap.
     if normalized_path.startswith("alembic/"):
@@ -1429,23 +1425,19 @@ def file_impact_payload(
     }
 
 
-# ATTRIBUTE: _SYMBOL_SEARCH_ROOTS (tuple[str, ...])
-# SUMMARY: First-party source directories `symbol` scans. Excludes .venv and every generated path.
+# First-party source directories `symbol` scans. Excludes .venv and every generated path.
 _SYMBOL_SEARCH_ROOTS = ("project", "ai_context", "ai_query", "scripts", "tests", "alembic")
 
-# ATTRIBUTE: _SYMBOL_RESULT_LIMIT (int)
-# SUMMARY: Cap on matches returned for one name, so a generic identifier does not flood the payload.
+# Cap on matches returned for one name, so a generic identifier does not flood the payload.
 _SYMBOL_RESULT_LIMIT = 25
 
-# ATTRIBUTE: _SYMBOL_KIND_ORDER (dict[str, int])
-# SUMMARY: Sort weight so a class or function definition is listed ahead of a same-named local
+# Sort weight so a class or function definition is listed ahead of a same-named local
 # variable — the two things someone searching a symbol name is almost always after.
 _SYMBOL_KIND_ORDER = {"class": 0, "function": 1, "attribute": 2}
 
 
-# FUNCTION: _symbol_search_files
-# SUMMARY: List every first-party .py file `symbol` is allowed to open.
-# OUTPUT: (Iterator[Path]): Files under _SYMBOL_SEARCH_ROOTS, sorted for deterministic output.
+# List every first-party .py file `symbol` is allowed to open.
+# (Iterator[Path]): Files under _SYMBOL_SEARCH_ROOTS, sorted for deterministic output.
 def _symbol_search_files() -> Iterator[Path]:
     for root_name in _SYMBOL_SEARCH_ROOTS:
         root = ROOT_DIR / root_name
@@ -1454,12 +1446,11 @@ def _symbol_search_files() -> Iterator[Path]:
         yield from sorted(root.rglob("*.py"))
 
 
-# FUNCTION: _symbol_matches_in_file
-# SUMMARY: Find every definition or name binding matching `name` in one source file.
-# INPUT: path (Path): File to parse.
-# INPUT: name (str): Exact identifier to match (case-sensitive — Python names are).
-# OUTPUT: (list[dict[str, object]]): {"file", "line", "kind"} entries, kind in class/function/attribute.
-# **LOGIC_STEP**: `ast`, not a regex over `def NAME(` / `class NAME` / `NAME =` — indentation,
+# Find every definition or name binding matching `name` in one source file.
+# path (Path): File to parse.
+# name (str): Exact identifier to match (case-sensitive — Python names are).
+# (list[dict[str, object]]): {"file", "line", "kind"} entries, kind in class/function/attribute.
+# `ast`, not a regex over `def NAME(` / `class NAME` / `NAME =` — indentation,
 # multi-line signatures and string literals containing the name all defeat a line-based scan
 # without visibly failing, and this repository already leans on `ast` for the same reason in
 # ai_context/extraction.py and scripts/validate_cbm.py. A plain `Assign`/`AnnAssign` target is an
@@ -1487,13 +1478,12 @@ def _symbol_matches_in_file(path: Path, name: str) -> list[dict[str, object]]:
     return found
 
 
-# FUNCTION: _field_bindings_in_scope
-# SUMMARY: Find name bindings written directly in a module body or a class body, never in a
+# Find name bindings written directly in a module body or a class body, never in a
 # function body.
-# INPUT: scope (ast.AST): Module or ClassDef whose own statements are read.
-# INPUT: name (str): Exact identifier to match.
-# INPUT: relative_path (str): Repository-relative path, carried into each entry.
-# OUTPUT: (list[dict[str, object]]): {"file", "line", "kind"} entries with kind "attribute".
+# scope (ast.AST): Module or ClassDef whose own statements are read.
+# name (str): Exact identifier to match.
+# relative_path (str): Repository-relative path, carried into each entry.
+# (list[dict[str, object]]): {"file", "line", "kind"} entries with kind "attribute".
 def _field_bindings_in_scope(
     scope: ast.AST,
     name: str,
@@ -1515,10 +1505,9 @@ def _field_bindings_in_scope(
     return found
 
 
-# FUNCTION: find_symbol
-# SUMMARY: Locate a function, class or field by exact name — file and line, without a repo-wide grep.
-# INPUT: name (str): Exact identifier to search for.
-# OUTPUT: (dict[str, object]): {"name", "matches", "truncated"}. `matches` is capped at
+# Locate a function, class or field by exact name — file and line, without a repo-wide grep.
+# name (str): Exact identifier to search for.
+# (dict[str, object]): {"name", "matches", "truncated"}. `matches` is capped at
 # _SYMBOL_RESULT_LIMIT and sorted class-before-function-before-attribute, then by file and line;
 # `truncated` is true when more matches existed than the cap kept.
 def find_symbol(name: str) -> dict[str, object]:

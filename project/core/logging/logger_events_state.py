@@ -9,10 +9,8 @@ from project.core.logging.logger_events_base import SemanticLoggerEventContract
 from project.core.logging.logger_types import LogPayload, LogValue
 
 
-# CLASS: project.core.logging.logger_events_state.SemanticLoggerStateEventsMixin
 # SUMMARY: Mixin implementing state snapshots, data operation events, and decision logging helpers.
 class SemanticLoggerStateEventsMixin:
-    # FUNCTION: log_state_change
     # SUMMARY: Log changes to entity state with detailed diff information.
     def log_state_change(
         self: SemanticLoggerEventContract,
@@ -36,7 +34,6 @@ class SemanticLoggerStateEventsMixin:
             data=payload,
         )
 
-    # FUNCTION: log_state_snapshot
     # SUMMARY: Log a snapshot of the current state for debugging or auditing.
     def log_state_snapshot(
         self: SemanticLoggerEventContract,
@@ -60,7 +57,6 @@ class SemanticLoggerStateEventsMixin:
             data=payload,
         )
 
-    # FUNCTION: log_data_load
     # SUMMARY: Log data loading operations from various sources.
     def log_data_load(
         self: SemanticLoggerEventContract,
@@ -81,7 +77,6 @@ class SemanticLoggerStateEventsMixin:
             data=payload,
         )
 
-    # FUNCTION: log_data_transform
     # SUMMARY: Log data transformation operations with input and output metrics.
     def log_data_transform(
         self: SemanticLoggerEventContract,
@@ -107,7 +102,6 @@ class SemanticLoggerStateEventsMixin:
             data=payload,
         )
 
-    # FUNCTION: log_data_save
     # SUMMARY: Log data saving operations to various destinations.
     def log_data_save(
         self: SemanticLoggerEventContract,
@@ -128,7 +122,6 @@ class SemanticLoggerStateEventsMixin:
             data=payload,
         )
 
-    # FUNCTION: log_decision
     # SUMMARY: Log business logic decisions with reasoning and alternatives.
     def log_decision(
         self: SemanticLoggerEventContract,
@@ -157,7 +150,6 @@ class SemanticLoggerStateEventsMixin:
             data=payload,
         )
 
-    # FUNCTION: log_validation
     # SUMMARY: Log validation results with pass or fail status.
     def log_validation(
         self: SemanticLoggerEventContract,

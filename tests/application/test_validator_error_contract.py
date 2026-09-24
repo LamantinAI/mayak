@@ -38,7 +38,6 @@ from scripts.validate_repository_metadata import (
 import scripts.validate_repository_metadata as validate_repository_metadata
 
 
-# ATTRIBUTE: _REQUIRED_KEYS (tuple[str, ...])
 # SUMMARY: The five fields the audit matrix tracked across all 10 validators
 # (rule_id, suggested_fix, read_first, next_commands, stop_widening_condition), plus the
 # minimum location/severity fields every canon payload must also carry.
@@ -56,7 +55,6 @@ _REQUIRED_KEYS = (
 )
 
 
-# FUNCTION: _assert_contract
 # SUMMARY: Assert a single issue payload satisfies the ValidatorIssuePayload canon: all required
 # keys present, and the five audit-tracked fields are non-empty (not just present-but-blank).
 # INPUT: payload (dict[str, object]): Issue payload returned by a validator's _issue_to_payload/_issue_to_json converter.
@@ -80,7 +78,6 @@ def _assert_contract(payload: dict[str, object]) -> None:
     ), f"stop_widening_condition must be non-empty: {payload!r}"
 
 
-# FUNCTION: _write_fixture
 # SUMMARY: Write a Python source fixture into a temporary repository layout.
 # INPUT: path (Path): Target file path.
 # INPUT: content (str): Python source content.
@@ -90,11 +87,9 @@ def _write_fixture(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
-# CLASS: tests.application.test_validator_error_contract.TestValidatorErrorContract
 # SUMMARY: AC1 — force a minimal violation per validator and assert its JSON issue payload
 # satisfies the ValidatorIssuePayload canon (all 10 validators, 5 audit-tracked fields each).
 class TestValidatorErrorContract:
-    # FUNCTION: test_architecture_issue_satisfies_contract
     # SUMMARY: Force a domain->infrastructure forbidden import and check the JSON payload.
     @pytest.mark.unit
     def test_architecture_issue_satisfies_contract(self, tmp_path: Path) -> None:
@@ -107,7 +102,6 @@ class TestValidatorErrorContract:
         for issue in issues:
             _assert_contract(_architecture_issue_to_payload(issue, tmp_path))
 
-    # FUNCTION: test_endpoint_wiring_issue_satisfies_contract
     # SUMMARY: Force a direct-service-import endpoint violation and check the JSON payload.
     @pytest.mark.unit
     def test_endpoint_wiring_issue_satisfies_contract(self, tmp_path: Path) -> None:
@@ -149,7 +143,6 @@ class TestValidatorErrorContract:
         for issue in issues:
             _assert_contract(_endpoint_issue_to_payload(issue, tmp_path))
 
-    # FUNCTION: test_cbm_issue_satisfies_contract
     # SUMMARY: Force a missing '# FILE:' CBM tag violation and check the JSON payload.
     @pytest.mark.unit
     def test_cbm_issue_satisfies_contract(self, tmp_path: Path) -> None:
@@ -162,7 +155,6 @@ class TestValidatorErrorContract:
         for issue in issues:
             _assert_contract(_cbm_issue_to_json(issue, tmp_path))
 
-    # FUNCTION: test_module_size_issue_satisfies_contract
     # SUMMARY: Force an oversized production module and check the JSON payload.
     @pytest.mark.unit
     def test_module_size_issue_satisfies_contract(self, tmp_path: Path) -> None:
@@ -175,7 +167,6 @@ class TestValidatorErrorContract:
         for issue in issues:
             _assert_contract(_module_size_issue_to_json(issue))
 
-    # FUNCTION: test_file_policy_issue_satisfies_contract
     # SUMMARY: Force a FILE_POLICY_INDEX entry with a missing required field and check the JSON payload.
     @pytest.mark.unit
     def test_file_policy_issue_satisfies_contract(self, tmp_path: Path) -> None:
@@ -188,7 +179,6 @@ class TestValidatorErrorContract:
         for issue in issues:
             _assert_contract(_file_policy_issue_to_payload(issue))
 
-    # FUNCTION: test_migrations_issue_satisfies_contract
     # SUMMARY: Force a head-drift migration failure via a mocked CalledProcessError and check the JSON payload.
     @pytest.mark.unit
     def test_migrations_issue_satisfies_contract(self) -> None:
@@ -200,7 +190,6 @@ class TestValidatorErrorContract:
         )
         _assert_contract(_migrations_issue_to_payload(issue))
 
-    # FUNCTION: test_project_context_issue_satisfies_contract
     # SUMMARY: Force a missing docs/project_context.json and check the JSON payload.
     @pytest.mark.unit
     def test_project_context_issue_satisfies_contract(self, tmp_path: Path) -> None:
@@ -209,7 +198,6 @@ class TestValidatorErrorContract:
         for issue in issues:
             _assert_contract(_project_context_issue_to_payload(issue))
 
-    # FUNCTION: test_script_paths_issue_satisfies_contract
     # SUMMARY: Force a broken path-shaped literal inside a scripts/*.py fixture and check the JSON payload.
     @pytest.mark.unit
     def test_script_paths_issue_satisfies_contract(self, tmp_path: Path) -> None:
@@ -226,7 +214,6 @@ class TestValidatorErrorContract:
         for issue in issues:
             _assert_contract(_script_paths_issue_to_payload(issue))
 
-    # FUNCTION: test_skills_frontmatter_issue_satisfies_contract
     # SUMMARY: Force a SKILL.md with no frontmatter block and check the JSON payload.
     @pytest.mark.unit
     def test_skills_frontmatter_issue_satisfies_contract(
@@ -243,7 +230,6 @@ class TestValidatorErrorContract:
         for issue in issues:
             _assert_contract(_skills_frontmatter_issue_to_payload(issue))
 
-    # FUNCTION: test_runtime_ownership_issue_satisfies_contract
     # SUMMARY: AC2 — force an os.getenv access outside the allowlist and check that read_first, next_commands, and stop_widening_condition (previously entirely absent from this validator's inline main() payload) are present in the JSON payload.
     @pytest.mark.unit
     def test_runtime_ownership_issue_satisfies_contract(self, tmp_path: Path) -> None:
@@ -263,10 +249,8 @@ class TestValidatorErrorContract:
             assert payload["stop_widening_condition"]
 
 
-# CLASS: tests.application.test_validator_error_contract.TestGeneratedOutputIssuesContract
 # SUMMARY: Perimeter-extension coverage — scripts/generate_ai_context.py's generated_output_issues() is a second producer of the same issue-payload shape (drift.generated.missing/outdated) with the identical pre-fix gap (no stop_widening_condition even though ai_query.common._DRIFT_RULE_PLAYBOOKS already had it for both rule_ids).
 class TestGeneratedOutputIssuesContract:
-    # FUNCTION: test_missing_generated_file_satisfies_contract
     # SUMMARY: Force a missing generated output file and check the JSON issue payload.
     @pytest.mark.unit
     def test_missing_generated_file_satisfies_contract(self, tmp_path: Path) -> None:
@@ -277,7 +261,6 @@ class TestGeneratedOutputIssuesContract:
         assert issues[0]["rule_id"] == "drift.generated.missing"
         _assert_contract(issues[0])
 
-    # FUNCTION: test_outdated_generated_file_satisfies_contract
     # SUMMARY: Force an outdated generated output file and check the JSON issue payload.
     @pytest.mark.unit
     def test_outdated_generated_file_satisfies_contract(self, tmp_path: Path) -> None:
@@ -292,12 +275,10 @@ class TestGeneratedOutputIssuesContract:
         _assert_contract(issues[0])
 
 
-# CLASS: tests.application.test_validator_error_contract.TestFailureRuleRegression
 # SUMMARY: AC3 — query_ai_context.py failure rule <id> must not have regressed: it reads
 # get_*_rule_playbook() functions directly (untouched by this task), independent of the
 # _issue_to_payload/_issue_to_json converters this task modified.
 class TestFailureRuleRegression:
-    # FUNCTION: test_failure_playbook_still_returns_stop_widening_condition
     # SUMMARY: Sample one rule_id per validator family and confirm failure_playbook() still returns stop_widening_condition, proving the get_*_rule_playbook() code path this task did not touch is unaffected.
     @pytest.mark.unit
     @pytest.mark.parametrize(
@@ -326,10 +307,8 @@ class TestFailureRuleRegression:
         assert playbook["stop_widening_condition"]
 
 
-# CLASS: tests.application.test_validator_error_contract.TestWave6ValidatorsSatisfyContract
 # SUMMARY: The two validators added for the missing safety nets emit the same canonical payload.
 class TestWave6ValidatorsSatisfyContract:
-    # FUNCTION: test_test_quality_issue_satisfies_contract
     # SUMMARY: Verify validate_test_quality's converter carries the full remediation canon.
     @pytest.mark.unit
     def test_test_quality_issue_satisfies_contract(self, tmp_path: Path) -> None:
@@ -345,7 +324,6 @@ class TestWave6ValidatorsSatisfyContract:
         for issue in issues:
             _assert_contract(_test_quality_payload(issue, tmp_path))
 
-    # FUNCTION: test_dependency_issue_satisfies_contract
     # SUMMARY: Verify validate_dependencies' converter carries the full remediation canon.
     @pytest.mark.unit
     def test_dependency_issue_satisfies_contract(self, tmp_path: Path) -> None:
@@ -366,9 +344,8 @@ class TestWave6ValidatorsSatisfyContract:
         for issue in issues:
             _assert_contract(_dependency_payload(issue, tmp_path))
 
-    # FUNCTION: test_secrets_issue_satisfies_contract
     # SUMMARY: Verify validate_secrets' converter carries the full remediation canon.
-    # NOTE: The file's own SUMMARY claims every `scripts/validate_*.py` converter is proven here.
+    # The file's own SUMMARY claims every `scripts/validate_*.py` converter is proven here.
     # It was once twelve of thirteen: `validate_secrets._issue_to_payload` has the same
     # shape and runs in the same gate, and was never imported by this file.
     @pytest.mark.unit

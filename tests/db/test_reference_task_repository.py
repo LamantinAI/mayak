@@ -1,6 +1,6 @@
 # FILE: tests/db/test_reference_task_repository.py
 # SUMMARY: The reference repository's SQL, run against a real PostgreSQL and judged by what it returns.
-# NOTE: The suite a mock cannot replace. A mocked pool returns whatever its author imagined; only the
+# The suite a mock cannot replace. A mocked pool returns whatever its author imagined; only the
 # real driver shows that a uuid column arrives as uuid.UUID and a timestamptz as an aware datetime,
 # and only a real query shows that its filter, order, page bound and write condition do what the
 # text says. It replaced a mocked-pool suite that pinned each query as literal text (ADR-010): the
@@ -32,9 +32,8 @@ def repository(db_pool: AsyncConnectionPool) -> ReferenceTaskRepository:
     return ReferenceTaskRepository(db_pool)
 
 
-# FUNCTION: _task
 # SUMMARY: A task with a fresh id; title and details differ so an exchanged pair of columns shows.
-# NOTE: created_at equals updated_at, as at every real insert — so a mapper that swapped the two
+# created_at equals updated_at, as at every real insert — so a mapper that swapped the two
 # is invisible to a plain round trip and is caught by the update test, where they differ. The
 # title is unique unless one is given: two open tasks may not share one.
 def _task(status: str = "pending", minutes_ago: int = 0, title: str | None = None) -> ReferenceTask:
@@ -58,7 +57,7 @@ async def test_a_stored_task_reads_back_whole_and_in_domain_types(
 
     loaded = await repository.get(task.id)
 
-    # **LOGIC_STEP**: The whole object: an INSERT, a mapper or a RETURNING list that exchanged two
+    # The whole object: an INSERT, a mapper or a RETURNING list that exchanged two
     # columns of one type passes any check that happens to skip one of them. The id is compared as
     # str because psycopg hands back uuid.UUID, and the mapper is what converts it.
     assert loaded == task
@@ -71,7 +70,7 @@ async def test_an_id_is_found_in_any_spelling_uuid_accepts_and_a_malformed_one_i
     task = _task()
     await repository.add(task)
 
-    # **LOGIC_STEP**: PostgreSQL rejects `urn:uuid:...` that Python accepts, and answers a malformed
+    # PostgreSQL rejects `urn:uuid:...` that Python accepts, and answers a malformed
     # literal with an exception that reaches the client as 500; normalize_task_id is what turns
     # both into what they are — the same task, or no task.
     assert await repository.get(f"urn:uuid:{task.id}") == task
@@ -83,7 +82,7 @@ async def test_an_id_is_found_in_any_spelling_uuid_accepts_and_a_malformed_one_i
 async def test_list_filters_by_status_newest_first_within_the_page(
     repository: ReferenceTaskRepository,
 ) -> None:
-    # **LOGIC_STEP**: Inserted oldest first, the reverse of the expected answer, so a query that
+    # Inserted oldest first, the reverse of the expected answer, so a query that
     # lost its ORDER BY returns them in insertion order and fails; the `done` row is the newest of
     # all, so a filter that let it through changes the first element.
     pending = [_task(minutes_ago=minutes) for minutes in (3, 2, 1)]
@@ -105,7 +104,7 @@ async def test_an_update_lands_only_while_the_row_is_the_one_that_was_read(
 
     assert await repository.update(first, expected_updated_at=task.updated_at) == first
     assert await repository.get(task.id) == first
-    # **LOGIC_STEP**: The same stale read again — the deterministic version of a lost update. A
+    # The same stale read again — the deterministic version of a lost update. A
     # condition that matched the id alone, or `>=` the token, would overwrite `first` here.
     stale = replace(task, title="Stale", updated_at=_NOW + timedelta(seconds=2))
     assert await repository.update(stale, expected_updated_at=task.updated_at) is None
@@ -121,9 +120,8 @@ async def test_two_tasks_cannot_share_an_id(repository: ReferenceTaskRepository)
         await repository.add(replace(task, title="Another task"))
 
 
-# FUNCTION: test_every_query_leaves_its_outcome_in_a_span_production_can_see
 # SUMMARY: Verify each method's span is written at INFO inside a request and says what happened.
-# NOTE: Inside a request span, because a span with no parent is itself the root and a root is
+# Inside a request span, because a span with no parent is itself the root and a root is
 # written at INFO whatever its own level — outside this block the level check passes with or
 # without `level=logging.INFO`. The outcome, because a query that matched nothing and one that
 # worked read the same in a trace that records only duration.
@@ -158,9 +156,8 @@ async def test_every_query_leaves_its_outcome_in_a_span_production_can_see(
     ]
 
 
-# FUNCTION: test_only_one_open_task_may_carry_a_title_whatever_its_case
 # SUMMARY: Verify the open-title rule: a second open task conflicts, a closed one frees its title.
-# NOTE: Fifty newer tasks first, so the one that holds the title is far past the first page — bench2
+# Fifty newer tasks first, so the one that holds the title is far past the first page — bench2
 # measured a rule checked in the service against one page of the list, and it let this through.
 async def test_only_one_open_task_may_carry_a_title_whatever_its_case(
     repository: ReferenceTaskRepository,
@@ -178,9 +175,8 @@ async def test_only_one_open_task_may_carry_a_title_whatever_its_case(
     await repository.add(_task(title="Plan"))
 
 
-# FUNCTION: _add_once_both_saw_the_title_free
 # SUMMARY: In a process of its own: look for the title, wait until the other process has looked too, then write.
-# NOTE: The window a check-then-write implementation leaves open, held open on purpose by the
+# The window a check-then-write implementation leaves open, held open on purpose by the
 # barrier: both processes have read "free" before either writes. Only something outside the two
 # processes can refuse one of the writes — an in-process lock cannot, which is how bench2's
 # asyncio.Lock let 28 of 30 duplicates through.
@@ -205,7 +201,6 @@ def _add_once_both_saw_the_title_free(url: str, title: str, barrier: Any, result
     results.put(asyncio.run(run()))
 
 
-# FUNCTION: test_two_processes_that_both_saw_a_title_free_cannot_both_open_it
 # SUMMARY: Verify the rule across processes: after both read "free", exactly one write lands.
 async def test_two_processes_that_both_saw_a_title_free_cannot_both_open_it(
     database_url: str, repository: ReferenceTaskRepository

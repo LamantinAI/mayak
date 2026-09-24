@@ -17,47 +17,39 @@ from project.application.dtos import (
 from project.core.config import APP_VERSION
 from project.core.logging import get_logger
 
-# ATTRIBUTE: logger (SemanticLogger)
 # SUMMARY: Semantic logger instance for health endpoint diagnostics.
 logger = get_logger(__name__)
 
-# ATTRIBUTE: _DATABASE_HEALTH_FAILURE_MESSAGE (str)
 # SUMMARY: Stable client-facing message used when the database readiness check fails.
 _DATABASE_HEALTH_FAILURE_MESSAGE = "Database connection failed"
 
-# ATTRIBUTE: READINESS_DB_TIMEOUT_SECONDS (float)
 # SUMMARY: Wall-clock budget for the readiness DB probe; bounds /health/ready latency
 # so a half-open TCP connection cannot stall the probe past k8s timeoutSeconds.
 READINESS_DB_TIMEOUT_SECONDS = 2.0
 
-# ATTRIBUTE: _LLM_HEALTH_UNAVAILABLE_MESSAGE (str)
 # SUMMARY: Stable client-facing message used when the LLM service is not initialized.
 _LLM_HEALTH_UNAVAILABLE_MESSAGE = "LLM service is unavailable"
 
-# ATTRIBUTE: _LLM_HEALTH_PROBE_FAILURE_MESSAGE (str)
 # SUMMARY: Stable client-facing message used when the LLM provider probe fails.
 _LLM_HEALTH_PROBE_FAILURE_MESSAGE = "LLM provider probe failed"
 
-# ATTRIBUTE: health_router (APIRouter)
 # SUMMARY: Router exposing liveness and readiness endpoints.
 # Create router for health endpoints
 health_router = APIRouter(prefix="/health", tags=["health"])
 
 
-# FUNCTION: _get_uptime_seconds
 # SUMMARY: Calculate application uptime from start_time stored in app.state.
 def _get_uptime_seconds(request: Request) -> float:
-    # **LOGIC_STEP**: Compute elapsed time since application start.
+    # Compute elapsed time since application start.
     start_time = getattr(request.app.state, "start_time", None)
     if not isinstance(start_time, float):
         return 0.0
     return time.monotonic() - start_time
 
 
-# FUNCTION: _run_db_probe
 # SUMMARY: Inner DB readiness probe that reaches the database and confirms migrations have run. Separated from _check_database so the surrounding asyncio.wait_for can cancel it on timeout.
 # OUTPUT: (tuple[float, bool]): Probe latency in milliseconds, and whether the schema is migrated.
-# NOTE: A bare SELECT 1 answered "healthy" against a database with no tables at all. That is the
+# A bare SELECT 1 answered "healthy" against a database with no tables at all. That is the
 # exact state you land in after `make run-local` on a fresh checkout, so readiness lied at the one
 # moment it mattered. Reading alembic_version costs a second round trip and turns the silent case
 # into a named one.
@@ -65,7 +57,7 @@ async def _run_db_probe(pool: AsyncConnectionPool[Any]) -> tuple[float, bool]:
     start_ns = time.perf_counter_ns()
     async with pool.connection() as conn:
         await conn.execute("SELECT 1")
-        # **LOGIC_STEP**: Unqualified on purpose — to_regclass resolves through search_path, so a
+        # Unqualified on purpose — to_regclass resolves through search_path, so a
         # project that puts alembic's version table in its own schema is still recognised. Hardcoding
         # `public.` reported "not migrated" forever on a fully migrated database.
         cursor = await conn.execute("SELECT to_regclass('alembic_version') IS NOT NULL")
@@ -74,17 +66,16 @@ async def _run_db_probe(pool: AsyncConnectionPool[Any]) -> tuple[float, bool]:
     return (time.perf_counter_ns() - start_ns) / 1e6, migrated
 
 
-# FUNCTION: _check_database
 # SUMMARY: Perform a real database health check using the checkpoint connection pool, bounded by READINESS_DB_TIMEOUT_SECONDS so a half-open TCP cannot stall the readiness probe.
 async def _check_database(pool: AsyncConnectionPool[Any]) -> dict[str, Any]:
-    # **LOGIC_STEP**: Execute the probe under an asyncio.wait_for budget to bound probe latency.
+    # Execute the probe under an asyncio.wait_for budget to bound probe latency.
     try:
         response_time_ms, migrated = await asyncio.wait_for(
             _run_db_probe(pool),
             timeout=READINESS_DB_TIMEOUT_SECONDS,
         )
 
-        # **LOGIC_STEP**: A reachable but un-migrated database is not ready — name it instead of
+        # A reachable but un-migrated database is not ready — name it instead of
         # reporting healthy and failing later on the first real query.
         if not migrated:
             return {
@@ -99,7 +90,7 @@ async def _check_database(pool: AsyncConnectionPool[Any]) -> dict[str, Any]:
             "response_time_ms": round(response_time_ms, 2),
         }
     except asyncio.TimeoutError:
-        # **LOGIC_STEP**: Treat timeout as unhealthy with an actionable diagnostic message.
+        # Treat timeout as unhealthy with an actionable diagnostic message.
         logger.log_warning(
             warning_type="database_health_check_timeout",
             message=(f"Database health check timed out after {READINESS_DB_TIMEOUT_SECONDS}s"),
@@ -123,10 +114,9 @@ async def _check_database(pool: AsyncConnectionPool[Any]) -> dict[str, Any]:
         }
 
 
-# FUNCTION: _check_llm_service
 # SUMMARY: Validate the LLM service according to configured readiness mode.
 async def _check_llm_service(request: Request) -> dict[str, Any]:
-    # **LOGIC_STEP**: Retrieve the LLM service from app.state and validate access.
+    # Retrieve the LLM service from app.state and validate access.
     services = getattr(request.app.state, "services", {})
     llm_service = services.get("llm_service")
     if llm_service is None:
@@ -148,7 +138,6 @@ async def _check_llm_service(request: Request) -> dict[str, Any]:
     return sanitized
 
 
-# FUNCTION: _build_readiness_response
 # SUMMARY: Build aggregated readiness status from critical and optional dependency checks. Every
 # check always runs and its status is always reported in the returned dict; a per-check "critical"
 # flag, not presence in the dict, decides whether that status can flip the overall verdict — see
@@ -156,7 +145,7 @@ async def _check_llm_service(request: Request) -> dict[str, Any]:
 async def _build_readiness_response(
     request: Request,
 ) -> tuple[Literal["healthy", "unhealthy"], dict[str, dict[str, Any]]]:
-    # **LOGIC_STEP**: Retrieve configured services and fail fast when DI is unavailable.
+    # Retrieve configured services and fail fast when DI is unavailable.
     services = getattr(request.app.state, "services", None)
     if services is None:
         return (
@@ -178,7 +167,7 @@ async def _build_readiness_response(
         }
     }
 
-    # **LOGIC_STEP**: Read both conditional-criticality settings up front, off the same
+    # Read both conditional-criticality settings up front, off the same
     # request.app.state.settings object, with the same defensive getattr chain — a project
     # running with no settings object attached (or an older one missing the field) degrades to
     # each check's own historical default rather than raising. See ADR-008 for why the LLM check
@@ -189,14 +178,14 @@ async def _build_readiness_response(
     database_enabled = getattr(getattr(settings, "postgres", None), "enabled", True)
 
     llm_check = await _check_llm_service(request)
-    # **LOGIC_STEP**: The check ran and its real status is reported either way; "critical" only
+    # The check ran and its real status is reported either way; "critical" only
     # marks whether that status can flip the overall verdict below. Default
     # AGENT_LLM_READINESS_CRITICAL=false keeps a shared third-party provider's bad minute from
     # evicting every replica at once — see ADR-008.
     llm_check["critical"] = llm_critical
     checks["llm"] = llm_check
 
-    # **LOGIC_STEP**: A project that declared POSTGRES_ENABLED=false has no pool by design.
+    # A project that declared POSTGRES_ENABLED=false has no pool by design.
     # Reporting that as unhealthy would make readiness permanently false for a service that is
     # working exactly as configured, so the check reports "disabled" and leaves the critical
     # set. A missing pool while the database IS enabled stays unhealthy — that is a real fault.
@@ -230,7 +219,6 @@ async def _build_readiness_response(
     return "healthy", checks
 
 
-# FUNCTION: health_check
 # SUMMARY: Basic health check endpoint.
 @health_router.get(
     "/",
@@ -250,7 +238,7 @@ async def _build_readiness_response(
     },
 )
 async def health_check(request: Request) -> HealthResponse:
-    # **LOGIC_STEP**: Get application uptime and return health status.
+    # Get application uptime and return health status.
     uptime = _get_uptime_seconds(request)
     return HealthResponse(
         status="healthy",
@@ -260,7 +248,6 @@ async def health_check(request: Request) -> HealthResponse:
     )
 
 
-# FUNCTION: readiness_check
 # SUMMARY: Readiness check endpoint validating the three dependencies the kernel has: service wiring, the LLM, and the database.
 # INPUT: response (Response): The outgoing HTTP response used to set readiness status.
 @health_router.get(
@@ -281,7 +268,7 @@ async def health_check(request: Request) -> HealthResponse:
     },
 )
 async def readiness_check(request: Request, response: Response) -> DetailedHealthResponse:
-    # **LOGIC_STEP**: Aggregate readiness checks and map unhealthy state to HTTP 503.
+    # Aggregate readiness checks and map unhealthy state to HTTP 503.
     overall_status, checks = await _build_readiness_response(request)
     if overall_status == "unhealthy":
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

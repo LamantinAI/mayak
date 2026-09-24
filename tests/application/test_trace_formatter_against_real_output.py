@@ -24,13 +24,11 @@ import pytest
 
 from project.core.logging.trace_formatter import format_all_traces_for_llm, format_trace_for_llm
 
-# ATTRIBUTE: _LIFECYCLE_SPAN_ID (str)
 # SUMMARY: The parent http_request used to carry, which never reaches the renderer because the
 # lifecycle span has no trace_id. Kept because logs in that shape still exist and must still render.
 _LIFECYCLE_SPAN_ID = "90907caae88e461fb73ac62c912fdbdd"
 
 
-# FUNCTION: _real_shape_trace
 # SUMMARY: Build one trace in the shape project/infrastructure/api/middleware.py emits.
 # INPUT: nested (bool): Emit the pre-fix shape — a parent that exists but is outside this trace.
 # OUTPUT: (list[str]): NDJSON lines for a single HTTP request.
@@ -61,7 +59,7 @@ def _real_shape_trace(
         event(
             "span.start",
             1,
-            # **LOGIC_STEP**: The two facts this fixture exists for — the parent link, whichever
+            # The two facts this fixture exists for — the parent link, whichever
             # shape it takes, and the request details nested under input_params.
             parent_span_id=parent,
             data={"input_params": {"method": "GET", "path": "/reference-tasks/{id}"}},
@@ -83,15 +81,13 @@ def _real_shape_trace(
     return lines
 
 
-# CLASS: tests.application.test_trace_formatter_against_real_output.TestRendersTheShapeTheAppEmits
 # SUMMARY: Verify both the current shape and the archived one render into a tree.
 class TestRendersTheShapeTheAppEmits:
-    # FUNCTION: test_the_request_span_renders_as_a_root_in_either_shape
     # SUMMARY: Verify the renderer produces a tree instead of "(no spans found)".
     @pytest.mark.unit
     @pytest.mark.parametrize("nested", [False, True], ids=["today", "archived-log"])
     def test_the_request_span_renders_as_a_root_in_either_shape(self, nested: bool) -> None:
-        # **LOGIC_STEP**: `today` is what the fixed emitter writes — parent_span_id=None.
+        # `today` is what the fixed emitter writes — parent_span_id=None.
         # `archived-log` is what every NDJSON file written before the fix contains, and
         # `make format-trace <old-file>` still has to render it.
         rendered = format_trace_for_llm(_real_shape_trace(nested=nested))
@@ -99,17 +95,15 @@ class TestRendersTheShapeTheAppEmits:
         assert "no spans found" not in rendered
         assert "http_request" in rendered
 
-    # FUNCTION: test_the_header_names_the_endpoint
     # SUMMARY: Verify method and path are read from where middleware.py writes them.
     @pytest.mark.unit
     def test_the_header_names_the_endpoint(self) -> None:
-        # **LOGIC_STEP**: Without this the trace is identified by a hex id alone, and an agent
+        # Without this the trace is identified by a hex id alone, and an agent
         # holding four of them cannot tell which request it is looking at.
         rendered = format_trace_for_llm(_real_shape_trace())
 
         assert "GET /reference-tasks/{id}" in rendered
 
-    # FUNCTION: test_the_failure_and_its_message_survive_into_the_tree
     # SUMMARY: Verify the exception type and text are what the agent reads, not a bare mark.
     @pytest.mark.unit
     def test_the_failure_and_its_message_survive_into_the_tree(self) -> None:
@@ -118,11 +112,10 @@ class TestRendersTheShapeTheAppEmits:
         assert "NotFoundError" in rendered
         assert "does not exist" in rendered
 
-    # FUNCTION: test_an_unhandled_exception_renders_its_own_frame
     # SUMMARY: Verify the location reaches the reader, not only the exception type.
     @pytest.mark.unit
     def test_an_unhandled_exception_renders_its_own_frame(self) -> None:
-        # **LOGIC_STEP**: The traceback was in the log all along, on span.error's `exc_traceback`,
+        # The traceback was in the log all along, on span.error's `exc_traceback`,
         # and the renderer dropped it. An agent then had "KeyError" and 24 frames to grep. The
         # vendored frame below is in the fixture on purpose: it must not win over the project one.
         traceback_text = (
@@ -148,7 +141,6 @@ class TestRendersTheShapeTheAppEmits:
         assert "row_to_reference_task" in rendered
         assert "site-packages" not in rendered
 
-    # FUNCTION: test_all_traces_renders_every_one_of_them
     # SUMMARY: Verify the multi-trace path does not answer "(no traces rendered)".
     @pytest.mark.unit
     def test_all_traces_renders_every_one_of_them(self) -> None:

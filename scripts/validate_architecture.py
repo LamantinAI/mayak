@@ -12,9 +12,8 @@ from ai_context.rendering import render_json
 from ai_context.validator_contract import build_validator_issue_payload
 
 
-# ATTRIBUTE: _DOMAIN_ALLOWED_PREFIXES (tuple[str, ...])
-# SUMMARY: The only non-stdlib imports a domain module may make.
-# NOTE: The domain is checked with an allowlist, and the other two layers with blacklists, because
+# The only non-stdlib imports a domain module may make.
+# The domain is checked with an allowlist, and the other two layers with blacklists, because
 # only the domain has a dependency set small enough to enumerate: measured across this template and
 # a project with two verticals, every domain import in existence was `__future__`, `dataclasses`,
 # `datetime`, `typing`, `uuid`, or another `project.domain` module — 21 imports, six roots.
@@ -32,15 +31,13 @@ from ai_context.validator_contract import build_validator_issue_payload
 # with no edit here. The stdlib half needs no maintenance either: it comes from the interpreter.
 _DOMAIN_ALLOWED_PREFIXES = ("project.domain",)
 
-# ATTRIBUTE: _APPLICATION_BANNED_PREFIXES (tuple[str, ...])
-# SUMMARY: Import prefixes that application modules must never depend on.
-# NOTE: Application and infrastructure stay on blacklists on purpose. Both legitimately import
+# Import prefixes that application modules must never depend on.
+# Application and infrastructure stay on blacklists on purpose. Both legitimately import
 # third-party code — pydantic, psycopg, langchain, whatever an adapter needs — so there is no small
 # set to enumerate, and an allowlist there would be a copy of pyproject.toml maintained by hand.
 _APPLICATION_BANNED_PREFIXES = ("project.infrastructure",)
 
-# ATTRIBUTE: _INFRASTRUCTURE_BANNED_PREFIXES (tuple[str, ...])
-# SUMMARY: Import prefixes that infrastructure modules must never depend on because they couple adapters back to runtime assembly.
+# Import prefixes that infrastructure modules must never depend on because they couple adapters back to runtime assembly.
 _INFRASTRUCTURE_BANNED_PREFIXES = (
     "project.core.composition_root",
     "project.core.service_registration",
@@ -52,8 +49,7 @@ _RULE_STRENGTH_RUNTIME_ENFORCED = "runtime_enforced"
 _RULE_STRENGTH_GUIDANCE_ONLY = "guidance_only"
 _RULE_STRENGTH_NOT_ENFORCED = "not_enforced_in_validator"
 
-# ATTRIBUTE: _LAYER_RULES (dict[str, dict[str, object]])
-# SUMMARY: Canonical machine-readable layer rules shared by the runtime validator and generated architecture docs.
+# Canonical machine-readable layer rules shared by the runtime validator and generated architecture docs.
 _LAYER_RULES = {
     "domain": {
         "declared_allowed_dependencies": _DOMAIN_ALLOWED_PREFIXES,
@@ -244,15 +240,14 @@ _ARCHITECTURE_RULE_PLAYBOOKS = {
 }
 
 
-# FUNCTION: get_layer_rules
-# SUMMARY: Return the canonical layer rules with runtime enforcement separated from guidance-only constraints.
-# OUTPUT: (dict[str, dict[str, object]]): Mapping of layer names to runtime-enforced and guidance-only metadata.
+# Return the canonical layer rules with runtime enforcement separated from guidance-only constraints.
+# (dict[str, dict[str, object]]): Mapping of layer names to runtime-enforced and guidance-only metadata.
 def get_layer_rules() -> dict[str, dict[str, object]]:
     return {
         layer: {
             "runtime_enforced": {
                 "forbidden_imports": rules["runtime_enforced_forbidden_imports"],
-                # **LOGIC_STEP**: Empty for every layer whose contract is a blacklist. A consumer
+                # Empty for every layer whose contract is a blacklist. A consumer
                 # reads this key to learn whether the declared dependencies are a real gate, which
                 # is the difference between "intended architecture" and "the build stops you".
                 "allowed_imports": rules.get("runtime_enforced_allowed_imports", ()),
@@ -292,9 +287,8 @@ def get_layer_rules() -> dict[str, dict[str, object]]:
     }
 
 
-# FUNCTION: get_architecture_rule_playbook
-# SUMMARY: Return the shared remediation playbook for a runtime architecture rule ID.
-# OUTPUT: (dict[str, object] | None): Remediation metadata or None when the rule is unknown.
+# Return the shared remediation playbook for a runtime architecture rule ID.
+# (dict[str, object] | None): Remediation metadata or None when the rule is unknown.
 def get_architecture_rule_playbook(rule_id: str) -> dict[str, object] | None:
     playbook = _ARCHITECTURE_RULE_PLAYBOOKS.get(rule_id)
     if playbook is None:
@@ -310,73 +304,63 @@ def get_architecture_rule_playbook(rule_id: str) -> dict[str, object] | None:
     }
 
 
-# DATACLASS: validate_architecture.ArchitectureIssue
-# SUMMARY: Structured representation of a single architecture boundary violation.
+# Structured representation of a single architecture boundary violation.
 @dataclass(slots=True)
 class ArchitectureIssue:
-    # ATTRIBUTE: path (Path)
-    # SUMMARY: File containing the violating import.
+    # File containing the violating import.
     path: Path
 
-    # ATTRIBUTE: line (int)
-    # SUMMARY: 1-based line number of the violating import statement.
+    # 1-based line number of the violating import statement.
     line: int
 
-    # ATTRIBUTE: message (str)
-    # SUMMARY: Human-readable explanation of the violated boundary.
+    # Human-readable explanation of the violated boundary.
     message: str
 
-    # ATTRIBUTE: rule_id (str)
-    # SUMMARY: Stable rule identifier consumed by automation-friendly validator output.
+    # Stable rule identifier consumed by automation-friendly validator output.
     rule_id: str
 
-    # ATTRIBUTE: category (str)
-    # SUMMARY: Top-level issue category used by machine-readable diagnostics.
+    # Top-level issue category used by machine-readable diagnostics.
     category: str = "architecture"
 
 
-# FUNCTION: _is_production_python_file
-# SUMMARY: Check whether a file is within the production architecture validation scope.
-# OUTPUT: (bool): True when the file belongs to project/** and should be validated.
+# Check whether a file is within the production architecture validation scope.
+# (bool): True when the file belongs to project/** and should be validated.
 def _is_production_python_file(path: Path) -> bool:
     parts = path.parts
     return len(parts) >= 2 and parts[0] == "project" and path.suffix == ".py"
 
 
-# FUNCTION: _module_name_from_path
-# SUMMARY: Convert a repository-relative Python file path into an importable module name.
-# INPUT: path (Path): Repository-relative file path.
-# OUTPUT: (str): Dotted module path without the .py suffix.
+# Convert a repository-relative Python file path into an importable module name.
+# path (Path): Repository-relative file path.
+# (str): Dotted module path without the .py suffix.
 def _module_name_from_path(path: Path) -> str:
-    # **LOGIC_STEP**: Drop the file suffix and convert path segments to a dotted module path.
+    # Drop the file suffix and convert path segments to a dotted module path.
     return ".".join(path.with_suffix("").parts)
 
 
-# FUNCTION: _layer_from_path
-# SUMMARY: Determine the architectural layer name from a production file path.
-# INPUT: path (Path): Repository-relative production file path.
-# OUTPUT: (str | None): Layer identifier or None when the path is outside the layered subtree.
+# Determine the architectural layer name from a production file path.
+# path (Path): Repository-relative production file path.
+# (str | None): Layer identifier or None when the path is outside the layered subtree.
 def _layer_from_path(path: Path) -> str | None:
-    # **LOGIC_STEP**: Use the first package segment below project/ as the layer key.
+    # Use the first package segment below project/ as the layer key.
     parts = path.parts
     if len(parts) < 2 or parts[0] != "project":
         return None
     return parts[1]
 
 
-# FUNCTION: _resolve_import_name
-# SUMMARY: Resolve an import statement to its absolute dotted name when possible.
-# INPUT: current_module (str): Dotted module path of the file being validated.
-# OUTPUT: (list[str]): Absolute dotted import targets extracted from the node.
+# Resolve an import statement to its absolute dotted name when possible.
+# current_module (str): Dotted module path of the file being validated.
+# (list[str]): Absolute dotted import targets extracted from the node.
 def _resolve_import_name(
     current_module: str,
     node: ast.Import | ast.ImportFrom,
 ) -> list[str]:
-    # **LOGIC_STEP**: Import statements already provide absolute module names per alias.
+    # Import statements already provide absolute module names per alias.
     if isinstance(node, ast.Import):
         return [alias.name for alias in node.names]
 
-    # **LOGIC_STEP**: Resolve relative imports against the current module path.
+    # Resolve relative imports against the current module path.
     if node.level > 0:
         current_parts = current_module.split(".")
         parent_parts = current_parts[:-1]
@@ -388,20 +372,18 @@ def _resolve_import_name(
     return [node.module] if node.module else []
 
 
-# FUNCTION: _matches_prefix
-# SUMMARY: Check whether an import path matches a banned prefix exactly or as a child module.
-# OUTPUT: (bool): True when the import violates the banned prefix.
+# Check whether an import path matches a banned prefix exactly or as a child module.
+# (bool): True when the import violates the banned prefix.
 def _matches_prefix(import_name: str, banned_prefix: str) -> bool:
-    # **LOGIC_STEP**: Treat exact matches and nested submodules as violations.
+    # Treat exact matches and nested submodules as violations.
     return import_name == banned_prefix or import_name.startswith(f"{banned_prefix}.")
 
 
-# FUNCTION: _is_allowed_import
-# SUMMARY: Decide whether one import is inside a layer's allowlist.
-# INPUT: allowed_prefixes (tuple[str, ...]): Project prefixes permitted on top of the standard library.
-# OUTPUT: (bool): True when the import is stdlib or sits under one of the allowed prefixes.
+# Decide whether one import is inside a layer's allowlist.
+# allowed_prefixes (tuple[str, ...]): Project prefixes permitted on top of the standard library.
+# (bool): True when the import is stdlib or sits under one of the allowed prefixes.
 def _is_allowed_import(import_name: str, allowed_prefixes: tuple[str, ...]) -> bool:
-    # **LOGIC_STEP**: The standard library is read from the interpreter rather than listed here.
+    # The standard library is read from the interpreter rather than listed here.
     # A hand-written list of stdlib names is a maintenance debt with no upside, and it would go
     # stale the first time a domain module reached for `tomllib` or `zoneinfo`.
     if import_name.split(".", 1)[0] in sys.stdlib_module_names:
@@ -409,16 +391,15 @@ def _is_allowed_import(import_name: str, allowed_prefixes: tuple[str, ...]) -> b
     return any(_matches_prefix(import_name, prefix) for prefix in allowed_prefixes)
 
 
-# FUNCTION: _validate_import
-# SUMMARY: Validate a resolved import path against the rules for the current architectural layer.
-# OUTPUT: (str | None): Violation message when the import breaks a boundary.
+# Validate a resolved import path against the rules for the current architectural layer.
+# (str | None): Violation message when the import breaks a boundary.
 def _validate_import(layer: str | None, import_name: str) -> tuple[str, str] | None:
-    # **LOGIC_STEP**: Match imports against the canonical forbidden prefixes for the current layer.
+    # Match imports against the canonical forbidden prefixes for the current layer.
     layer_rules = _LAYER_RULES.get(layer)
     if layer_rules is None:
         return None
 
-    # **LOGIC_STEP**: A layer that declares an allowlist is checked against it and nothing else —
+    # A layer that declares an allowlist is checked against it and nothing else —
     # the allowlist already rejects everything a blacklist would, and running both would be two
     # copies of one rule, free to drift apart. Only the domain declares one; see the note on
     # _DOMAIN_ALLOWED_PREFIXES for why the other layers cannot.
@@ -444,9 +425,8 @@ def _validate_import(layer: str | None, import_name: str) -> tuple[str, str] | N
     return None
 
 
-# FUNCTION: _issue_to_payload
-# SUMMARY: Convert an architecture issue into a stable JSON-serializable payload.
-# INPUT: repo_root (Path): Repository root used for relative paths.
+# Convert an architecture issue into a stable JSON-serializable payload.
+# repo_root (Path): Repository root used for relative paths.
 def _issue_to_payload(issue: ArchitectureIssue, repo_root: Path) -> dict[str, object]:
     playbook = get_architecture_rule_playbook(issue.rule_id)
     return build_validator_issue_payload(
@@ -459,14 +439,13 @@ def _issue_to_payload(issue: ArchitectureIssue, repo_root: Path) -> dict[str, ob
     )
 
 
-# FUNCTION: validate_python_source
-# SUMMARY: Validate all import statements in a single production Python file.
-# INPUT: path (Path): Absolute production source file path.
+# Validate all import statements in a single production Python file.
+# path (Path): Absolute production source file path.
 def validate_python_source(path: Path, repo_root: Path) -> list[ArchitectureIssue]:
     relative_path = path.relative_to(repo_root)
     current_module = _module_name_from_path(relative_path)
     layer = _layer_from_path(relative_path)
-    # **LOGIC_STEP**: Read & parse source under guarded exceptions so a broken file
+    # Read & parse source under guarded exceptions so a broken file
     # surfaces as a structured ArchitectureIssue rather than a raw Python traceback.
     try:
         source = path.read_text(encoding="utf-8")
@@ -492,7 +471,7 @@ def validate_python_source(path: Path, repo_root: Path) -> list[ArchitectureIssu
         ]
     issues: list[ArchitectureIssue] = []
 
-    # **LOGIC_STEP**: Written imports and called ones are checked the same way, so an
+    # Written imports and called ones are checked the same way, so an
     # `importlib.import_module("psycopg")` call in a domain module is caught as surely as a written
     # import is. Collecting only the written kind left the call free of every gate. See ai_context/dynamic_imports.py for the measurement, for why the call's
     # names are resolved against this file's own imports, and for what still escapes.
@@ -523,10 +502,9 @@ def validate_python_source(path: Path, repo_root: Path) -> list[ArchitectureIssu
     return issues
 
 
-# FUNCTION: collect_architecture_issues
-# SUMMARY: Validate all production Python files in the repository against import boundary rules.
+# Validate all production Python files in the repository against import boundary rules.
 def collect_architecture_issues(repo_root: Path) -> list[ArchitectureIssue]:
-    # **LOGIC_STEP**: Walk production Python files in a stable order to produce deterministic diagnostics.
+    # Walk production Python files in a stable order to produce deterministic diagnostics.
     issues: list[ArchitectureIssue] = []
     for path in sorted(repo_root.rglob("*.py")):
         relative_path = path.relative_to(repo_root)
@@ -536,11 +514,10 @@ def collect_architecture_issues(repo_root: Path) -> list[ArchitectureIssue]:
     return issues
 
 
-# FUNCTION: main
-# SUMMARY: Run architecture validation from the repository root and return a process exit code.
-# OUTPUT: (int): Zero when validation succeeds and non-zero otherwise.
+# Run architecture validation from the repository root and return a process exit code.
+# (int): Zero when validation succeeds and non-zero otherwise.
 def main() -> int:
-    # **LOGIC_STEP**: Validate the current repository and print any architecture boundary failures.
+    # Validate the current repository and print any architecture boundary failures.
     parser = argparse.ArgumentParser(description="Validate repository architecture boundaries.")
     parser.add_argument(
         "--json",

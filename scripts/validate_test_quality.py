@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # FILE: validate_test_quality.py
-# SUMMARY: Quality gate rejecting tests that cannot fail — constant assertions and assertion-free test bodies.
+# Quality gate rejecting tests that cannot fail — constant assertions and assertion-free test bodies.
 
 from __future__ import annotations
 
@@ -15,20 +15,16 @@ from typing import Sequence
 from ai_context.rendering import render_json
 from ai_context.validator_contract import build_validator_issue_payload
 
-# ATTRIBUTE: ROOT_DIR (Path)
-# SUMMARY: Absolute repository root scanned by this validator.
+# Absolute repository root scanned by this validator.
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-# ATTRIBUTE: TESTS_DIRNAME (str)
-# SUMMARY: Top-level directory holding every suite this validator inspects.
+# Top-level directory holding every suite this validator inspects.
 TESTS_DIRNAME = "tests"
 
-# ATTRIBUTE: OPT_OUT_MARKER (str)
-# SUMMARY: Comment marker that exempts one test from the assertion requirement, with a reason.
+# Comment marker that exempts one test from the assertion requirement, with a reason.
 OPT_OUT_MARKER = "# no-assert-ok:"
 
-# ATTRIBUTE: _ASSERTING_CALL_SUFFIXES (tuple[str, ...])
-# SUMMARY: Method-name suffixes that count as an assertion when a test delegates to a helper or mock.
+# Method-name suffixes that count as an assertion when a test delegates to a helper or mock.
 _ASSERTING_CALL_SUFFIXES = (
     "assert_called",
     "assert_called_once",
@@ -36,8 +32,7 @@ _ASSERTING_CALL_SUFFIXES = (
     "assert_has_calls",
 )
 
-# ATTRIBUTE: _ARGUMENTLESS_CALL_ASSERTIONS (frozenset[str])
-# SUMMARY: Mock assertions that prove a call happened and say nothing about what was passed.
+# Mock assertions that prove a call happened and say nothing about what was passed.
 # Measured: a service that ignored the caller's `limit` and always sent its own value to the
 # repository survived a full green suite, because the test asserted `assert_awaited_once()`
 # and stopped there. The call happened, so the test passed; the argument never arrived, and nothing
@@ -51,7 +46,7 @@ _ARGUMENTLESS_CALL_ASSERTIONS = frozenset(
     }
 )
 
-# NOTE: This module does not check whether a test LOOKS like it pins a span's output — whether a
+# This module does not check whether a test LOOKS like it pins a span's output — whether a
 # test that found a span's finish event states a value, or whether every outcome-bearing span is
 # named by some test. That is a heuristic about presence, not about correctness: a new test style
 # would keep needing the check widened to recognise it, and each widening opens a gap an unrelated
@@ -173,44 +168,36 @@ _TEST_QUALITY_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
 }
 
 
-# DATACLASS: validate_test_quality.TestQualityIssue
-# SUMMARY: One test that cannot fail, located precisely enough to fix.
+# One test that cannot fail, located precisely enough to fix.
 @dataclass(slots=True)
 class TestQualityIssue:
-    # ATTRIBUTE: path (Path)
-    # SUMMARY: Absolute path of the test module.
+    # Absolute path of the test module.
     path: Path
 
-    # ATTRIBUTE: line (int)
-    # SUMMARY: 1-based line of the offending construct.
+    # 1-based line of the offending construct.
     line: int
 
-    # ATTRIBUTE: rule_id (str)
-    # SUMMARY: Stable rule identifier.
+    # Stable rule identifier.
     rule_id: str
 
-    # ATTRIBUTE: message (str)
-    # SUMMARY: Human-readable description.
+    # Human-readable description.
     message: str
 
-    # ATTRIBUTE: category (str)
-    # SUMMARY: Top-level issue category used in structured validator output.
+    # Top-level issue category used in structured validator output.
     category: str = "test_quality"
 
 
-# FUNCTION: get_test_quality_rule_playbook
-# SUMMARY: Return the shared remediation playbook for a stable test-quality rule ID.
-# OUTPUT: (dict[str, object] | None): Remediation metadata, or None when the rule is unknown.
+# Return the shared remediation playbook for a stable test-quality rule ID.
+# (dict[str, object] | None): Remediation metadata, or None when the rule is unknown.
 def get_test_quality_rule_playbook(rule_id: str) -> dict[str, object] | None:
     playbook = _TEST_QUALITY_RULE_PLAYBOOKS.get(rule_id)
     return dict(playbook) if playbook is not None else None
 
 
-# FUNCTION: _is_pure_reference
-# SUMMARY: Report whether an expression is a plain reference that reads the same twice in a row.
-# OUTPUT: (bool): True for names, attributes, subscripts and literals built only from those.
+# Report whether an expression is a plain reference that reads the same twice in a row.
+# (bool): True for names, attributes, subscripts and literals built only from those.
 def _is_pure_reference(node: ast.expr) -> bool:
-    # **LOGIC_STEP**: Self-comparison is only provably vacuous when both sides are the same
+    # Self-comparison is only provably vacuous when both sides are the same
     # side-effect-free read. `f() == f()` looks identical in the tree but may legitimately differ,
     # so calls, comprehensions and walrus assignments disqualify the expression.
     if isinstance(node, (ast.Name, ast.Constant)):
@@ -224,9 +211,8 @@ def _is_pure_reference(node: ast.expr) -> bool:
     return False
 
 
-# FUNCTION: _vacuous_assertion_reason
-# SUMMARY: Classify an assertion that passes no matter what the code under test does.
-# OUTPUT: (str | None): Short reason for the report, or None when the assertion can fail.
+# Classify an assertion that passes no matter what the code under test does.
+# (str | None): Short reason for the report, or None when the assertion can fail.
 def _vacuous_assertion_reason(node: ast.expr) -> str | None:
     if isinstance(node, ast.Constant):
         return "asserts a constant" if node.value else None
@@ -234,7 +220,7 @@ def _vacuous_assertion_reason(node: ast.expr) -> str | None:
         if isinstance(node.operand, ast.Constant) and not node.operand.value:
             return "asserts a constant"
         return None
-    # **LOGIC_STEP**: `assert value == value` is the tautology a constant check never sees: the
+    # `assert value == value` is the tautology a constant check never sees: the
     # operands are expressions, not literals, so the node is an ast.Compare and the literal check
     # above returns False. Only always-true operators count — `!=` on identical operands is a
     # test that always fails, which the suite surfaces on its own.
@@ -250,12 +236,11 @@ def _vacuous_assertion_reason(node: ast.expr) -> str | None:
     return None
 
 
-# FUNCTION: _call_is_assertion
-# SUMMARY: Report whether a call counts as verification (pytest.raises, pytest.fail, mock assert_*).
-# INPUT: helpers (dict[str, ast.FunctionDef | ast.AsyncFunctionDef]): Functions defined in the same
-#        module, used to look inside a local checker the test delegates to.
-# INPUT: seen (set[str]): Helper names already being followed, so a cycle terminates.
-# OUTPUT: (bool): True when the call verifies something.
+# Report whether a call counts as verification (pytest.raises, pytest.fail, mock assert_*).
+# helpers (dict[str, ast.FunctionDef | ast.AsyncFunctionDef]): Functions defined in the same
+# module, used to look inside a local checker the test delegates to.
+# seen (set[str]): Helper names already being followed, so a cycle terminates.
+# (bool): True when the call verifies something.
 def _call_is_assertion(
     node: ast.Call,
     helpers: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
@@ -274,7 +259,7 @@ def _call_is_assertion(
             return True
         if "assert" not in func.id:
             return False
-        # **LOGIC_STEP**: A test may delegate to a local checker (_assert_contract(payload)).
+        # A test may delegate to a local checker (_assert_contract(payload)).
         # That is verification, just factored out — but only if the checker actually checks.
         # Matching the name alone made `def _assert_ok(): pass` count as a passed gate, so the
         # helper is followed into its body. A helper this module does not define (imported from
@@ -288,31 +273,29 @@ def _call_is_assertion(
     return False
 
 
-# FUNCTION: _is_argumentless_call_assertion
-# SUMMARY: Report whether a call only proves that a collaborator was called, with no expected arguments.
-# OUTPUT: (bool): True for mock.assert_called_once() and friends invoked with no arguments at all.
+# Report whether a call only proves that a collaborator was called, with no expected arguments.
+# (bool): True for mock.assert_called_once() and friends invoked with no arguments at all.
 def _is_argumentless_call_assertion(node: ast.Call) -> bool:
     func = node.func
     if not isinstance(func, ast.Attribute):
         return False
     if func.attr not in _ARGUMENTLESS_CALL_ASSERTIONS:
         return False
-    # **LOGIC_STEP**: The *_with variants carry the expectation in their arguments and are exactly
+    # The *_with variants carry the expectation in their arguments and are exactly
     # what this rule asks for, so anything with an argument is left alone.
     return not node.args and not node.keywords
 
 
-# FUNCTION: _verification_strength
-# SUMMARY: Split a test body's verification into "states an expectation" and "only proves a call happened".
-# INPUT: helpers (dict[str, ast.FunctionDef | ast.AsyncFunctionDef]): Sibling functions, so a
-#        delegated checker can be followed into its body.
-# OUTPUT: (tuple[bool, ast.Call | None]): Whether a real expectation exists, and the first
-#         argumentless call assertion found.
+# Split a test body's verification into "states an expectation" and "only proves a call happened".
+# helpers (dict[str, ast.FunctionDef | ast.AsyncFunctionDef]): Sibling functions, so a
+# delegated checker can be followed into its body.
+# (tuple[bool, ast.Call | None]): Whether a real expectation exists, and the first
+# argumentless call assertion found.
 def _verification_strength(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     helpers: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
 ) -> tuple[bool, ast.Call | None]:
-    # **LOGIC_STEP**: The whole body is walked with no early exit. Returning on the first real
+    # The whole body is walked with no early exit. Returning on the first real
     # assertion looked equivalent and was not: ast.walk visits an `assert` on line 3 before the
     # weak call on line 4, so the weak call was never seen in exactly the mixed case this rule
     # exists to report.
@@ -332,10 +315,9 @@ def _verification_strength(
     return states_expectation, weak_call
 
 
-# FUNCTION: _carries_opt_out_marker
-# SUMMARY: Report whether the comment block above a test carries the explicit opt-out marker.
-# INPUT: source_lines (list[str]): The module's lines, used to read the block above the definition.
-# OUTPUT: (bool): True when the author stated a reason for the missing verification.
+# Report whether the comment block above a test carries the explicit opt-out marker.
+# source_lines (list[str]): The module's lines, used to read the block above the definition.
+# (bool): True when the author stated a reason for the missing verification.
 def _carries_opt_out_marker(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     source_lines: list[str],
@@ -344,7 +326,7 @@ def _carries_opt_out_marker(
         (decorator.lineno for decorator in node.decorator_list),
         default=node.lineno,
     )
-    # **LOGIC_STEP**: Walk up through the contiguous comment/decorator block above the
+    # Walk up through the contiguous comment/decorator block above the
     # definition, because the CBM header comments sit above the decorators, and that is
     # where a reader naturally writes the opt-out reason.
     block_start = decorator_start - 1
@@ -356,9 +338,8 @@ def _carries_opt_out_marker(
     return any(OPT_OUT_MARKER in line for line in source_lines[block_start : node.lineno])
 
 
-# FUNCTION: _is_fixture
-# SUMMARY: Report whether a function is a pytest fixture rather than a test.
-# OUTPUT: (bool): True when any decorator is a pytest fixture.
+# Report whether a function is a pytest fixture rather than a test.
+# (bool): True when any decorator is a pytest fixture.
 def _is_fixture(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     for decorator in node.decorator_list:
         target = decorator.func if isinstance(decorator, ast.Call) else decorator
@@ -369,12 +350,11 @@ def _is_fixture(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     return False
 
 
-# FUNCTION: _function_verifies_something
-# SUMMARY: Report whether a test body contains any form of verification.
-# INPUT: helpers (dict[str, ast.FunctionDef | ast.AsyncFunctionDef]): Functions defined in the same
-#        module, so a delegated checker can be followed into its body.
-# INPUT: seen (set[str]): Helper names already being followed, so a cycle terminates.
-# OUTPUT: (bool): True when at least one assert or asserting call is present.
+# Report whether a test body contains any form of verification.
+# helpers (dict[str, ast.FunctionDef | ast.AsyncFunctionDef]): Functions defined in the same
+# module, so a delegated checker can be followed into its body.
+# seen (set[str]): Helper names already being followed, so a cycle terminates.
+# (bool): True when at least one assert or asserting call is present.
 def _function_verifies_something(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     helpers: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
@@ -389,9 +369,8 @@ def _function_verifies_something(
     return False
 
 
-# FUNCTION: _module_functions
-# SUMMARY: Index every function defined in a module by name, including methods on test classes.
-# OUTPUT: (dict[str, ast.FunctionDef | ast.AsyncFunctionDef]): Name to definition.
+# Index every function defined in a module by name, including methods on test classes.
+# (dict[str, ast.FunctionDef | ast.AsyncFunctionDef]): Name to definition.
 def _module_functions(tree: ast.AST) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
     return {
         node.name: node
@@ -400,23 +379,19 @@ def _module_functions(tree: ast.AST) -> dict[str, ast.FunctionDef | ast.AsyncFun
     }
 
 
-# ATTRIBUTE: _SQL_STATEMENT_PATTERN (re.Pattern[str])
-# SUMMARY: Marks a module constant whose value is a SQL statement rather than some other string.
+# Marks a module constant whose value is a SQL statement rather than some other string.
 _SQL_STATEMENT_PATTERN = re.compile(r"\b(SELECT|INSERT|UPDATE|DELETE)\b", re.IGNORECASE)
 
-# ATTRIBUTE: _CONSTANT_NAME_PATTERN (re.Pattern[str])
-# SUMMARY: Screaming-snake names, with or without the leading underscore marking a private one.
+# Screaming-snake names, with or without the leading underscore marking a private one.
 _CONSTANT_NAME_PATTERN = re.compile(r"^_?[A-Z][A-Z0-9_]*$")
 
-# ATTRIBUTE: _EXPECTATION_CALL_NAMES (frozenset[str])
-# SUMMARY: Mock assertions that carry the expected call arguments, beyond the `*_with` family.
+# Mock assertions that carry the expected call arguments, beyond the `*_with` family.
 _EXPECTATION_CALL_NAMES = frozenset({"assert_any_call", "assert_has_calls"})
 
 
-# FUNCTION: _literal_text
-# SUMMARY: Return the fixed text of a string expression, ignoring interpolated parts.
-# OUTPUT: (str): Concatenated literal segments, empty when the expression carries no text.
-# NOTE: The shipped queries are f-strings — `f"SELECT {_COLUMNS} FROM reference_tasks WHERE id = %s"`
+# Return the fixed text of a string expression, ignoring interpolated parts.
+# (str): Concatenated literal segments, empty when the expression carries no text.
+# The shipped queries are f-strings — `f"SELECT {_COLUMNS} FROM reference_tasks WHERE id = %s"`
 # — so a Constant-only check found no SQL anywhere and this rule silently applied to nothing. An
 # f-string parses as ast.JoinedStr whose FormattedValue parts are code, not text; only the literal
 # halves are read here, which is exactly the part a SQL keyword can appear in.
@@ -430,9 +405,8 @@ def _literal_text(node: ast.expr | None) -> str:
     return ""
 
 
-# FUNCTION: _sql_constant_names
-# SUMMARY: Return the module-level constants in one source file whose value is a SQL statement.
-# OUTPUT: (set[str]): Constant names, empty when the file is unreadable or holds no SQL.
+# Return the module-level constants in one source file whose value is a SQL statement.
+# (set[str]): Constant names, empty when the file is unreadable or holds no SQL.
 def _sql_constant_names(module_path: Path) -> set[str]:
     try:
         tree = ast.parse(module_path.read_text(encoding="utf-8"), filename=str(module_path))
@@ -450,10 +424,9 @@ def _sql_constant_names(module_path: Path) -> set[str]:
     return names
 
 
-# FUNCTION: _imported_sql_constants
-# SUMMARY: Return the local names a test module imported that hold a SQL statement in their own module.
-# INPUT: repo_root (Path): Repository root, used to resolve a dotted `project.` module to a file.
-# OUTPUT: (set[str]): Local names as written in this test module, including `as` aliases.
+# Return the local names a test module imported that hold a SQL statement in their own module.
+# repo_root (Path): Repository root, used to resolve a dotted `project.` module to a file.
+# (set[str]): Local names as written in this test module, including `as` aliases.
 def _imported_sql_constants(tree: ast.AST, repo_root: Path) -> set[str]:
     imported: set[str] = set()
     for node in ast.walk(tree):
@@ -472,19 +445,17 @@ def _imported_sql_constants(tree: ast.AST, repo_root: Path) -> set[str]:
     return imported
 
 
-# FUNCTION: _referenced_names
-# SUMMARY: Return every plain name read anywhere inside one expression.
-# OUTPUT: (set[str]): Identifiers, so `_SELECT.split(" WHERE ", 1)[1]` reports `_SELECT`.
+# Return every plain name read anywhere inside one expression.
+# (set[str]): Identifiers, so `_SELECT.split(" WHERE ", 1)[1]` reports `_SELECT`.
 def _referenced_names(node: ast.expr) -> set[str]:
     return {child.id for child in ast.walk(node) if isinstance(child, ast.Name)}
 
 
-# FUNCTION: _names_stated_as_text
-# SUMMARY: Return the names of an expression whose own text is what the comparison is about.
-# INPUT: node (ast.expr): The side of a comparison that is not the string literal.
-# OUTPUT: (set[str]): Identifiers reached through slicing, calls and attributes, but never a name
-#         used only as a subscript key.
-# NOTE: `_referenced_names` answers "does this expression mention the constant at all", which is
+# Return the names of an expression whose own text is what the comparison is about.
+# node (ast.expr): The side of a comparison that is not the string literal.
+# (set[str]): Identifiers reached through slicing, calls and attributes, but never a name
+# used only as a subscript key.
+# `_referenced_names` answers "does this expression mention the constant at all", which is
 # the right question for a round trip and the wrong one for a pin. `results[_SELECT_BY_ID] ==
 # "ok"` mentions the constant as a dictionary key and states nothing about the SQL, yet it used to
 # mark the constant pinned and silence the rule for the whole module — the rule exists to notice
@@ -498,9 +469,8 @@ def _names_stated_as_text(node: ast.expr) -> set[str]:
     return _referenced_names(node) - keys
 
 
-# FUNCTION: _is_expectation_call
-# SUMMARY: Report whether a call is a mock assertion carrying the expected arguments.
-# OUTPUT: (bool): True for the `*_with` family, assert_any_call and assert_has_calls.
+# Report whether a call is a mock assertion carrying the expected arguments.
+# (bool): True for the `*_with` family, assert_any_call and assert_has_calls.
 def _is_expectation_call(node: ast.Call) -> bool:
     func = node.func
     if not isinstance(func, ast.Attribute):
@@ -508,9 +478,8 @@ def _is_expectation_call(node: ast.Call) -> bool:
     return func.attr.endswith("_with") or func.attr in _EXPECTATION_CALL_NAMES
 
 
-# FUNCTION: _query_constant_round_trips
-# SUMMARY: Find where a test hands a query constant to the assertion that is supposed to check the query.
-# OUTPUT: (dict[str, int]): Constant name to the first line that compares it with itself.
+# Find where a test hands a query constant to the assertion that is supposed to check the query.
+# (dict[str, int]): Constant name to the first line that compares it with itself.
 def _query_constant_round_trips(tree: ast.AST, constants: set[str]) -> dict[str, int]:
     lines: dict[str, int] = {}
     for node in ast.walk(tree):
@@ -522,7 +491,7 @@ def _query_constant_round_trips(tree: ast.AST, constants: set[str]) -> dict[str,
             continue
         if not isinstance(node, ast.Compare) or len(node.ops) != 1:
             continue
-        # **LOGIC_STEP**: `is` states the identical tautology `==` does — both sides are the same
+        # `is` states the identical tautology `==` does — both sides are the same
         # object, so the comparison passes for any query text. Reading only ast.Eq here would let
         # `assert sql is _SELECT_BY_STATUS` sail through as an unrecognised comparison instead of
         # the round trip it is.
@@ -530,7 +499,7 @@ def _query_constant_round_trips(tree: ast.AST, constants: set[str]) -> dict[str,
             continue
         (right,) = node.comparators
         for expression, other in ((node.left, right), (right, node.left)):
-            # **LOGIC_STEP**: A comparison against a string literal is the pin this rule asks for,
+            # A comparison against a string literal is the pin this rule asks for,
             # not a round trip; it is counted by _query_constants_pinned_as_text below.
             if isinstance(other, ast.Constant):
                 continue
@@ -539,17 +508,15 @@ def _query_constant_round_trips(tree: ast.AST, constants: set[str]) -> dict[str,
     return lines
 
 
-# FUNCTION: _is_clause_shaped
-# SUMMARY: Whether a literal is specific enough to be a clause of a query rather than a word in one.
-# INPUT: value (object): The left operand of an `in` comparison, which need not be a string.
-# OUTPUT: (bool): True for a stripped literal carrying more than one whitespace-separated token.
+# Whether a literal is specific enough to be a clause of a query rather than a word in one.
+# value (object): The left operand of an `in` comparison, which need not be a string.
+# (bool): True for a stripped literal carrying more than one whitespace-separated token.
 def _is_clause_shaped(value: object) -> bool:
     return isinstance(value, str) and len(value.split()) > 1
 
 
-# FUNCTION: _query_constants_pinned_as_text
-# SUMMARY: Find the query constants the module states as literal text at least once.
-# OUTPUT: (set[str]): Constants compared, whole or sliced, against a string literal.
+# Find the query constants the module states as literal text at least once.
+# (set[str]): Constants compared, whole or sliced, against a string literal.
 def _query_constants_pinned_as_text(tree: ast.AST, constants: set[str]) -> set[str]:
     pinned: set[str] = set()
     for node in ast.walk(tree):
@@ -562,12 +529,12 @@ def _query_constants_pinned_as_text(tree: ast.AST, constants: set[str]) -> set[s
                 if isinstance(other, ast.Constant) and isinstance(other.value, str):
                     pinned |= _names_stated_as_text(expression) & constants
         elif isinstance(op, ast.In):
-            # **LOGIC_STEP**: `"WHERE id = %s" in _SELECT_BY_ID` pins the same fact a sliced `==`
+            # `"WHERE id = %s" in _SELECT_BY_ID` pins the same fact a sliced `==`
             # does. Reading only ast.Eq would leave this exact assertion — a correct pin, just
             # spelled with `in` — reported as an unpinned round trip. Only one direction makes
             # sense for `in`: the literal is the (necessarily shorter) needle, never the query
             # itself, so this is not mirrored the way `==` is above.
-            # **LOGIC_STEP**: The needle has to be a clause, not a word. `assert "" in _SELECT`
+            # The needle has to be a clause, not a word. `assert "" in _SELECT`
             # is true of every string ever written and `assert "SELECT" in _SELECT` of every query,
             # so either would let one meaningless line silence the rule for a whole module — the
             # same silence, reached by a shorter road than the round trip this rule was built to
@@ -581,11 +548,10 @@ def _query_constants_pinned_as_text(tree: ast.AST, constants: set[str]) -> set[s
     return pinned
 
 
-# FUNCTION: _query_round_trip_issues
-# SUMMARY: Report every query constant this module checks only against itself.
-# INPUT: repo_root (Path): Repository root, used to resolve the module the constant came from.
-# OUTPUT: (list[TestQualityIssue]): One issue per unpinned constant, at its first round trip.
-# NOTE: Measured 2026-08-13 by injecting four SQL defects — INNER JOIN for LEFT, COUNT for
+# Report every query constant this module checks only against itself.
+# repo_root (Path): Repository root, used to resolve the module the constant came from.
+# (list[TestQualityIssue]): One issue per unpinned constant, at its first round trip.
+# Measured 2026-08-13 by injecting four SQL defects — INNER JOIN for LEFT, COUNT for
 # COUNT(DISTINCT), an inverted close condition, `<` for `<=` on a week boundary. All four were
 # caught, and the control probe showed what caught them: not a gate, but one sentence in
 # .agents/skills/add-vertical telling the author to
@@ -622,17 +588,16 @@ def _query_round_trip_issues(
     return issues
 
 
-# FUNCTION: validate_test_module
-# SUMMARY: Inspect one test module for tests that cannot fail.
-# INPUT: path (Path): Absolute path of the test module.
-# INPUT: repo_root (Path | None): Repository root used to resolve imported query constants.
-# OUTPUT: (list[TestQualityIssue]): Issues found in this module.
+# Inspect one test module for tests that cannot fail.
+# path (Path): Absolute path of the test module.
+# repo_root (Path | None): Repository root used to resolve imported query constants.
+# (list[TestQualityIssue]): Issues found in this module.
 def validate_test_module(path: Path, repo_root: Path | None = None) -> list[TestQualityIssue]:
     try:
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(path))
     except (OSError, SyntaxError, UnicodeDecodeError):
-        # **LOGIC_STEP**: Unreadable or unparseable test modules are already reported by ruff and
+        # Unreadable or unparseable test modules are already reported by ruff and
         # by pytest collection itself; this validator stays silent rather than duplicating them.
         return []
 
@@ -645,7 +610,7 @@ def validate_test_module(path: Path, repo_root: Path | None = None) -> list[Test
             continue
         if not node.name.startswith("test_"):
             continue
-        # **LOGIC_STEP**: A fixture may legitimately be named test_settings. pytest decides what
+        # A fixture may legitimately be named test_settings. pytest decides what
         # is a test by the fixture decorator, not by the name, so this validator must too.
         if _is_fixture(node):
             continue
@@ -670,7 +635,7 @@ def validate_test_module(path: Path, repo_root: Path | None = None) -> list[Test
 
         states_expectation, weak_call = _verification_strength(node, helpers)
 
-        # **LOGIC_STEP**: A test whose whole verification is "the collaborator was called" passes
+        # A test whose whole verification is "the collaborator was called" passes
         # while the arguments are dropped or replaced. It is reported separately from a test with
         # no verification at all, because the fix is different: name the expected arguments.
         if states_expectation:
@@ -704,7 +669,7 @@ def validate_test_module(path: Path, repo_root: Path | None = None) -> list[Test
             )
             continue
 
-        # **LOGIC_STEP**: A deliberate "this must not raise" smoke test is legitimate, but it has
+        # A deliberate "this must not raise" smoke test is legitimate, but it has
         # to say so — otherwise an assertion-free body is indistinguishable from an unfinished one.
         if _carries_opt_out_marker(node, source_lines):
             continue
@@ -724,10 +689,9 @@ def validate_test_module(path: Path, repo_root: Path | None = None) -> list[Test
     return issues
 
 
-# FUNCTION: collect_test_quality_issues
-# SUMMARY: Inspect every test module in the repository.
-# INPUT: repo_root (Path): Repository root containing the tests/ tree.
-# OUTPUT: (list[TestQualityIssue]): All issues found, ordered by path.
+# Inspect every test module in the repository.
+# repo_root (Path): Repository root containing the tests/ tree.
+# (list[TestQualityIssue]): All issues found, ordered by path.
 def collect_test_quality_issues(repo_root: Path) -> list[TestQualityIssue]:
     tests_dir = repo_root / TESTS_DIRNAME
     if not tests_dir.is_dir():
@@ -741,9 +705,8 @@ def collect_test_quality_issues(repo_root: Path) -> list[TestQualityIssue]:
     return issues
 
 
-# FUNCTION: _issue_to_payload
-# SUMMARY: Convert one issue into a JSON-serializable remediation payload.
-# INPUT: repo_root (Path): Repository root used for relative-path rendering.
+# Convert one issue into a JSON-serializable remediation payload.
+# repo_root (Path): Repository root used for relative-path rendering.
 def _issue_to_payload(issue: TestQualityIssue, repo_root: Path) -> dict[str, object]:
     return build_validator_issue_payload(
         rule_id=issue.rule_id,
@@ -755,9 +718,8 @@ def _issue_to_payload(issue: TestQualityIssue, repo_root: Path) -> dict[str, obj
     )
 
 
-# FUNCTION: main
-# SUMMARY: Run test-quality validation and return a process exit code.
-# OUTPUT: (int): Zero when every test can fail for a reason, non-zero otherwise.
+# Run test-quality validation and return a process exit code.
+# (int): Zero when every test can fail for a reason, non-zero otherwise.
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate that tests can actually fail.")
     parser.add_argument(
@@ -792,7 +754,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 1
 
 
-# FUNCTION: __main__
-# SUMMARY: Script entrypoint for the test-quality validator.
+# Script entrypoint for the test-quality validator.
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))

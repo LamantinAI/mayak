@@ -69,7 +69,7 @@ class TestValidateRuntimeOwnership:
 
         assert issues == []
 
-    # **LOGIC_STEP**: These four spellings all read the process environment. The validator used to
+    # These four spellings all read the process environment. The validator used to
     # match the literal `os.getenv` / `os.environ` text, so every from-import form disabled the
     # rule for the whole file — and `from os import getenv` is ordinary style, not an evasion.
     @pytest.mark.unit
@@ -119,7 +119,7 @@ class TestValidateRuntimeOwnership:
 
     @pytest.mark.unit
     def test_validator_does_not_confuse_a_local_name_with_the_import(self, tmp_path: Path) -> None:
-        # **LOGIC_STEP**: A parameter named `environ` is not os.environ. Resolution goes through
+        # A parameter named `environ` is not os.environ. Resolution goes through
         # the import map, so an unimported name resolves to nothing and the rule stays quiet.
         _write_fixture(
             tmp_path / "project" / "application" / "innocent.py",
@@ -241,7 +241,7 @@ class TestValidateRuntimeOwnership:
         import_line: str,
         construction: str,
     ) -> None:
-        # **LOGIC_STEP**: A synchronous httpx.Client in an async path opens a fresh TCP+TLS
+        # A synchronous httpx.Client in an async path opens a fresh TCP+TLS
         # connection per call and blocks the event loop, and ruff's ASYNC210 does not see it —
         # that rule only knows module-level httpx.get / requests.get. This validator is the only
         # gate that can catch it, in either import spelling.
@@ -269,7 +269,7 @@ class TestValidateRuntimeOwnership:
         self,
         tmp_path: Path,
     ) -> None:
-        # **LOGIC_STEP**: Regression guard for raw-traceback regression in collect_runtime_ownership_issues.
+        # Regression guard for raw-traceback regression in collect_runtime_ownership_issues.
         _write_fixture(
             tmp_path / "project" / "application" / "broken.py",
             "def foo(:\n    pass\n",

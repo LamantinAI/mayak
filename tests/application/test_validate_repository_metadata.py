@@ -1,7 +1,7 @@
 # FILE: tests/application/test_validate_repository_metadata.py
 # SUMMARY: Unit tests for the merged repository-metadata validator (skills/commands frontmatter,
 # scripts/*.py path-shaped literals, docs/project_context.json schema + cross-references).
-# NOTE: Merged 2026-09 (audit item P9) from test_validate_skills_frontmatter.py,
+# Merged 2026-09 (audit item P9) from test_validate_skills_frontmatter.py,
 # test_validate_script_paths.py and test_validate_project_context.py, alongside the source merge in
 # scripts/validate_repository_metadata.py. TestAStatusIsCheckedAgainstTheWiring and
 # test_the_new_rule_has_a_playbook are dropped, not carried over: they tested
@@ -302,7 +302,7 @@ class TestProjectContextValidation:
         ]
         assert issues[0].field == field
 
-    # NOTE: The rule used to ask whether the domain CONTAINED "mayak", so a sentence written
+    # The rule used to ask whether the domain CONTAINED "mayak", so a sentence written
     # deliberately for this service — one that merely names the kernel it is built on — failed a
     # rule about forgetting to write a domain at all. Equality against the shipped text is the
     # actual subject.
@@ -315,7 +315,7 @@ class TestProjectContextValidation:
         _write_context(tmp_path, data)
         assert collect_project_context_issues(tmp_path) == []
 
-    # NOTE: Without this, editing docs/project_context.json's domain in the template silently
+    # Without this, editing docs/project_context.json's domain in the template silently
     # disarms the rule for every project created afterwards.
     @pytest.mark.unit
     def test_template_domain_constant_matches_the_shipped_file(self) -> None:
@@ -329,7 +329,7 @@ class TestProjectContextValidation:
         assert " ".join(str(shipped["domain"]).split()) == TEMPLATE_DOMAIN
         assert shipped["project_name"] == TEMPLATE_PROJECT_NAME
 
-    # NOTE: Regression guard — `is_template` was briefly required, which turned every existing
+    # Regression guard — `is_template` was briefly required, which turned every existing
     # project on this kernel red the moment it pulled the update, with no migration path.
     @pytest.mark.unit
     def test_context_without_the_flag_still_passes(self, tmp_path: Path) -> None:

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # FILE: validate_repository_metadata.py
-# SUMMARY: Three repository-metadata validators merged into one module: skills/commands frontmatter,
+# Three repository-metadata validators merged into one module: skills/commands frontmatter,
 # path-shaped literals inside scripts/*.py, and docs/project_context.json schema + cross-references.
-# NOTE: By design, this module does not flag project_context.vertical_status_contradicts_wiring —
+# By design, this module does not flag project_context.vertical_status_contradicts_wiring —
 # the declared status in project_context.json is a description, and
 # scripts/validate_endpoint_wiring.py is what actually checks the wiring.
 
@@ -27,8 +27,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 
 _RERUN = "uv run python scripts/validate_repository_metadata.py"
 
-# ATTRIBUTE: _REPOSITORY_METADATA_RULE_PLAYBOOKS (dict[str, dict[str, object]])
-# SUMMARY: Every rule_id this module can emit, across all three former validators.
+# Every rule_id this module can emit, across all three former validators.
 _REPOSITORY_METADATA_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
     "skills_frontmatter.missing_frontmatter": {
         "meaning": "A skill's SKILL.md does not open with a YAML frontmatter block (--- ... ---).",
@@ -152,8 +151,7 @@ _REPOSITORY_METADATA_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
 }
 
 
-# FUNCTION: get_repository_metadata_rule_playbook
-# SUMMARY: Return a copy of the playbook for any rule_id this module emits, or None if unknown.
+# Return a copy of the playbook for any rule_id this module emits, or None if unknown.
 # Replaces get_skills_frontmatter_rule_playbook, get_script_paths_rule_playbook and
 # get_project_context_rule_playbook — one getter, registered once in ai_query/common.py.
 def get_repository_metadata_rule_playbook(rule_id: str) -> dict[str, object] | None:
@@ -172,8 +170,7 @@ COMMAND_DIRS: list[Path] = []
 VALID_COMMAND_PREFIXES = ("make ", "uv run")
 
 
-# CLASS: validate_repository_metadata.SkillFrontmatterIssue
-# SUMMARY: One frontmatter problem in a SKILL.md (or, if COMMAND_DIRS is ever populated, a command).
+# One frontmatter problem in a SKILL.md (or, if COMMAND_DIRS is ever populated, a command).
 @dataclass(slots=True)
 class SkillFrontmatterIssue:
     rule_id: str
@@ -352,8 +349,7 @@ _PATH_PATTERN: re.Pattern[str] = re.compile(
     r"^(?:tests|project|docs|alembic|skills|ai_context|ai_query|\.github|\.githooks|\.agents/skills)/[\w./\-]+$"
 )
 
-# ATTRIBUTE: _ALLOWLIST (frozenset[str])
-# SUMMARY: Path-shaped literals that intentionally do not need to exist on disk. Add sparingly.
+# Path-shaped literals that intentionally do not need to exist on disk. Add sparingly.
 _ALLOWLIST: frozenset[str] = frozenset(
     {
         # Path prefix used by validate_runtime_ownership._ENV_ALLOWLIST_PREFIXES — not a real
@@ -363,8 +359,7 @@ _ALLOWLIST: frozenset[str] = frozenset(
 )
 
 
-# CLASS: validate_repository_metadata.ScriptPathIssue
-# SUMMARY: One path-shaped literal in scripts/*.py that does not resolve on disk.
+# One path-shaped literal in scripts/*.py that does not resolve on disk.
 @dataclass(slots=True)
 class ScriptPathIssue:
     rule_id: str
@@ -403,7 +398,7 @@ def collect_script_path_issues(
         return []
     issues: list[ScriptPathIssue] = []
     for source_path in sorted(base.rglob("*.py")):
-        # **LOGIC_STEP**: This file is scanned like any other. Merging three validators into one
+        # This file is scanned like any other. Merging three validators into one
         # turned a narrow exemption — the script-path checker skipping its own regex and allowlist
         # literals — into a blanket skip of every literal in all three, so a typo in a playbook's
         # `read_first` path stopped being reported. Nothing here needs the exemption: a bare prefix
@@ -460,8 +455,7 @@ REQUIRED_TOP_LEVEL_KEYS = {
     "project_decisions": list,
 }
 
-# ATTRIBUTE: TEMPLATE_PROJECT_NAME / TEMPLATE_DOMAIN (str)
-# SUMMARY: The identity this file ships with while it still describes the template rather than a
+# The identity this file ships with while it still describes the template rather than a
 # project. `is_template` is deliberately NOT in REQUIRED_TOP_LEVEL_KEYS — making it required would
 # turn every existing project red the moment it pulled this update, with no migration path. Absent
 # means "not decided yet", the state a project that has not read this rule is in.
@@ -476,8 +470,7 @@ TEMPLATE_DOMAIN = (
 )
 
 
-# CLASS: validate_repository_metadata.ProjectContextIssue
-# SUMMARY: One schema or cross-reference problem in docs/project_context.json.
+# One schema or cross-reference problem in docs/project_context.json.
 @dataclass(slots=True)
 class ProjectContextIssue:
     rule_id: str
@@ -539,8 +532,7 @@ def _validate_identity(data: dict[str, object]) -> list[ProjectContextIssue]:
     return issues
 
 
-# FUNCTION: _validate_entries
-# SUMMARY: Shared shape check for a verticals/integrations/business_rules section: every entry
+# Shared shape check for a verticals/integrations/business_rules section: every entry
 # must be an object and carry its required sub-fields. The per-section extras (an enum field, a
 # cross-reference, a list-typed field) are layered on by each caller below, over the same entries.
 def _validate_entries(
@@ -730,8 +722,7 @@ def _project_context_issue_to_payload(issue: ProjectContextIssue) -> dict[str, o
 # Combined entry point
 # ------------------------------------------------------------------------------------------------
 
-# TYPE: RepositoryMetadataIssue
-# SUMMARY: The union every issue this module produces belongs to. No shared base class — each
+# The union every issue this module produces belongs to. No shared base class — each
 # collector keeps its own dataclass shape, and _issue_to_payload below (and the doctor) dispatch on
 # isinstance the same way.
 RepositoryMetadataIssue = SkillFrontmatterIssue | ScriptPathIssue | ProjectContextIssue

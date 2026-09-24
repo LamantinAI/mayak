@@ -12,7 +12,6 @@ from settings import test_settings, postgres_settings
 from utils.helpers import ApiResponse, LoadTestData, SendRequest
 
 
-# FUNCTION: postgres_connection
 # SUMMARY: Create a session-scoped async connection to the test PostgreSQL database.
 # OUTPUT: (AsyncGenerator[AsyncConnection[TupleRow], None]): Async database connection.
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
@@ -28,16 +27,14 @@ async def postgres_connection() -> AsyncGenerator[AsyncConnection[TupleRow], Non
     await conn.close()
 
 
-# ATTRIBUTE: _BOOKKEEPING_TABLES (frozenset[str])
 # SUMMARY: Tables that belong to the migration tool, not to the application under test.
-# NOTE: alembic_version was being truncated with everything else, which erases the record of
+# alembic_version was being truncated with everything else, which erases the record of
 # which migrations ran. The application does not notice — its schema is still there — so this
 # stayed invisible until something asked Alembic what state the database was in, and got
 # "nothing applied" followed by CREATE TABLE against tables that already exist.
 _BOOKKEEPING_TABLES = frozenset({"alembic_version"})
 
 
-# FUNCTION: _truncate_application_tables
 # SUMMARY: Empty every public table except the migration bookkeeping ones.
 # INPUT: connection (AsyncConnection[TupleRow]): Open connection to the test database.
 async def _truncate_application_tables(connection: AsyncConnection[TupleRow]) -> None:
@@ -53,7 +50,6 @@ async def _truncate_application_tables(connection: AsyncConnection[TupleRow]) ->
         await connection.execute(f"TRUNCATE TABLE {table} CASCADE;")
 
 
-# FUNCTION: clean_database
 # SUMMARY: Truncate all public application tables before and after each test for isolation.
 # INPUT: postgres_connection (AsyncConnection[TupleRow]): Database connection fixture.
 # OUTPUT: (AsyncGenerator[None, None]): Yields control between setup and teardown.
@@ -75,7 +71,6 @@ async def clean_database(
     await postgres_connection.commit()
 
 
-# FUNCTION: http_client
 # SUMMARY: Create a session-scoped async HTTP client for API requests.
 # OUTPUT: (AsyncGenerator[httpx.AsyncClient, None]): Async HTTP client instance.
 @pytest_asyncio.fixture(scope="function", loop_scope="function")
@@ -84,7 +79,6 @@ async def http_client() -> AsyncGenerator[httpx.AsyncClient, None]:
         yield client
 
 
-# FUNCTION: make_post_request
 # SUMMARY: Fixture factory for making POST requests to the test API.
 # INPUT: http_client (httpx.AsyncClient): HTTP client fixture.
 # OUTPUT: (Callable): Async function that sends POST and returns status/body dict.
@@ -106,14 +100,13 @@ async def make_post_request(http_client: httpx.AsyncClient) -> SendRequest:
     return inner
 
 
-# FUNCTION: make_get_request
 # SUMMARY: Fixture factory for making GET requests to the test API.
 # INPUT: http_client (httpx.AsyncClient): HTTP client fixture.
 # OUTPUT: (Callable): Async function that sends GET and returns status/body dict.
 @pytest_asyncio.fixture(scope="function", loop_scope="function")
 async def make_get_request(http_client: httpx.AsyncClient) -> SendRequest:
     async def inner(path: str, params: dict[str, Any] | None = None) -> ApiResponse:
-        # **LOGIC_STEP**: Merged into the URL rather than passed as `params=`. httpx replaces a
+        # Merged into the URL rather than passed as `params=`. httpx replaces a
         # query string already in the URL with `params` — an empty dict included, which was this
         # helper's default — so `inner("/sessions?hall_id=7")` fetched the unfiltered list and a
         # filter test passed against it. Found by the bench2 measurement (2026-09-24); guarded by
@@ -131,7 +124,6 @@ async def make_get_request(http_client: httpx.AsyncClient) -> SendRequest:
     return inner
 
 
-# FUNCTION: make_put_request
 # SUMMARY: Fixture factory for making PUT requests to the test API.
 # INPUT: http_client (httpx.AsyncClient): HTTP client fixture.
 # OUTPUT: (Callable): Async function that sends PUT and returns status/body dict.
@@ -153,11 +145,10 @@ async def make_put_request(http_client: httpx.AsyncClient) -> SendRequest:
     return inner
 
 
-# FUNCTION: make_patch_request
 # SUMMARY: Fixture factory for making PATCH requests to the test API.
 # INPUT: http_client (httpx.AsyncClient): HTTP client fixture.
 # OUTPUT: (Callable): Async function that sends PATCH and returns status/body dict.
-# NOTE: The kernel shipped POST, GET, PUT and DELETE helpers but no PATCH, so a vertical whose
+# The kernel shipped POST, GET, PUT and DELETE helpers but no PATCH, so a vertical whose
 # edit route is a partial update had nothing to call and wrote its own client by hand. It lives
 # here rather than in one vertical's test module: the next partial-update route would repeat it.
 @pytest_asyncio.fixture(scope="function", loop_scope="function")
@@ -178,8 +169,7 @@ async def make_patch_request(http_client: httpx.AsyncClient) -> SendRequest:
     return inner
 
 
-# FUNCTION: make_delete_request
-# NOTE: `response.content` is checked before the content-type sniff, here and in the four helpers
+# `response.content` is checked before the content-type sniff, here and in the four helpers
 # above. FastAPI answers a 204 route — a handler returning `None` with `status_code=204`, which is
 # what a DELETE endpoint usually is — with an EMPTY body and a `Content-Type: application/json`
 # header, and `response.json()` on zero bytes raises `json.decoder.JSONDecodeError: Expecting
@@ -204,7 +194,6 @@ async def make_delete_request(http_client: httpx.AsyncClient) -> SendRequest:
     return inner
 
 
-# FUNCTION: load_test_data
 # SUMMARY: Fixture factory for inserting test data into database tables.
 # INPUT: postgres_connection (AsyncConnection[TupleRow]): Database connection fixture.
 # OUTPUT: (Callable): Async function that inserts rows into the specified table.

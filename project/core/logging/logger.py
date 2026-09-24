@@ -37,25 +37,21 @@ from project.core.logging.logger_types import (
     SpanContext,
 )
 
-# ATTRIBUTE: _LOGGING_DIR (str)
 # SUMMARY: Normalized absolute path to the logging package directory, used by _resolve_caller to skip internal frames.
 _LOGGING_DIR = os.path.normpath(os.path.dirname(os.path.abspath(__file__)))
 
-# ATTRIBUTE: _CONTEXTLIB_FILE (str)
 # SUMMARY: Normalized absolute path to stdlib contextlib.py, skipped by _resolve_caller since @contextmanager adds an extra frame.
 _CONTEXTLIB_FILE = os.path.normpath(os.path.abspath(contextlib.__file__))
 
 
-# FUNCTION: _extract_status_code
 # SUMMARY: Read an HTTP status code out of a span's output payload, or None when the span carried none.
 def _extract_status_code(output: LogPayload) -> Optional[int]:
     raw = output.get("status_code")
     return raw if isinstance(raw, int) else None
 
 
-# FUNCTION: classify_request_outcome
 # SUMMARY: Map an HTTP status code to the outcome reported by request.summary.
-# NOTE: This exists because a boolean `success` lied. Starlette turns every handled exception into a
+# This exists because a boolean `success` lied. Starlette turns every handled exception into a
 # Response inside ExceptionMiddleware, which sits *below* the logging middleware, so the span never
 # sees the exception and reported success for 404, 409, 422 and — the case that mattered — 502 from a
 # failing upstream. Only unhandled exceptions reached the except branch. Classifying by status code
@@ -63,7 +59,7 @@ def _extract_status_code(output: LogPayload) -> Optional[int]:
 # Spans with no status code (startup, background work) stay OK: absence of an HTTP result is not a
 # failure, and an outcome of SERVER_ERROR there would be the same lie in the other direction.
 def classify_request_outcome(status_code: Optional[int]) -> RequestOutcome:
-    # **LOGIC_STEP**: Treat a missing status as a non-HTTP span, which never fails on its own.
+    # Treat a missing status as a non-HTTP span, which never fails on its own.
     if status_code is None or status_code < 400:
         return RequestOutcome.OK
     if status_code < 500:
@@ -71,7 +67,6 @@ def classify_request_outcome(status_code: Optional[int]) -> RequestOutcome:
     return RequestOutcome.SERVER_ERROR
 
 
-# ATTRIBUTE: _OUTCOME_WORDS (dict[RequestOutcome, str])
 # SUMMARY: Human-readable verb per outcome for the request.summary message line.
 _OUTCOME_WORDS: dict[RequestOutcome, str] = {
     RequestOutcome.OK: "completed",
@@ -81,24 +76,20 @@ _OUTCOME_WORDS: dict[RequestOutcome, str] = {
 }
 
 
-# CLASS: project.core.logging.logger.SemanticLogger
 # SUMMARY: Semantic logging adapter providing caller-aware structured events and execution spans.
-# EXTENDS: logging.LoggerAdapter
 class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
-    # FUNCTION: __init__
     # SUMMARY: Initialize SemanticLogger with an underlying Python logger.
     # INPUT: extra (Optional[MutableMapping[str, Any]]): Default extra context.
     def __init__(
         self, logger: logging.Logger, extra: Optional[MutableMapping[str, Any]] = None
     ) -> None:
-        # **LOGIC_STEP**: Initialize LoggerAdapter with logger and extra context.
+        # Initialize LoggerAdapter with logger and extra context.
         super().__init__(logger, extra or {})
 
-    # FUNCTION: _resolve_caller
     # SUMMARY: Walk up the call stack to find the first frame outside the logging package.
     # OUTPUT: (_CallerInfo): Tuple of pathname, line number, and function name for the external caller.
     def _resolve_caller(self) -> CallerInfo:
-        # **LOGIC_STEP**: Start from the current frame and walk up, skipping logging internals and contextlib frames.
+        # Start from the current frame and walk up, skipping logging internals and contextlib frames.
         frame: FrameType | None = sys._getframe(0)
         while frame is not None:
             filename = os.path.normpath(os.path.abspath(frame.f_code.co_filename))
@@ -107,27 +98,26 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             frame = frame.f_back
         return "<unknown>", 0, "<unknown>"
 
-    # FUNCTION: process
     # SUMMARY: Process log message and kwargs to inject context and structured payload data.
     def process(
         self, msg: str, kwargs: MutableMapping[str, Any]
     ) -> tuple[str, MutableMapping[str, Any]]:
-        # **LOGIC_STEP**: Get current context and active span information.
+        # Get current context and active span information.
         ctx = get_current_context()
         span_id, span_name = get_current_span()
 
-        # **LOGIC_STEP**: Ensure an extra dictionary exists for structured payload data.
+        # Ensure an extra dictionary exists for structured payload data.
         extra = cast(MutableMapping[str, Any], kwargs.get("extra", {}))
         if "extra" not in kwargs:
             kwargs["extra"] = extra
 
-        # **LOGIC_STEP**: Merge current context into the payload so nested logs inherit bound metadata.
+        # Merge current context into the payload so nested logs inherit bound metadata.
         if "payload" not in extra:
             extra["payload"] = {}
         merged = {**ctx, **extra["payload"]}
         extra["payload"] = merged
 
-        # **LOGIC_STEP**: Add span information when a span is active.
+        # Add span information when a span is active.
         if span_id:
             extra["span"] = {"span_id": span_id}
             if span_name:
@@ -135,7 +125,6 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
 
         return msg, kwargs
 
-    # FUNCTION: log_event
     # SUMMARY: Emit a structured semantic event with caller override metadata.
     def log_event(
         self,
@@ -149,10 +138,10 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
         data: Optional[LogPayload] = None,
         **kwargs: LogValue,
     ) -> None:
-        # **LOGIC_STEP**: Resolve caller info once unless already captured by the calling method.
+        # Resolve caller info once unless already captured by the calling method.
         _caller = _caller or self._resolve_caller()
 
-        # **LOGIC_STEP**: Build the payload with event type, stable event_id, and structured data.
+        # Build the payload with event type, stable event_id, and structured data.
         payload: LogPayload = {"event_type": event_type.value}
         if event_id is not None:
             payload["event_id"] = event_id
@@ -160,23 +149,22 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             payload.update(data)
         payload.update(kwargs)
 
-        # **LOGIC_STEP**: Delegate to the standard logger with caller override information.
+        # Delegate to the standard logger with caller override information.
         extra = {"payload": payload, "_caller_override": _caller}
         self.log(level, msg, extra=extra, exc_info=exc_info, stacklevel=1)
 
-    # FUNCTION: context
     # SUMMARY: Context manager for binding metadata to all logs within scope.
     # INPUT: **kv (dict): Arbitrary keyword arguments to bind to log context.
     @contextmanager
     def context(self, **kv: Any) -> Generator[None, None, None]:
-        # **LOGIC_STEP**: Set context with new metadata and store the reset token.
+        # Set context with new metadata and store the reset token.
         token = set_context(**kv)
         try:
             yield
         finally:
             reset_context(token)
 
-    # NOTE: Span-naming conventions. `name` has no enforced grammar — anything is a valid span —
+    # Span-naming conventions. `name` has no enforced grammar — anything is a valid span —
     # but two dotted prefixes carry meaning to the rest of this package and to
     # trace_formatter.py's compact renderer, so a vertical that wants the behavior below copies the
     # prefix, not just the idea:
@@ -190,7 +178,6 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
     #   invisible next to the LLM call that requested it. Name the span this way and pass the
     #   tool's arguments as `input_params` (below) and the compact renderer shows both: see
     #   trace_formatter.py's `_TOOL_SPAN_PREFIX` and the NOTE beside it.
-    # FUNCTION: span
     # SUMMARY: Context manager for execution tracing with automatic timing, hierarchy, and request summary events.
     # INPUT: root (bool): Start a new trace root, ignoring whatever span is ambient. See below.
     # OUTPUT: (ContextManager): Context manager yielding a SpanContext.
@@ -205,7 +192,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
         **metadata: LogValue,
     ) -> Generator[SpanContext, None, None]:
         parent_span_id, _ = get_current_span()
-        # **LOGIC_STEP**: `root=True` says "this span begins a trace" rather than "this span happens
+        # `root=True` says "this span begins a trace" rather than "this span happens
         # to have no parent". The distinction is load-bearing. The launcher opens
         # `application_lifecycle` around the whole of `uvicorn.run`, and asyncio copies that context
         # into every request task, so `http_request` inherited a parent and was never root — which
@@ -222,7 +209,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
         span_level = (
             level if level is not None else (logging.INFO if is_root_span else logging.DEBUG)
         )
-        # **LOGIC_STEP**: Decide once whether the start/finish pair will survive the level filter,
+        # Decide once whether the start/finish pair will survive the level filter,
         # and skip building it when it will not. A child span logs at DEBUG, so in production — where
         # the level sits at INFO — both events were assembled in full and then dropped by `logging`.
         # Measured on this machine: a child span cost 7918 ns, of which 3668 ns was the two discarded
@@ -275,7 +262,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             ctx.error_id = error_id
             error_id_token = set_current_error_id(error_id)
             rejection = is_client_rejection(error)
-            # **LOGIC_STEP**: A routine 409 is not an error in the count either. Levels alone were
+            # A routine 409 is not an error in the count either. Levels alone were
             # fixed first and the counter was left behind, so `request.summary` still reported
             # error_count=1 and `make format-trace` still printed `errors=1` for a request the
             # same trace calls a client_error — the healthy service reading as a failing one,
@@ -284,12 +271,12 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             if not rejection:
                 increment_span_stat("error_count")
             if not is_root_span:
-                # **LOGIC_STEP**: span.error is written whatever the span's own level, so a failed
+                # span.error is written whatever the span's own level, so a failed
                 # child is always in the tree and always counted.
                 increment_span_stat("child_span_count")
 
             already_logged = getattr(error, "_logged_with_traceback", False)
-            # **LOGIC_STEP**: A span whose lifecycle events were filtered out never paid for the
+            # A span whose lifecycle events were filtered out never paid for the
             # stack walk, so resolve the caller here. `_resolve_caller` skips both the logging
             # package and contextlib, and @contextmanager re-enters this frame through
             # contextlib.__exit__ — so it lands on the same external frame it would have at entry.
@@ -297,7 +284,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             if _caller is None:
                 _caller = self._resolve_caller()
 
-            # **LOGIC_STEP**: A ConflictError raised by a repository span, a NotFoundError from an
+            # A ConflictError raised by a repository span, a NotFoundError from an
             # application-layer span checking a precondition — these are the application working
             # as designed, not a real failure, so they log at WARNING with no traceback.
             # exception_handlers.py answers the identical exception 409/404/422/401 a moment
@@ -325,7 +312,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                 name=name,
                 error_message=str(error),
                 exception_type=type(error).__name__,
-                # **LOGIC_STEP**: An explicit field rather than leaving trace_formatter.py to infer
+                # An explicit field rather than leaving trace_formatter.py to infer
                 # this from the level alone — WARNING already means "an interruption" there
                 # (_emit_interrupted_span), and reusing that mark for a routine domain rejection
                 # would have rendered a 409 with the "cut short" symbol a cancelled request gets.
@@ -346,7 +333,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                 )
             raise
         except BaseException as interruption:
-            # **LOGIC_STEP**: asyncio.CancelledError, KeyboardInterrupt and SystemExit are not
+            # asyncio.CancelledError, KeyboardInterrupt and SystemExit are not
             # Exceptions, so the branch above never sees them, and without this branch neither
             # would the log. A request cancelled by uvicorn's graceful-shutdown timeout (30 s, set
             # in project/launcher/main.py) would emit span.start and nothing else: no span.error,
@@ -355,7 +342,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             # log_event: ['span.start'] against ['span.start', 'span.error', 'request.summary']
             # for a RuntimeError in the same harness.
             duration_ms = (time.perf_counter_ns() - start_ns) / 1e6
-            # **LOGIC_STEP**: An Exception raised while logging must not replace the
+            # An Exception raised while logging must not replace the
             # interruption. A handler already closing at shutdown would otherwise turn a
             # CancelledError into its own error through __context__, and uvicorn would see a
             # failed task instead of a cancelled one. The log line is the one that gets dropped.
@@ -372,7 +359,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                     interruption=interruption,
                     _caller=_caller,
                 )
-            # **LOGIC_STEP**: Bare `raise`, the same object. asyncio recognises its cancellation
+            # Bare `raise`, the same object. asyncio recognises its cancellation
             # by identity, and tests/application/test_logging_api.py pins that it comes out.
             raise
         else:
@@ -396,7 +383,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                 if not is_root_span:
                     increment_span_stat("child_span_count")
             elif not is_root_span:
-                # **LOGIC_STEP**: Counted here rather than at open, so that each span is counted
+                # Counted here rather than at open, so that each span is counted
                 # exactly once and in one counter. Counting the filter at open was speculative: a
                 # filtered span that then raised or was cancelled had its span.error written
                 # anyway — those are emitted whatever the span's own level — and was counted a
@@ -421,7 +408,6 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                 reset_span_stats(stats_token)
             reset_span(span_token, name_token)
 
-    # FUNCTION: _emit_interrupted_span
     # SUMMARY: Write the span.error and, for a root span, the request.summary that an interruption
     # would otherwise skip.
     # INPUT: interruption (BaseException): What cut the span short; named in the event, never traced.
@@ -441,7 +427,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
     ) -> None:
         if _caller is None:
             _caller = self._resolve_caller()
-        # **LOGIC_STEP**: The same event_id as a failure, so the trace tree — which reads
+        # The same event_id as a failure, so the trace tree — which reads
         # span.finish and span.error and nothing else — shows the span with its exception type.
         # At WARNING and without a traceback: a CancelledError's frames say nothing a reader can
         # act on, and the ERROR level is reserved for the application's own failures.
@@ -460,7 +446,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             exception_type=type(interruption).__name__,
         )
         if not is_root_span:
-            # **LOGIC_STEP**: Written at WARNING whatever the span's own level, so an interrupted
+            # Written at WARNING whatever the span's own level, so an interrupted
             # child is in the tree and belongs in the count like a failed one.
             increment_span_stat("child_span_count")
         if is_root_span:
@@ -473,7 +459,6 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                 _caller=_caller,
             )
 
-    # FUNCTION: _emit_request_summary
     # SUMMARY: Emit an aggregated request summary event at the end of a root span.
     # INPUT: outcome (RequestOutcome): Result classification; SERVER_ERROR raises the event to ERROR level.
     # INPUT: status_code (Optional[int]): HTTP status of the response, omitted for non-HTTP spans.
@@ -488,10 +473,10 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
         status_code: Optional[int],
         _caller: Optional[CallerInfo] = None,
     ) -> None:
-        # **LOGIC_STEP**: Collect span stats and build summary payload.
+        # Collect span stats and build summary payload.
         stats = get_span_stats() or {}
         child_span_count = stats.get("child_span_count", 0)
-        # **LOGIC_STEP**: What the level filter swallowed is reported next to what it kept, never
+        # What the level filter swallowed is reported next to what it kept, never
         # folded into it. `spans=` now counts what a reader can actually find in the tree, and
         # `filtered=` tells them the rest happened at a level they are not reading — a
         # different fact from "nothing else happened".
@@ -516,7 +501,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
         )
 
         payload: LogPayload = {
-            # **LOGIC_STEP**: The span's name belongs in the payload, not only inside the prose of
+            # The span's name belongs in the payload, not only inside the prose of
             # `msg`. Until requests emitted their own summaries there was exactly one of these per
             # process and the question never came up; now a log holds one per request plus the
             # lifecycle one, and a reader filtering `event_id == "request.summary"` has to be able
@@ -537,7 +522,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             payload["total_input_tokens"] = stats.get("total_input_tokens", 0)
             payload["total_output_tokens"] = stats.get("total_output_tokens", 0)
 
-        # **LOGIC_STEP**: Only a server-side outcome deserves ERROR; 4xx is routine traffic and would
+        # Only a server-side outcome deserves ERROR; 4xx is routine traffic and would
         # drown the reader in noise at anything above INFO. An interrupted request sits between
         # the two: not the application's fault, but a request that never answered.
         level = logging.INFO
@@ -556,10 +541,9 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
         )
 
 
-# FUNCTION: get_logger
 # SUMMARY: Get SemanticLogger instance by name using standard logging.
 @functools.lru_cache(maxsize=128)
 def get_logger(name: str) -> SemanticLogger:
-    # **LOGIC_STEP**: Get the standard Python logger and wrap it in SemanticLogger.
+    # Get the standard Python logger and wrap it in SemanticLogger.
     logger = logging.getLogger(name)
     return SemanticLogger(logger)

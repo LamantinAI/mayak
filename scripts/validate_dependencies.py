@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # FILE: validate_dependencies.py
-# SUMMARY: Quality gate rejecting runtime imports that no declared dependency provides.
+# Quality gate rejecting runtime imports that no declared dependency provides.
 
 from __future__ import annotations
 
@@ -18,16 +18,13 @@ from ai_context.dynamic_imports import dynamic_import_targets
 from ai_context.rendering import render_json
 from ai_context.validator_contract import build_validator_issue_payload
 
-# ATTRIBUTE: ROOT_DIR (Path)
-# SUMMARY: Absolute repository root scanned by this validator.
+# Absolute repository root scanned by this validator.
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-# ATTRIBUTE: RUNTIME_PACKAGE (str)
-# SUMMARY: Package whose imports must be backed by a declared dependency.
+# Package whose imports must be backed by a declared dependency.
 RUNTIME_PACKAGE = "project"
 
-# ATTRIBUTE: FIRST_PARTY_ROOTS (frozenset[str])
-# SUMMARY: Top-level modules that live in this repository rather than in a distribution.
+# Top-level modules that live in this repository rather than in a distribution.
 FIRST_PARTY_ROOTS = frozenset({"project", "ai_context", "ai_query", "scripts", "tests", "alembic"})
 
 _DEPENDENCIES_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
@@ -81,54 +78,45 @@ _DEPENDENCIES_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
 }
 
 
-# DATACLASS: validate_dependencies.DependencyIssue
-# SUMMARY: One runtime import that no declared dependency accounts for.
+# One runtime import that no declared dependency accounts for.
 @dataclass(slots=True)
 class DependencyIssue:
-    # ATTRIBUTE: path (Path)
-    # SUMMARY: Absolute path of the importing module.
+    # Absolute path of the importing module.
     path: Path
 
-    # ATTRIBUTE: line (int)
-    # SUMMARY: 1-based line of the import statement.
+    # 1-based line of the import statement.
     line: int
 
-    # ATTRIBUTE: rule_id (str)
-    # SUMMARY: Stable rule identifier.
+    # Stable rule identifier.
     rule_id: str
 
-    # ATTRIBUTE: message (str)
-    # SUMMARY: Human-readable description.
+    # Human-readable description.
     message: str
 
-    # ATTRIBUTE: category (str)
-    # SUMMARY: Top-level issue category used in structured validator output.
+    # Top-level issue category used in structured validator output.
     category: str = "dependencies"
 
 
-# FUNCTION: get_dependencies_rule_playbook
-# SUMMARY: Return the shared remediation playbook for a stable dependency rule ID.
-# OUTPUT: (dict[str, object] | None): Remediation metadata, or None when the rule is unknown.
+# Return the shared remediation playbook for a stable dependency rule ID.
+# (dict[str, object] | None): Remediation metadata, or None when the rule is unknown.
 def get_dependencies_rule_playbook(rule_id: str) -> dict[str, object] | None:
     playbook = _DEPENDENCIES_RULE_PLAYBOOKS.get(rule_id)
     return dict(playbook) if playbook is not None else None
 
 
-# FUNCTION: normalize_distribution_name
-# SUMMARY: Normalize a distribution name per PEP 503 so pyproject and metadata spellings compare equal.
-# INPUT: name (str): Raw distribution name.
-# OUTPUT: (str): Lowercase name with runs of -, _ and . collapsed to a single dash.
+# Normalize a distribution name per PEP 503 so pyproject and metadata spellings compare equal.
+# name (str): Raw distribution name.
+# (str): Lowercase name with runs of -, _ and . collapsed to a single dash.
 def normalize_distribution_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-# FUNCTION: _requirement_strings
-# SUMMARY: Collect every requirement string a pyproject document declares, from all three places
-#          a dependency can be named.
-# INPUT: pyproject_text (str): Full text of pyproject.toml.
-# OUTPUT: (list[str]): Requirement strings from [project].dependencies, optional-dependencies
-#         and dependency-groups.
-# NOTE: This was a hand-rolled line scanner, justified by a 3.10 floor where tomllib does not
+# Collect every requirement string a pyproject document declares, from all three places
+# a dependency can be named.
+# pyproject_text (str): Full text of pyproject.toml.
+# (list[str]): Requirement strings from [project].dependencies, optional-dependencies
+# and dependency-groups.
+# This was a hand-rolled line scanner, justified by a 3.10 floor where tomllib does not
 # exist. That scanner cost two defects before it worked — it counted the brackets inside
 # "uvicorn[standard]==0.40.0" as array delimiters and silently truncated the declared set to six
 # entries, and it knew nothing about [dependency-groups] until the duplicate `test` extra was
@@ -142,7 +130,7 @@ def _requirement_strings(pyproject_text: str) -> list[str]:
         item for item in project_table.get("dependencies", []) if isinstance(item, str)
     )
 
-    # **LOGIC_STEP**: Both remaining tables map a name to an array of requirements. A group entry
+    # Both remaining tables map a name to an array of requirements. A group entry
     # may also be a table such as {include-group = "dev"}, which names no distribution — hence the
     # isinstance filter rather than a blind extend.
     for table in (
@@ -155,22 +143,21 @@ def _requirement_strings(pyproject_text: str) -> list[str]:
     return requirements
 
 
-# FUNCTION: declared_distributions
-# SUMMARY: Read the distribution names this project declares as its own dependencies.
-# INPUT: repo_root (Path): Repository root containing pyproject.toml.
-# OUTPUT: (set[str]): Normalized names from [project].dependencies, optional-dependencies and
-#         dependency-groups.
+# Read the distribution names this project declares as its own dependencies.
+# repo_root (Path): Repository root containing pyproject.toml.
+# (set[str]): Normalized names from [project].dependencies, optional-dependencies and
+# dependency-groups.
 def declared_distributions(repo_root: Path) -> set[str]:
     raw = _requirement_strings((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
 
     names: set[str] = set()
     for requirement in raw:
-        # **LOGIC_STEP**: Take the name up to the first version specifier, extra or marker.
+        # Take the name up to the first version specifier, extra or marker.
         head = re.split(r"[<>=!~;\[\s]", requirement.strip(), maxsplit=1)[0]
         if not head:
             continue
         names.add(normalize_distribution_name(head))
-        # **LOGIC_STEP**: An extra is a declaration too — psycopg[pool] is how psycopg-pool is
+        # An extra is a declaration too — psycopg[pool] is how psycopg-pool is
         # declared here. Without expanding extras the validator would report the entire runtime
         # database layer as undeclared.
         extras = re.search(r"\[([^\]]+)\]", requirement)
@@ -180,11 +167,10 @@ def declared_distributions(repo_root: Path) -> set[str]:
     return names
 
 
-# FUNCTION: _distributions_required_by_extra
-# SUMMARY: List the distributions a declared package pulls in through one of its extras.
-# INPUT: distribution (str): Declared distribution name.
-# INPUT: extra (str): Extra name requested in the declaration.
-# OUTPUT: (set[str]): Normalized names required by that extra, empty when metadata is unavailable.
+# List the distributions a declared package pulls in through one of its extras.
+# distribution (str): Declared distribution name.
+# extra (str): Extra name requested in the declaration.
+# (set[str]): Normalized names required by that extra, empty when metadata is unavailable.
 def _distributions_required_by_extra(distribution: str, extra: str) -> set[str]:
     try:
         requires = metadata(distribution).get_all("Requires-Dist") or []
@@ -201,9 +187,8 @@ def _distributions_required_by_extra(distribution: str, extra: str) -> set[str]:
     return names
 
 
-# FUNCTION: _top_level_imports
-# SUMMARY: Collect the top-level module name of every import in a module, with its line.
-# OUTPUT: (list[tuple[str, int]]): Pairs of top-level module name and 1-based line number.
+# Collect the top-level module name of every import in a module, with its line.
+# (list[tuple[str, int]]): Pairs of top-level module name and 1-based line number.
 def _top_level_imports(tree: ast.AST) -> list[tuple[str, int]]:
     found: list[tuple[str, int]] = []
     for node in ast.walk(tree):
@@ -211,10 +196,10 @@ def _top_level_imports(tree: ast.AST) -> list[tuple[str, int]]:
             for alias in node.names:
                 found.append((alias.name.split(".")[0], node.lineno))
         elif isinstance(node, ast.ImportFrom):
-            # **LOGIC_STEP**: level > 0 is a relative import, which is first-party by definition.
+            # level > 0 is a relative import, which is first-party by definition.
             if node.level == 0 and node.module:
                 found.append((node.module.split(".")[0], node.lineno))
-    # **LOGIC_STEP**: A module pulled in by importlib.import_module("x") is as undeclared as one
+    # A module pulled in by importlib.import_module("x") is as undeclared as one
     # pulled in by `import x`; checking only the written form lets the dynamic spelling import a
     # transitively-installed distribution with this gate green.
     # ai_context/dynamic_imports.py owns which call shapes count and why.
@@ -222,10 +207,9 @@ def _top_level_imports(tree: ast.AST) -> list[tuple[str, int]]:
     return found
 
 
-# FUNCTION: collect_dependency_issues
-# SUMMARY: Check every third-party import under project/ against the declared dependency set.
-# INPUT: repo_root (Path): Repository root to scan.
-# OUTPUT: (list[DependencyIssue]): Issues found, ordered by path then line.
+# Check every third-party import under project/ against the declared dependency set.
+# repo_root (Path): Repository root to scan.
+# (list[DependencyIssue]): Issues found, ordered by path then line.
 def collect_dependency_issues(repo_root: Path) -> list[DependencyIssue]:
     runtime_dir = repo_root / RUNTIME_PACKAGE
     if not runtime_dir.is_dir():
@@ -282,9 +266,8 @@ def collect_dependency_issues(repo_root: Path) -> list[DependencyIssue]:
     return issues
 
 
-# FUNCTION: _issue_to_payload
-# SUMMARY: Convert one issue into a JSON-serializable remediation payload.
-# INPUT: repo_root (Path): Repository root used for relative-path rendering.
+# Convert one issue into a JSON-serializable remediation payload.
+# repo_root (Path): Repository root used for relative-path rendering.
 def _issue_to_payload(issue: DependencyIssue, repo_root: Path) -> dict[str, object]:
     return build_validator_issue_payload(
         rule_id=issue.rule_id,
@@ -296,9 +279,8 @@ def _issue_to_payload(issue: DependencyIssue, repo_root: Path) -> dict[str, obje
     )
 
 
-# FUNCTION: main
-# SUMMARY: Run dependency validation and return a process exit code.
-# OUTPUT: (int): Zero when every runtime import is backed by a declared dependency.
+# Run dependency validation and return a process exit code.
+# (int): Zero when every runtime import is backed by a declared dependency.
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Validate runtime imports against declared dependencies."
@@ -335,7 +317,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 1
 
 
-# FUNCTION: __main__
-# SUMMARY: Script entrypoint for the dependency validator.
+# Script entrypoint for the dependency validator.
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))

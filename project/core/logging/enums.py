@@ -4,28 +4,8 @@
 from enum import Enum
 
 
-# ENUM: project.core.logging.enums.EventType
 # SUMMARY: Semantic event types for AI classification of log entries.
-# ATTRIBUTE: FLOW_START (str)
-# ATTRIBUTE: FLOW_END (str)
-# ATTRIBUTE: STATE_CHANGE (str)
-# ATTRIBUTE: STATE_SNAPSHOT (str)
-# ATTRIBUTE: DATA_LOAD (str)
-# ATTRIBUTE: DATA_TRANSFORM (str)
-# ATTRIBUTE: DATA_SAVE (str)
-# ATTRIBUTE: DECISION (str)
-# ATTRIBUTE: VALIDATION (str)
-# ATTRIBUTE: EXTERNAL_API (str)
-# ATTRIBUTE: DATABASE (str)
-# ATTRIBUTE: USER_INPUT (str)
-# ATTRIBUTE: SYSTEM_EVENT (str)
-# ATTRIBUTE: METRIC (str)
-# ATTRIBUTE: ISSUE_WARNING (str)
-# ATTRIBUTE: ISSUE_ERROR (str)
-# ATTRIBUTE: ISSUE_CRITICAL (str)
-# ATTRIBUTE: LLM_CALL (str)
 # SUMMARY: Tracks individual LLM invocations with timing and token usage.
-# ATTRIBUTE: REQUEST_SUMMARY (str)
 # SUMMARY: Aggregated summary emitted at the end of a root span.
 class EventType(Enum):
     # Execution Flow
@@ -68,15 +48,10 @@ class EventType(Enum):
     REQUEST_SUMMARY = "request.summary"
 
 
-# ENUM: project.core.logging.enums.RequestOutcome
 # SUMMARY: How a root span ended, reported by request.summary so a reader can filter real failures.
-# ATTRIBUTE: OK (str)
 # SUMMARY: The request finished with a 2xx/3xx response, or the span carried no HTTP status at all.
-# ATTRIBUTE: CLIENT_ERROR (str)
 # SUMMARY: The request finished with a 4xx response — routine, logged at INFO, not an alarm.
-# ATTRIBUTE: SERVER_ERROR (str)
 # SUMMARY: The request finished with a 5xx response or the span raised — logged at ERROR.
-# ATTRIBUTE: CANCELLED (str)
 # SUMMARY: The span was cut short by something that is not an Exception — asyncio cancellation
 # at uvicorn's graceful-shutdown timeout, KeyboardInterrupt, SystemExit, or GeneratorExit when
 # a span's generator is closed before its body finished — and produced no HTTP result. Logged

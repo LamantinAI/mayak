@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # FILE: sync_agent_docs.py
-# SUMMARY: Generate or verify the agent instruction wrappers from the shared agent rules source.
+# Generate or verify the agent instruction wrappers from the shared agent rules source.
 
 from __future__ import annotations
 
@@ -30,8 +30,7 @@ _NEXT_COMMANDS = [
 ]
 
 
-# FUNCTION: render_python_versions
-# SUMMARY: Read the runtime minimum and dev toolchain version from their own files, not typed by hand.
+# Read the runtime minimum and dev toolchain version from their own files, not typed by hand.
 def render_python_versions() -> tuple[str, str]:
     pyproject = (ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8")
     match = re.search(r'^requires-python\s*=\s*">=([0-9.]+)"', pyproject, re.MULTILINE)
@@ -41,21 +40,18 @@ def render_python_versions() -> tuple[str, str]:
     return match.group(1), toolchain
 
 
-# FUNCTION: _display_path
-# SUMMARY: Render a path relative to the repository root when possible, else the absolute path.
+# Render a path relative to the repository root when possible, else the absolute path.
 def _display_path(path: Path) -> str:
     return str(path.relative_to(ROOT_DIR)) if path.is_relative_to(ROOT_DIR) else str(path)
 
 
-# FUNCTION: _extract_named_bullets
-# SUMMARY: Return the bullet list under a plain `Title:` heading, or "" when the source carries none.
+# Return the bullet list under a plain `Title:` heading, or "" when the source carries none.
 def _extract_named_bullets(shared_rules: str, title: str) -> str:
     match = re.search(rf"^{re.escape(title)}:\n((?:- .+\n?)+)", shared_rules, re.MULTILINE)
     return match.group(1).rstrip() if match else ""
 
 
-# FUNCTION: malformed_section_headings
-# SUMMARY: Present-but-unparseable hand-placed headings, so build_documents refuses a wrapper built on a guess.
+# Present-but-unparseable hand-placed headings, so build_documents refuses a wrapper built on a guess.
 def malformed_section_headings(shared_rules: str) -> list[str]:
     return [
         f"{title}:"
@@ -64,8 +60,7 @@ def malformed_section_headings(shared_rules: str) -> list[str]:
     ]
 
 
-# CLASS: DroppedSectionError
-# SUMMARY: Raised when a bullet section in the shared source reaches no generated wrapper.
+# Raised when a bullet section in the shared source reaches no generated wrapper.
 class DroppedSectionError(RuntimeError):
     def __init__(self, headings: list[str]) -> None:
         self.headings = headings
@@ -76,8 +71,7 @@ class DroppedSectionError(RuntimeError):
         )
 
 
-# FUNCTION: _render_rules
-# SUMMARY: Render the one contract both agents follow, from the shared source.
+# Render the one contract both agents follow, from the shared source.
 def _render_rules(shared_rules: str) -> str:
     quick_start = _extract_named_bullets(shared_rules, "Start here")
     task_process = _extract_named_bullets(shared_rules, "Task process")
@@ -124,10 +118,9 @@ def _render_rules(shared_rules: str) -> str:
     )
 
 
-# FUNCTION: _render_import_stub
-# SUMMARY: Render CLAUDE.md: the comment a maintainer reads, and the import that carries the rules.
+# Render CLAUDE.md: the comment a maintainer reads, and the import that carries the rules.
 def _render_import_stub() -> str:
-    # **LOGIC_STEP**: Claude Code strips a block-level HTML comment before the file reaches the
+    # Claude Code strips a block-level HTML comment before the file reaches the
     # model, so this explanation costs the agent nothing and is still there for whoever opens the
     # file. The import below is what reaches context, expanded in place at session start.
     return (
@@ -144,8 +137,7 @@ def _render_import_stub() -> str:
     )
 
 
-# FUNCTION: build_documents
-# SUMMARY: Build wrapper contents for every agent-facing file, refusing an unparseable or dropped section.
+# Build wrapper contents for every agent-facing file, refusing an unparseable or dropped section.
 def build_documents() -> dict[Path, str]:
     shared_rules = SHARED_RULES_PATH.read_text(encoding="utf-8")
     malformed = malformed_section_headings(shared_rules)
@@ -158,9 +150,8 @@ def build_documents() -> dict[Path, str]:
     return documents
 
 
-# FUNCTION: dropped_section_headings
-# SUMMARY: Bullet sections whose bullets reach no wrapper — a looser net than rendering, so a
-#          heading the strict pattern misses (bold, a trailing period) is caught, not just silently dropped.
+# Bullet sections whose bullets reach no wrapper — a looser net than rendering, so a
+# heading the strict pattern misses (bold, a trailing period) is caught, not just silently dropped.
 def dropped_section_headings(shared_rules: str, documents: dict[Path, str]) -> list[str]:
     rendered_text = "\n".join(documents.values())
     dropped: list[str] = []
@@ -182,8 +173,7 @@ def dropped_section_headings(shared_rules: str, documents: dict[Path, str]) -> l
     return dropped
 
 
-# FUNCTION: _fail
-# SUMMARY: Report one structured drift issue (JSON with --json, else a plain message) and return 1.
+# Report one structured drift issue (JSON with --json, else a plain message) and return 1.
 def _fail(
     rule_id: str, file: str, message: str, suggested_fix: str, read_first: list[str], as_json: bool
 ) -> int:
@@ -209,8 +199,7 @@ _READ_FIRST = [_SHARED_DISPLAY, "AGENTS.md"]
 _FIX = "Regenerate the agent wrappers from docs/agent_rules.md."
 
 
-# FUNCTION: _check
-# SUMMARY: Compare one rendered wrapper against disk; report and return 1 when it drifted, else 0.
+# Compare one rendered wrapper against disk; report and return 1 when it drifted, else 0.
 def _check(path: Path, rendered: str, as_json: bool) -> int:
     if not path.exists():
         rule_id, verb = "drift.agent_docs.missing", "Missing"
@@ -222,8 +211,7 @@ def _check(path: Path, rendered: str, as_json: bool) -> int:
     return _fail(rule_id, display, f"{verb} generated file: {display}", _FIX, _READ_FIRST, as_json)
 
 
-# FUNCTION: main
-# SUMMARY: Generate the agent wrappers or verify that the checked-in copies are current.
+# Generate the agent wrappers or verify that the checked-in copies are current.
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Generate or verify the agent wrappers from docs/agent_rules.md."

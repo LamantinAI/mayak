@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # FILE: validate_module_sizes.py
-# SUMMARY: Enforce a production-module budget measured in executable lines, so documentation never counts against a module's size.
+# Enforce a production-module budget measured in executable lines, so documentation never counts against a module's size.
 #
 # The budget deliberately charges for `code_lines` rather than for raw `splitlines()`, which makes
 # writing a CBM comment — or an explanation of why the code looks the way it does — free. The
@@ -20,23 +20,19 @@ from ai_context.line_metrics import ModuleMetrics, measure_path
 from ai_context.validator_contract import build_validator_issue_payload
 
 
-# ATTRIBUTE: ROOT_DIR (Path)
-# SUMMARY: Absolute repository root scanned by the validator.
+# Absolute repository root scanned by the validator.
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-# ATTRIBUTE: MAX_CODE_LINES (int)
-# SUMMARY: Maximum executable lines allowed in a production Python module. Comments, docstrings, and blank lines are not counted.
-# NOTE: The budget has two axes, and this is the first. Counting executable lines rather than raw
+# Maximum executable lines allowed in a production Python module. Comments, docstrings, and blank lines are not counted.
+# The budget has two axes, and this is the first. Counting executable lines rather than raw
 # ones is deliberate — a raw limit taxes the file that explains itself, and the cheapest way under
 # such a limit is to delete the explanation. See ai_context/line_metrics.py for the measurement.
 MAX_CODE_LINES = 450
 
-# ATTRIBUTE: MAX_LINES (int)
-# SUMMARY: Backwards-compatible alias for MAX_CODE_LINES, kept so existing importers keep working.
+# Backwards-compatible alias for MAX_CODE_LINES, kept so existing importers keep working.
 MAX_LINES = MAX_CODE_LINES
 
-# ATTRIBUTE: MAX_FUNCTION_CODE_LINES (int)
-# SUMMARY: Maximum executable lines allowed in a single function or method. The second axis of the budget: a module can stay under its own limit while hiding one function nobody can hold in their head.
+# Maximum executable lines allowed in a single function or method. The second axis of the budget: a module can stay under its own limit while hiding one function nobody can hold in their head.
 # 200 rather than something tighter because the two axes answer different questions. The module
 # budget asks whether a file is too much to hold in one's head; this one asks whether a single body
 # is. A module can sit comfortably under its own limit while one function inside it accounts for
@@ -45,8 +41,7 @@ MAX_LINES = MAX_CODE_LINES
 # in a project that grows one.
 MAX_FUNCTION_CODE_LINES = 200
 
-# ATTRIBUTE: EXCLUDED_FILES (set[str])
-# SUMMARY: Repository-relative files excluded from the module size limit.
+# Repository-relative files excluded from the module size limit.
 # Intentionally empty. Under the raw-line budget this set grew into a backlog of deferred
 # refactors, because the cheapest way past a limit that charged for comments was to add an
 # exception rather than to split the module. A module that exceeds the executable-line budget is
@@ -55,54 +50,42 @@ MAX_FUNCTION_CODE_LINES = 200
 # entry accompanied by a comment explaining why.
 EXCLUDED_FILES: set[str] = set()
 
-# ATTRIBUTE: RULE_ID (str)
-# SUMMARY: Stable rule identifier used in JSON output and failure playbooks for oversized modules.
+# Stable rule identifier used in JSON output and failure playbooks for oversized modules.
 RULE_ID = "size.module_exceeds_limit"
 
-# ATTRIBUTE: FUNCTION_RULE_ID (str)
-# SUMMARY: Stable rule identifier for a single function that exceeds the per-function budget.
+# Stable rule identifier for a single function that exceeds the per-function budget.
 FUNCTION_RULE_ID = "size.function_exceeds_limit"
 
-# ATTRIBUTE: READ_ERROR_RULE_ID (str)
-# SUMMARY: Stable rule identifier emitted when a module cannot be decoded as UTF-8.
+# Stable rule identifier emitted when a module cannot be decoded as UTF-8.
 READ_ERROR_RULE_ID = "module_size.read_error"
 
 
-# DATACLASS: validate_module_sizes.ModuleSizeIssue
-# SUMMARY: Structured representation of a module-size validation problem (oversize or read failure).
+# Structured representation of a module-size validation problem (oversize or read failure).
 @dataclass(slots=True)
 class ModuleSizeIssue:
-    # ATTRIBUTE: path (Path)
-    # SUMMARY: Module path under validation.
+    # Module path under validation.
     path: Path
 
-    # ATTRIBUTE: line_count (int)
-    # SUMMARY: Executable lines in the module. Zero when the file could not be read.
+    # Executable lines in the module. Zero when the file could not be read.
     line_count: int
 
-    # ATTRIBUTE: rule_id (str)
-    # SUMMARY: Stable rule identifier so JSON consumers route to the correct playbook.
+    # Stable rule identifier so JSON consumers route to the correct playbook.
     rule_id: str = RULE_ID
 
-    # ATTRIBUTE: message (str | None)
-    # SUMMARY: Human-readable diagnostic; populated for read errors so the agent sees the cause.
+    # Human-readable diagnostic; populated for read errors so the agent sees the cause.
     message: str | None = None
 
-    # ATTRIBUTE: raw_lines (int)
-    # SUMMARY: Physical line count, reported alongside the budget so the agent sees how much of the file is documentation rather than logic.
+    # Physical line count, reported alongside the budget so the agent sees how much of the file is documentation rather than logic.
     raw_lines: int = 0
 
-    # ATTRIBUTE: symbol (str)
-    # SUMMARY: Qualified name of the offending function for FUNCTION_RULE_ID; empty for module-level issues.
+    # Qualified name of the offending function for FUNCTION_RULE_ID; empty for module-level issues.
     symbol: str = ""
 
-    # ATTRIBUTE: line (int)
-    # SUMMARY: 1-based line the issue points at — the `def` line for a function issue, 1 for a module issue.
+    # 1-based line the issue points at — the `def` line for a function issue, 1 for a module issue.
     line: int = 1
 
-    # FUNCTION: validate_module_sizes.ModuleSizeIssue.describe
-    # SUMMARY: Render the one-sentence diagnostic for this issue, so every surface — CLI, JSON, doctor — says the same thing instead of each rebuilding its own wording.
-    # OUTPUT: (str): Human-readable description including the relevant budget.
+    # Render the one-sentence diagnostic for this issue, so every surface — CLI, JSON, doctor — says the same thing instead of each rebuilding its own wording.
+    # (str): Human-readable description including the relevant budget.
     def describe(self) -> str:
         if self.rule_id == READ_ERROR_RULE_ID:
             return f"{self.path}: {self.message or 'read error'} — re-save as UTF-8"
@@ -117,10 +100,9 @@ class ModuleSizeIssue:
         )
 
 
-# FUNCTION: _is_target_module
-# SUMMARY: Determine whether a file should be checked against the production size limit.
-# INPUT: path (Path): Repository-relative file path.
-# OUTPUT: (bool): True when the file is a production Python module under project/** and not excluded.
+# Determine whether a file should be checked against the production size limit.
+# path (Path): Repository-relative file path.
+# (bool): True when the file is a production Python module under project/** and not excluded.
 def _is_target_module(path: Path) -> bool:
     return (
         len(path.parts) >= 2
@@ -130,18 +112,17 @@ def _is_target_module(path: Path) -> bool:
     )
 
 
-# FUNCTION: collect_module_size_issues
-# SUMMARY: Find production modules whose executable-line count exceeds the budget.
+# Find production modules whose executable-line count exceeds the budget.
 def collect_module_size_issues(root_dir: Path) -> list[ModuleSizeIssue]:
     issues: list[ModuleSizeIssue] = []
-    # **LOGIC_STEP**: Walk only project/ instead of the whole repository. rglob from the root also
+    # Walk only project/ instead of the whole repository. rglob from the root also
     # descends into .venv (tens of thousands of files) just to filter them out afterwards.
     for path in sorted((root_dir / "project").rglob("*.py")):
         relative_path = path.relative_to(root_dir)
         if not _is_target_module(relative_path):
             continue
         metrics = measure_path(path)
-        # **LOGIC_STEP**: A file the tooling cannot decode surfaces as a structured issue rather
+        # A file the tooling cannot decode surfaces as a structured issue rather
         # than a raw UnicodeDecodeError, so the agent loop sees a normal rule_id payload.
         if metrics.detail.startswith("UnicodeDecodeError"):
             issues.append(
@@ -161,7 +142,7 @@ def collect_module_size_issues(root_dir: Path) -> list[ModuleSizeIssue]:
                     raw_lines=metrics.raw_lines,
                 )
             )
-        # **LOGIC_STEP**: The second axis is checked independently, not only on the longest
+        # The second axis is checked independently, not only on the longest
         # function, because a module can hold several oversized ones and reporting them one
         # release at a time would turn a single refactor into a queue of gate failures.
         for span in metrics.functions:
@@ -179,13 +160,12 @@ def collect_module_size_issues(root_dir: Path) -> list[ModuleSizeIssue]:
     return issues
 
 
-# FUNCTION: collect_module_metrics
-# SUMMARY: Measure every production module without applying the budget, for a caller that wants the code-versus-documentation split rather than a pass/fail verdict.
-# NOTE: query_ai_context.py has no `metrics` command; the only caller today is this module's own
+# Measure every production module without applying the budget, for a caller that wants the code-versus-documentation split rather than a pass/fail verdict.
+# query_ai_context.py has no `metrics` command; the only caller today is this module's own
 # test file. Kept rather than removed because the split it reports is the answer to "why is this
 # module over budget when half of it is comments"; delete it, and the seven tests that pin the
 # measurement, if nothing calls it by 2026-10.
-# OUTPUT: (dict[str, ModuleMetrics]): Metrics keyed by repository-relative path.
+# (dict[str, ModuleMetrics]): Metrics keyed by repository-relative path.
 def collect_module_metrics(root_dir: Path) -> dict[str, ModuleMetrics]:
     measured: dict[str, ModuleMetrics] = {}
     for path in sorted((root_dir / "project").rglob("*.py")):
@@ -196,9 +176,8 @@ def collect_module_metrics(root_dir: Path) -> dict[str, ModuleMetrics]:
     return measured
 
 
-# FUNCTION: _issue_to_json
-# SUMMARY: Convert a ModuleSizeIssue to a JSON-serialisable dict with remediation guidance.
-# OUTPUT: (dict): JSON-friendly dict with rule_id, file, line_count, limit, and guidance fields.
+# Convert a ModuleSizeIssue to a JSON-serialisable dict with remediation guidance.
+# (dict): JSON-friendly dict with rule_id, file, line_count, limit, and guidance fields.
 def _issue_to_json(issue: ModuleSizeIssue) -> dict:
     playbook = get_module_size_playbook(issue.rule_id)
     if issue.rule_id == READ_ERROR_RULE_ID:
@@ -271,10 +250,9 @@ def _issue_to_json(issue: ModuleSizeIssue) -> dict:
     return entry
 
 
-# FUNCTION: get_module_size_playbook
-# SUMMARY: Return a failure-playbook dict for module-size rule_ids, used by query_ai_context.py. Accepts an optional rule_id to disambiguate between the size-budget rule and the read-error rule.
-# INPUT: rule_id (str | None): Specific rule_id to look up, or None for the default size budget rule (back-compat).
-# OUTPUT: (dict | None): Playbook dict, or None when rule_id is not a module_size rule.
+# Return a failure-playbook dict for module-size rule_ids, used by query_ai_context.py. Accepts an optional rule_id to disambiguate between the size-budget rule and the read-error rule.
+# rule_id (str | None): Specific rule_id to look up, or None for the default size budget rule (back-compat).
+# (dict | None): Playbook dict, or None when rule_id is not a module_size rule.
 def get_module_size_playbook(rule_id: str | None = None) -> dict | None:
     if rule_id is None or rule_id == RULE_ID:
         return {
@@ -356,9 +334,8 @@ def get_module_size_playbook(rule_id: str | None = None) -> dict | None:
     return None
 
 
-# FUNCTION: main
-# SUMMARY: Run the module size validator and print any violations.
-# OUTPUT: (int): Zero when all target modules fit within the configured line budget.
+# Run the module size validator and print any violations.
+# (int): Zero when all target modules fit within the configured line budget.
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Enforce module line-count budget.",
@@ -368,7 +345,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Emit machine-readable JSON output with remediation guidance.",
     )
-    # **LOGIC_STEP**: Default to an empty argv when called directly from tests so that
+    # Default to an empty argv when called directly from tests so that
     # pytest's own argv does not leak into argparse via sys.argv[1:].
     args = parser.parse_args([] if argv is None else argv)
 
@@ -393,7 +370,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 1
 
 
-# FUNCTION: __main__
-# SUMMARY: Script entrypoint for module size validation.
+# Script entrypoint for module size validation.
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))

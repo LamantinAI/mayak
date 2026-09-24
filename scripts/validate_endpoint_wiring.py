@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # FILE: validate_endpoint_wiring.py
-# SUMMARY: Repository utility that validates endpoint-facing dependency wiring contracts for FastAPI endpoint modules.
+# Repository utility that validates endpoint-facing dependency wiring contracts for FastAPI endpoint modules.
 
 from __future__ import annotations
 
@@ -14,12 +14,10 @@ from ai_context.validator_contract import build_validator_issue_payload
 from scripts.generate_ai_context import build_context_map
 
 
-# ATTRIBUTE: ROOT_DIR (Path)
-# SUMMARY: Absolute repository root used by the validator entrypoint.
+# Absolute repository root used by the validator entrypoint.
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-# ATTRIBUTE: REGISTRATION_RELATIVE_PATH (Path)
-# SUMMARY: Repository-relative module where every application router must be included on the app.
+# Repository-relative module where every application router must be included on the app.
 REGISTRATION_RELATIVE_PATH = Path("project/infrastructure/api/router_registration.py")
 
 _ENDPOINT_RULE_PLAYBOOKS = {
@@ -228,35 +226,28 @@ _ENDPOINT_RULE_PLAYBOOKS = {
 }
 
 
-# DATACLASS: validate_endpoint_wiring.EndpointWiringIssue
-# SUMMARY: Structured representation of a single endpoint-wiring contract violation.
+# Structured representation of a single endpoint-wiring contract violation.
 @dataclass(slots=True)
 class EndpointWiringIssue:
-    # ATTRIBUTE: path (Path)
-    # SUMMARY: Endpoint module path containing the violation.
+    # Endpoint module path containing the violation.
     path: Path
 
-    # ATTRIBUTE: line (int)
-    # SUMMARY: 1-based line number where the violation was detected.
+    # 1-based line number where the violation was detected.
     line: int
 
-    # ATTRIBUTE: rule_id (str)
-    # SUMMARY: Stable rule identifier for automation-friendly remediation.
+    # Stable rule identifier for automation-friendly remediation.
     rule_id: str
 
-    # ATTRIBUTE: message (str)
-    # SUMMARY: Human-readable explanation of the broken endpoint-wiring contract.
+    # Human-readable explanation of the broken endpoint-wiring contract.
     message: str
 
-    # ATTRIBUTE: category (str)
-    # SUMMARY: Top-level issue category used in structured validator output.
+    # Top-level issue category used in structured validator output.
     category: str = "endpoint_wiring"
 
 
-# FUNCTION: _is_endpoint_module
-# SUMMARY: Report whether a repository-relative path belongs to the validated FastAPI endpoint module set.
-# INPUT: path (Path): Repository-relative file path.
-# OUTPUT: (bool): True when the file is an endpoint module under project/infrastructure/api/endpoints.
+# Report whether a repository-relative path belongs to the validated FastAPI endpoint module set.
+# path (Path): Repository-relative file path.
+# (bool): True when the file is an endpoint module under project/infrastructure/api/endpoints.
 def _is_endpoint_module(path: Path) -> bool:
     return (
         path.parts[:4] == ("project", "infrastructure", "api", "endpoints")
@@ -265,9 +256,8 @@ def _is_endpoint_module(path: Path) -> bool:
     )
 
 
-# FUNCTION: _build_import_map
-# SUMMARY: Build a local symbol-to-module map for top-level imports in an endpoint module.
-# OUTPUT: (dict[str, str]): Imported symbol names mapped to their fully qualified modules.
+# Build a local symbol-to-module map for top-level imports in an endpoint module.
+# (dict[str, str]): Imported symbol names mapped to their fully qualified modules.
 def _build_import_map(tree: ast.AST) -> dict[str, str]:
     imports: dict[str, str] = {}
     for node in getattr(tree, "body", []):
@@ -282,9 +272,8 @@ def _build_import_map(tree: ast.AST) -> dict[str, str]:
     return imports
 
 
-# FUNCTION: _service_contracts
-# SUMMARY: Extract the application-service modules, service types, and dependency alias registry from the context map.
-# OUTPUT: (tuple[set[str], set[str], dict[str, dict[str, str]]]): Service module paths, service type names, and alias registry.
+# Extract the application-service modules, service types, and dependency alias registry from the context map.
+# (tuple[set[str], set[str], dict[str, dict[str, str]]]): Service module paths, service type names, and alias registry.
 def _service_contracts(
     context_map: dict[str, object],
 ) -> tuple[set[str], set[str], dict[str, dict[str, str]]]:
@@ -302,9 +291,8 @@ def _service_contracts(
     return service_modules, service_types, context_map["dependency_registry"]["aliases"]
 
 
-# FUNCTION: _router_definitions
-# SUMMARY: Extract APIRouter variable names declared in an endpoint module with their line numbers.
-# OUTPUT: (dict[str, int]): Router variable names mapped to their 1-based assignment lines.
+# Extract APIRouter variable names declared in an endpoint module with their line numbers.
+# (dict[str, int]): Router variable names mapped to their 1-based assignment lines.
 def _router_definitions(tree: ast.AST) -> dict[str, int]:
     routers: dict[str, int] = {}
     for node in getattr(tree, "body", []):
@@ -319,17 +307,16 @@ def _router_definitions(tree: ast.AST) -> dict[str, int]:
     return routers
 
 
-# FUNCTION: collect_registered_router_qualnames
-# SUMMARY: Collect fully qualified router names that router_registration.py actually includes on the app.
-# INPUT: repo_root (Path): Repository root containing project/infrastructure/api/router_registration.py.
-# OUTPUT: (set[str]): Dotted "module.router_name" entries reachable through include_router calls.
+# Collect fully qualified router names that router_registration.py actually includes on the app.
+# repo_root (Path): Repository root containing project/infrastructure/api/router_registration.py.
+# (set[str]): Dotted "module.router_name" entries reachable through include_router calls.
 def collect_registered_router_qualnames(repo_root: Path) -> set[str]:
     registration_path = repo_root / REGISTRATION_RELATIVE_PATH
     try:
         source = registration_path.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(registration_path))
     except (OSError, SyntaxError, UnicodeDecodeError):
-        # **LOGIC_STEP**: An unreadable registration module is reported by other rules and
+        # An unreadable registration module is reported by other rules and
         # by the import-time failure itself; treat it as registering nothing rather than
         # crashing the whole validator run.
         return set()
@@ -351,9 +338,8 @@ def collect_registered_router_qualnames(repo_root: Path) -> set[str]:
     return registered
 
 
-# FUNCTION: _route_handler_routers
-# SUMMARY: Report which known APIRouter variables a function is bound to as a route handler.
-# OUTPUT: (set[str]): Router variable names whose HTTP-method decorator wraps this function.
+# Report which known APIRouter variables a function is bound to as a route handler.
+# (set[str]): Router variable names whose HTTP-method decorator wraps this function.
 def _route_handler_routers(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     routers: set[str],
@@ -373,9 +359,8 @@ def _route_handler_routers(
     return bound
 
 
-# FUNCTION: _iter_parameters
-# SUMMARY: Yield route-handler parameters with their aligned default values.
-# OUTPUT: (list[tuple[ast.arg, ast.AST | None]]): Parameters paired with optional defaults.
+# Yield route-handler parameters with their aligned default values.
+# (list[tuple[ast.arg, ast.AST | None]]): Parameters paired with optional defaults.
 def _iter_parameters(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
 ) -> list[tuple[ast.arg, ast.AST | None]]:
@@ -389,9 +374,8 @@ def _iter_parameters(
     return parameters
 
 
-# FUNCTION: _is_depends_call
-# SUMMARY: Report whether a default-value expression is a FastAPI Depends call.
-# OUTPUT: (bool): True when the node is a Depends(...) call.
+# Report whether a default-value expression is a FastAPI Depends call.
+# (bool): True when the node is a Depends(...) call.
 def _is_depends_call(node: ast.AST | None) -> bool:
     if not isinstance(node, ast.Call):
         return False
@@ -402,9 +386,8 @@ def _is_depends_call(node: ast.AST | None) -> bool:
     return False
 
 
-# FUNCTION: get_endpoint_rule_playbook
-# SUMMARY: Return the shared remediation playbook for a stable endpoint-wiring rule ID.
-# OUTPUT: (dict[str, object] | None): Remediation metadata or None when the rule is unknown.
+# Return the shared remediation playbook for a stable endpoint-wiring rule ID.
+# (dict[str, object] | None): Remediation metadata or None when the rule is unknown.
 def get_endpoint_rule_playbook(rule_id: str) -> dict[str, object] | None:
     playbook = _ENDPOINT_RULE_PLAYBOOKS.get(rule_id)
     if playbook is None:
@@ -420,9 +403,8 @@ def get_endpoint_rule_playbook(rule_id: str) -> dict[str, object] | None:
     }
 
 
-# FUNCTION: _issue_to_payload
-# SUMMARY: Convert an endpoint-wiring issue into a JSON-serializable remediation payload.
-# INPUT: repo_root (Path): Repository root used for relative-path rendering.
+# Convert an endpoint-wiring issue into a JSON-serializable remediation payload.
+# repo_root (Path): Repository root used for relative-path rendering.
 def _issue_to_payload(issue: EndpointWiringIssue, repo_root: Path) -> dict[str, object]:
     playbook = get_endpoint_rule_playbook(issue.rule_id)
     return build_validator_issue_payload(
@@ -435,17 +417,16 @@ def _issue_to_payload(issue: EndpointWiringIssue, repo_root: Path) -> dict[str, 
     )
 
 
-# FUNCTION: validate_endpoint_module
-# SUMMARY: Validate a single endpoint module against the endpoint-facing wiring contract.
-# INPUT: path (Path): Absolute endpoint-module path.
-# INPUT: context_map (dict[str, object]): Context map providing service and alias contracts.
+# Validate a single endpoint module against the endpoint-facing wiring contract.
+# path (Path): Absolute endpoint-module path.
+# context_map (dict[str, object]): Context map providing service and alias contracts.
 def validate_endpoint_module(
     path: Path,
     repo_root: Path,
     context_map: dict[str, object],
     registered_routers: set[str] | None = None,
 ) -> list[EndpointWiringIssue]:
-    # **LOGIC_STEP**: Read & parse source under guarded exceptions so a broken file
+    # Read & parse source under guarded exceptions so a broken file
     # surfaces as a structured EndpointWiringIssue rather than a raw Python traceback.
     try:
         source = path.read_text(encoding="utf-8")
@@ -637,7 +618,7 @@ def validate_endpoint_module(
                     )
                 )
 
-    # **LOGIC_STEP**: A router carrying handlers but never included on the app produces a
+    # A router carrying handlers but never included on the app produces a
     # dead route that answers 404 in production while every gate stays green. Compare each
     # such router against what router_registration.py actually includes.
     if registered_routers is None:
@@ -661,9 +642,8 @@ def validate_endpoint_module(
     return issues
 
 
-# FUNCTION: collect_endpoint_wiring_issues
-# SUMMARY: Validate all endpoint modules in the repository against the endpoint-facing wiring contract.
-# INPUT: context_map (dict[str, object] | None): Optional pre-built context map used by tests or callers.
+# Validate all endpoint modules in the repository against the endpoint-facing wiring contract.
+# context_map (dict[str, object] | None): Optional pre-built context map used by tests or callers.
 def collect_endpoint_wiring_issues(
     repo_root: Path,
     context_map: dict[str, object] | None = None,
@@ -681,9 +661,8 @@ def collect_endpoint_wiring_issues(
     return issues
 
 
-# FUNCTION: main
-# SUMMARY: Run endpoint-wiring validation from the repository root and return a process exit code.
-# OUTPUT: (int): Zero when validation succeeds and non-zero otherwise.
+# Run endpoint-wiring validation from the repository root and return a process exit code.
+# (int): Zero when validation succeeds and non-zero otherwise.
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate endpoint-facing wiring contracts.")
     parser.add_argument(
@@ -718,7 +697,6 @@ def main() -> int:
     return 1
 
 
-# FUNCTION: __main__
-# SUMMARY: Script entrypoint for the endpoint-wiring validator.
+# Script entrypoint for the endpoint-wiring validator.
 if __name__ == "__main__":
     raise SystemExit(main())

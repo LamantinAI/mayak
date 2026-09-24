@@ -410,7 +410,7 @@ FILE_POLICY_INDEX: dict[str, dict[str, object]] = {
             "smallest fix recipe via failure_playbook."
         ),
         "layer": "tooling",
-        # **LOGIC_STEP**: Empty on purpose. This field is matched by name against the task keys in
+        # Empty on purpose. This field is matched by name against the task keys in
         # docs/ai_change_map.json, and no real key covers the validator layer today. An invented
         # name reads as guidance and delivers nothing — an empty list is honest.
         "common_tasks": [],
@@ -538,7 +538,7 @@ FILE_POLICY_INDEX: dict[str, dict[str, object]] = {
             "(ruff, mypy, coverage, pytest). Drives uv.lock and CI reproducibility."
         ),
         "layer": "tooling",
-        # **LOGIC_STEP**: Empty for the same reason as scripts/doctor_ai_context.py above — the
+        # Empty for the same reason as scripts/doctor_ai_context.py above — the
         # four names here (`add_dependency`, `update_dependency`, `tune_lint_or_type_config`,
         # `tune_coverage_config`) match no key in docs/ai_change_map.json, and `replace_dependency`,
         # the one that sounds close, is about swapping an adapter in the composition root, not a

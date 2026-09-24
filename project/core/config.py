@@ -22,7 +22,6 @@ from project.core.config_settings_core import (
 from project.core.config_settings_agent import AgentSettings
 from project.core.config_settings_observability import ObservabilitySettings
 
-# ATTRIBUTE: __all__ (list[str])
 # SUMMARY: Public configuration symbols re-exported by the stable config facade.
 __all__ = [
     "APP_VERSION",

@@ -17,22 +17,18 @@ from project.core.lifecycle import create_lifespan
 from project.core.logging import get_logger, setup_logging
 from project.domain.exceptions import ProjectError
 
-# ATTRIBUTE: _TERMINATION_SIGNALS (tuple[int, ...])
 # SUMMARY: Signals a process manager sends to ask for shutdown, and which must not be fatal here.
 # SIGINT is absent on purpose: its default already raises KeyboardInterrupt, which the branch below
 # catches, so it never had this problem.
 _TERMINATION_SIGNALS: tuple[int, ...] = (signal.SIGTERM,)
 
-# ATTRIBUTE: _RECEIVED_SIGNALS (list[int])
 # SUMMARY: One-slot mailbox the handler writes into, read after uvicorn returns.
 # A list rather than a module-level int so the handler needs no `global`.
 _RECEIVED_SIGNALS: list[int] = []
 
 
-# FUNCTION: _install_termination_handler
 # SUMMARY: Make a termination signal survivable so shutdown work after uvicorn.run still runs.
 def _install_termination_handler() -> None:
-    # FUNCTION: _remember
     # SUMMARY: Record the signal and return, which is what keeps the process alive.
     def _remember(signum: int, _frame: Optional[FrameType]) -> None:
         _RECEIVED_SIGNALS.append(signum)
@@ -41,9 +37,8 @@ def _install_termination_handler() -> None:
         signal.signal(termination_signal, _remember)
 
 
-# FUNCTION: _restore_termination_default
 # SUMMARY: Hand SIGTERM back to the operating system once the shutdown work is done being protected.
-# NOTE: Without this the handler outlives its purpose. It is installed so the code after
+# Without this the handler outlives its purpose. It is installed so the code after
 # uvicorn.run — flushing handlers, rendering the trace summary into the log file — is not killed
 # mid-write, but leaving it in place means every later SIGTERM is swallowed too, and a process
 # stuck in that trailing phase answers only to SIGKILL. Reproduced: three SIGTERMs two seconds
@@ -54,10 +49,9 @@ def _restore_termination_default() -> None:
         signal.signal(termination_signal, signal.SIG_DFL)
 
 
-# ATTRIBUTE: APPLICATION_FACTORY (str)
 # SUMMARY: Where uvicorn imports the application from — in this process with one worker, in each
 # worker process with several.
-# NOTE: An import string, not the application object. With SERVER_WORKERS above one uvicorn starts
+# An import string, not the application object. With SERVER_WORKERS above one uvicorn starts
 # separate processes that each import the application, and it refuses an object outright: the
 # process ended at startup with exit code 3, so the setting was unusable. Found by the bench2
 # measurement (2026-09-24), where one process had also hidden that an asyncio.Lock guarding a
@@ -65,9 +59,8 @@ def _restore_termination_default() -> None:
 APPLICATION_FACTORY = "project.launcher.main:create_app"
 
 
-# FUNCTION: create_app
 # SUMMARY: Build the FastAPI application with its lifespan; what every worker process calls.
-# NOTE: Logging is not configured here: uvicorn applies the log config main() passes it in every
+# Logging is not configured here: uvicorn applies the log config main() passes it in every
 # worker before calling this, and settings were validated once, in main(), before any worker exists.
 # With ENABLE_FULL_TRACE and several workers that config gives each worker its own FileHandler on
 # the one run file main() created; the trace summary is still rendered once, by this process, after
@@ -79,11 +72,10 @@ def create_app() -> FastAPI:
     return CompositionRoot().build_application(lifespan=lifespan)
 
 
-# FUNCTION: main
 # SUMMARY: The application's entry point. Initializes and starts FastAPI server.
 # RAISES: ProjectError: In case of critical errors during startup.
 def main() -> None:
-    # **LOGIC_STEP**: Initialize application environment and logging.
+    # Initialize application environment and logging.
     # We initialize logging in a safe bootstrap mode first, then reconfigure after validated settings load.
     log_config = setup_logging(level="INFO")
 
@@ -95,13 +87,13 @@ def main() -> None:
         logger.log_system_event(event_name="application_starting", category="lifecycle")
 
         try:
-            # **LOGIC_STEP**: Validate configuration at startup.
+            # Validate configuration at startup.
             with logger.span("validate_configuration") as vc_span:
                 try:
                     settings = get_settings()
                     settings.validate_runtime()
 
-                    # **LOGIC_STEP**: Enable file-based logging when full-trace observability
+                    # Enable file-based logging when full-trace observability
                     #                 is requested; this is orthogonal to APP_DEBUG so that
                     #                 eval / pre-prod stands can collect full pipeline traces
                     #                 without flipping debug ergonomics (reload, verbose stdout).
@@ -118,7 +110,7 @@ def main() -> None:
                         )
                         log_file_path = str(log_file)
 
-                    # **LOGIC_STEP**: Pick log level — DEBUG when either debug ergonomics
+                    # Pick log level — DEBUG when either debug ergonomics
                     #                 or full-trace is on, so DEBUG span events reach the file.
                     effective_level = (
                         "DEBUG"
@@ -136,7 +128,7 @@ def main() -> None:
                         "model": settings.llm.model,
                     }
                     if settings.observability.full_trace_enabled:
-                        # **LOGIC_STEP**: Said out loud, once, where an operator reading the boot
+                        # Said out loud, once, where an operator reading the boot
                         # of a service will meet it. The flag records prompts and completions
                         # verbatim; the scrubber on that path removes credential shapes and knows
                         # nothing about a name, an address or an email a user typed. Nothing else
@@ -157,7 +149,7 @@ def main() -> None:
                 except ValueError as e:
                     raise ProjectError(f"Configuration validation failed: {e}") from e
 
-            # **LOGIC_STEP**: Log environment information for debugging and monitoring.
+            # Log environment information for debugging and monitoring.
             env_info: dict[str, object] = {
                 "python_version": sys.version,
                 "working_directory": os.getcwd(),
@@ -171,7 +163,7 @@ def main() -> None:
                 new_value=env_info,
             )
 
-            # **LOGIC_STEP**: Start FastAPI server with uvicorn. The application itself is built by
+            # Start FastAPI server with uvicorn. The application itself is built by
             # create_app(), which uvicorn calls — see APPLICATION_FACTORY for why not here.
             logger.log_system_event(
                 event_name="server_starting",
@@ -184,7 +176,7 @@ def main() -> None:
                 },
             )
 
-            # **LOGIC_STEP**: Installed BEFORE uvicorn.run, and that ordering is the whole trick.
+            # Installed BEFORE uvicorn.run, and that ordering is the whole trick.
             # uvicorn snapshots the current handlers, installs its own for the duration of the
             # serve loop, then restores the snapshot and re-raises the signal it caught
             # (uvicorn/server.py, capture_signals). Python's stock disposition for SIGTERM is
@@ -217,7 +209,7 @@ def main() -> None:
                 timeout_graceful_shutdown=30,
             )
 
-            # **LOGIC_STEP**: Reached only because the handler above swallowed the re-raised
+            # Reached only because the handler above swallowed the re-raised
             # signal. Report it the same way the KeyboardInterrupt branch does, so the lifecycle
             # summary says why the process stopped rather than looking like a plain return.
             if _RECEIVED_SIGNALS:
@@ -230,7 +222,7 @@ def main() -> None:
                 span_ctx.output = {"status": "stopped", "reason": stopped_by}
 
         except ProjectError as exc:
-            # **LOGIC_STEP**: Handle domain-specific errors with proper logging and propagation.
+            # Handle domain-specific errors with proper logging and propagation.
             logger.log_error(
                 error_type="application_startup_failed",
                 message="A critical error occurred during application startup",
@@ -240,7 +232,7 @@ def main() -> None:
             span_ctx.output = {"status": "failed", "reason": str(exc)}
             raise
         except KeyboardInterrupt:
-            # **LOGIC_STEP**: Gracefully handle user-initiated shutdown.
+            # Gracefully handle user-initiated shutdown.
             logger.log_system_event(
                 event_name="application_stopped",
                 category="lifecycle",
@@ -248,18 +240,18 @@ def main() -> None:
             )
             span_ctx.output = {"status": "stopped", "reason": "KeyboardInterrupt"}
         finally:
-            # **LOGIC_STEP**: Give SIGTERM back to the operating system. Everything the handler was
+            # Give SIGTERM back to the operating system. Everything the handler was
             # protecting — the shutdown event, this span's close, the trace summary below — is
             # either done or about to be, and a process that ignores every SIGTERM from here on is
             # a process an operator can only SIGKILL.
             _restore_termination_default()
 
-            # **LOGIC_STEP**: Ensure proper cleanup and logging of application shutdown.
+            # Ensure proper cleanup and logging of application shutdown.
             logger.log_system_event(
                 event_name="application_shutdown_complete", category="lifecycle"
             )
 
-    # **LOGIC_STEP**: Prepend LLM-friendly trace summary to the log file.
+    # Prepend LLM-friendly trace summary to the log file.
     # This runs AFTER the application_lifecycle span closes (all events flushed).
     if log_file_path:
         try:
@@ -273,7 +265,7 @@ def main() -> None:
                 prepend_trace_summary,
             )
 
-            # **LOGIC_STEP**: The return value is the other half of the same signal. The
+            # The return value is the other half of the same signal. The
             # function answers False when it parsed the log and found no trace to render —
             # no exception, nothing on stderr, and a log file that simply lacks the summary.
             # That is the absence the except branch below already warns about, arriving by
@@ -285,17 +277,16 @@ def main() -> None:
                     f"{log_file_path}\n"
                 )
         except Exception as error:
-            # **LOGIC_STEP**: Shutdown must finish regardless, but a silently missing trace
+            # Shutdown must finish regardless, but a silently missing trace
             # summary is exactly the kind of absence an agent later mistakes for "nothing
             # happened". Say so on stderr; the handlers are already closed by this point.
             sys.stderr.write(f"[shutdown] trace summary not written: {error!r}\n")
 
 
-# FUNCTION: run_application
 # SUMMARY: Entry point wrapper that handles application execution and error scenarios.
 # RAISES: SystemExit: For various error conditions.
 def run_application() -> None:
-    # **LOGIC_STEP**: Execute main function.
+    # Execute main function.
     try:
         main()
     except KeyboardInterrupt:

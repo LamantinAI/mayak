@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # FILE: validate_secrets.py
-# SUMMARY: Scan tracked text files for credential-shaped literals so a key cannot reach a commit.
+# Scan tracked text files for credential-shaped literals so a key cannot reach a commit.
 #
 # Nothing in this repository looked for secrets before: not the pre-commit hook, not any of the
 # eight CI jobs. A key pasted into a config file or a test fixture would have travelled to the
@@ -26,35 +26,29 @@ from ai_context.validator_contract import build_validator_issue_payload
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-# ATTRIBUTE: SECRET_RULE_ID (str)
-# SUMMARY: Stable rule id reported when a credential-shaped literal is found.
+# Stable rule id reported when a credential-shaped literal is found.
 SECRET_RULE_ID = "secrets.credential_literal"
 
-# ATTRIBUTE: ALLOW_MARKER (str)
-# SUMMARY: Inline marker that clears one line, for placeholders a pattern cannot tell from the real thing.
+# Inline marker that clears one line, for placeholders a pattern cannot tell from the real thing.
 ALLOW_MARKER = "allow-secret"
 
-# ATTRIBUTE: ALLOW_FILE_MARKER (str)
-# SUMMARY: Marker that clears a whole file, for fixture collections where every literal is synthetic.
-# NOTE: Line-level marking loses to the formatter in a parametrized test: `ruff format` reflows the
+# Marker that clears a whole file, for fixture collections where every literal is synthetic.
+# Line-level marking loses to the formatter in a parametrized test: `ruff format` reflows the
 # case across several lines and the trailing comment lands on the closing bracket, a line away from
 # the literal. Whole-file scope is the honest granularity for a file that exists to hold fake keys.
 # Write it with a reason, and never on a file that also holds real configuration.
 ALLOW_FILE_MARKER = "allow-secret-file"
 
-# ATTRIBUTE: _SKIPPED_SUFFIXES (frozenset[str])
-# SUMMARY: Binary and vendored file types that never hold reviewable source text.
+# Binary and vendored file types that never hold reviewable source text.
 _SKIPPED_SUFFIXES: frozenset[str] = frozenset(
     {".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf", ".woff", ".woff2", ".lock", ".ndjson"}
 )
 
-# ATTRIBUTE: _SKIPPED_DIRS (tuple[str, ...])
-# SUMMARY: Path prefixes excluded from the scan. A project that vendors third-party blobs adds
-#          their directory here rather than teaching the patterns to tolerate binary noise.
+# Path prefixes excluded from the scan. A project that vendors third-party blobs adds
+# their directory here rather than teaching the patterns to tolerate binary noise.
 _SKIPPED_DIRS: tuple[str, ...] = ("logs/",)
 
-# ATTRIBUTE: _PATTERNS (tuple[tuple[str, re.Pattern[str]], ...])
-# SUMMARY: Credential shapes issued by a provider, each named so the report says what was found.
+# Credential shapes issued by a provider, each named so the report says what was found.
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("private key block", re.compile(r"-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----")),
     ("AWS access key id", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
@@ -96,9 +90,8 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("JSON Web Token", re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+")),
 )
 
-# ATTRIBUTE: _PLACEHOLDER_HINTS (tuple[str, ...])
-# SUMMARY: Substrings that mark a matched value as an obvious stand-in rather than a live credential.
-# NOTE: These are tested against the MATCHED VALUE, never against the whole line. Matching the line
+# Substrings that mark a matched value as an obvious stand-in rather than a live credential.
+# These are tested against the MATCHED VALUE, never against the whole line. Matching the line
 # silenced real keys whenever an ordinary word happened to share it: `AKIA... # rotate immediately
 # if invalid` was skipped because the comment said "invalid", and the same went for "dummy",
 # "your-" and "test-key" appearing anywhere in a sentence. A hint has to be inside the credential
@@ -115,8 +108,7 @@ _PLACEHOLDER_HINTS: tuple[str, ...] = (
     "sk-test",
 )
 
-# ATTRIBUTE: _SECRETS_RULE_PLAYBOOKS (dict[str, dict[str, object]])
-# SUMMARY: Stable rule_id → playbook mapping consumed by `query_ai_context.py failure rule`.
+# Stable rule_id → playbook mapping consumed by `query_ai_context.py failure rule`.
 _SECRETS_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
     SECRET_RULE_ID: {
         "meaning": (
@@ -148,37 +140,29 @@ _SECRETS_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
 }
 
 
-# CLASS: SecretIssue
-# SUMMARY: One credential-shaped literal found in a tracked file.
+# One credential-shaped literal found in a tracked file.
 @dataclass(frozen=True)
 class SecretIssue:
-    # ATTRIBUTE: rule_id (str)
-    # SUMMARY: Stable identifier of the violated rule.
+    # Stable identifier of the violated rule.
     rule_id: str
 
-    # ATTRIBUTE: source_file (str)
-    # SUMMARY: Repo-relative path of the file holding the literal.
+    # Repo-relative path of the file holding the literal.
     source_file: str
 
-    # ATTRIBUTE: line (int)
-    # SUMMARY: 1-based line number of the match.
+    # 1-based line number of the match.
     line: int
 
-    # ATTRIBUTE: kind (str)
-    # SUMMARY: Which credential shape matched, e.g. "AWS access key id".
+    # Which credential shape matched, e.g. "AWS access key id".
     kind: str
 
-    # ATTRIBUTE: message (str)
-    # SUMMARY: Human-readable description naming the shape but never the value.
+    # Human-readable description naming the shape but never the value.
     message: str
 
-    # ATTRIBUTE: severity (str)
-    # SUMMARY: 'error' (blocks the gate), 'warning', or 'info'.
+    # 'error' (blocks the gate), 'warning', or 'info'.
     severity: str = "error"
 
 
-# FUNCTION: get_secrets_rule_playbook
-# SUMMARY: Return a copy of the playbook for a secrets rule_id, or None if unknown.
+# Return a copy of the playbook for a secrets rule_id, or None if unknown.
 def get_secrets_rule_playbook(rule_id: str) -> dict[str, object] | None:
     playbook = _SECRETS_RULE_PLAYBOOKS.get(rule_id)
     if playbook is None:
@@ -186,9 +170,8 @@ def get_secrets_rule_playbook(rule_id: str) -> dict[str, object] | None:
     return dict(playbook)
 
 
-# FUNCTION: _tracked_files
-# SUMMARY: List the repository's tracked files, so untracked scratch work is never scanned.
-# OUTPUT: (list[str]): Repo-relative paths, empty when git is unavailable.
+# List the repository's tracked files, so untracked scratch work is never scanned.
+# (list[str]): Repo-relative paths, empty when git is unavailable.
 def _tracked_files(root_dir: Path) -> list[str]:
     try:
         completed = subprocess.run(
@@ -202,18 +185,16 @@ def _tracked_files(root_dir: Path) -> list[str]:
     return [line for line in completed.stdout.splitlines() if line]
 
 
-# FUNCTION: is_allowed
-# SUMMARY: Report whether the marker clears this match, on the line itself or the one just above.
-# NOTE: A same-line marker alone is not enough: `ruff format` reflows a long line and carries the
+# Report whether the marker clears this match, on the line itself or the one just above.
+# A same-line marker alone is not enough: `ruff format` reflows a long line and carries the
 # trailing comment to the closing bracket, which is a different line from the literal. The
 # preceding-line form is the one that survives the formatter.
 def is_allowed(line: str, previous_line: str = "") -> bool:
     return ALLOW_MARKER in line or ALLOW_MARKER in previous_line
 
 
-# FUNCTION: scan_line
-# SUMMARY: Return the credential shape matched on a line, or None when the line is clean.
-# NOTE: The matched value is never returned or printed. A validator that echoes the secret it found
+# Return the credential shape matched on a line, or None when the line is clean.
+# The matched value is never returned or printed. A validator that echoes the secret it found
 # writes it into CI logs, which is the one place it must not end up.
 def scan_line(line: str, previous_line: str = "") -> str | None:
     if is_allowed(line, previous_line):
@@ -222,7 +203,7 @@ def scan_line(line: str, previous_line: str = "") -> str | None:
         match = pattern.search(line)
         if match is None:
             continue
-        # **LOGIC_STEP**: Judge the matched value, not its neighbours on the line.
+        # Judge the matched value, not its neighbours on the line.
         value = match.group(0).lower()
         if any(hint in value for hint in _PLACEHOLDER_HINTS):
             continue
@@ -230,9 +211,8 @@ def scan_line(line: str, previous_line: str = "") -> str | None:
     return None
 
 
-# FUNCTION: collect_secret_issues
-# SUMMARY: Scan every tracked text file and report credential-shaped literals.
-# INPUT: files (Sequence[str] | None): Optional explicit file list, used by tests and hooks.
+# Scan every tracked text file and report credential-shaped literals.
+# files (Sequence[str] | None): Optional explicit file list, used by tests and hooks.
 def collect_secret_issues(root_dir: Path, files: Sequence[str] | None = None) -> list[SecretIssue]:
     own_path = Path(__file__).resolve()
     candidates = list(files) if files is not None else _tracked_files(root_dir)
@@ -242,7 +222,7 @@ def collect_secret_issues(root_dir: Path, files: Sequence[str] | None = None) ->
         if relative.startswith(_SKIPPED_DIRS) or Path(relative).suffix in _SKIPPED_SUFFIXES:
             continue
         path = root_dir / relative
-        # **LOGIC_STEP**: Skip this file's own pattern table, which is credential-shaped by design.
+        # Skip this file's own pattern table, which is credential-shaped by design.
         if not path.is_file() or path.resolve() == own_path:
             continue
         try:
@@ -272,8 +252,7 @@ def collect_secret_issues(root_dir: Path, files: Sequence[str] | None = None) ->
     return issues
 
 
-# FUNCTION: _issue_to_payload
-# SUMMARY: Render one issue in the shared machine-readable validator shape.
+# Render one issue in the shared machine-readable validator shape.
 def _issue_to_payload(issue: SecretIssue) -> dict[str, object]:
     return build_validator_issue_payload(
         rule_id=issue.rule_id,
@@ -287,9 +266,8 @@ def _issue_to_payload(issue: SecretIssue) -> dict[str, object]:
     )
 
 
-# FUNCTION: main
-# SUMMARY: Run the secret scan and return a process exit code.
-# OUTPUT: (int): Zero when no tracked file carries a credential-shaped literal.
+# Run the secret scan and return a process exit code.
+# (int): Zero when no tracked file carries a credential-shaped literal.
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Scan tracked files for credential-shaped literals."

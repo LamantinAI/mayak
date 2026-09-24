@@ -17,11 +17,9 @@ def _wire_ok_route(app: FastAPI, path: str) -> None:
     app.add_api_route(path, _ok, methods=["GET"])
 
 
-# CLASS: tests.integration.test_trace_propagation.TestTracePropagation
 # SUMMARY: Trace headers supplied by the client surface in the response. Uses a non-/health endpoint
 # because middleware short-circuits on /health when sampling decides not to log.
 class TestTracePropagation:
-    # FUNCTION: test_valid_uuid_request_id_echoed_in_response
     # SUMMARY: A UUID4-shaped X-Request-ID is preserved through the middleware to the response header.
     @pytest.mark.integration
     async def test_valid_uuid_request_id_echoed_in_response(
@@ -33,7 +31,6 @@ class TestTracePropagation:
         assert response.status_code == 200
         assert response.headers["X-Request-ID"] == trace_id
 
-    # FUNCTION: test_traceparent_extracted_as_request_id
     # SUMMARY: A W3C traceparent header surfaces its 32-hex trace_id segment as the response X-Request-ID.
     @pytest.mark.integration
     async def test_traceparent_extracted_as_request_id(
@@ -45,7 +42,6 @@ class TestTracePropagation:
         assert response.status_code == 200
         assert response.headers["X-Request-ID"] == "0af7651916cd43dd8448eb211c80319c"
 
-    # FUNCTION: test_request_id_reaches_a_handled_error_response_too
     # SUMMARY: The header is stamped on the ASGI response the middleware's own `send` sees — which
     # covers a success and a *handled* error alike, since both are ordinary ASGI messages flowing
     # back up through this middleware. Only a truly unhandled exception skips it: it unwinds past

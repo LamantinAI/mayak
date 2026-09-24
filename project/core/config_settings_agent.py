@@ -1,6 +1,6 @@
 # FILE: project/core/config_settings_agent.py
 # SUMMARY: Settings for the agent runtime — LLM behaviour, prompt location, readiness strategy.
-# NOTE: This file and its prefix were called LangGraph until the template stopped shipping that
+# This file and its prefix were called LangGraph until the template stopped shipping that
 # library. Nothing here was ever LangGraph-specific; the name simply outlived the dependency, and
 # a settings class named after a package the code does not import is a false clue for the next
 # reader. AGENT_ says what these knobs actually configure.
@@ -12,10 +12,8 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-# CLASS: project.core.config_settings_agent.AgentSettings
 # SUMMARY: Configuration for agent execution: LLM mode, generation limits, prompts, readiness.
 class AgentSettings(BaseSettings):
-    # ATTRIBUTE: model_config (SettingsConfigDict)
     # SUMMARY: Pydantic configuration for AGENT_-prefixed environment variables.
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -25,7 +23,6 @@ class AgentSettings(BaseSettings):
         env_prefix="AGENT_",
     )
 
-    # ATTRIBUTE: default_llm_temperature (float)
     # SUMMARY: Default LLM temperature.
     default_llm_temperature: float = Field(
         default=0.2,
@@ -34,7 +31,6 @@ class AgentSettings(BaseSettings):
         description="Default LLM temperature",
     )
 
-    # ATTRIBUTE: max_tokens (int)
     # SUMMARY: Maximum tokens for LLM responses.
     # 4096 rather than the more common 2000. A structured answer — several sections with nested
     # bullet lists — crosses 2000 tokens easily, and the provider truncates mid-sentence rather
@@ -44,7 +40,6 @@ class AgentSettings(BaseSettings):
     # A project that answers in short form lowers it via AGENT_MAX_TOKENS.
     max_tokens: int = Field(default=4096, gt=0, description="Maximum tokens for LLM responses")
 
-    # ATTRIBUTE: max_llm_call_retries (int)
     # SUMMARY: Maximum retry attempts for LLM calls.
     max_llm_call_retries: int = Field(
         default=3,
@@ -52,20 +47,17 @@ class AgentSettings(BaseSettings):
         description="Maximum retry attempts for LLM calls",
     )
 
-    # ATTRIBUTE: llm_mode (Literal["live", "mock"])
     # SUMMARY: Select whether the agent uses a real provider or deterministic mock backend.
     llm_mode: Literal["live", "mock"] = Field(
         default="mock",
         description="Execution mode for the LLM backend",
     )
 
-    # ATTRIBUTE: prompts_dir (Path)
     # SUMMARY: Base directory for system prompt files.
     prompts_dir: Path = Field(default=Path("project/prompts"), description="Prompts directory")
 
-    # ATTRIBUTE: llm_readiness_check_mode (Literal["probe", "init"])
     # SUMMARY: Strategy for readiness checks against the configured LLM service.
-    # NOTE: In "probe" mode (non-mock), every /health/ready round-trips to the real provider —
+    # In "probe" mode (non-mock), every /health/ready round-trips to the real provider —
     # llm_service_readiness.py's _run_readiness_probe calls async_client.create(...) or
     # llm.ainvoke(...). "init" checks only that the client was constructed at startup, at zero
     # ongoing provider cost, which is why it is the default: it never depends on a third party
@@ -100,7 +92,6 @@ class AgentSettings(BaseSettings):
         ),
     )
 
-    # ATTRIBUTE: llm_readiness_timeout_seconds (float)
     # SUMMARY: Timeout in seconds for external LLM readiness probes.
     llm_readiness_timeout_seconds: float = Field(
         default=5.0,
@@ -108,9 +99,8 @@ class AgentSettings(BaseSettings):
         description="Timeout in seconds for LLM readiness probe calls",
     )
 
-    # ATTRIBUTE: llm_readiness_critical (bool)
     # SUMMARY: Whether an unhealthy LLM check can flip the overall /health/ready verdict.
-    # NOTE: Default false. Full reasoning in ADR-008 — this is a pointer, not a second copy of it.
+    # Default false. Full reasoning in ADR-008 — this is a pointer, not a second copy of it.
     # The short version: the shipped reference vertical is storage-only and never calls the model,
     # and every replica of a deployment shares the same third-party provider, so an unconditional
     # vote turns one provider's bad minute into every replica failing readiness at once, with
@@ -128,19 +118,17 @@ class AgentSettings(BaseSettings):
         ),
     )
 
-    # ATTRIBUTE: system_prompt_name (str)
     # SUMMARY: Default filename for the system prompt.
     system_prompt_name: str = Field(
         default="example_assistant_prompt.txt",
         description="Default filename for the system prompt",
     )
 
-    # FUNCTION: validate_system_prompt_name
     # SUMMARY: Ensure the configured prompt name targets a text file.
     @field_validator("system_prompt_name")
     @classmethod
     def validate_system_prompt_name(cls, value: str) -> str:
-        # **LOGIC_STEP**: Require a .txt suffix to match prompt loader expectations.
+        # Require a .txt suffix to match prompt loader expectations.
         if not value.endswith(".txt"):
             raise ValueError("AGENT_SYSTEM_PROMPT_NAME must end with .txt")
         return value
