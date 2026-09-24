@@ -1229,10 +1229,10 @@ def tests_for_file(
             ]
         )
     # A changed migration's path is outside project/, so the architecture check
-    # alone would leave it with no validator at all. The ledger test is the one that goes red when
-    # a revision and the ORM metadata disagree, and it is cheap.
+    # alone would leave it with no validator at all. The db tier's `alembic check` is the test that
+    # goes red when a revision and the ORM metadata disagree.
     if normalized_path.startswith("alembic/"):
-        unit_tests.extend(["tests/application/test_validate_migrations.py"])
+        unit_tests.extend(["tests/db/test_migrations_match_models.py"])
 
     return tests_payload(
         unit_tests=normalize_test_candidates(unit_tests),

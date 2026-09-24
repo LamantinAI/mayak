@@ -40,12 +40,10 @@ Plus three wiring edits, all in the `caution` zone: `project/core/service_regist
 `tests/conftest.py` already provides `app_without_postgres` for file 9 — assemble against it for
 ADR-006 (routes absent, service key present and `None`) instead of rebuilding the fixture.
 
-Exactly **one** ledger asserts the exact set of tables in the metadata:
-`tests/application/test_validate_migrations.py`. A new table has to be listed there or the gate
-fails on a file you never opened. `tests/infrastructure/test_persistence_models.py` keeps only a
-membership check — a weaker claim that stays green when you add tables of your own; don't turn it
-back into a second ledger. `test_skill_texts_match_reality.py` fails if a second one appears
-anywhere in the tree.
+No test lists the tables. A table whose migration is missing fails `alembic check`, which the db
+tier runs inside `make test` (`tests/db/test_migrations_match_models.py`) — the claim a hand-kept
+list of table names used to stand in for, and one it made every project edit on its first table.
+`test_skill_texts_match_reality.py` fails if such a list comes back anywhere in the tree.
 
 ## Order of work
 
@@ -99,7 +97,7 @@ anywhere in the tree.
 7. **The endpoint and all three wiring files in the same step.** The endpoint's last import is the
    typed alias defined in `dependencies.py`. `service_registration.py` and `router_registration.py`
    belong here too — the next step's `TestWiring` reads both.
-8. Unit tests, the table ledger, and `make refresh-generated-docs` again.
+8. Unit tests, and `make refresh-generated-docs` again.
 9. `make quality-gates`, then `make test-e2e`.
 
 ## Two branches, one migration history
@@ -247,12 +245,8 @@ Nine more files carry the vertical without naming it:
 | `project/domain/ports.py` | `ReferenceTaskRepositoryPort` and its `ReferenceTask` import |
 | `project/infrastructure/persistence/orm_models.py` | `ReferenceTaskORM` and its `MAX_TITLE_LENGTH` import |
 | `project/infrastructure/persistence/__init__.py` | the worked-example sentence in the docstring |
-| `tests/infrastructure/test_persistence_models.py` | `TestReferenceTaskORMSchema`, `TestORMRegistry`, and the `ReferenceTaskORM` (plus `MAX_TITLE_LENGTH`) imports — **not the whole file**: `TestForeignKeysDeclareOnDelete` and its `_foreign_keys_missing_ondelete` helper guard every project's foreign keys, reference vertical or not, and stay |
-| `tests/application/test_validate_migrations.py` | the table ledger and the index assertion — **two red tests otherwise** |
 | `tests/application/test_ai_query_zone_lookup.py` | the vertical's paths in the parametrised control list |
 
-Skip the `test_persistence_models.py` row and `pytest` aborts on `ImportError` before a single test
-runs. Skip the `test_validate_migrations.py` row and two tests go red in an unrelated suite.
 
 Then the prose: `README.md`, `docs/agent_rules.md`, `PROJECT.md`, `docs/project_context.json`, the
 docstring example in `tests/conftest.py::registered_paths`, the span-name example in

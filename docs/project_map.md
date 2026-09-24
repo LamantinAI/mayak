@@ -270,7 +270,7 @@ Project Map: Mayak
 │   │   └── settings.py
 │   ├── infrastructure/
 │   │   ├── __init__.py  ---  Infrastructure layer test package.
-│   │   └── test_persistence_models.py  ---  Verify the kernel placeholder ORM (ReferenceTaskORM) declares the expected schema.
+│   │   └── test_persistence_models.py  ---  Every foreign key in the shipped metadata declares its deletion policy.
 │   ├── integration/
 │   │   ├── __init__.py  ---  Integration test package. Runtime integration coverage without Docker-heavy functional flows.
 │   │   ├── test_composition_root_lifecycle.py  ---  Smoke test that the assembled FastAPI app responds to /health/ inside a real lifespan.

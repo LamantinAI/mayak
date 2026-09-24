@@ -789,7 +789,7 @@ class TestWorksetFindsTestsNamedAfterTheFile:
         assert related["likely_unit_tests"], "the wiring hotspot still resolves to zero tests"
 
     @pytest.mark.unit
-    def test_a_changed_migration_pulls_its_validator_and_its_ledger(self) -> None:
+    def test_a_changed_migration_pulls_its_validator_and_the_schema_check(self) -> None:
         context_map, _, _ = query_common.context_bundle()
         revisions = sorted(
             (Path(__file__).resolve().parents[2] / "alembic" / "versions").glob("*.py")
@@ -799,7 +799,7 @@ class TestWorksetFindsTestsNamedAfterTheFile:
 
         related = _tests_for(context_map, revision)
 
-        assert "tests/application/test_validate_migrations.py" in related["likely_unit_tests"]
+        assert "tests/db/test_migrations_match_models.py" in related["likely_unit_tests"]
         assert any(
             "validate_migrations.py" in command for command in related["required_validators"]
         )

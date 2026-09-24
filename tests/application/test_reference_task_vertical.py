@@ -9,16 +9,18 @@ from __future__ import annotations
 import ast
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastapi import FastAPI
+from sqlalchemy import String, Table
 
 from ai_context.extraction import extract_service_registry_entries
 from project.application.reference_task_service import MAX_LIST_LIMIT, ReferenceTaskService
 from project.domain.exceptions import ValidationError
 from project.domain.ports import ReferenceTaskRepositoryPort
 from project.domain.reference_task import DEFAULT_STATUS, MAX_TITLE_LENGTH, ReferenceTask
+from project.infrastructure.persistence.orm_models import ReferenceTaskORM
 from tests.conftest import registered_paths
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -132,12 +134,15 @@ async def test_update_writes_the_patch_conditioned_on_the_timestamp_it_read() ->
     assert all(written.updated_at > _STORED.updated_at for written, _ in port.writes)
 
 
-# 200 as a literal, once: every other test builds its strings from the constant and moves with it.
-# `alembic check` in tests/db compares the migration's String(200) with the ORM column, which reads
-# the constant; this holds the constant to that same number.
+# 200 as a literal, once: every other test builds its strings from the constant. The column is read
+# off the metadata, so `String(200)` written in place of `String(MAX_TITLE_LENGTH)` is caught the day
+# the constant moves and the column does not; `alembic check` in tests/db holds the migration to it.
 @pytest.mark.unit
 def test_the_title_bound_is_the_width_of_the_column() -> None:
+    column = cast(Table, ReferenceTaskORM.__table__).columns["title"].type
+
     assert MAX_TITLE_LENGTH == 200
+    assert isinstance(column, String) and column.length == MAX_TITLE_LENGTH
 
 
 class TestWiring:

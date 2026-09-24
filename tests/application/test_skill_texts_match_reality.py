@@ -3,7 +3,7 @@
 # away from the code it instructs an agent to change.
 # Some tests read a SKILL.md and fail when it stops naming something real — they check that a
 # literal is PRESENT, not that the surrounding sentence is true. The rest never open a SKILL.md at
-# all: they pin the repository facts the prose rests on (both ledgers still pin an exact set, the
+# all: they pin the repository facts the prose rests on (no test lists the tables, the
 # detector recognises the spellings it claims to, the narrow grep really does miss files). No test
 # here can verify that a sentence means what it says — that is what a reader is for.
 
@@ -190,31 +190,20 @@ def _exact_table_set_assertions(path: Path) -> list[str]:
     return names
 
 
-class TestAddVerticalNamesEveryTableLedger:
-    # Verify no ledger exists that the skill fails to mention, and that the skill's one
-    # named ledger is the only one left in the tree — the same sentence pinned in two files at once
-    # cost two projects a red gate twice each.
+class TestNoTestListsTheTables:
+    # A hand-kept list of table names made every project edit a file it never opened on its first
+    # table, and turned red twice when two copies existed. `alembic check` in the db tier holds a
+    # table to its migration instead, so the skill says there is no list — this keeps it true.
     @pytest.mark.unit
-    def test_the_skill_names_the_one_ledger_and_no_second_one_exists(self) -> None:
-        skill_text = _ADD_VERTICAL.read_text(encoding="utf-8")
-        # The whole tree, not two directories — a ledger anywhere would turn a
-        # gate red, and "the gate fails in a file nobody told you about" is what this prevents.
+    def test_no_test_pins_the_exact_set_of_tables(self) -> None:
         carriers = [
-            path
+            str(path.relative_to(_REPO_ROOT))
             for directory in _LEDGER_SCAN_DIRECTORIES
             for path in sorted((_REPO_ROOT / directory).rglob("*.py"))
             if _exact_table_set_assertions(path)
         ]
 
-        unnamed = [str(p.relative_to(_REPO_ROOT)) for p in carriers if p.name not in skill_text]
-        assert unnamed == [], (
-            f"these tests pin the exact table set but the skill never names: {unnamed}"
-        )
-
-        relative = [str(p.relative_to(_REPO_ROOT)) for p in carriers]
-        assert relative == ["tests/application/test_validate_migrations.py"], (
-            f"the exact table set must be pinned in exactly this one place; found {relative}"
-        )
+        assert carriers == [], f"these tests pin the exact table set again: {carriers}"
 
     # Verify the scan is not defeated by a named constant, a set() call, or a sorted list —
     # and that a membership check (`in metadata.tables`), which stays green when a table is added,
@@ -359,7 +348,7 @@ def _contains_wrapped(phrase: str, text: str) -> bool:
 
 # Verify every file currently carrying the vertical is named by the deletion section, or
 # falls into one of the three exempt categories above — checking the actual sweep the skill tells a
-# reader to run, not merely the exact-table-set ledgers `TestAddVerticalNamesEveryTableLedger` names.
+# reader to run, not merely the exact-table-set lists `TestNoTestListsTheTables` keeps out.
 class TestDeletionAccountsForEveryMatch:
     @pytest.mark.unit
     def test_every_current_match_is_named_or_exempt(self) -> None:
