@@ -76,6 +76,8 @@ Project Map: Mayak
 │   │   ├── ADR-010-what-the-gates-do-not-see.md
 │   │   ├── ADR-011-one-rendered-wrapper.md
 │   │   └── README.md
+│   ├── mutations/
+│   │   └── reference_task.json
 │   ├── agent_rules.md
 │   ├── ai_change_map.json
 │   ├── ai_context_map.json
@@ -165,6 +167,7 @@ Project Map: Mayak
 │   ├── generate_ai_context.py  ---  Generate or verify the AI-friendly repository context artifacts consumed by onboarding docs and query tooling.
 │   ├── query_ai_context.py  ---  Query the AI context artifacts through stable commands so agents can inspect wiring, impact, and validation guidance without broad repo scans.
 │   ├── run_all_tests.py  ---  Canonical test runner for AI agents and developers that executes the project's local and functional test suites through one entrypoint.
+│   ├── run_mutations.py  ---  Break the reference vertical one defect at a time and record which test suite, and which test, notices.
 │   ├── structure_builder.py  ---  A utility script to generate a project tree map with file summaries extracted from CBM tags, using the git index (tracked + untracked-not-ignored files) so the map is hermetic across worktrees and checkouts.
 │   ├── sync_agent_docs.py  ---  Generate or verify the agent instruction wrappers from the shared agent rules source.
 │   ├── validate_architecture.py  ---  Repository utility that enforces the hexagonal architecture import boundaries for production modules.
