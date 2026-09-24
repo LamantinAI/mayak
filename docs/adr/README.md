@@ -29,7 +29,7 @@ When an ADR is the right place — one of three, and only one holds any given fa
 | while editing any of several files under one convention | **here** |
 | while somewhere else entirely, or tied to no code | the agent's external memory |
 
-An ADR is for the decision no single file owns: CBM strictness governs every module, the size budget
+An ADR is for the decision no single file owns: the file header governs every module, the size budget
 governs every module, the Python floor governs the whole toolchain. Write it once here and point at
 it from the code, rather than repeating the reasoning in each governed file. Do not restate an ADR's
 content in a memory node, or a memory node's content here — two copies of one fact drift, and nothing

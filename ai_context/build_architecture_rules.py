@@ -24,7 +24,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 # Derive the Python version policy from pyproject.toml and .python-version.
-# (dict[str, str]): Minimum, local toolchain, mypy target and CI versions.
+# Returns: Minimum, local toolchain, mypy target and CI versions.
 def _python_runtime_policy() -> dict[str, str]:
     # These five values are derived rather than typed out by hand, because nothing
     # would check a hand-typed copy against pyproject.toml — a version bump would leave the
@@ -194,15 +194,9 @@ def build_architecture_rules() -> dict[str, object]:
             ],
         },
         "cbm_policy": {
-            "strict_core": ["file headers", "classes", "public functions", "__init__"],
-            "optional_detail": ["attributes", "private helpers"],
-            "logic_step_when_to_use": [
-                "branching logic",
-                "side effects",
-                "security nuances",
-                "lifecycle nuances",
-                "wiring nuances",
-                "non-obvious invariants",
-            ],
+            "required": ["file header in every project/*.py: '# FILE:' then '# SUMMARY:'"],
+            "below_the_header": "no markup; a comment says why, never what a name or "
+            "signature already says",
+            "adr": "docs/adr/ADR-001-pragmatic-cbm.md",
         },
     }

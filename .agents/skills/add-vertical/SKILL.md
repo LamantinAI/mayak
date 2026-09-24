@@ -296,7 +296,7 @@ the vertical without appearing below — trust that test, and the table it check
 | `tests/application/test_query_ai_context.py` | functional-test paths inside a fixture list |
 | `scripts/validate_test_quality.py` | one query in a comment, illustrating a rule |
 | `tests/application/test_sync_agent_docs.py` | asserts the generated Quick Start does **not** name the vertical |
-| `ai_context/dynamic_imports.py` | a `# NOTE:` about `project/domain/reference_task.py`'s line count |
+| `ai_context/dynamic_imports.py` | a comment about `project/domain/reference_task.py`'s line count |
 | `ai_query/common.py` | a comment illustrating the vertical-name-from-path heuristic |
 | `tests/application/test_client_errors_are_not_service_errors.py` | a fixture `POST /reference-tasks` |
 | `tests/application/test_functional_request_helpers.py` | a fixture `GET /reference-tasks/<uuid>` |

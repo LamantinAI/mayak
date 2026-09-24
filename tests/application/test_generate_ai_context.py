@@ -21,9 +21,7 @@ from scripts.generate_ai_context import (
 from scripts.validate_architecture import get_layer_rules
 
 
-# SUMMARY: Verify the AI context map exposes the expected sections and deterministic serialization.
 class TestGenerateAIContext:
-    # SUMMARY: Verify the generated context map exposes all fixed top-level sections used by onboarding.
     @pytest.mark.unit
     def test_build_context_map_contains_required_sections(self) -> None:
         payload: dict[str, Any] = build_context_map()
@@ -116,7 +114,6 @@ class TestGenerateAIContext:
         assert "project/core/" in payload["template_kernel_paths"]
         assert "memory" not in payload["service_registry"]
 
-    # SUMMARY: Verify service extraction supports plain dict assignments used by the composition root.
     @pytest.mark.unit
     def test_extract_services_from_regular_assignment(self, tmp_path: Path) -> None:
         source_path = tmp_path / "services_assign.py"
@@ -139,7 +136,6 @@ class TestGenerateAIContext:
 
         assert sorted(result) == ["alpha", "beta"]
 
-    # SUMMARY: Verify service extraction supports typed dict assignments used by vertical registries.
     @pytest.mark.unit
     def test_extract_services_from_annotated_assignment(self, tmp_path: Path) -> None:
         source_path = tmp_path / "services_annassign.py"
@@ -164,7 +160,6 @@ class TestGenerateAIContext:
             "reference_task_service",
         ]
 
-    # SUMMARY: Verify typed assignments to other variables do not leak into the requested service registry.
     @pytest.mark.unit
     def test_extract_services_ignores_other_assignments(self, tmp_path: Path) -> None:
         source_path = tmp_path / "services_other.py"
@@ -185,7 +180,6 @@ class TestGenerateAIContext:
 
         assert result == {}
 
-    # SUMMARY: Verify a registry returned inline, with no local variable at all, is still read.
     # `services = {...}` is the reference vertical's spelling, not a rule the language
     # enforces. An extractor recognizing only that shape misses a builder that returns the literal
     # instead: it extracts to an empty registry, which docs/ai_context_map.json then reports as a
@@ -213,7 +207,6 @@ class TestGenerateAIContext:
 
         assert sorted(result) == ["reference_task_service"]
 
-    # SUMMARY: Verify a registry built under another name and then returned is read from the return.
     @pytest.mark.unit
     def test_extract_services_follows_a_returned_variable_of_any_name(self, tmp_path: Path) -> None:
         source_path = tmp_path / "services_returned_variable.py"
@@ -236,7 +229,6 @@ class TestGenerateAIContext:
 
         assert sorted(result) == ["reference_task_service"]
 
-    # SUMMARY: Verify an unrelated dict-returning helper contributes no phantom services.
     # Reading returns rather than one variable name is what lets a differently-spelled
     # builder be found; done naively it also turns every mapping in the file — request headers,
     # an error body — into service entries. Nothing would go red: the map is generated, so it
@@ -272,7 +264,6 @@ class TestGenerateAIContext:
 
         assert sorted(result) == ["reference_task_service"]
 
-    # SUMMARY: Verify a name bound in one builder cannot answer for the return of another.
     # service_registration.py is where every vertical's builder lands, so a file with
     # several of them is the normal case, and each is free to call its local mapping the same
     # thing. Resolved file-wide, the last binding wins and the earlier vertical vanishes.
@@ -306,14 +297,12 @@ class TestGenerateAIContext:
 
         assert sorted(result) == ["first_service", "second_service"]
 
-    # SUMMARY: Verify JSON rendering is stable and newline-terminated for drift checks.
     @pytest.mark.unit
     def test_render_json_is_deterministic(self) -> None:
         rendered = render_json({"b": 1, "a": ["x"]})
 
         assert rendered == '{\n  "a": [\n    "x"\n  ],\n  "b": 1\n}\n'
 
-    # SUMMARY: Verify the generated task index exposes common edit flows and the shared golden path.
     @pytest.mark.unit
     def test_build_change_map_contains_common_agent_tasks(self) -> None:
         payload: dict[str, Any] = build_change_map()
@@ -345,7 +334,6 @@ class TestGenerateAIContext:
             in payload["tasks"]["add_endpoint"]["common_mistakes"]
         )
 
-    # SUMMARY: Verify machine-readable architecture rules expose layer constraints and Python version policy.
     @pytest.mark.unit
     def test_build_architecture_rules_contains_runtime_policy(self) -> None:
         payload: dict[str, Any] = build_architecture_rules()
@@ -387,11 +375,7 @@ class TestGenerateAIContext:
         )
         assert "project/core/logging/" in payload["cold_paths"]
         assert "AGENTS.md" in payload["read_last_paths"]
-        assert payload["cbm_policy"]["optional_detail"] == [
-            "attributes",
-            "private helpers",
-        ]
-        assert "branching logic" in payload["cbm_policy"]["logic_step_when_to_use"]
+        assert payload["cbm_policy"]["adr"] == "docs/adr/ADR-001-pragmatic-cbm.md"
         assert payload["query_cli"]["path"] == "scripts/query_ai_context.py"
         assert payload["query_cli"]["recommended_first_step"] == (
             "uv run python scripts/query_ai_context.py bootstrap"
@@ -498,7 +482,6 @@ class TestGenerateAIContext:
             "scripts/validate_runtime_ownership.py"
         )
 
-    # SUMMARY: Verify integrity checks fail when an alias points to a getter that does not exist.
     @pytest.mark.unit
     def test_integrity_report_rejects_missing_dependency_getter(self) -> None:
         report: dict[str, Any] = _build_integrity_report(
@@ -525,7 +508,6 @@ class TestGenerateAIContext:
         assert any("missing getter" in error for error in report["errors"])
         assert report["issues"][0]["issue_type"] == "dependency_getter_missing"
 
-    # SUMMARY: Verify integrity checks fail when getters or route dependencies point at absent services.
     @pytest.mark.unit
     def test_integrity_report_rejects_missing_service_key_references(self) -> None:
         report: dict[str, Any] = _build_integrity_report(
@@ -565,7 +547,6 @@ class TestGenerateAIContext:
         assert report["status"] == "error"
         assert any("missing service key" in error for error in report["errors"])
 
-    # SUMMARY: Verify integrity checks fail when an imported router module is absent from the extracted route inventory.
     @pytest.mark.unit
     def test_integrity_report_rejects_missing_router_inventory(self) -> None:
         report: dict[str, Any] = _build_integrity_report(
@@ -578,7 +559,6 @@ class TestGenerateAIContext:
         assert report["status"] == "error"
         assert any("missing from route_inventory" in error for error in report["errors"])
 
-    # SUMMARY: Verify check mode reports drift when one of the generated output files does not exist.
     @pytest.mark.unit
     def test_main_check_mode_fails_when_output_file_is_missing(
         self,
@@ -601,7 +581,6 @@ class TestGenerateAIContext:
 
         assert exit_code == 1
 
-    # SUMMARY: Verify JSON check mode emits stable remediation metadata for generated-artifact drift.
     @pytest.mark.unit
     def test_main_check_mode_json_reports_structured_drift_issue(
         self,
@@ -632,7 +611,6 @@ class TestGenerateAIContext:
         assert '"rule_id": "drift.generated.missing"' in captured.out
         assert '"suggested_fix"' in captured.out
 
-    # SUMMARY: Verify syntax failures in AST extraction degrade into a machine-readable error instead of a traceback.
     @pytest.mark.unit
     def test_main_json_reports_structured_syntax_error(
         self,
@@ -666,7 +644,6 @@ class TestGenerateAIContext:
         assert '"degraded_status": "syntax_error"' in captured.out
         assert '"issue_type": "syntax_error"' in captured.out
 
-    # SUMMARY: Verify the text output names a rule_id that `failure rule` can actually resolve.
     @pytest.mark.unit
     def test_text_check_mode_prints_a_resolvable_failure_rule_id(
         self,
@@ -703,7 +680,6 @@ class TestGenerateAIContext:
         for rule_id in printed_rules:
             assert failure_playbook(rule_id)["rule_id"] == rule_id
 
-    # SUMMARY: Verify the rule line is skipped, not crashed on, for issues that carry issue_type only.
     @pytest.mark.unit
     def test_text_mode_syntax_error_survives_a_payload_without_a_rule_id(
         self,

@@ -51,7 +51,7 @@ Where a fact goes — one fact, one place:
 - Needed while editing this file → a code comment, in full: what and why — the channel that measurably reaches an agent, more than any generated map.
 - Needed while editing several files under one convention → `docs/adr/`, one dated decision per document, not repeated in every file it governs.
 - When a decision rests on dated, bulky evidence, keep the conclusion and the number, and say how to reproduce the measurement rather than pasting the table.
-- Documentation costs nothing against the size budget — `scripts/validate_module_sizes.py` charges only executable lines. `# INPUT:`/`# OUTPUT:` earn their line only when they state something the signature cannot — ADR-001.
+- Documentation costs nothing against the size budget — `scripts/validate_module_sizes.py` charges only executable lines. A Python file opens with its header, `# FILE:` and `# SUMMARY:`; below it there is no markup, and a comment says why, never what a name or signature already says — ADR-001.
 - The template ships no external memory integration; a project that wants one keeps it in that project, not the kernel.
 
 Validator authoring conventions:
