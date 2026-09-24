@@ -85,7 +85,7 @@ class ModuleSizeIssue:
     line: int = 1
 
     # Render the one-sentence diagnostic for this issue, so every surface — CLI, JSON, doctor — says the same thing instead of each rebuilding its own wording.
-    # (str): Human-readable description including the relevant budget.
+    # Returns: Human-readable description including the relevant budget.
     def describe(self) -> str:
         if self.rule_id == READ_ERROR_RULE_ID:
             return f"{self.path}: {self.message or 'read error'} — re-save as UTF-8"
@@ -101,8 +101,8 @@ class ModuleSizeIssue:
 
 
 # Determine whether a file should be checked against the production size limit.
-# path (Path): Repository-relative file path.
-# (bool): True when the file is a production Python module under project/** and not excluded.
+# path: Repository-relative file path.
+# Returns: True when the file is a production Python module under project/** and not excluded.
 def _is_target_module(path: Path) -> bool:
     return (
         len(path.parts) >= 2
@@ -165,7 +165,7 @@ def collect_module_size_issues(root_dir: Path) -> list[ModuleSizeIssue]:
 # test file. Kept rather than removed because the split it reports is the answer to "why is this
 # module over budget when half of it is comments"; delete it, and the seven tests that pin the
 # measurement, if nothing calls it by 2026-10.
-# (dict[str, ModuleMetrics]): Metrics keyed by repository-relative path.
+# Returns: Metrics keyed by repository-relative path.
 def collect_module_metrics(root_dir: Path) -> dict[str, ModuleMetrics]:
     measured: dict[str, ModuleMetrics] = {}
     for path in sorted((root_dir / "project").rglob("*.py")):
@@ -177,7 +177,7 @@ def collect_module_metrics(root_dir: Path) -> dict[str, ModuleMetrics]:
 
 
 # Convert a ModuleSizeIssue to a JSON-serialisable dict with remediation guidance.
-# (dict): JSON-friendly dict with rule_id, file, line_count, limit, and guidance fields.
+# Returns: JSON-friendly dict with rule_id, file, line_count, limit, and guidance fields.
 def _issue_to_json(issue: ModuleSizeIssue) -> dict:
     playbook = get_module_size_playbook(issue.rule_id)
     if issue.rule_id == READ_ERROR_RULE_ID:
@@ -251,8 +251,8 @@ def _issue_to_json(issue: ModuleSizeIssue) -> dict:
 
 
 # Return a failure-playbook dict for module-size rule_ids, used by query_ai_context.py. Accepts an optional rule_id to disambiguate between the size-budget rule and the read-error rule.
-# rule_id (str | None): Specific rule_id to look up, or None for the default size budget rule (back-compat).
-# (dict | None): Playbook dict, or None when rule_id is not a module_size rule.
+# rule_id: Specific rule_id to look up, or None for the default size budget rule (back-compat).
+# Returns: Playbook dict, or None when rule_id is not a module_size rule.
 def get_module_size_playbook(rule_id: str | None = None) -> dict | None:
     if rule_id is None or rule_id == RULE_ID:
         return {
@@ -335,7 +335,7 @@ def get_module_size_playbook(rule_id: str | None = None) -> dict | None:
 
 
 # Run the module size validator and print any violations.
-# (int): Zero when all target modules fit within the configured line budget.
+# Returns: Zero when all target modules fit within the configured line budget.
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Enforce module line-count budget.",

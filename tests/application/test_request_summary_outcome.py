@@ -20,12 +20,11 @@ from project.core.logging.logger import classify_request_outcome
 from project.domain.exceptions import ExternalServiceError, NotFoundError
 
 
-# SUMMARY: Request body used to trigger FastAPI's own validation failure.
+# Request body used to trigger FastAPI's own validation failure.
 class _Payload(BaseModel):
     number: int
 
 
-# SUMMARY: Build a router whose endpoints raise each error shape the classifier has to tell apart.
 def _probe_router() -> APIRouter:
     router = APIRouter()
 
@@ -48,7 +47,6 @@ def _probe_router() -> APIRouter:
     return router
 
 
-# SUMMARY: Return the payload of the most recent request.summary entry in a log_capture list.
 def _last_summary(captured: list[dict[str, Any]]) -> dict[str, Any]:
     summaries = [
         entry["kwargs"].get("data") or {}
@@ -59,7 +57,6 @@ def _last_summary(captured: list[dict[str, Any]]) -> dict[str, Any]:
     return dict(summaries[-1])
 
 
-# SUMMARY: Drive the real application stack in-process, with app exceptions surfaced as 500s.
 @pytest.fixture
 async def probe_client(fastapi_app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
     # raise_app_exceptions=False keeps the unhandled-exception case a real 500
@@ -70,7 +67,7 @@ async def probe_client(fastapi_app: FastAPI) -> AsyncGenerator[AsyncClient, None
         yield client
 
 
-# SUMMARY: The pure mapping from status code to outcome, including the no-status case.
+# The pure mapping from status code to outcome, including the no-status case.
 @pytest.mark.parametrize(
     ("status_code", "expected"),
     [
@@ -91,7 +88,7 @@ def test_classifier_maps_status_ranges(
     assert classify_request_outcome(status_code) is expected
 
 
-# SUMMARY: The case the old boolean got wrong — a 502 raised as a handled domain error.
+# The case the old boolean got wrong — a 502 raised as a handled domain error.
 async def test_upstream_failure_is_reported_as_server_error(
     probe_client: AsyncClient, log_capture: list[dict[str, Any]]
 ) -> None:
@@ -103,7 +100,7 @@ async def test_upstream_failure_is_reported_as_server_error(
     assert summary["status_code"] == 502
 
 
-# SUMMARY: 404 and 422 stay routine so the reader is not drowned in false alarms.
+# 404 and 422 stay routine so the reader is not drowned in false alarms.
 @pytest.mark.parametrize(
     ("method", "path", "body", "expected_status"),
     [
@@ -128,7 +125,6 @@ async def test_handled_client_errors_are_not_server_errors(
     assert summary["status_code"] == expected_status
 
 
-# SUMMARY: An exception escaping the span keeps its own path to SERVER_ERROR.
 async def test_unhandled_exception_is_reported_as_server_error(
     probe_client: AsyncClient, log_capture: list[dict[str, Any]]
 ) -> None:
@@ -140,7 +136,7 @@ async def test_unhandled_exception_is_reported_as_server_error(
     assert summary["error_count"] == 1
 
 
-# SUMMARY: A healthy request carries its status code, which the old payload omitted entirely.
+# A healthy request carries its status code, which the old payload omitted entirely.
 async def test_successful_request_reports_status_code(
     probe_client: AsyncClient, log_capture: list[dict[str, Any]]
 ) -> None:
@@ -152,10 +148,8 @@ async def test_successful_request_reports_status_code(
     assert summary["status_code"] == 200
 
 
-# SUMMARY: Every request.summary payload captured for one span name.
-# INPUT: captured (list[dict[str, Any]]): Entries collected by the log_capture fixture.
-# INPUT: span_name (str): Name of the span whose summaries are wanted.
-# OUTPUT: (list[dict[str, Any]]): Payloads, in emission order.
+# captured: Entries collected by the log_capture fixture.
+# Returns payloads, in emission order.
 def _summaries_for(captured: list[dict[str, Any]], span_name: str) -> list[dict[str, Any]]:
     return [
         entry["kwargs"]["data"]
@@ -165,7 +159,7 @@ def _summaries_for(captured: list[dict[str, Any]], span_name: str) -> list[dict[
     ]
 
 
-# SUMMARY: Verify a request is observable even when something else already holds a span open.
+# Verify a request is observable even when something else already holds a span open.
 # Every test above drives the app through ASGITransport with nothing wrapping the call, which
 # makes http_request a root span by accident. Production is the opposite: the launcher holds
 # `application_lifecycle` open around the whole of `uvicorn.run`, asyncio copies that context into
@@ -174,7 +168,6 @@ def _summaries_for(captured: list[dict[str, Any]], span_name: str) -> list[dict[
 # request.summary events while these tests stayed green. These cases wrap the client call in a span
 # on purpose, which is the only way to reproduce the deployed topology in-process.
 class TestTheRequestSpanBeginsItsOwnTrace:
-    # SUMMARY: Verify the request still reports itself when an outer span is already open.
     async def test_summary_is_emitted_even_inside_a_wrapping_span(
         self, probe_client: AsyncClient, log_capture: list[dict[str, Any]]
     ) -> None:
@@ -192,7 +185,6 @@ class TestTheRequestSpanBeginsItsOwnTrace:
         assert summary["status_code"] == 200
         assert summary["outcome"] == RequestOutcome.OK.value
 
-    # SUMMARY: Verify the emitted span.start carries no parent, which is what the renderer expects.
     async def test_the_request_span_is_a_trace_root(
         self, probe_client: AsyncClient, log_capture: list[dict[str, Any]]
     ) -> None:
@@ -214,7 +206,6 @@ class TestTheRequestSpanBeginsItsOwnTrace:
         assert starts, "the request opened no http_request span"
         assert all(start["parent_span_id"] is None for start in starts)
 
-    # SUMMARY: Verify each request reports its own span and error counts, not a running total.
     async def test_concurrent_requests_do_not_share_counters(
         self, probe_client: AsyncClient, log_capture: list[dict[str, Any]]
     ) -> None:

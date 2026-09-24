@@ -17,7 +17,7 @@ from project.core.logging.logger import get_logger
 from project.domain.exceptions import ConflictError
 from project.domain.reference_task import ReferenceTask, normalize_task_id
 
-# SUMMARY: Module logger, used to give every database call its own span under the request.
+# Module logger, used to give every database call its own span under the request.
 # Without these spans the database is invisible to the trace. Measured on a live container:
 # a request whose query returned the wrong rows rendered as `OK 200, 0 spans` — indistinguishable
 # from a correct one.
@@ -35,10 +35,9 @@ from project.domain.reference_task import ReferenceTask, normalize_task_id
 # discovering under load.
 logger = get_logger(__name__)
 
-# SUMMARY: Column list shared by every read query so the row mapper sees a stable shape.
+# Shared by every read query so the row mapper sees a stable shape.
 _COLUMNS = "id, title, details, status, created_at, updated_at"
 
-# SUMMARY: Single-row read, built once at import so no query text is assembled per call.
 # bandit reports B608 (hardcoded_sql_expressions) on both constants below, and the
 # suppression is a claim rather than a mute button. What earns it: the only interpolated value is
 # `_COLUMNS`, defined two lines up, while every value that comes from a caller travels as a `%s`
@@ -57,14 +56,12 @@ _COLUMNS = "id, title, details, status, created_at, updated_at"
 # place. Reasoning goes above the code; the marker itself carries only the rule id.
 _SELECT_BY_ID = f"SELECT {_COLUMNS} FROM reference_tasks WHERE id = %s"  # nosec B608
 
-# SUMMARY: Status-filtered read, newest first, with the page size bound as a parameter.
 _SELECT_BY_STATUS = (
     # Same reasoning as _SELECT_BY_ID above: only _COLUMNS is interpolated.
     f"SELECT {_COLUMNS} FROM reference_tasks "  # nosec B608
     "WHERE status = %s ORDER BY created_at DESC LIMIT %s"
 )
 
-# SUMMARY: Conditional write: it changes the row only while the row is still the one that was read.
 # `AND updated_at = %s` is the whole point of this statement, and the reason a vertical that
 # needs an update copies THIS rather than writing the obvious `WHERE id = %s`. Without it two
 # requests that read the same task and change different fields both report success and the second
@@ -83,13 +80,10 @@ _UPDATE_BY_ID = (
 )
 
 
-# SUMMARY: The unique index that holds "one open task per title" (migration b5e2c1a9d4f0).
+# The unique index that holds "one open task per title", created by migration b5e2c1a9d4f0.
 _OPEN_TITLE_INDEX = "uq_reference_tasks_open_title"
 
 
-# SUMMARY: Turn a write that would open a second task with a title into the domain's ConflictError.
-# RAISES: ConflictError: When the violated constraint is the open-title index; any other unique
-#         violation — a duplicate id — propagates unchanged.
 # The rule is enforced by the index, not checked here first: a read that finds the title free
 # and a write that follows are two statements, and a second request — in another process, where no
 # in-process lock reaches — can write between them. Measured in bench2 (2026-09): a rule held by
@@ -108,9 +102,7 @@ async def _open_title_taken_is_a_conflict(title: str) -> AsyncIterator[None]:
         raise ConflictError(f"An open reference task titled '{title}' already exists") from exc
 
 
-# SUMMARY: Convert one driver row into a domain object, normalizing driver-native types.
-# INPUT: row (Mapping[str, Any]): Row produced by psycopg's dict_row factory.
-# OUTPUT: (ReferenceTask): Domain object whose field types match the domain declaration.
+# row: Produced by psycopg's dict_row factory.
 def row_to_reference_task(row: Mapping[str, Any]) -> ReferenceTask:
     # psycopg returns a uuid.UUID for a uuid column and a Decimal for numeric,
     # regardless of how SQLAlchemy is configured — SQLAlchemy is not on this path at runtime.
@@ -127,15 +119,12 @@ def row_to_reference_task(row: Mapping[str, Any]) -> ReferenceTask:
     )
 
 
-# SUMMARY: Reference implementation of ReferenceTaskRepositoryPort over the shared psycopg pool.
+# Reference implementation of ReferenceTaskRepositoryPort.
 class ReferenceTaskRepository:
-    # SUMMARY: Store the shared pool built by CompositionRoot; repositories never open their own.
-    # INPUT: connection_pool (AsyncConnectionPool): Shared async PostgreSQL pool.
+    # Built by CompositionRoot; repositories never open their own.
     def __init__(self, connection_pool: AsyncConnectionPool) -> None:
         self._pool = connection_pool
 
-    # SUMMARY: Insert a single task.
-    # INPUT: task (ReferenceTask): Domain object to persist.
     async def add(self, task: ReferenceTask) -> None:
         with logger.span("db.reference_task.add", task_id=task.id, level=logging.INFO) as span:
             async with (
@@ -160,8 +149,6 @@ class ReferenceTaskRepository:
                 # that it happened, which reads the same in a trace whether a row landed or not.
                 span.output["rows_written"] = cursor.rowcount
 
-    # SUMMARY: Load one task by identifier.
-    # OUTPUT: (ReferenceTask | None): Domain object, or None when no row matches.
     async def get(self, task_id: str) -> ReferenceTask | None:
         # Canonicalised before the driver sees it, and answered here when it cannot
         # be. The id column is a uuid, and psycopg meets a malformed literal with
@@ -186,8 +173,7 @@ class ReferenceTaskRepository:
             span.output["row_found"] = row is not None
         return None if row is None else row_to_reference_task(row)
 
-    # SUMMARY: List tasks in one workflow status, newest first.
-    # OUTPUT: (list[ReferenceTask]): Domain objects ordered by creation time descending.
+    # Newest first.
     async def list_by_status(self, status: str, limit: int = 50) -> list[ReferenceTask]:
         with logger.span(
             "db.reference_task.list_by_status", status=status, limit=limit, level=logging.INFO
@@ -199,13 +185,12 @@ class ReferenceTaskRepository:
             span.output["row_count"] = len(rows)
         return [row_to_reference_task(row) for row in rows]
 
-    # SUMMARY: Write a changed task only while the stored row still carries the timestamp it was read with.
-    # OUTPUT: (ReferenceTask | None): The stored task, or None when no row matched the condition.
     async def update(
         self,
         task: ReferenceTask,
         expected_updated_at: datetime,
     ) -> ReferenceTask | None:
+        # None when no row matched the condition — the row moved since the read, or is gone.
         # Canonicalised for the same reason `get` does it: the id column is a uuid,
         # and a malformed literal reaches the client as a 500 rather than as the miss it is.
         canonical_id = normalize_task_id(task.id)

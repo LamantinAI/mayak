@@ -17,10 +17,8 @@ from project.core.logging import (
     summarize_mapping,
 )
 
-# SUMMARY: Semantic logger used for HTTP request tracing in middleware.
 logger = get_logger(__name__)
 
-# SUMMARY: Compiled regex pattern matching sensitive query parameter names.
 # This is defence in depth, not the defence. Query parameters reach the log through
 # summarize_mapping, which emits key names and a count and drops every value regardless of the
 # name — so no query-string value is logged whether this pattern matches it or not. Do not read
@@ -29,21 +27,17 @@ logger = get_logger(__name__)
 # sanitised mapping is the shape a future direct logger would reach for first.
 _SENSITIVE_PARAM_PATTERN = re.compile(r"(key|token|secret|password|auth|credential)", re.IGNORECASE)
 
-# SUMMARY: Acceptable inbound request-id format (UUIDv4 or 16-64 hex/dash chars).
+# Acceptable inbound request-id format (UUIDv4 or 16-64 hex/dash chars).
 # Defends against header injection: anything else is rejected and we mint a fresh UUID.
 _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-]{16,64}$")
 
-# SUMMARY: W3C traceparent header — `version-traceid-spanid-flags`. Extracts the trace_id segment.
+# W3C traceparent header — `version-traceid-spanid-flags`. Extracts the trace_id segment.
 # Per spec: 2 hex chars (version) - 32 hex chars (trace_id) - 16 hex chars (span_id) - 2 hex chars (flags).
 _TRACEPARENT_PATTERN = re.compile(r"^[0-9a-f]{2}-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}$")
 
-# SUMMARY: Recorded when a response never carried a readable content-type header.
 _UNKNOWN_CONTENT_TYPE = "unknown"
 
 
-# SUMMARY: Resolve a request id from inbound trace headers, falling back to a fresh UUID.
-# INPUT: request (Request): The incoming HTTP request whose headers are inspected.
-# OUTPUT: (str): A validated request id suitable for logging and trace correlation.
 def _extract_or_generate_request_id(request: Request) -> str:
     # Prefer an explicit X-Request-ID when present and well-formed.
     explicit = request.headers.get("x-request-id")
@@ -61,15 +55,11 @@ def _extract_or_generate_request_id(request: Request) -> str:
     return str(uuid.uuid4())
 
 
-# SUMMARY: Mask values of sensitive query parameters to prevent credential leakage in logs.
-# OUTPUT: (Dict[str, str]): Sanitized dictionary with sensitive values replaced by '***'.
 def _sanitize_params(params: Dict[str, str]) -> Dict[str, str]:
     # Iterate params and mask values whose keys match sensitive patterns.
     return {k: "***" if _SENSITIVE_PARAM_PATTERN.search(k) else v for k, v in params.items()}
 
 
-# SUMMARY: Parse a Content-Length header value, tolerating absence or garbage.
-# OUTPUT: (int | None): The parsed length, or None when absent or not an integer.
 def _parse_content_length(raw: str | None) -> int | None:
     if raw is None:
         return None
@@ -79,11 +69,7 @@ def _parse_content_length(raw: str | None) -> int | None:
         return None
 
 
-# SUMMARY: Return a raw ASGI header list with one name set to one value, dropping any duplicate.
-# INPUT: headers (list[tuple[bytes, bytes]]): Raw headers from an `http.response.start` message.
-# INPUT: name (bytes): Lower-case header name to set.
-# INPUT: value (bytes): Value to set it to.
-# OUTPUT: (list[tuple[bytes, bytes]]): Headers with exactly one entry for `name`.
+# name: Lower-case header name to set.
 # Mirrors starlette.datastructures.MutableHeaders.__setitem__ (drop existing, append once)
 # without constructing a MutableHeaders/Response just to change one header on a message we are
 # forwarding, not building.
@@ -95,7 +81,7 @@ def _with_header_replaced(
     return kept
 
 
-# SUMMARY: Accumulates response shape from the raw ASGI messages a downstream app sends; there is
+# Accumulates response shape from the raw ASGI messages a downstream app sends; there is
 # no Response object to inspect instead — BaseHTTPMiddleware never hands this class a real one.
 # starlette.middleware.base.BaseHTTPMiddleware.call_next does not return the endpoint's own
 # Response — it consumes the downstream ASGI messages and hands back its own private
@@ -109,28 +95,24 @@ def _with_header_replaced(
 # response_size would read None for every request, streaming or not. Reading the ASGI messages
 # directly, as below, is the only version of these two fields that observes what it claims to.
 class _ResponseObserver:
-    # SUMMARY: Start with the defaults each field falls back to when nothing overrides them.
     def __init__(self) -> None:
         self.status_code: int | None = None
         self.content_type: str = _UNKNOWN_CONTENT_TYPE
         self.response_type: str = "standard"
         self.response_size: int | str | None = None
-        # SUMMARY: Content-Length from `http.response.start`, used only if this turns out to be
+        # Content-Length from `http.response.start`, used only if this turns out to be
         # a pathsend (file) response — kept private because "standard" responses size themselves
         # from bytes actually seen, not from a header a handler could get wrong.
         self._content_length: int | None = None
         self._bytes_seen: int = 0
 
-    # SUMMARY: Capture status and content-type from `http.response.start`.
-    # INPUT: status (int | None): The response's HTTP status, as sent by the downstream app.
-    # INPUT: headers (list[tuple[bytes, bytes]]): Raw headers from the same message.
     def record_start(self, status: int | None, headers: list[tuple[bytes, bytes]]) -> None:
         self.status_code = status
         header_view = Headers(raw=headers)
         self.content_type = header_view.get("content-type", _UNKNOWN_CONTENT_TYPE)
         self._content_length = _parse_content_length(header_view.get("content-length"))
 
-    # SUMMARY: Record a zero-copy file response — the `http.response.pathsend` extension message.
+    # Record a zero-copy file response — the `http.response.pathsend` extension message.
     # FileResponse only sends this when the ASGI server advertises the extension, and only
     # after its own os.stat() call already set Content-Length (starlette.responses.FileResponse).
     # Reading that header back here is what lets this file skip a Path().stat() call — see the
@@ -139,9 +121,6 @@ class _ResponseObserver:
         self.response_type = "file"
         self.response_size = self._content_length
 
-    # SUMMARY: Fold one `http.response.body` message into the running response shape.
-    # INPUT: body (bytes): This message's chunk.
-    # INPUT: more_body (bool): Whether another body message will follow.
     # A response sent as a single message with more_body False or absent (plain
     # Response.__call__ — starlette.responses) stays "standard" and is sized by the bytes actually
     # seen. Any message with more_body True flips it to "streaming", which is the only signal pure
@@ -163,8 +142,6 @@ class _ResponseObserver:
                 # span-output fields already use for "nothing here" rather than a raw zero.
                 self.response_size = self._bytes_seen if self._bytes_seen else None
 
-    # SUMMARY: Render the accumulated shape as the span.output payload.
-    # OUTPUT: (dict[str, Any]): status_code, response_type, response_size, content_type.
     def as_span_output(self) -> dict[str, Any]:
         return {
             "status_code": self.status_code,
@@ -174,12 +151,9 @@ class _ResponseObserver:
         }
 
 
-# SUMMARY: Wrap a `send` callable to feed `observer` from the ASGI messages passing through it and
+# Wrap a `send` callable to feed `observer` from the ASGI messages passing through it and
 # stamp X-Request-ID onto the response, without buffering a single byte of the body.
-# INPUT: send (Send): The downstream `send` this middleware was given.
-# INPUT: request_id (str): Resolved request id to publish on the response.
-# INPUT: observer (_ResponseObserver): Sink for the response shape, read after the app returns.
-# OUTPUT: (Send): A `send` with the same signature, safe to hand to the wrapped app.
+# observer: Sink for the response shape, read after the app returns.
 def _observing_send(send: Send, request_id: str, observer: _ResponseObserver) -> Send:
     request_id_header = request_id.encode("latin-1")
 
@@ -201,7 +175,7 @@ def _observing_send(send: Send, request_id: str, observer: _ResponseObserver) ->
     return _send
 
 
-# SUMMARY: Pure-ASGI middleware providing AI-optimized semantic logging with request tracing.
+# Pure-ASGI middleware providing AI-optimized semantic logging with request tracing.
 # Pure ASGI, not starlette.middleware.base.BaseHTTPMiddleware. Starlette's own docs (and
 # https://github.com/encode/starlette/discussions/1737) recommend pure ASGI for hot-path
 # middleware for exactly the reason found above: BaseHTTPMiddleware runs the downstream app in a
@@ -212,11 +186,9 @@ def _observing_send(send: Send, request_id: str, observer: _ResponseObserver) ->
 # BaseHTTPMiddleware. Pure ASGI removes both problems at once: no task group, and the messages
 # this middleware wants to inspect all along instead of a rebuilt stand-in for them.
 class AILoggingMiddleware:
-    # SUMMARY: Store the wrapped ASGI application.
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
-    # SUMMARY: Process each HTTP request with comprehensive logging and error handling.
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         # Lifespan and websocket scopes carry none of the request shape below;
         # forward untouched, exactly as the BaseHTTPMiddleware version did for non-http scopes.

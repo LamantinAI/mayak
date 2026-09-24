@@ -16,13 +16,12 @@ from project.core.logging.trace_formatter import format_trace_for_llm, trace_inv
 _TRACE_ID = "eeeeeeee5555"
 
 
-# SUMMARY: Render one NDJSON log line.
 def _line(**event: Any) -> str:
     return json.dumps(event)
 
 
-# SUMMARY: The span.start/span.finish pair for a plain, successful http_request root span.
-# OUTPUT: (list[str]): Two NDJSON lines bracketing whatever child lines are inserted between them.
+# The span.start line of a plain, successful http_request root span; _http_root_finish is its
+# pair, and a test puts the child lines between the two.
 def _http_root_start(span_id: str = "root1") -> str:
     return _line(
         seq=1,
@@ -48,10 +47,10 @@ def _http_root_finish(span_id: str = "root1", seq: int = 9) -> str:
     )
 
 
-# SUMMARY: agent.tool.<name> spans render both the tool's name and the arguments it was called
+# agent.tool.<name> spans render both the tool's name and the arguments it was called
 # with — the gap two independent projects built on this template each worked around by hand.
 class TestToolSpanArgumentsAreVisible:
-    # SUMMARY: Verify the compact tree shows the tool name and its scalar input arguments inline.
+    # Verify the compact tree shows the tool name and its scalar input arguments inline.
     @pytest.mark.unit
     def test_a_successful_tool_call_shows_name_and_arguments(self) -> None:
         lines = [
@@ -89,7 +88,7 @@ class TestToolSpanArgumentsAreVisible:
         # replaced by them.
         assert "result_count=3" in rendered
 
-    # SUMMARY: Verify an unfinished tool span keeps its parent instead of becoming a second root.
+    # Verify an unfinished tool span keeps its parent instead of becoming a second root.
     # `parent_span_id` was read only from span.finish/span.error, so a tool call that never
     # returned — a hung provider, a killed process, exactly the run someone opens a trace to
     # understand — was assembled as a root of its own and then took the real root's successful
@@ -119,7 +118,7 @@ class TestToolSpanArgumentsAreVisible:
         assert tool_lines[0].startswith(" ") or "└" in tool_lines[0] or "├" in tool_lines[0]
         assert "✓" not in tool_lines[0]
 
-    # SUMMARY: Verify a line break inside a tool argument is escaped rather than drawn.
+    # Verify a line break inside a tool argument is escaped rather than drawn.
     # A tool argument is whatever reached the agent — a prompt, a pasted page, a search query.
     # Printed raw into a tree drawn one node per line, a value carrying box-drawing characters after
     # a newline reads as a span that never happened; a trace that can be forged is worth no more
@@ -161,7 +160,7 @@ class TestToolSpanArgumentsAreVisible:
         assert "agent.tool.search_docs" in forged_lines[0]
         assert "\\n" in forged_lines[0]
 
-    # SUMMARY: Verify one oversized argument cannot turn the compact tree into a wall of text.
+    # Verify one oversized argument cannot turn the compact tree into a wall of text.
     # A tool argument is routinely a document, a prompt or a pasted page. Rendering it whole
     # defeats the word "compact" in this renderer's own description, and the failure only shows up
     # with real data — the fixtures here all carry short arguments.
@@ -201,7 +200,6 @@ class TestToolSpanArgumentsAreVisible:
         assert "(+4920 chars)" in rendered
         assert max(len(line) for line in rendered.splitlines()) < 200
 
-    # SUMMARY: Verify the arguments render next to the failure mark too, not only on success.
     @pytest.mark.unit
     def test_a_failing_tool_call_still_shows_its_arguments(self) -> None:
         lines = [
@@ -236,7 +234,6 @@ class TestToolSpanArgumentsAreVisible:
         assert "✗" in tool_line
         assert "TimeoutError" in tool_line
 
-    # SUMMARY: Verify the scoping to agent.tool.* — a db.* span's arguments stay out of the tree.
     @pytest.mark.unit
     def test_a_non_tool_span_does_not_render_its_input_params(self) -> None:
         # Without the prefix scope, this would print `sql="SELECT ..."` on every
@@ -271,9 +268,7 @@ class TestToolSpanArgumentsAreVisible:
         assert "row_found=True" in rendered
 
 
-# SUMMARY: A span.error carrying client_rejection is neither an interruption (⊘) nor a failure (✗).
 class TestARejectedSpanIsMarkedApart:
-    # SUMMARY: Verify a rejected nested span renders ⚠, and that the trace as a whole is not failed.
     @pytest.mark.unit
     def test_the_child_line_carries_its_own_mark_not_the_interruption_one(self) -> None:
         lines = [
@@ -304,7 +299,6 @@ class TestARejectedSpanIsMarkedApart:
         # in logger.py), so it must read as a plain success.
         assert "✓" in root_line
 
-    # SUMMARY: Verify trace_inventory's WARNING branch tells a rejection apart from a cancellation.
     @pytest.mark.unit
     def test_the_inventory_does_not_count_a_rejected_span_as_cancelled_or_failed(self) -> None:
         lines = [
@@ -340,7 +334,6 @@ class TestARejectedSpanIsMarkedApart:
         assert failed == set()
         assert cancelled == set()
 
-    # SUMMARY: Verify the pre-existing WARNING-means-cancelled path still works with no field at all.
     @pytest.mark.unit
     def test_an_actual_interruption_is_unaffected_by_the_new_field(self) -> None:
         lines = [
@@ -365,9 +358,8 @@ class TestARejectedSpanIsMarkedApart:
         assert "⚠" not in root_line
 
 
-# SUMMARY: The compact-trace half of the finish_reason fix — see log_llm_call for the NDJSON half.
+# The compact-trace half of the finish_reason fix — see log_llm_call for the NDJSON half.
 class TestATruncatedLLMCallIsVisibleInline:
-    # SUMMARY: Verify finish_reason=length prints its own mark and the reason, not a bare ✓.
     @pytest.mark.unit
     def test_a_truncated_call_is_marked_apart_from_an_ordinary_success(self) -> None:
         lines = [
@@ -394,7 +386,6 @@ class TestATruncatedLLMCallIsVisibleInline:
         assert "finish_reason=length" in llm_line
         assert "✓" not in llm_line
 
-    # SUMMARY: Verify a normal finish_reason does not grow the new annotation.
     @pytest.mark.unit
     def test_an_ordinary_completion_keeps_the_plain_success_mark(self) -> None:
         lines = [

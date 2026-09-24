@@ -4,9 +4,6 @@
 from enum import Enum
 
 
-# SUMMARY: Semantic event types for AI classification of log entries.
-# SUMMARY: Tracks individual LLM invocations with timing and token usage.
-# SUMMARY: Aggregated summary emitted at the end of a root span.
 class EventType(Enum):
     # Execution Flow
     FLOW_START = "flow.start"
@@ -41,18 +38,18 @@ class EventType(Enum):
     ISSUE_ERROR = "issue.error"
     ISSUE_CRITICAL = "issue.critical"
 
-    # LLM
+    # One LLM invocation, with its timing and token usage.
     LLM_CALL = "llm.call"
 
-    # Request lifecycle
+    # The aggregate emitted when a root span ends.
     REQUEST_SUMMARY = "request.summary"
 
 
-# SUMMARY: How a root span ended, reported by request.summary so a reader can filter real failures.
-# SUMMARY: The request finished with a 2xx/3xx response, or the span carried no HTTP status at all.
-# SUMMARY: The request finished with a 4xx response — routine, logged at INFO, not an alarm.
-# SUMMARY: The request finished with a 5xx response or the span raised — logged at ERROR.
-# SUMMARY: The span was cut short by something that is not an Exception — asyncio cancellation
+# How a root span ended, reported by request.summary so a reader can filter real failures.
+# The request finished with a 2xx/3xx response, or the span carried no HTTP status at all.
+# The request finished with a 4xx response — routine, logged at INFO, not an alarm.
+# The request finished with a 5xx response or the span raised — logged at ERROR.
+# The span was cut short by something that is not an Exception — asyncio cancellation
 # at uvicorn's graceful-shutdown timeout, KeyboardInterrupt, SystemExit, or GeneratorExit when
 # a span's generator is closed before its body finished — and produced no HTTP result. Logged
 # at WARNING: not the application's failure, but a request that did not finish.

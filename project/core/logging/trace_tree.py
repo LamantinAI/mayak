@@ -21,7 +21,6 @@ from typing import Any, Iterable
 # ==================== DATA STRUCTURES ====================
 
 
-# SUMMARY: A finished or errored span with optional children forming a trace tree.
 @dataclass
 class SpanNode:
     span_id: str
@@ -31,10 +30,10 @@ class SpanNode:
     output: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
     error_site: str | None = None
-    # SUMMARY: The span.error arrived at WARNING because something not an Exception cut it short —
+    # The span.error arrived at WARNING because something not an Exception cut it short —
     # a cancellation — never because it was a routine domain rejection. See client_rejection.
     interrupted: bool = False
-    # SUMMARY: The span.error carried `client_rejection: true` — a ConflictError, NotFoundError or
+    # The span.error carried `client_rejection: true` — a ConflictError, NotFoundError or
     # similar raised inside this span that exception_handlers.py answers with a 4xx, not the
     # application failing. Also WARNING, like `interrupted`, and kept as its own field rather than
     # inferred from the level so the two are never rendered as the same thing: one means "stopped",
@@ -42,7 +41,7 @@ class SpanNode:
     # project.core.logging.logger.span()'s own classification; absent on older logs, which read
     # as False and keep rendering exactly as they did before this field existed.
     client_rejection: bool = False
-    # SUMMARY: The span's own `span.start.data.input_params`, captured only for spans named
+    # The span's own `span.start.data.input_params`, captured only for spans named
     # `agent.tool.<name>` — see _TOOL_SPAN_PREFIX below. Empty for every other span; nothing else
     # in this renderer reads it.
     input_params: dict[str, Any] = field(default_factory=dict)
@@ -50,7 +49,7 @@ class SpanNode:
     children: list[SpanNode | LeafEvent] = field(default_factory=list)
 
 
-# SUMMARY: A non-span event (llm.call, metric, api.call) attached to a parent span.
+# A non-span event (llm.call, metric, api.call) attached to a parent span.
 @dataclass
 class LeafEvent:
     span_id: str
@@ -58,11 +57,9 @@ class LeafEvent:
     seq: int = 0
 
 
-# SUMMARY: Path fragments that mark a frame as somebody else's code.
 _VENDOR_MARKERS = ("site-packages", "/.venv/", "<frozen ")
 
-# SUMMARY: Span-name prefix for one tool call inside an agent loop — see the convention documented
-# beside project.core.logging.logger.SemanticLogger.span.
+# See the convention documented beside project.core.logging.logger.SemanticLogger.span.
 # The compact renderer shows a span's name and duration and nothing about what it did by
 # default; for `db.*` spans that is enough because `output` carries the outcome (`row_found`,
 # `rows_written`, …), but a tool call's interesting fact is what it was CALLED WITH, and that lives
@@ -73,13 +70,11 @@ _VENDOR_MARKERS = ("site-packages", "/.venv/", "<frozen ")
 # trace_formatter.py, which needs the same prefix to decide what to render, not just what to parse.
 _TOOL_SPAN_PREFIX = "agent.tool."
 
-# SUMMARY: The mark a failure-shaped leaf carries, keyed by its event-id prefix.
 _LEAF_MARKS = {"critical.": "✗✗", "client_error.": "⚠", "error.": "✗"}
 
 
-# SUMMARY: Reduce a traceback to the deepest frame belonging to this repository.
-# INPUT: traceback_text (str | None): Value of the span.error event's `exc_traceback` field.
-# OUTPUT: (str | None): "path/to/file.py:LINE in func", or None when there is no own frame.
+# traceback_text: Value of the span.error event's exc_traceback field.
+# Returns "path/to/file.py:LINE in func", or None when there is no own frame.
 def _last_own_frame(traceback_text: str | None) -> str | None:
     # The whole traceback is in the log and none of it reached the reader — the
     # rendered tree named the exception type and left the location out, so an agent had the word
@@ -112,9 +107,7 @@ def _last_own_frame(traceback_text: str | None) -> str | None:
 # ==================== PARSING ====================
 
 
-# SUMMARY: Parse NDJSON lines, filter by trace_id, and return structured event dicts.
-# INPUT: trace_id (str | None): Optional trace filter; if None, auto-detect first HTTP trace.
-# OUTPUT: (tuple): (filtered_events, trace_meta) where trace_meta has header info.
+# Returns (filtered_events, trace_meta) where trace_meta has header info.
 def _parse_events(
     lines: Iterable[str],
     trace_id: str | None = None,
@@ -177,8 +170,6 @@ def _parse_events(
 # ==================== TREE BUILDING ====================
 
 
-# SUMMARY: Construct span tree from parsed events and attach leaf events.
-# OUTPUT: (tuple): (root_spans, summary_event) where root_spans are top-level SpanNodes.
 def _build_tree(
     events: list[dict[str, Any]],
 ) -> tuple[list[SpanNode], dict[str, Any] | None]:

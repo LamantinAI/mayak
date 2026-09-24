@@ -26,7 +26,6 @@ def _wire_raising_route(app: FastAPI, path: str, exc: Exception) -> None:
     app.add_api_route(path, _raise, methods=["GET"])
 
 
-# SUMMARY: Each ProjectError subclass maps to its declared HTTP status code via the FastAPI exception handler.
 class TestExceptionToHTTPStatus:
     @pytest.mark.integration
     async def test_validation_error_maps_to_422(
@@ -62,7 +61,7 @@ class TestExceptionToHTTPStatus:
         response = await async_client.get("/__test_raise_external")
         assert response.status_code == 502
 
-    # SUMMARY: A provider refusing OUR key is an upstream failure, and the caller is told so.
+    # A provider refusing OUR key is an upstream failure, and the caller is told so.
     # The distinction this pins is who is being asked to act. 401 tells the caller their own
     # credentials are wrong and invites them to re-authenticate; a dead provider key is not
     # something they can re-authenticate their way out of, and the message must not describe our

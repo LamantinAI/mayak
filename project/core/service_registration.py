@@ -13,10 +13,7 @@ from project.infrastructure.persistence.reference_task_repository import (
 )
 
 
-# SUMMARY: Template extension point — add per-vertical service construction here.
-# INPUT: llm_service (LLMService): Shared LLM service instance from CompositionRoot.
-# INPUT: db_pool (AsyncConnectionPool | None): Shared async PostgreSQL pool, or None when the
-#        project runs with POSTGRES_ENABLED=false and needs no relational store.
+# db_pool: None when the project runs with POSTGRES_ENABLED=false and needs no relational store.
 def build_reference_services(
     settings: Settings,
     llm_service: LLMService,

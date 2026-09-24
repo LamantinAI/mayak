@@ -8,7 +8,6 @@ postgres_settings = PostgresSettings()
 service_settings = ServiceSettings()
 
 
-# SUMMARY: Base settings class for functional tests.
 class TestSettings(BaseSettings):
     postgres_url: str = postgres_settings.database_url
     service_url: str = service_settings.get_host()

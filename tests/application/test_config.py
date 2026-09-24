@@ -35,9 +35,7 @@ from project.core.config_runtime import (
 from tests.conftest import _FixtureSettings as FixtureSettings
 
 
-# SUMMARY: Test suite for ProjectSettings validation.
 class TestProjectSettings:
-    # SUMMARY: Verify ProjectSettings has correct defaults.
     # The name is read from docs/project_context.json rather than written here. It used to
     # be the literal "Mayak", so renaming a project built from this template failed a kernel test
     # about configuration defaults — and the fix looked like editing a test that had nothing to do
@@ -58,19 +56,16 @@ class TestProjectSettings:
         assert settings.debug is False
         assert 0.0 <= settings.sampling_health_check_rate <= 1.0
 
-    # SUMMARY: Verify sampling rate rejects values outside 0.0-1.0.
     @pytest.mark.unit
     def test_sampling_rate_out_of_range(self) -> None:
         with pytest.raises(ValidationError):
             ProjectSettings(sampling_health_check_rate=1.5)
 
-    # SUMMARY: Verify sampling rate rejects negative values.
     @pytest.mark.unit
     def test_sampling_rate_negative(self) -> None:
         with pytest.raises(ValidationError):
             ProjectSettings(sampling_health_check_rate=-0.1)
 
-    # SUMMARY: Verify ProjectSettings reads from APP_ prefixed env vars.
     @pytest.mark.unit
     def test_from_env_vars(self) -> None:
         with patch.dict(os.environ, {"APP_DEBUG": "true", "APP_NAME": "TestApp"}, clear=False):
@@ -79,9 +74,8 @@ class TestProjectSettings:
             assert settings.name == "TestApp"
 
 
-# SUMMARY: Test suite for LLMSettings validation.
 class TestLLMSettings:
-    # SUMMARY: Verify raw LLM settings no longer require an API key before runtime validation.
+    # Verify raw LLM settings no longer require an API key before runtime validation.
     @pytest.mark.unit
     def test_api_key_defaults_to_empty_string(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
@@ -89,7 +83,6 @@ class TestLLMSettings:
 
         assert settings.api_key.get_secret_value() == ""
 
-    # SUMMARY: Verify LLMSettings accepts valid configuration.
     @pytest.mark.unit
     def test_valid_settings(self) -> None:
         with patch.dict(
@@ -103,9 +96,7 @@ class TestLLMSettings:
             assert settings.base_url is None
 
 
-# SUMMARY: Test suite for PostgresSettings validation and URL generation.
 class TestPostgresSettings:
-    # SUMMARY: Verify database_url is constructed correctly from components.
     @pytest.mark.unit
     def test_database_url_format(self) -> None:
         settings = PostgresSettings(
@@ -123,7 +114,6 @@ class TestPostgresSettings:
         assert "mydb" in url
         assert url.startswith("postgresql://")
 
-    # SUMMARY: Verify special characters in password are URL-encoded.
     @pytest.mark.unit
     def test_special_chars_in_password(self) -> None:
         settings = PostgresSettings(
@@ -137,7 +127,7 @@ class TestPostgresSettings:
         # Special chars should be URL-encoded in the resulting URL
         assert "p@ss:w/rd" not in url or "%40" in url or "%3A" in url
 
-    # SUMMARY: Verify runtime and Alembic can rely on the same PostgreSQL DSN builder.
+    # Verify runtime and Alembic can rely on the same PostgreSQL DSN builder.
     @pytest.mark.unit
     def test_shared_builder_matches_settings_property(self) -> None:
         settings = PostgresSettings(
@@ -158,7 +148,7 @@ class TestPostgresSettings:
 
         assert str(shared_url) == str(settings.database_url)
 
-    # SUMMARY: Verify Alembic/SQLAlchemy use the psycopg v3 URL while runtime keeps libpq-compatible DSNs.
+    # Verify Alembic/SQLAlchemy use the psycopg v3 URL while runtime keeps libpq-compatible DSNs.
     @pytest.mark.unit
     def test_sqlalchemy_database_url_uses_psycopg_v3_dialect(self) -> None:
         settings = PostgresSettings(
@@ -181,7 +171,6 @@ class TestPostgresSettings:
         assert str(settings.sqlalchemy_database_url).startswith("postgresql+psycopg://")
         assert str(settings.database_url).startswith("postgresql://")
 
-    # SUMMARY: Verify PostgresSettings has correct defaults.
     @pytest.mark.unit
     def test_default_values(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
@@ -194,34 +183,29 @@ class TestPostgresSettings:
         assert settings.port == 5432
 
 
-# SUMMARY: Test suite for AgentSettings validation.
 class TestAgentSettings:
-    # SUMMARY: Verify temperature rejects out of range values.
     @pytest.mark.unit
     def test_temperature_range(self) -> None:
         with pytest.raises(ValidationError):
             AgentSettings(default_llm_temperature=3.0)
 
-    # SUMMARY: Verify max_tokens rejects zero or negative values.
     @pytest.mark.unit
     def test_max_tokens_positive(self) -> None:
         with pytest.raises(ValidationError):
             AgentSettings(max_tokens=0)
 
-    # SUMMARY: Verify LLM readiness timeout rejects zero or negative values.
     @pytest.mark.unit
     def test_llm_readiness_timeout_positive(self) -> None:
         with pytest.raises(ValidationError):
             AgentSettings(llm_readiness_timeout_seconds=0)
 
-    # SUMMARY: Verify agent settings allow switching to deterministic mock mode.
     @pytest.mark.unit
     def test_llm_mode_accepts_mock(self) -> None:
         settings = AgentSettings(llm_mode="mock")
 
         assert settings.llm_mode == "mock"
 
-    # SUMMARY: Verify the template defaults to mock mode for local and CI friendliness.
+    # Verify the template defaults to mock mode for local and CI friendliness.
     @pytest.mark.unit
     def test_default_llm_mode_is_mock(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("AGENT_LLM_MODE", raising=False)
@@ -230,9 +214,7 @@ class TestAgentSettings:
         assert settings.llm_mode == "mock"
 
 
-# SUMMARY: Test suite for the composite Settings class.
 class TestSettings:
-    # SUMMARY: Verify Settings creates all configuration sections.
     @pytest.mark.unit
     def test_settings_initializes_all_sections(self, test_settings: FixtureSettings) -> None:
         assert hasattr(test_settings, "project")
@@ -241,7 +223,6 @@ class TestSettings:
         assert hasattr(test_settings, "postgres")
         assert hasattr(test_settings, "agent")
 
-    # SUMMARY: Verify each settings section is the correct type.
     @pytest.mark.unit
     def test_settings_types(self, test_settings: FixtureSettings) -> None:
         assert isinstance(test_settings.project, ProjectSettings)
@@ -250,7 +231,6 @@ class TestSettings:
         assert isinstance(test_settings.postgres, PostgresSettings)
         assert isinstance(test_settings.agent, AgentSettings)
 
-    # SUMMARY: Verify production runtime validation rejects wildcard CORS.
     @pytest.mark.unit
     def test_runtime_validation_rejects_wildcard_cors_in_production(self) -> None:
         with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
@@ -261,7 +241,6 @@ class TestSettings:
                 settings.validate_runtime()
             assert "SERVER_CORS_ORIGINS" in str(exc_info.value)
 
-    # SUMMARY: Verify a wildcard mixed into a list of real origins is caught, not only ["*"] alone.
     # Pins the membership check (`"*" in self.server.cors_origins`) in
     # Settings.validate_runtime (project/core/config_runtime.py) so a future "simplification" back
     # to the old `== ["*"]` equality check fails here first. Why membership and not equality, the
@@ -277,7 +256,6 @@ class TestSettings:
                 settings.validate_runtime()
             assert "SERVER_CORS_ORIGINS" in str(exc_info.value)
 
-    # SUMMARY: Verify a wildcard origin still passes when APP_DEBUG=true, mixed-in or alone.
     # no-assert-ok: the assertion is that validate_runtime() does not raise; it returns None.
     @pytest.mark.unit
     @pytest.mark.parametrize(
@@ -293,7 +271,6 @@ class TestSettings:
 
             settings.validate_runtime()
 
-    # SUMMARY: Verify the vulnerability (wildcard + credentials) is still refused explicitly.
     # test_runtime_validation_rejects_wildcard_cors_in_production already covers this via the
     # cors_allow_credentials default (True) — this test pins the flag explicitly so the case keeps
     # failing even if that default ever changes.
@@ -309,8 +286,6 @@ class TestSettings:
             assert "SERVER_CORS_ORIGINS" in str(exc_info.value)
             assert "SERVER_CORS_ALLOW_CREDENTIALS" in str(exc_info.value)
 
-    # SUMMARY: Verify a wildcard mixed into a real origin list is still refused when credentials
-    # are enabled — the membership check and the credentials gate compose correctly.
     @pytest.mark.unit
     def test_runtime_validation_rejects_wildcard_mixed_with_credentials_enabled(self) -> None:
         with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
@@ -322,7 +297,7 @@ class TestSettings:
                 settings.validate_runtime()
             assert "SERVER_CORS_ORIGINS" in str(exc_info.value)
 
-    # SUMMARY: Verify the newly legitimate configuration passes: a wildcard is safe once no
+    # Verify the newly legitimate configuration passes: a wildcard is safe once no
     # credential ever rides on the response.
     # no-assert-ok: the assertion is that validate_runtime() does not raise; it returns None.
     @pytest.mark.unit
@@ -346,7 +321,6 @@ class TestSettings:
 
             settings.validate_runtime()
 
-    # SUMMARY: Verify explicit origins with credentials on is not a false positive of the guard.
     # no-assert-ok: the assertion is that validate_runtime() does not raise; it returns None.
     @pytest.mark.unit
     def test_runtime_validation_allows_explicit_origins_with_credentials_enabled(self) -> None:
@@ -361,7 +335,7 @@ class TestSettings:
 
             settings.validate_runtime()
 
-    # SUMMARY: Verify SERVER_CORS_ALLOW_CREDENTIALS=false is not just read but actually changes the
+    # Verify SERVER_CORS_ALLOW_CREDENTIALS=false is not just read but actually changes the
     # CORSMiddleware behaviour — the settings object alone proves nothing about the response.
     @pytest.mark.unit
     async def test_cors_allow_credentials_setting_reaches_the_middleware(self) -> None:
@@ -383,7 +357,7 @@ class TestSettings:
         assert response.status_code == 200
         assert "access-control-allow-credentials" not in response.headers
 
-    # SUMMARY: Verify the configured origin LIST is what CORSMiddleware answers with, so a
+    # Verify the configured origin LIST is what CORSMiddleware answers with, so a
     # deployment that lists its own origins cannot be silently serving every origin instead.
     # This is the wiring, not the guard. Settings.validate_runtime() refuses a wildcard in
     # `settings.server.cors_origins`, and the tests above prove that refusal — but the guard reads
@@ -419,7 +393,7 @@ class TestSettings:
         assert configured.headers["access-control-allow-origin"] == "https://app.example.com"
         assert "access-control-allow-origin" not in stranger.headers
 
-    # SUMMARY: Verify the preflight branch of CORSMiddleware answers, which a plain GET never
+    # Verify the preflight branch of CORSMiddleware answers, which a plain GET never
     # reaches — so a narrowed allow_methods cannot break every browser client unnoticed.
     # Added after an independent review of the test above showed its blind spot: Starlette
     # applies `allow_methods` only to an OPTIONS request carrying Access-Control-Request-Method, so
@@ -449,7 +423,6 @@ class TestSettings:
         assert preflight.status_code == 200
         assert "GET" in preflight.headers["access-control-allow-methods"]
 
-    # SUMMARY: Verify live LLM mode rejects missing provider credentials.
     @pytest.mark.unit
     def test_runtime_validation_requires_api_key_in_live_mode(self) -> None:
         local_settings = FixtureSettings()
@@ -461,7 +434,6 @@ class TestSettings:
 
         assert "AGENT_LLM_MODE=live" in str(exc_info.value)
 
-    # SUMMARY: Verify mock mode can run without provider credentials.
     # no-assert-ok: the assertion is that validate_runtime() does not raise; it returns None.
     @pytest.mark.unit
     def test_runtime_validation_allows_mock_mode_without_api_key(self) -> None:
@@ -471,7 +443,6 @@ class TestSettings:
 
         local_settings.validate_runtime()
 
-    # SUMMARY: Verify debug settings can pass runtime validation with local defaults.
     # no-assert-ok: the assertion is that validate_runtime() does not raise; it returns None.
     @pytest.mark.unit
     def test_runtime_validation_accepts_debug_defaults(
@@ -480,13 +451,12 @@ class TestSettings:
         test_settings.validate_runtime()
 
 
-# SUMMARY: Verify production startup refuses the credential placeholders .env.sample ships.
+# Verify production startup refuses the credential placeholders .env.sample ships.
 # The password check compared against the literal "postgres" and nothing else. Measured:
 # `your_postgres_password` — this repository's own sample value — along with `changeme` and
 # `password`, all started in production silently. The comparison now reads the
 # sample file, so the guard cannot drift away from the placeholder it is meant to catch.
 class TestPlaceholderCredentialsAreRefusedInProduction:
-    # SUMMARY: Build a settings object that looks like production with PostgreSQL enabled.
     @staticmethod
     def _production_settings() -> FixtureSettings:
         settings = FixtureSettings()
@@ -496,7 +466,6 @@ class TestPlaceholderCredentialsAreRefusedInProduction:
         settings.agent.llm_mode = "mock"
         return settings
 
-    # SUMMARY: Verify the parser finds the credential placeholders the sample actually ships.
     @pytest.mark.unit
     def test_sample_file_exposes_the_password_placeholder(self) -> None:
         placeholders = _sample_placeholder_secrets()
@@ -507,7 +476,6 @@ class TestPlaceholderCredentialsAreRefusedInProduction:
         # placeholder — treating it as one would make every unset credential look like a leak.
         assert "OPENAI_COMPATIBLE_API_KEY" not in placeholders
 
-    # SUMMARY: Verify the exact value shipped in .env.sample cannot start a production service.
     @pytest.mark.unit
     def test_production_refuses_the_sample_password(self) -> None:
         settings = self._production_settings()
@@ -518,7 +486,7 @@ class TestPlaceholderCredentialsAreRefusedInProduction:
 
         assert "POSTGRES_PASSWORD" in str(exc_info.value)
 
-    # SUMMARY: Verify the literal "postgres" stays rejected — it is not in the sample file.
+    # Verify the literal "postgres" stays rejected — it is not in the sample file.
     @pytest.mark.unit
     def test_production_still_refuses_the_image_default_password(self) -> None:
         settings = self._production_settings()
@@ -529,7 +497,6 @@ class TestPlaceholderCredentialsAreRefusedInProduction:
 
         assert "POSTGRES_PASSWORD" in str(exc_info.value)
 
-    # SUMMARY: Verify a password that is neither the sample value nor the image default passes.
     # no-assert-ok: the assertion is that validate_runtime() does not raise; it returns None.
     @pytest.mark.unit
     def test_production_accepts_a_real_password(self) -> None:
@@ -538,7 +505,6 @@ class TestPlaceholderCredentialsAreRefusedInProduction:
 
         settings.validate_runtime()
 
-    # SUMMARY: Verify an image without .env.sample starts instead of failing closed.
     @pytest.mark.unit
     def test_missing_sample_file_does_not_stop_the_service(self, tmp_path: Path) -> None:
         # The check exists to catch a forgotten placeholder, not to become a new
@@ -550,7 +516,6 @@ class TestPlaceholderCredentialsAreRefusedInProduction:
             settings.postgres.password = SecretStr("your_postgres_password")
             settings.validate_runtime()
 
-    # SUMMARY: Verify the same rule covers the provider credential, not only the password.
     @pytest.mark.unit
     def test_provider_key_placeholder_is_refused_when_the_sample_grows_one(
         self, tmp_path: Path
@@ -572,7 +537,6 @@ class TestPlaceholderCredentialsAreRefusedInProduction:
 
         assert "OPENAI_COMPATIBLE_API_KEY" in str(exc_info.value)
 
-    # SUMMARY: Verify a deployment that never calls the provider is not blocked by its credential.
     # no-assert-ok: the assertion is that validate_runtime() does not raise; it returns None.
     @pytest.mark.unit
     def test_the_provider_key_rule_leaves_mock_mode_alone(self, tmp_path: Path) -> None:
@@ -590,19 +554,16 @@ class TestPlaceholderCredentialsAreRefusedInProduction:
 
             settings.validate_runtime()
 
-    # SUMMARY: Verify the resolved path is the sample this repository ships, not a stray file.
     @pytest.mark.unit
     def test_sample_path_points_at_the_repository_file(self) -> None:
         assert _ENV_SAMPLE_PATH == Path(__file__).resolve().parents[2] / ".env.sample"
         assert _ENV_SAMPLE_PATH.is_file()
 
 
-# SUMMARY: Verify the version the service reports is the one pyproject.toml declares.
 # APP_VERSION was the literal "1.0.0" and reached /health/, the OpenAPI document and every
 # startup event. Setting a version in pyproject.toml changed none of them: nothing compared the
 # two, and the rename checklist did not mention the literal.
 class TestAppVersionFollowsTheManifest:
-    # SUMMARY: Verify APP_VERSION is read from the manifest rather than written twice.
     @pytest.mark.unit
     def test_app_version_equals_the_declared_version(self) -> None:
         manifest = Path(__file__).resolve().parents[2] / "pyproject.toml"
@@ -610,7 +571,6 @@ class TestAppVersionFollowsTheManifest:
 
         assert APP_VERSION == declared
 
-    # SUMMARY: Verify the path the reader uses points at the real manifest.
     @pytest.mark.unit
     def test_manifest_path_resolves_from_the_module_not_the_working_directory(self) -> None:
         # The container runs from /app with sources at /app/project/, and the
@@ -619,7 +579,6 @@ class TestAppVersionFollowsTheManifest:
         assert _PYPROJECT_PATH == Path(__file__).resolve().parents[2] / "pyproject.toml"
         assert _PYPROJECT_PATH.is_file()
 
-    # SUMMARY: Verify a missing manifest yields a visible placeholder rather than an exception.
     @pytest.mark.unit
     def test_unreadable_manifest_degrades_instead_of_killing_the_import(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -630,7 +589,6 @@ class TestAppVersionFollowsTheManifest:
 
         assert _declared_app_version() == _UNKNOWN_APP_VERSION
 
-    # SUMMARY: Verify no shape of broken manifest escapes as an exception at import time.
     # TOML is defined as UTF-8, so a manifest with one corrupted byte raises
     # UnicodeDecodeError — uncaught unless the except clause names it beside
     # tomllib.TOMLDecodeError, which at import time would take the whole application down over a

@@ -32,7 +32,7 @@ def repository(db_pool: AsyncConnectionPool) -> ReferenceTaskRepository:
     return ReferenceTaskRepository(db_pool)
 
 
-# SUMMARY: A task with a fresh id; title and details differ so an exchanged pair of columns shows.
+# A task with a fresh id; title and details differ so an exchanged pair of columns shows.
 # created_at equals updated_at, as at every real insert — so a mapper that swapped the two
 # is invisible to a plain round trip and is caught by the update test, where they differ. The
 # title is unique unless one is given: two open tasks may not share one.
@@ -120,7 +120,7 @@ async def test_two_tasks_cannot_share_an_id(repository: ReferenceTaskRepository)
         await repository.add(replace(task, title="Another task"))
 
 
-# SUMMARY: Verify each method's span is written at INFO inside a request and says what happened.
+# Verify each method's span is written at INFO inside a request and says what happened.
 # Inside a request span, because a span with no parent is itself the root and a root is
 # written at INFO whatever its own level — outside this block the level check passes with or
 # without `level=logging.INFO`. The outcome, because a query that matched nothing and one that
@@ -156,7 +156,7 @@ async def test_every_query_leaves_its_outcome_in_a_span_production_can_see(
     ]
 
 
-# SUMMARY: Verify the open-title rule: a second open task conflicts, a closed one frees its title.
+# Verify the open-title rule: a second open task conflicts, a closed one frees its title.
 # Fifty newer tasks first, so the one that holds the title is far past the first page — bench2
 # measured a rule checked in the service against one page of the list, and it let this through.
 async def test_only_one_open_task_may_carry_a_title_whatever_its_case(
@@ -175,7 +175,7 @@ async def test_only_one_open_task_may_carry_a_title_whatever_its_case(
     await repository.add(_task(title="Plan"))
 
 
-# SUMMARY: In a process of its own: look for the title, wait until the other process has looked too, then write.
+# In a process of its own: look for the title, wait until the other process has looked too, then write.
 # The window a check-then-write implementation leaves open, held open on purpose by the
 # barrier: both processes have read "free" before either writes. Only something outside the two
 # processes can refuse one of the writes — an in-process lock cannot, which is how bench2's
@@ -201,7 +201,6 @@ def _add_once_both_saw_the_title_free(url: str, title: str, barrier: Any, result
     results.put(asyncio.run(run()))
 
 
-# SUMMARY: Verify the rule across processes: after both read "free", exactly one write lands.
 async def test_two_processes_that_both_saw_a_title_free_cannot_both_open_it(
     database_url: str, repository: ReferenceTaskRepository
 ) -> None:

@@ -42,8 +42,8 @@ class _Bindings:
 
 
 # Read the file's import statements to learn which names lead to importlib.
-# tree (ast.AST): Parsed module.
-# (_Bindings): Names bound to the module and to its import functions in this file.
+# tree: Parsed module.
+# Returns: Names bound to the module and to its import functions in this file.
 def _collect_bindings(tree: ast.AST) -> _Bindings:
     bindings = _Bindings()
     for node in ast.walk(tree):
@@ -63,8 +63,8 @@ def _collect_bindings(tree: ast.AST) -> _Bindings:
 
 
 # Return the literal module name a call passes, positionally or by keyword.
-# node (ast.Call): The call being inspected.
-# (str | None): The literal name, or None when it is absent or computed.
+# node: The call being inspected.
+# Returns: The literal name, or None when it is absent or computed.
 # Only a literal is resolved. `importlib.import_module(name)` with a variable is deliberately
 # ignored rather than guessed: the module is decided at runtime, and a validator that invented a
 # name for it would report a violation nobody can act on. Same for a concatenation. That residue is
@@ -80,8 +80,8 @@ def _module_name_argument(node: ast.Call) -> str | None:
 
 
 # Return every module this file imports through a call rather than an import statement.
-# tree (ast.AST): Parsed module, walked twice — once for bindings, once for calls.
-# (list[tuple[str, int]]): Dotted module name and the line of the call that imports it.
+# tree: Parsed module, walked twice — once for bindings, once for calls.
+# Returns: Dotted module name and the line of the call that imports it.
 # What still escapes, listed so nobody has to rediscover it: a name reached indirectly
 # (`getattr(importlib, "import_module")(...)`, a function passed as an argument and called
 # elsewhere), a module name that is not a literal, and `exec("import x")`. Each needs data-flow

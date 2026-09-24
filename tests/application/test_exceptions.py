@@ -13,9 +13,7 @@ from project.domain.exceptions import (
 )
 
 
-# SUMMARY: Test suite for domain exception hierarchy and behavior.
 class TestExceptionHierarchy:
-    # SUMMARY: Verify all custom exceptions inherit from ProjectError.
     @pytest.mark.unit
     def test_all_exceptions_inherit_from_project_error(self) -> None:
         exceptions = [
@@ -30,12 +28,10 @@ class TestExceptionHierarchy:
                 f"{exc_class.__name__} must inherit from ProjectError"
             )
 
-    # SUMMARY: Verify ProjectError inherits from base Exception.
     @pytest.mark.unit
     def test_project_error_inherits_from_exception(self) -> None:
         assert issubclass(ProjectError, Exception)
 
-    # SUMMARY: Verify all custom exceptions are caught by except ProjectError.
     @pytest.mark.unit
     def test_catch_all_via_project_error(self) -> None:
         exceptions = [
@@ -53,14 +49,12 @@ class TestExceptionHierarchy:
             except Exception:
                 pytest.fail(f"{type(exc).__name__} was not caught by except ProjectError")
 
-    # SUMMARY: Verify exception message is preserved.
     @pytest.mark.unit
     def test_exception_message(self) -> None:
         msg = "Something went wrong"
         exc = ProjectError(msg)
         assert str(exc) == msg
 
-    # SUMMARY: Verify each exception type preserves its message correctly.
     @pytest.mark.unit
     def test_each_type_has_correct_message(self) -> None:
         cases = {
@@ -74,7 +68,6 @@ class TestExceptionHierarchy:
             exc = exc_class(message)
             assert str(exc) == message
 
-    # SUMMARY: Verify specific exception types are not caught by sibling handlers.
     @pytest.mark.unit
     def test_exceptions_are_distinct_types(self) -> None:
         with pytest.raises(NotFoundError):

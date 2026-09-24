@@ -246,7 +246,7 @@ _NOT_VERIFIED_BANNER = "MIGRATIONS NOT VERIFIED"
 
 
 # Report whether this project uses a relational store at all.
-# (bool): False when POSTGRES_ENABLED is explicitly disabled in the environment or .env.
+# Returns: False when POSTGRES_ENABLED is explicitly disabled in the environment or .env.
 def postgres_is_enabled() -> bool:
     # Read the same variable the runtime reads, without importing the settings
     # models — this script must stay runnable when application dependencies are unavailable,
@@ -265,7 +265,7 @@ def postgres_is_enabled() -> bool:
 
 
 # Report whether an unreachable database may downgrade this gate to an informational skip.
-# (bool): False inside CI, where a silent skip would hide a broken revision chain.
+# Returns: False inside CI, where a silent skip would hide a broken revision chain.
 def database_skip_is_allowed() -> bool:
     # Locally a developer without Postgres should not be blocked. In CI the
     # skip is the whole problem: no job provisioned a database, so the gate never ran and a
@@ -316,7 +316,7 @@ def get_migrations_rule_playbook(rule_id: str) -> dict[str, object] | None:
 
 
 # Check whether the PostgreSQL database is reachable using psycopg.
-# (bool): True when the database accepts connections, False otherwise.
+# Returns: True when the database accepts connections, False otherwise.
 def _is_database_reachable() -> bool:
     # Load .env so that POSTGRES_* variables are available.
     try:
@@ -359,8 +359,8 @@ def _is_database_reachable() -> bool:
 
 
 # Build Alembic's view of a revision directory, or None when there is no such directory.
-# script_location (Path): Directory holding the revision files.
-# (Any): An alembic ScriptDirectory, typed loosely because alembic is imported lazily.
+# script_location: Directory holding the revision files.
+# Returns: An alembic ScriptDirectory, typed loosely because alembic is imported lazily.
 # One construction shared by every offline reader below, so the heads, the revision ids and
 # any future reader cannot end up walking two differently-configured views of the same directory.
 def _script_directory_at(script_location: Path) -> Any:
@@ -385,9 +385,9 @@ def _script_directory_at(script_location: Path) -> Any:
 
 
 # Read the heads of the revision graph from the migration files alone, without a database.
-# script_location (Path): The Alembic script directory; the repository's unless a test
+# script_location: The Alembic script directory; the repository's unless a test
 # points at a temporary one.
-# (list[str]): Every head revision id. One is healthy; two is a fork.
+# Returns: Every head revision id. One is healthy; two is a fork.
 # Exception: Whatever Alembic raises when the files do not form a graph it can walk — a
 # down_revision naming no revision surfaces as KeyError, a revision file that fails to
 # import as its own error. _revision_graph_issue reports either without narrowing.
@@ -397,9 +397,9 @@ def _revision_heads(script_location: Path = ROOT_DIR / "alembic") -> list[str]:
 
 
 # Every revision id this branch's migration files define, read without a database.
-# script_location (Path): The Alembic script directory; the repository's unless a test
+# script_location: The Alembic script directory; the repository's unless a test
 # points at a temporary one.
-# (set[str]): Revision ids reachable from any head down to base, empty when there are none.
+# Returns: Revision ids reachable from any head down to base, empty when there are none.
 # Heads answer "does this branch have one chain"; this answers "does this branch know that
 # revision at all", which is the question a stamped database asks.
 def _revision_ids(script_location: Path = ROOT_DIR / "alembic") -> set[str]:
@@ -410,7 +410,7 @@ def _revision_ids(script_location: Path = ROOT_DIR / "alembic") -> set[str]:
 
 
 # Read what the database says it has been migrated to, or nothing when it cannot say.
-# (set[str]): Contents of alembic_version.version_num; empty for a database that is
+# Returns: Contents of alembic_version.version_num; empty for a database that is
 # unreachable, never migrated, or answering anything this cannot read.
 # Every failure reads as "nothing stamped", which is the quiet direction on purpose: a
 # connection that dies between the reachability probe and this read must not be reported as a
@@ -445,7 +445,7 @@ def _stamped_revision_ids() -> set[str]:
 
 
 # Report a database stamped with a revision this branch does not have.
-# (MigrationIssue | None): An error-severity issue, or None when the two agree.
+# Returns: An error-severity issue, or None when the two agree.
 def _foreign_revision_issue() -> MigrationIssue | None:
     stamped = _stamped_revision_ids()
     if not stamped:
@@ -479,7 +479,7 @@ def _foreign_revision_issue() -> MigrationIssue | None:
 
 
 # Report a fork or an unwalkable revision graph, or None when the files form one chain.
-# (MigrationIssue | None): An error-severity issue, or None.
+# Returns: An error-severity issue, or None.
 def _revision_graph_issue() -> MigrationIssue | None:
     try:
         heads = _revision_heads()
@@ -509,7 +509,7 @@ def _revision_graph_issue() -> MigrationIssue | None:
 
 
 # Build the ordered Alembic commands required to validate migration completeness.
-# (list[MigrationCommand]): Upgrade and metadata-check commands executed by the gate.
+# Returns: Upgrade and metadata-check commands executed by the gate.
 def _build_commands() -> list[MigrationCommand]:
     alembic_prefix = (
         sys.executable,
@@ -546,7 +546,7 @@ def _command_to_rule_id(command_name: str) -> str:
 
 
 # Build stable remediation guidance for a failed migration validation step.
-# (list[str]): Ordered remediation hints to print after the failure.
+# Returns: Ordered remediation hints to print after the failure.
 def _remediation_messages(command_name: str) -> list[str]:
     if command_name == "check":
         return [
@@ -593,7 +593,7 @@ def _run_command(command: MigrationCommand) -> None:
 
 
 # Run the full migration check sequence and return a list of structured issues.
-# (list[MigrationIssue]): Issues found. Empty list means the gate passed.
+# Returns: Issues found. Empty list means the gate passed.
 def collect_migration_issues(
     root_dir: Path,
     require_database: bool | None = None,
@@ -719,7 +719,7 @@ def _issue_to_payload(issue: MigrationIssue) -> dict[str, object]:
 
 
 # Run the migration validation quality gate and return a process exit code.
-# (int): Zero when migrations are valid or skipped; non-zero on detected drift/failure.
+# Returns: Zero when migrations are valid or skipped; non-zero on detected drift/failure.
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Validate Alembic migrations against current SQLAlchemy metadata."

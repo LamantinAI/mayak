@@ -19,8 +19,6 @@ from scripts.validate_dependencies import (
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-# SUMMARY: List the repository's tracked files — exactly what a clone of the template gets.
-# OUTPUT: (list[str]): Repository-relative paths from the git index.
 def _tracked_files() -> list[str]:
     result = run(
         ["git", "ls-files", "-z"],
@@ -32,21 +30,18 @@ def _tracked_files() -> list[str]:
     return [name for name in result.stdout.split("\0") if name]
 
 
-# SUMMARY: Verify the declared set is read faithfully, including extras.
 class TestDeclaredDistributions:
-    # SUMMARY: Verify a plain pinned dependency is recognized.
     @pytest.mark.unit
     def test_direct_dependency_is_declared(self) -> None:
         assert "fastapi" in declared_distributions(_REPO_ROOT)
 
-    # SUMMARY: Verify psycopg[pool] declares psycopg-pool, which the runtime imports directly.
     @pytest.mark.unit
     def test_extra_expands_to_its_own_distributions(self) -> None:
         # Without extras expansion the validator reports the entire runtime
         # database layer as undeclared, since project/ imports psycopg_pool, not psycopg.
         assert "psycopg-pool" in declared_distributions(_REPO_ROOT)
 
-    # SUMMARY: Verify [dependency-groups] counts as a declaration, not only [project].dependencies.
+    # Verify [dependency-groups] counts as a declaration, not only [project].dependencies.
     @pytest.mark.unit
     def test_dependency_group_is_included(self) -> None:
         # pytest is named in the dev group and nowhere else. It used to be listed
@@ -54,7 +49,7 @@ class TestDeclaredDistributions:
         # duplicate would have made the whole test toolchain read as undeclared.
         assert "pytest" in declared_distributions(_REPO_ROOT)
 
-    # SUMMARY: Verify PEP 503 normalization so spellings compare equal.
+    # Verify PEP 503 normalization so spellings compare equal.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         ("raw", "expected"),
@@ -68,16 +63,13 @@ class TestDeclaredDistributions:
         assert normalize_distribution_name(raw) == expected
 
 
-# SUMMARY: Verify runtime code imports nothing that pyproject.toml fails to declare.
 class TestRepositoryIsClean:
-    # SUMMARY: Verify every third-party import under project/ maps to a declared dependency.
     @pytest.mark.unit
     def test_no_undeclared_runtime_imports(self) -> None:
         issues = collect_dependency_issues(_REPO_ROOT)
 
         assert [f"{issue.path.name}:{issue.line} {issue.message}" for issue in issues] == []
 
-    # SUMMARY: Verify both rule identifiers carry remediation guidance.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         "rule_id",
@@ -90,9 +82,7 @@ class TestRepositoryIsClean:
         assert playbook["stop_widening_condition"]
 
 
-# SUMMARY: Verify the validator actually fires on a synthetic repository.
 class TestUndeclaredImportIsReported:
-    # SUMMARY: Verify an installed-but-undeclared package is caught.
     @pytest.mark.unit
     def test_third_party_import_without_declaration_is_reported(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text(
@@ -107,7 +97,6 @@ class TestUndeclaredImportIsReported:
 
         assert [issue.rule_id for issue in issues] == ["dependencies.undeclared_import"]
 
-    # SUMMARY: Verify importlib.import_module counts as an import for the declared-dependency check.
     # The same one-line bypass this validator shared with validate_architecture.py: only
     # ast.Import/ast.ImportFrom were collected, so a package pulled in through
     # `importlib.import_module` was undeclared and unreported at once.
@@ -129,7 +118,6 @@ class TestUndeclaredImportIsReported:
         assert [issue.rule_id for issue in issues] == ["dependencies.undeclared_import"]
         assert "orjson" in issues[0].message
 
-    # SUMMARY: Verify an unrelated object's `import_module` method is not read as an import.
     @pytest.mark.unit
     def test_a_method_named_like_an_import_is_not_reported(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text(
@@ -151,7 +139,6 @@ class TestUndeclaredImportIsReported:
 
         assert collect_dependency_issues(tmp_path) == []
 
-    # SUMMARY: Verify the validator does not flag the standard library or repository packages.
     @pytest.mark.unit
     def test_stdlib_and_first_party_imports_are_ignored(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text(
@@ -168,12 +155,10 @@ class TestUndeclaredImportIsReported:
         assert collect_dependency_issues(tmp_path) == []
 
 
-# SUMMARY: Guard the commands the template tells people to run against what pyproject actually
-#          declares. This exists because removing the duplicate `test` extra left
-#          `uv sync --frozen --extra test` behind in dev_setup.sh — the first script a new
-#          project runs — and every gate stayed green, because no gate executes that script.
+# This exists because removing the duplicate `test` extra left
+# `uv sync --frozen --extra test` behind in dev_setup.sh — the first script a new
+# project runs — and every gate stayed green, because no gate executes that script.
 class TestShippedCommandsMatchPyproject:
-    # SUMMARY: Verify no tracked file asks uv for an extra pyproject does not define.
     @pytest.mark.unit
     def test_every_extra_a_shipped_command_asks_for_is_declared(self) -> None:
         # The extras table is optional in pyproject; absent means "no extras",
@@ -213,13 +198,11 @@ class TestShippedCommandsMatchPyproject:
         assert not offenders, "command asks for an undeclared extra: " + ", ".join(offenders)
 
 
-# SUMMARY: Guard the second requirements file against drifting from pyproject.
 # tests/functional/requirements.txt installs the runner inside the Docker test image, so it
 # is the one dependency list `uv lock` does not govern. It had drifted a major version behind on
 # both pytest and pytest-asyncio — the same suite could then behave differently depending on which
 # runner invoked it, and nothing said so.
 class TestFunctionalRunnerVersionsAreAligned:
-    # SUMMARY: Verify every package named in both files carries the same pin.
     @pytest.mark.unit
     def test_shared_packages_are_pinned_to_the_same_version(self) -> None:
         def pins(lines: list[str]) -> dict[str, str]:

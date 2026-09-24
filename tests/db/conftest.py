@@ -41,15 +41,14 @@ from scripts.validate_migrations import (
 
 from . import stack
 
-# SUMMARY: This directory; a collected test under it belongs to the db tier.
+# This directory; a collected test under it belongs to the db tier.
 _TIER_DIR = Path(__file__).resolve().parent
 
 
-# SUMMARY: How many db-tier tests were deselected, for the summary line.
+# How many db-tier tests were deselected, for the summary line.
 _DESELECTED_KEY = pytest.StashKey[int]()
 
 
-# SUMMARY: Run a block with extra environment variables, then restore the environment exactly.
 # Exactly, not just the keys set here: postgres_is_enabled() and the migration gate both call
 # load_dotenv, which copies every key of .env into os.environ. Left in place, that would hand the
 # rest of the suite whatever the developer's .env says, which the root conftest works to prevent.
@@ -64,7 +63,6 @@ def _environment(overrides: dict[str, str]) -> Iterator[None]:
         os.environ.update(saved)
 
 
-# SUMMARY: Mark the tier's tests, run them on one event loop, or deselect them when the project has no database.
 # Decided here, at collection, because tests/conftest.py pins POSTGRES_ENABLED=true inside
 # every test — by the time a fixture runs, the project's own answer is no longer visible.
 # The session event loop is what lets one connection pool serve every test in the tier; a pool
@@ -87,7 +85,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             item.add_marker(session_loop, append=False)
 
 
-# SUMMARY: Say that the db tier did not run and why, instead of letting the count shrink silently.
+# Say that the db tier did not run and why, instead of letting the count shrink silently.
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     deselected = terminalreporter.config.stash.get(_DESELECTED_KEY, 0)
     if deselected:
@@ -96,8 +94,6 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
         )
 
 
-# SUMMARY: Start or find the tier's PostgreSQL and give the session a new, empty database on it.
-# OUTPUT: (str): Connection URL of the database the tier owns.
 @pytest.fixture(scope="session")
 def database_url() -> str:
     # Failed outside the `except`, so the report is the explanation alone rather
@@ -114,12 +110,11 @@ def database_url() -> str:
     return url
 
 
-# SUMMARY: Suffix a database name must carry before this tier will drop it.
+# Suffix a database name must carry before this tier will drop it.
 _DATABASE_SUFFIX = "_test"
 
 
-# SUMMARY: Drop and create the URL's database, so every session migrates from nothing.
-# OUTPUT: (str | None): Why it could not be done, or None when the database is new and empty.
+# Returns why it could not be done, or None when the database is new and empty.
 # From nothing, every session. The first version kept the database between runs and only
 # upgraded it, and the mutation baseline caught what that costs: an edit to a migration that had
 # already run — String(200) narrowed to String(100) in 001 — left `upgrade head` with nothing to
@@ -155,8 +150,7 @@ def _recreate_database(url: str) -> str | None:
     return None
 
 
-# SUMMARY: Build the schema with `alembic upgrade head`, then run `alembic check` against it.
-# OUTPUT: (list[MigrationIssue]): What `alembic check` reported; empty when head matches the ORM.
+# Returns what `alembic check` reported; empty when head matches the ORM.
 # Through scripts/validate_migrations.py, the gate's own implementation, pointed at this
 # database — not a second way of running Alembic that could disagree with the gate. A failed
 # upgrade stops the tier here, since no test can run without the schema; a failed check does not,
@@ -187,8 +181,6 @@ def migration_issues(database_url: str) -> list[MigrationIssue]:
     return issues
 
 
-# SUMMARY: One pool for the whole tier, configured like the application's own.
-# OUTPUT: (AsyncGenerator[AsyncConnectionPool, None]): The open pool.
 # autocommit=True because project/core/composition_root.py opens the application's pool that
 # way, and a repository tested on a pool that wraps every call in a transaction is tested under
 # conditions it never meets. One pool per session, not per test: opening and closing a pool per test
@@ -207,8 +199,7 @@ async def _session_pool(
         await pool.close()
 
 
-# SUMMARY: One TRUNCATE naming every application table, built once the schema exists.
-# OUTPUT: (sql.Composed | None): The statement, or None when the schema has no tables yet.
+# Returns the statement, or None when the schema has no tables yet.
 # alembic_version is left alone: emptying it erases the record of which migrations ran, and
 # the next session's upgrade then tries to create tables that already exist.
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
@@ -226,8 +217,6 @@ async def _truncate_statement(_session_pool: AsyncConnectionPool) -> sql.Compose
     )
 
 
-# SUMMARY: The pool a db test works with, over a schema whose application tables are all empty.
-# OUTPUT: (AsyncConnectionPool): The session pool, after one TRUNCATE.
 # Emptied before the test rather than after it, so a failing test leaves its rows behind for
 # whoever opens the database to look.
 @pytest_asyncio.fixture(loop_scope="session")

@@ -14,19 +14,13 @@ from scripts.validate_test_quality import (
 )
 
 
-# SUMMARY: Write a test module fixture and return its path.
-# INPUT: tmp_path (Path): Temporary directory.
-# INPUT: body (str): Module source.
-# OUTPUT: (Path): Path of the written module.
 def _write_test_module(tmp_path: Path, body: str) -> Path:
     path = tmp_path / "test_probe.py"
     path.write_text(body, encoding="utf-8")
     return path
 
 
-# SUMMARY: Verify assertions that can never fail are reported.
 class TestConstantAssertions:
-    # SUMMARY: Verify the canonical always-green assertion is caught.
     @pytest.mark.unit
     def test_assert_true_is_reported(self, tmp_path: Path) -> None:
         path = _write_test_module(tmp_path, "def test_green() -> None:\n    assert True\n")
@@ -35,7 +29,6 @@ class TestConstantAssertions:
 
         assert [issue.rule_id for issue in issues] == ["test.constant_assertion"]
 
-    # SUMMARY: Verify the negated-constant spelling is caught too.
     @pytest.mark.unit
     def test_assert_not_false_is_reported(self, tmp_path: Path) -> None:
         path = _write_test_module(tmp_path, "def test_green() -> None:\n    assert not False\n")
@@ -44,7 +37,6 @@ class TestConstantAssertions:
             "test.constant_assertion"
         ]
 
-    # SUMMARY: Verify an assertion about a computed value is not reported.
     @pytest.mark.unit
     def test_real_assertion_is_accepted(self, tmp_path: Path) -> None:
         path = _write_test_module(
@@ -54,7 +46,6 @@ class TestConstantAssertions:
 
         assert validate_test_module(path) == []
 
-    # SUMMARY: Verify the tautology a literal check cannot see is caught.
     @pytest.mark.unit
     @pytest.mark.parametrize("operator", ["==", "is", ">=", "<="])
     def test_value_compared_with_itself_is_reported(self, tmp_path: Path, operator: str) -> None:
@@ -69,7 +60,7 @@ class TestConstantAssertions:
             "test.constant_assertion"
         ]
 
-    # SUMMARY: Verify the check follows attribute chains, not only bare names.
+    # Verify the check follows attribute chains, not only bare names.
     @pytest.mark.unit
     def test_attribute_compared_with_itself_is_reported(self, tmp_path: Path) -> None:
         path = _write_test_module(
@@ -81,7 +72,6 @@ class TestConstantAssertions:
             "test.constant_assertion"
         ]
 
-    # SUMMARY: Verify two identical calls are not treated as a tautology.
     @pytest.mark.unit
     def test_call_compared_with_itself_is_accepted(self, tmp_path: Path) -> None:
         # `next(it) == next(it)` reads the same in the tree and differs at runtime.
@@ -93,7 +83,7 @@ class TestConstantAssertions:
 
         assert validate_test_module(path) == []
 
-    # SUMMARY: Verify an always-failing comparison is left to the suite, not this gate.
+    # Verify an always-failing comparison is left to the suite, not this gate.
     @pytest.mark.unit
     def test_inequality_with_itself_is_not_reported(self, tmp_path: Path) -> None:
         path = _write_test_module(
@@ -104,16 +94,13 @@ class TestConstantAssertions:
         assert validate_test_module(path) == []
 
 
-# SUMMARY: Verify assertion-free test bodies are reported unless deliberately marked.
 class TestMissingAssertions:
-    # SUMMARY: Verify a test that only calls code is caught.
     @pytest.mark.unit
     def test_body_without_verification_is_reported(self, tmp_path: Path) -> None:
         path = _write_test_module(tmp_path, "def test_nothing() -> None:\n    value = 1 + 1\n")
 
         assert [issue.rule_id for issue in validate_test_module(path)] == ["test.no_assertion"]
 
-    # SUMMARY: Verify a raises-based test is accepted without a bare assert.
     @pytest.mark.unit
     def test_pytest_raises_counts_as_verification(self, tmp_path: Path) -> None:
         path = _write_test_module(
@@ -124,7 +111,6 @@ class TestMissingAssertions:
 
         assert validate_test_module(path) == []
 
-    # SUMMARY: Verify delegation to a local checker is accepted.
     @pytest.mark.unit
     def test_helper_named_assert_counts_as_verification(self, tmp_path: Path) -> None:
         path = _write_test_module(
@@ -135,7 +121,6 @@ class TestMissingAssertions:
 
         assert validate_test_module(path) == []
 
-    # SUMMARY: Verify a checker with an empty body no longer buys the test a pass.
     @pytest.mark.unit
     def test_helper_named_assert_that_checks_nothing_is_reported(self, tmp_path: Path) -> None:
         # Matching on the substring alone made this pass: the name says assert,
@@ -148,7 +133,6 @@ class TestMissingAssertions:
 
         assert [issue.rule_id for issue in validate_test_module(path)] == ["test.no_assertion"]
 
-    # SUMMARY: Verify delegation through two helpers still counts as verification.
     @pytest.mark.unit
     def test_helper_chain_is_followed_to_the_real_assertion(self, tmp_path: Path) -> None:
         path = _write_test_module(
@@ -160,7 +144,6 @@ class TestMissingAssertions:
 
         assert validate_test_module(path) == []
 
-    # SUMMARY: Verify a checker that calls itself terminates and reports the missing assertion.
     @pytest.mark.unit
     def test_recursive_helper_does_not_hang(self, tmp_path: Path) -> None:
         path = _write_test_module(
@@ -171,7 +154,6 @@ class TestMissingAssertions:
 
         assert [issue.rule_id for issue in validate_test_module(path)] == ["test.no_assertion"]
 
-    # SUMMARY: Verify an imported checker this module cannot see is still accepted.
     @pytest.mark.unit
     def test_helper_from_another_module_stays_trusted(self, tmp_path: Path) -> None:
         # conftest helpers are unresolvable from a single module's tree. Guessing
@@ -184,7 +166,6 @@ class TestMissingAssertions:
 
         assert validate_test_module(path) == []
 
-    # SUMMARY: Verify a deliberate smoke test annotated in the comment block is accepted.
     @pytest.mark.unit
     def test_opt_out_marker_above_decorators_is_honoured(self, tmp_path: Path) -> None:
         path = _write_test_module(
@@ -197,7 +178,6 @@ class TestMissingAssertions:
 
         assert validate_test_module(path) == []
 
-    # SUMMARY: Verify a fixture named test_settings is not treated as a test.
     @pytest.mark.unit
     def test_fixture_named_like_a_test_is_ignored(self, tmp_path: Path) -> None:
         path = _write_test_module(
@@ -208,13 +188,11 @@ class TestMissingAssertions:
         assert validate_test_module(path) == []
 
 
-# SUMMARY: Verify a test that only proves a call happened is reported.
 # Measured. A service that ignored the caller's `limit` and sent its own value to the
 # repository survived a full green suite at 83 % coverage, because the test asserted
 # `repository.list.assert_awaited_once()` and stopped there. The call happened; the argument never
 # arrived. Coverage says nothing about this — the line ran.
 class TestCallAssertionsWithoutArguments:
-    # SUMMARY: Verify a body whose only verification is "it was called" is flagged.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         "assertion",
@@ -232,7 +210,6 @@ class TestCallAssertionsWithoutArguments:
 
         assert [issue.rule_id for issue in issues] == ["test.call_assertion_without_arguments"]
 
-    # SUMMARY: Verify naming the expected arguments satisfies the rule.
     @pytest.mark.unit
     def test_the_with_variant_is_accepted(self, tmp_path: Path) -> None:
         path = _write_test_module(
@@ -243,7 +220,6 @@ class TestCallAssertionsWithoutArguments:
 
         assert validate_test_module(path) == []
 
-    # SUMMARY: Verify "called once with nothing" is a statement, not an omission.
     @pytest.mark.unit
     def test_the_with_variant_carrying_no_arguments_is_accepted(self, tmp_path: Path) -> None:
         # pool.close() takes no arguments, so assert_awaited_once_with() is the
@@ -256,7 +232,6 @@ class TestCallAssertionsWithoutArguments:
 
         assert validate_test_module(path) == []
 
-    # SUMMARY: Verify the weak assertion is called out even when the test checks something else.
     @pytest.mark.unit
     def test_a_real_assertion_alongside_it_is_still_reported(self, tmp_path: Path) -> None:
         # Asserting the returned value does not cover the arguments the
@@ -273,7 +248,6 @@ class TestCallAssertionsWithoutArguments:
 
         assert [issue.rule_id for issue in issues] == ["test.call_assertion_without_arguments"]
 
-    # SUMMARY: Verify a deliberate call-only check can be declared with a reason.
     @pytest.mark.unit
     def test_the_opt_out_marker_still_works(self, tmp_path: Path) -> None:
         path = _write_test_module(
@@ -286,9 +260,7 @@ class TestCallAssertionsWithoutArguments:
         assert validate_test_module(path) == []
 
 
-# SUMMARY: Build a miniature repository whose persistence module holds one f-string SQL constant.
-# INPUT: tmp_path (Path): Temporary directory standing in for the repository root.
-# OUTPUT: (Path): The repository root the validator should resolve imports against.
+# Returns the repository root the validator should resolve imports against.
 def _write_repository_fixture(tmp_path: Path) -> Path:
     module = tmp_path / "project" / "infrastructure" / "persistence" / "probe_repository.py"
     module.parent.mkdir(parents=True, exist_ok=True)
@@ -302,9 +274,9 @@ def _write_repository_fixture(tmp_path: Path) -> Path:
     return tmp_path
 
 
-# SUMMARY: Verify a test that checks the query against the query constant is reported unless one clause is pinned as text.
+# Verify a test that checks the query against the query constant is reported unless one clause is pinned as text.
 class TestQueryConstantRoundTrip:
-    # SUMMARY: Regression guard: measured on the seventh run, three of four injected SQL defects passed every gate once the pinning assertions were removed.
+    # Regression guard: measured on the seventh run, three of four injected SQL defects passed every gate once the pinning assertions were removed.
     @pytest.mark.unit
     def test_round_trip_without_a_pinned_clause_is_reported(self, tmp_path: Path) -> None:
         repo_root = _write_repository_fixture(tmp_path)
@@ -322,7 +294,6 @@ class TestQueryConstantRoundTrip:
         assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
         assert "_SELECT_BY_ID" in issues[0].message
 
-    # SUMMARY: Verify the prescribed assertion — one clause stated as literal text — satisfies the rule.
     @pytest.mark.unit
     def test_a_pinned_clause_clears_the_module(self, tmp_path: Path) -> None:
         repo_root = _write_repository_fixture(tmp_path)
@@ -337,7 +308,6 @@ class TestQueryConstantRoundTrip:
 
         assert validate_test_module(path, repo_root) == []
 
-    # SUMMARY: Verify the rule reads the constant's own value and ignores every non-SQL import.
     @pytest.mark.unit
     def test_a_constant_that_is_not_a_query_is_left_alone(self, tmp_path: Path) -> None:
         module = tmp_path / "project" / "domain" / "probe.py"
@@ -353,7 +323,7 @@ class TestQueryConstantRoundTrip:
 
         assert validate_test_module(path, tmp_path) == []
 
-    # SUMMARY: Verify `sql is _CONSTANT` is caught as the same tautology `==` is — `is` states
+    # Verify `sql is _CONSTANT` is caught as the same tautology `==` is — `is` states
     # object identity, which the constant always has with itself, whatever its text says.
     @pytest.mark.unit
     def test_an_identity_round_trip_without_a_pinned_clause_is_reported(
@@ -374,7 +344,7 @@ class TestQueryConstantRoundTrip:
         assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
         assert "_SELECT_BY_ID" in issues[0].message
 
-    # SUMMARY: Verify `"clause text" in _CONSTANT` pins the constant the same way a sliced `==`
+    # Verify `"clause text" in _CONSTANT` pins the constant the same way a sliced `==`
     # does — the ordinary way to spell "this substring is really in there" without slicing first.
     @pytest.mark.unit
     def test_a_pinned_clause_via_membership_clears_the_module(self, tmp_path: Path) -> None:
@@ -390,7 +360,7 @@ class TestQueryConstantRoundTrip:
 
         assert validate_test_module(path, repo_root) == []
 
-    # SUMMARY: Verify `_CONSTANT in something` — the constant as the haystack's member, not the
+    # Verify `_CONSTANT in something` — the constant as the haystack's member, not the
     # text pin — is left exactly where it was: a round trip, not a pin. `in` only pins one way
     # round, and this proves the branch does not fire on the direction that states nothing.
     @pytest.mark.unit
@@ -410,7 +380,7 @@ class TestQueryConstantRoundTrip:
 
         assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
 
-    # SUMMARY: Verify `assert "SELECT" in _CONSTANT` — true of every query — pins nothing.
+    # Verify `assert "SELECT" in _CONSTANT` — true of every query — pins nothing.
     # With a one-word needle accepted, reversing `WHERE id = %s` to `WHERE status = %s` left
     # the module reported clean, where the version before the `in` branch existed had reported it.
     # A widening that makes a rule easier to silence than it was is a regression even when the
@@ -431,7 +401,7 @@ class TestQueryConstantRoundTrip:
 
         assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
 
-    # SUMMARY: Verify `assert "" in _CONSTANT` — true of every string — pins nothing.
+    # Verify `assert "" in _CONSTANT` — true of every string — pins nothing.
     # Right after the `in` branch was added, the shortest possible way to silence the rule
     # for a whole module was one assertion that cannot fail.
     @pytest.mark.unit
@@ -451,8 +421,6 @@ class TestQueryConstantRoundTrip:
 
         assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
 
-    # SUMMARY: Verify a constant that appears only as a dictionary key states nothing about the
-    # SQL and does not silence the rule for the module.
     # Both branches used to ask `_referenced_names` whether the expression mentions the
     # constant at all, which `results[_SELECT_BY_ID]` does — as the key doing the looking-up, with
     # no claim about the query text anywhere. One such assertion marked the constant pinned and
@@ -478,16 +446,13 @@ class TestQueryConstantRoundTrip:
         assert [issue.rule_id for issue in issues] == ["test.sql_constant_round_trip"]
 
 
-# SUMMARY: Verify the repository is clean and the rule playbooks are complete.
 class TestValidatorSurface:
-    # SUMMARY: Verify the shipped suites satisfy the rule this validator enforces.
     @pytest.mark.unit
     def test_repository_has_no_unfailable_tests(self) -> None:
         repo_root = Path(__file__).resolve().parents[2]
 
         assert collect_test_quality_issues(repo_root) == []
 
-    # SUMMARY: Verify every rule identifier carries remediation guidance.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         "rule_id",

@@ -14,22 +14,20 @@ from project.core.logging.context import get_trace_id
 from project.core.logging.redaction import redact_traceback
 from project.core.serialization import safe_serialize
 
-# SUMMARY: Absolute repository root used to compute compact relative file paths in log payloads.
+# Used to compute compact relative file paths in log payloads.
 # Pre-compute project root for relative path calculation
 _PROJECT_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 
-# SUMMARY: Monotonically increasing sequence counter for guaranteed log ordering within a process.
+# For guaranteed log ordering within a process.
 _seq_counter = itertools.count(1)
 
 
 # ==================== NDJSON FORMATTER ====================
 
 
-# SUMMARY: NDJSON formatter producing one JSON object per line with flat keys for LLM-friendly parsing.
 class NDJSONFormatter(logging.Formatter):
-    # SUMMARY: Formats the log record into a single NDJSON line with flat structure.
     def format(self, record: logging.LogRecord) -> str:
         # Build base record with sequence number, pid, timestamp, level, logger name.
         ts = datetime.now(timezone.utc).isoformat(timespec="milliseconds")

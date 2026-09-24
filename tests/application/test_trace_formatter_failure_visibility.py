@@ -19,14 +19,10 @@ _FAILED_TRACE = "aaaaaaaa1111"
 _OK_TRACE = "bbbbbbbb2222"
 
 
-# SUMMARY: Render one NDJSON log line.
-# OUTPUT: (str): Serialized event.
 def _line(**event: Any) -> str:
     return json.dumps(event)
 
 
-# SUMMARY: Build a log where the FIRST request failed and the LAST one succeeded.
-# OUTPUT: (list[str]): NDJSON lines.
 def _log_with_failed_then_ok() -> list[str]:
     return [
         _line(
@@ -94,9 +90,7 @@ def _log_with_failed_then_ok() -> list[str]:
     ]
 
 
-# SUMMARY: Verify the cause of a 500 reaches the rendered tree instead of being dropped.
 class TestFailureIsVisible:
-    # SUMMARY: Verify the critical record is rendered rather than silently discarded.
     @pytest.mark.unit
     def test_critical_event_appears_in_rendered_trace(self) -> None:
         rendered = format_trace_for_llm(_log_with_failed_then_ok(), trace_id=_FAILED_TRACE)
@@ -105,7 +99,6 @@ class TestFailureIsVisible:
         assert "KeyError" in rendered
         assert "'customer_id'" in rendered
 
-    # SUMMARY: Verify a 500 is not rendered with a success mark just because the span closed cleanly.
     @pytest.mark.unit
     def test_root_span_is_marked_failed_even_without_span_error(self) -> None:
         rendered = format_trace_for_llm(_log_with_failed_then_ok(), trace_id=_FAILED_TRACE)
@@ -114,7 +107,6 @@ class TestFailureIsVisible:
         assert "✗" in root_line
         assert "✓" not in root_line
 
-    # SUMMARY: Verify the failure detection does not mark healthy requests as failed.
     @pytest.mark.unit
     def test_successful_trace_still_renders_as_success(self) -> None:
         rendered = format_trace_for_llm(_log_with_failed_then_ok(), trace_id=_OK_TRACE)
@@ -123,9 +115,7 @@ class TestFailureIsVisible:
         assert "✓" in root_line
 
 
-# SUMMARY: Verify the default single-trace view says what it is not showing.
 class TestHiddenTracesAreAnnounced:
-    # SUMMARY: Verify both traces are found and only the failed one is flagged.
     @pytest.mark.unit
     def test_inventory_lists_traces_and_marks_failures(self) -> None:
         trace_ids, failed, cancelled = trace_inventory(_log_with_failed_then_ok())
@@ -134,7 +124,6 @@ class TestHiddenTracesAreAnnounced:
         assert failed == {_FAILED_TRACE}
         assert cancelled == set()
 
-    # SUMMARY: Verify rendering the healthy last trace still surfaces the earlier failure.
     @pytest.mark.unit
     def test_note_warns_about_hidden_failed_trace(self) -> None:
         trace_ids, failed, _ = trace_inventory(_log_with_failed_then_ok())
@@ -145,7 +134,6 @@ class TestHiddenTracesAreAnnounced:
         assert _FAILED_TRACE[:8] in note
         assert "--all" in note
 
-    # SUMMARY: Verify a single-trace log produces no noise.
     @pytest.mark.unit
     def test_note_is_empty_when_nothing_is_hidden(self) -> None:
         assert render_inventory_note([_OK_TRACE], set(), _OK_TRACE) == ""
@@ -154,8 +142,7 @@ class TestHiddenTracesAreAnnounced:
 _CANCELLED_TRACE = "cccccccc3333"
 
 
-# SUMMARY: Build a log where the FIRST request was cancelled at shutdown and the LAST succeeded.
-# OUTPUT: (list[str]): NDJSON lines, shaped as logger.span writes them for an interruption.
+# Returns NDJSON lines, shaped as logger.span writes them for an interruption.
 def _log_with_cancelled_then_ok() -> list[str]:
     return [
         _line(
@@ -190,13 +177,11 @@ def _log_with_cancelled_then_ok() -> list[str]:
     ]
 
 
-# SUMMARY: Verify a cancelled request is shown as stopped, in the tree and in the inventory note.
 # logger.span writes an interruption as span.error at WARNING and a summary of `cancelled`,
 # and the renderer used to treat both as a failure: the same ✗ as a 500 on the root line, and
 # "1 with errors" in the note for a request the server was told to stop — until the WARNING level
 # was introduced to keep the two apart.
 class TestCancelledIsNotFailed:
-    # SUMMARY: Verify the root line carries ⊘ and the exception type, never ✗.
     @pytest.mark.unit
     def test_root_span_is_marked_stopped_not_failed(self) -> None:
         rendered = format_trace_for_llm(_log_with_cancelled_then_ok(), trace_id=_CANCELLED_TRACE)
@@ -205,7 +190,6 @@ class TestCancelledIsNotFailed:
         assert "⊘ CancelledError" in root_line
         assert "✗" not in root_line
 
-    # SUMMARY: Verify the cancelled trace is in its own set and not among the failures.
     @pytest.mark.unit
     def test_inventory_names_the_cancelled_trace_separately(self) -> None:
         trace_ids, failed, cancelled = trace_inventory(_log_with_cancelled_then_ok())
@@ -214,7 +198,6 @@ class TestCancelledIsNotFailed:
         assert failed == set()
         assert cancelled == {_CANCELLED_TRACE}
 
-    # SUMMARY: Verify the hidden-trace note counts the cancellation under its own word.
     @pytest.mark.unit
     def test_note_says_cancelled_rather_than_with_errors(self) -> None:
         trace_ids, failed, cancelled = trace_inventory(_log_with_cancelled_then_ok())
@@ -225,7 +208,6 @@ class TestCancelledIsNotFailed:
         assert "with errors" not in note
         assert "--all" in note
 
-    # SUMMARY: Verify a child stopped at WARNING under a root that answered OK keeps the ✓.
     @pytest.mark.unit
     def test_a_handled_interruption_in_a_child_does_not_fail_the_request(self) -> None:
         # The root has no error of its own here, so its mark comes from the
@@ -261,7 +243,6 @@ class TestCancelledIsNotFailed:
         assert "✓" in root_line
         assert "✗" not in root_line
 
-    # SUMMARY: Verify an ERROR-level span.error keeps the trace among the failures.
     @pytest.mark.unit
     def test_a_trace_that_failed_before_it_was_cancelled_counts_as_failed(self) -> None:
         lines = _log_with_cancelled_then_ok()
@@ -285,7 +266,7 @@ class TestCancelledIsNotFailed:
         assert failed == {_CANCELLED_TRACE}
         assert cancelled == set()
 
-    # SUMMARY: Verify the --all rendering path covers every HTTP trace in the file.
+    # Verify the --all rendering path covers every HTTP trace in the file.
     @pytest.mark.unit
     def test_all_traces_view_contains_both_requests(self) -> None:
         rendered = format_all_traces_for_llm(_log_with_failed_then_ok())
@@ -298,8 +279,7 @@ class TestCancelledIsNotFailed:
 _REJECTED_TRACE = "dddddddd4444"
 
 
-# SUMMARY: Build a log where the FIRST request was answered 4xx and the LAST one succeeded.
-# OUTPUT: (list[str]): NDJSON lines, shaped as the exception handlers write a rejection.
+# Returns NDJSON lines, shaped as the exception handlers write a rejection.
 def _log_with_rejected_then_ok() -> list[str]:
     return [
         _line(
@@ -348,13 +328,11 @@ def _log_with_rejected_then_ok() -> list[str]:
     ]
 
 
-# SUMMARY: Verify a 4xx keeps its cause in the tree while losing the mark of a failed request.
 # When these records moved from `error.*` to `client_error.*` the renderer stopped matching
 # them, so the one line naming why the request was rejected was parsed and dropped — the reader
 # was left with a shaped tree and no reason in it. The root line meanwhile still carried the ✗ of
 # a 500, because any outcome that was not ok, unknown or cancelled counted as a failure.
 class TestARejectionIsShownAndIsNotAFailure:
-    # SUMMARY: Verify the client_error record is rendered as a leaf with its type and message.
     @pytest.mark.unit
     def test_the_rejection_reason_appears_in_the_tree(self) -> None:
         rendered = format_trace_for_llm(_log_with_rejected_then_ok(), trace_id=_REJECTED_TRACE)
@@ -362,7 +340,6 @@ class TestARejectionIsShownAndIsNotAFailure:
         assert "validation_error" in rendered
         assert "title must not be empty" in rendered
 
-    # SUMMARY: Verify a 4xx does not print the mark a 500 prints.
     @pytest.mark.unit
     def test_the_root_line_is_not_marked_failed(self) -> None:
         rendered = format_trace_for_llm(_log_with_rejected_then_ok(), trace_id=_REJECTED_TRACE)
@@ -370,7 +347,6 @@ class TestARejectionIsShownAndIsNotAFailure:
 
         assert "✗" not in root_line
 
-    # SUMMARY: Verify the hidden-trace note does not report a rejected request as an error.
     @pytest.mark.unit
     def test_the_inventory_does_not_count_a_rejection_among_the_failures(self) -> None:
         trace_ids, failed, cancelled = trace_inventory(_log_with_rejected_then_ok())

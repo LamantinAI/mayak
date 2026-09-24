@@ -13,16 +13,12 @@ from project.infrastructure.agents.llm_service import LLMService
 from tests.conftest import _FixtureSettings as FixtureSettings
 
 
-# SUMMARY: Lightweight tool stub exposing only the stable name used by mock-mode routing.
+# Lightweight tool stub exposing only the stable name used by mock-mode routing.
 class DummyTool:
     name = "example_lookup"
 
 
-# SUMMARY: Verify deterministic mock-mode behavior without external providers.
 class TestLLMService:
-    # SUMMARY: Build an LLMService instance with patched settings.
-    # INPUT: test_settings (FixtureSettings): Test settings fixture.
-    # OUTPUT: (LLMService): LLM service configured for the requested mode.
     def _create_service(self, test_settings: FixtureSettings) -> LLMService:
         with patch(
             "project.infrastructure.agents.llm_service.get_settings",
@@ -30,7 +26,6 @@ class TestLLMService:
         ):
             return LLMService()
 
-    # SUMMARY: Verify mock mode does not depend on external provider reachability.
     @pytest.mark.unit
     async def test_check_readiness_reports_mock_mode_as_healthy(
         self,
@@ -44,7 +39,7 @@ class TestLLMService:
         assert readiness["backend_mode"] == "mock"
         assert readiness["provider_reachable"] is None
 
-    # SUMMARY: Regression guard: without this, the mock requires one of five English words in the
+    # Regression guard: without this, the mock requires one of five English words in the
     # prompt, so an agentic vertical with a domain vocabulary cannot be exercised without a live
     # provider.
     @pytest.mark.unit
@@ -69,7 +64,7 @@ class TestLLMService:
         assert response.tool_calls
         assert response.tool_calls[0]["name"] == "example_lookup"
 
-    # SUMMARY: Verify the plain-text branch still exists: with nothing bound, mock mode answers in words.
+    # Verify the plain-text branch still exists: with nothing bound, mock mode answers in words.
     @pytest.mark.unit
     async def test_no_tools_bound_means_no_tool_call(
         self,
@@ -82,7 +77,6 @@ class TestLLMService:
         assert isinstance(response, AIMessage)
         assert not response.tool_calls
 
-    # SUMMARY: Verify mock mode turns tool results into a final assistant answer.
     @pytest.mark.unit
     async def test_call_summarizes_trailing_tool_output(
         self,
@@ -105,14 +99,12 @@ class TestLLMService:
         assert "example_lookup" in str(response.content)
 
 
-# SUMMARY: A second tool stub, so selection can be observed rather than assumed.
+# A second tool stub, so selection can be observed rather than assumed.
 class SecondDummyTool:
     name = "example_second"
 
 
-# SUMMARY: Verify mock mode always picks the first bound tool.
 class TestMockToolSelectionIsDeterministic:
-    # SUMMARY: Verify selection is positional and stable, not arbitrary among the bound tools.
     @pytest.mark.unit
     @pytest.mark.parametrize("attempt", range(5))
     async def test_first_bound_tool_wins_with_several_tools(
@@ -141,9 +133,8 @@ class TestMockToolSelectionIsDeterministic:
         assert response.tool_calls[0]["name"] == DummyTool.name
 
 
-# SUMMARY: Verify one vertical binding tools cannot change what another vertical sees.
 class TestBindingIsPerCaller:
-    # SUMMARY: Regression guard: CompositionRoot builds one LLMService for the whole app; if
+    # Regression guard: CompositionRoot builds one LLMService for the whole app; if
     # bind_tools wrote into it directly instead of returning a bound copy, the last vertical to
     # bind would replace every earlier binding with no error.
     @pytest.mark.unit
@@ -174,10 +165,8 @@ class TestBindingIsPerCaller:
         assert not shared_response.tool_calls
 
 
-# SUMMARY: Verify the live-mode readiness paths that health tests replace with a mock.
+# Verify the live-mode readiness paths that health tests replace with a mock.
 class TestLiveReadinessBranches:
-    # SUMMARY: Build a service in live mode with the requested readiness check mode.
-    # OUTPUT: (LLMService): Service whose settings declare live mode.
     def _live_service(self, mode: Literal["probe", "init"]) -> LLMService:
         # A fresh settings object, never the session-scoped `test_settings`
         # fixture. Flipping llm_mode to "live" on the shared instance would leak into every test
@@ -191,7 +180,6 @@ class TestLiveReadinessBranches:
         ):
             return LLMService()
 
-    # SUMMARY: Verify `init` answers from the client's existence and never calls out.
     @pytest.mark.unit
     async def test_init_mode_reports_healthy_without_touching_the_provider(self) -> None:
         service = self._live_service("init")
@@ -204,7 +192,6 @@ class TestLiveReadinessBranches:
         assert readiness["provider_reachable"] is None
         probe.assert_not_called()
 
-    # SUMMARY: Verify an unreachable provider degrades readiness rather than crashing the endpoint.
     @pytest.mark.unit
     async def test_probe_failure_reports_unhealthy_instead_of_raising(self) -> None:
         # /health/ready calls this. An exception escaping here turns a readiness
@@ -224,7 +211,6 @@ class TestLiveReadinessBranches:
         assert readiness["provider_reachable"] is False
         assert readiness["error"] == "TimeoutError"
 
-    # SUMMARY: Verify the healthy live branch records the provider as reachable with a latency.
     @pytest.mark.unit
     async def test_successful_probe_reports_reachable(self) -> None:
         service = self._live_service("probe")
@@ -240,28 +226,22 @@ class TestLiveReadinessBranches:
         assert readiness["response_time_ms"] >= 0
 
 
-# SUMMARY: Controllable stand-in for time.monotonic(), so the TTL-expiry test advances the cache's
+# Controllable stand-in for time.monotonic(), so the TTL-expiry test advances the cache's
 # notion of time explicitly instead of sleeping for real and paying the TTL in wall-clock seconds.
 class _FakeMonotonicClock:
-    # SUMMARY: Start the fake clock at a fixed reading.
     def __init__(self, start: float = 0.0) -> None:
         self._now = start
 
-    # SUMMARY: Return the current fake reading. Matches time.monotonic()'s zero-argument signature
+    # Return the current fake reading. Matches time.monotonic()'s zero-argument signature
     # so it can replace it directly via monkeypatch.setattr.
     def read(self) -> float:
         return self._now
 
-    # SUMMARY: Move the fake clock forward by the given number of seconds.
     def advance(self, seconds: float) -> None:
         self._now += seconds
 
 
-# SUMMARY: Verify the TTL cache added to probe mode: one provider call per TTL window, a fresh call
-# once the TTL elapses, and that caching never turns a real failure into a reported success.
 class TestReadinessProbeCaching:
-    # SUMMARY: Build a service in live mode with the requested readiness check mode.
-    # OUTPUT: (LLMService): Service whose settings declare live mode.
     def _live_service(self, mode: Literal["probe", "init"]) -> LLMService:
         # A fresh settings object per service, matching TestLiveReadinessBranches —
         # each test in this class needs its own cold _probe_cache, and a fresh LLMService() is what
@@ -275,7 +255,6 @@ class TestReadinessProbeCaching:
         ):
             return LLMService()
 
-    # SUMMARY: Verify the second of two back-to-back check_readiness() calls is served from cache.
     @pytest.mark.unit
     async def test_two_consecutive_probes_inside_ttl_call_the_provider_once(self) -> None:
         service = self._live_service("probe")
@@ -294,8 +273,7 @@ class TestReadinessProbeCaching:
         assert second["cached"] is True
         assert second["cache_age_seconds"] >= 0.0
 
-    # SUMMARY: Verify a call made after _PROBE_CACHE_TTL_SECONDS has passed re-probes the provider,
-    # using a controlled clock instead of a real sleep so the test stays fast.
+    # Uses a controlled clock instead of a real sleep so the test stays fast.
     @pytest.mark.unit
     async def test_probe_after_ttl_elapsed_calls_the_provider_again(
         self,
@@ -315,7 +293,7 @@ class TestReadinessProbeCaching:
         assert first["cached"] is False
         assert second["cached"] is False
 
-    # SUMMARY: Regression guard: the cache stores failures too, and must not turn a cached failure
+    # Regression guard: the cache stores failures too, and must not turn a cached failure
     # into a reported success on the second call.
     @pytest.mark.unit
     async def test_a_failing_probe_stays_unhealthy_when_served_from_cache(self) -> None:
@@ -333,7 +311,7 @@ class TestReadinessProbeCaching:
         assert second["error"] == "TimeoutError"
         assert second["cached"] is True
 
-    # SUMMARY: Verify the cache change left the mock-mode early return untouched: still zero calls
+    # Verify the cache change left the mock-mode early return untouched: still zero calls
     # to the provider probe, still healthy.
     @pytest.mark.unit
     async def test_mock_mode_makes_zero_provider_calls_and_stays_healthy(
@@ -355,7 +333,6 @@ class TestReadinessProbeCaching:
         assert readiness["backend_mode"] == "mock"
 
 
-# SUMMARY: Verify a service built from process-wide settings lands in mock mode, not the live path.
 # This is the trap for tests/conftest.py::pin_llm_mode_toggle, and it is the only test here
 # that reads real settings instead of the fixture's. Every other test in this file patches
 # get_settings, so all of them stay green while an operator's own .env carries AGENT_LLM_MODE=live
@@ -363,8 +340,6 @@ class TestReadinessProbeCaching:
 # fixture and this goes red on that machine; it is green everywhere the environment is silent,
 # which is every fresh checkout and CI.
 class TestMockModeSurvivesTheOperatorsEnvironment:
-    # SUMMARY: Verify unpatched settings put the service in mock mode.
-    # OUTPUT: (None): None.
     @pytest.mark.unit
     def test_settings_read_from_the_environment_select_mock_mode(self) -> None:
         # Settings() is built here rather than taken from get_settings() because

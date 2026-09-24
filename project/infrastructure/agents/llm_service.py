@@ -19,14 +19,10 @@ from project.infrastructure.agents.llm_service_readiness import (
 )
 
 
-# SUMMARY: Structural protocol for the runnable object used to invoke the LLM.
 class SupportsAsyncInvoke(Protocol):
-    # SUMMARY: Asynchronously invoke the underlying runnable with chat messages.
     async def ainvoke(self, input: list[BaseMessage]) -> BaseMessage: ...
 
 
-# SUMMARY: Refuse a tool whose aliased argument fields are missing from the schema the provider receives.
-# RAISES: TypeError: Naming the tool and each lost field.
 # langchain leaves out of a tool's exported schema a field whose validation alias differs from
 # its name while it has no plain alias — exactly what CoreModel's generator gives every field. A tool
 # whose arguments inherited CoreModel therefore reached the provider as `"properties": {}`. Mock
@@ -61,13 +57,11 @@ def _refuse_aliased_arguments(tool: Any) -> None:
         )
 
 
-# SUMMARY: Service facade for deterministic mock mode, live provider calls, and readiness checks.
 class LLMService(
     LLMServiceReadinessMixin,
     LLMServiceMockMixin,
     LLMServiceLiveMixin,
 ):
-    # SUMMARY: Initialize the LLM service from global settings.
     def __init__(self) -> None:
         # Initialize settings, logger, and mutable provider state.
         self._settings = get_settings()
@@ -79,25 +73,19 @@ class LLMService(
         # Initialize the default LLM or deterministic mock placeholders.
         self._initialize_llm()
 
-    # SUMMARY: Report whether the service is operating in deterministic mock mode.
-    # OUTPUT: (bool): True when mock mode is enabled.
     def is_mock_mode(self) -> bool:
         return self._settings.agent.llm_mode == "mock"
 
-    # SUMMARY: Call the LLM with the specified messages.
     async def call(self, messages: list[BaseMessage]) -> BaseMessage:
         # Use deterministic responses in mock mode and live provider calls otherwise.
         if self.is_mock_mode():
             return self._build_mock_response(messages)
         return await self._call_llm_with_retry(messages)
 
-    # SUMMARY: Get the current LLM instance.
-    # OUTPUT: (BaseChatModel | None): Current live provider client, if initialized.
     def get_llm(self) -> BaseChatModel | None:
         return self._llm
 
-    # SUMMARY: Return a view of this service bound to the given tools, leaving the shared instance untouched.
-    # OUTPUT: (LLMService): A copy carrying these tools. Keep it — the receiver, not the caller's variable, is bound.
+    # Keep it — the receiver, not the caller's variable, is bound.
     # Mutating `self._mock_tools` and returning `self` would corrupt shared state:
     # CompositionRoot builds exactly one LLMService and hands the same object to every vertical,
     # so a second agentic vertical binding its own tools would silently replace the first one's —

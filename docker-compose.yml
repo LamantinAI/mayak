@@ -42,7 +42,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-    # **LOGIC_STEP**: No restart policy on purpose. During development a crash loop should stay
+    # No restart policy on purpose. During development a crash loop should stay
     # crashed and visible in `docker compose ps`, not be hidden behind an automatic retry. A
     # deployment that wants one adds `restart: unless-stopped` in its own overlay, next to
     # whatever else that environment overrides.

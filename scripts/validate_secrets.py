@@ -171,7 +171,7 @@ def get_secrets_rule_playbook(rule_id: str) -> dict[str, object] | None:
 
 
 # List the repository's tracked files, so untracked scratch work is never scanned.
-# (list[str]): Repo-relative paths, empty when git is unavailable.
+# Returns: Repo-relative paths, empty when git is unavailable.
 def _tracked_files(root_dir: Path) -> list[str]:
     try:
         completed = subprocess.run(
@@ -212,7 +212,7 @@ def scan_line(line: str, previous_line: str = "") -> str | None:
 
 
 # Scan every tracked text file and report credential-shaped literals.
-# files (Sequence[str] | None): Optional explicit file list, used by tests and hooks.
+# files: Optional explicit file list, used by tests and hooks.
 def collect_secret_issues(root_dir: Path, files: Sequence[str] | None = None) -> list[SecretIssue]:
     own_path = Path(__file__).resolve()
     candidates = list(files) if files is not None else _tracked_files(root_dir)
@@ -267,7 +267,7 @@ def _issue_to_payload(issue: SecretIssue) -> dict[str, object]:
 
 
 # Run the secret scan and return a process exit code.
-# (int): Zero when no tracked file carries a credential-shaped literal.
+# Returns: Zero when no tracked file carries a credential-shaped literal.
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Scan tracked files for credential-shaped literals."

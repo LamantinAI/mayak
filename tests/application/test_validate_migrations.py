@@ -21,9 +21,7 @@ from scripts.validate_migrations import (
 )
 
 
-# SUMMARY: Verify the migration quality gate executes Alembic upgrade and metadata checks in order.
 class TestValidateMigrations:
-    # SUMMARY: Ensure the ORM's table registry is exactly the one the migrations create.
     # This pair names the shipped reference_tasks table, so deleting the reference vertical
     # turns both red — by design, and .agents/skills/add-vertical's removal list points here. Update the
     # ledger below in the same commit as the ORM model; that is the whole job.
@@ -33,7 +31,6 @@ class TestValidateMigrations:
         # adds a table and forgets its migration — the one thing this assertion exists to catch.
         assert set(Base.metadata.tables) == {"reference_tasks"}
 
-    # SUMMARY: Ensure metadata includes exactly the reference task indexes the migrations create.
     @pytest.mark.unit
     def test_metadata_contains_reference_task_index(self) -> None:
         reference_tasks = Base.metadata.tables["reference_tasks"]
@@ -44,7 +41,6 @@ class TestValidateMigrations:
             "uq_reference_tasks_open_title",
         }
 
-    # SUMMARY: Ensure the quality gate plans both Alembic steps with the repository config file.
     @pytest.mark.unit
     def test_build_commands_returns_upgrade_then_check(self) -> None:
         commands = _build_commands()
@@ -68,7 +64,6 @@ class TestValidateMigrations:
             "check",
         )
 
-    # SUMMARY: Ensure the quality gate returns success without running commands when the database is unreachable.
     @pytest.mark.unit
     def test_main_skips_when_database_unreachable(
         self,
@@ -91,7 +86,6 @@ class TestValidateMigrations:
         assert exit_code == 0
         assert "MIGRATIONS NOT VERIFIED" in output
 
-    # SUMMARY: The banner marks an unverified skip and only an unverified skip — never a real pass.
     # This is the trap for a real finding: the old skip message read
     # like every other passing line in a `make quality-gates` run, so a migration that dropped a
     # column instead of renaming it cleared every local gate on both projects the audit built from
@@ -138,7 +132,7 @@ class TestValidateMigrations:
         assert any("upgrade" in " ".join(argv) for argv in alembic_steps), commands
         assert any("check" in " ".join(argv) for argv in alembic_steps), commands
 
-    # SUMMARY: Ensure CI cannot silently skip the gate, which is how broken revisions reached main.
+    # Ensure CI cannot silently skip the gate, which is how broken revisions reached main.
     @pytest.mark.unit
     def test_main_fails_when_database_unreachable_in_ci(
         self,
@@ -158,7 +152,6 @@ class TestValidateMigrations:
         assert exit_code == 1
         assert "requires it" in output
 
-    # SUMMARY: Ensure a deliberate exception remains available without editing the validator.
     @pytest.mark.unit
     def test_ci_skip_can_be_opted_back_in(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import scripts.validate_migrations as validate_migrations
@@ -170,7 +163,6 @@ class TestValidateMigrations:
 
         assert main() == 0
 
-    # SUMMARY: Ensure the explicit flag makes the gate strict outside CI too.
     @pytest.mark.unit
     def test_require_database_flag_fails_without_ci(
         self,
@@ -185,7 +177,7 @@ class TestValidateMigrations:
 
         assert main(["--require-database"]) == 1
 
-    # SUMMARY: Ensure the job that runs the gate actually has a database, so the strict mode can pass.
+    # Ensure the job that runs the gate actually has a database, so the strict mode can pass.
     @pytest.mark.unit
     def test_ci_workflow_provisions_postgres_for_quality_gates(self) -> None:
         workflow = (ROOT_DIR / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
@@ -195,7 +187,6 @@ class TestValidateMigrations:
         assert "postgres:" in quality_gates_job
         assert "POSTGRES_HOST:" in quality_gates_job
 
-    # SUMMARY: Ensure the quality gate executes both commands in order and reports success.
     @pytest.mark.unit
     def test_main_runs_upgrade_and_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import scripts.validate_migrations as validate_migrations
@@ -230,7 +221,6 @@ class TestValidateMigrations:
             (_build_commands()[1].argv, str(ROOT_DIR)),
         ]
 
-    # SUMMARY: Ensure Alembic check failures surface their exit status and a migration remediation hint.
     @pytest.mark.unit
     def test_main_returns_subprocess_exit_code(
         self,
@@ -279,7 +269,6 @@ class TestValidateMigrations:
         assert "check failed with exit code 2" in output
         assert "make autogenerate-migration MSG=describe_change" in output
 
-    # SUMMARY: Ensure Alembic upgrade failures point the caller at migration-chain or database-state remediation.
     @pytest.mark.unit
     def test_main_reports_upgrade_head_remediation(
         self,
@@ -320,9 +309,8 @@ class TestValidateMigrations:
         assert "Fix the broken migration or local database state" in output
 
 
-# SUMMARY: Tests for migration rule_id playbooks and structured issue collection.
+# Tests for migration rule_id playbooks and structured issue collection.
 class TestRulePlaybook:
-    # SUMMARY: Known rule_id returns a dict with the expected keys.
     @pytest.mark.unit
     def test_known_rule_returns_dict(self) -> None:
         playbook = get_migrations_rule_playbook("migrations.head_drift")
@@ -330,12 +318,10 @@ class TestRulePlaybook:
         assert "meaning" in playbook
         assert "next_checks" in playbook
 
-    # SUMMARY: Unknown rule_id returns None.
     @pytest.mark.unit
     def test_unknown_rule_returns_none(self) -> None:
         assert get_migrations_rule_playbook("migrations.bogus") is None
 
-    # SUMMARY: When DB is unreachable, collect_migration_issues returns one informational issue.
     @pytest.mark.unit
     def test_unreachable_db_emits_skip_issue(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import scripts.validate_migrations as validate_migrations
@@ -351,7 +337,6 @@ class TestRulePlaybook:
         assert issues[0].rule_id == "migrations.database_unreachable"
         assert issues[0].returncode == 0  # informational, not a hard failure
 
-    # SUMMARY: A failing `alembic check` step is reported as migrations.head_drift rule_id.
     @pytest.mark.unit
     def test_check_failure_emits_head_drift(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import scripts.validate_migrations as validate_migrations
@@ -384,7 +369,7 @@ class TestRulePlaybook:
         assert issues[0].rule_id == "migrations.head_drift"
         assert issues[0].command_name == "check"
 
-    # SUMMARY: Regression guard: when Alembic fails with a real stderr (e.g. ProgrammingError), MigrationIssue.stderr must contain the captured output and message must hint at it. Closes the bug where the JSON consumer only saw "check failed with exit code N".
+    # Regression guard: when Alembic fails with a real stderr (e.g. ProgrammingError), MigrationIssue.stderr must contain the captured output and message must hint at it. Closes the bug where the JSON consumer only saw "check failed with exit code N".
     @pytest.mark.unit
     def test_check_failure_captures_alembic_stderr_into_issue(
         self, monkeypatch: pytest.MonkeyPatch
@@ -432,9 +417,8 @@ class TestRulePlaybook:
         assert "ProgrammingError" in issues[0].message
 
 
-# SUMMARY: Write a throwaway Alembic script directory whose revisions form the given graph.
-# INPUT: chain (dict[str, str | None]): revision id → down_revision, in any order.
-# OUTPUT: (Path): The script directory to hand to _revision_heads.
+# chain: revision id → down_revision, in any order.
+# Returns the script directory to hand to _revision_heads.
 def _script_directory(root: Path, chain: dict[str, str | None]) -> Path:
     versions = root / "alembic" / "versions"
     versions.mkdir(parents=True)
@@ -447,21 +431,19 @@ def _script_directory(root: Path, chain: dict[str, str | None]) -> Path:
     return root / "alembic"
 
 
-# SUMMARY: Verify a fork or a dangling down_revision turns the gate red before the database skip.
+# Verify a fork or a dangling down_revision turns the gate red before the database skip.
 # The comment on database_skip_is_allowed names "a second alembic head or a dangling
 # down_revision" as what the CI backstop exists for — and both used to pass a checkout
 # without Postgres green, because every alembic command sat behind the reachability check. Neither
 # defect needs a database to see: ScriptDirectory reads the files. Measured: two revisions sharing
 # a down_revision, `make quality-gates` exit 0, "migration validation skipped".
 class TestRevisionGraphIsCheckedWithoutADatabase:
-    # SUMMARY: Verify the repository's own alembic/versions/ has exactly one head, read offline.
     @pytest.mark.unit
     def test_the_shipped_revisions_form_one_chain(self) -> None:
         # The real directory, no monkeypatch: this is the read every local gate
         # now makes, and it must work with no .env and no database in the environment.
         assert len(_revision_heads()) == 1
 
-    # SUMMARY: Verify a deleted alembic/ reads as "no revisions", so the database_disabled skip still follows.
     @pytest.mark.unit
     def test_a_project_without_a_script_directory_has_no_graph_to_check(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -477,7 +459,6 @@ class TestRevisionGraphIsCheckedWithoutADatabase:
 
         assert [issue.rule_id for issue in issues] == ["migrations.database_disabled"]
 
-    # SUMMARY: Verify two heads make main() exit 1 with the database unreachable and CI unset.
     @pytest.mark.unit
     def test_a_fork_fails_the_gate_where_it_used_to_skip(
         self,
@@ -502,7 +483,7 @@ class TestRevisionGraphIsCheckedWithoutADatabase:
         assert exit_code == 1
         assert "2 heads (bbb, ccc)" in output
 
-    # SUMMARY: Verify POSTGRES_ENABLED=false does not hide a fork — the files are wrong either way.
+    # Verify POSTGRES_ENABLED=false does not hide a fork — the files are wrong either way.
     @pytest.mark.unit
     def test_a_fork_is_reported_even_where_postgres_is_disabled(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -520,7 +501,7 @@ class TestRevisionGraphIsCheckedWithoutADatabase:
         assert [issue.rule_id for issue in issues] == ["migrations.multiple_heads"]
         assert issues[0].severity == "error"
 
-    # SUMMARY: Verify a down_revision naming no revision is an error, not an alembic traceback.
+    # Verify a down_revision naming no revision is an error, not an alembic traceback.
     @pytest.mark.unit
     def test_a_dangling_down_revision_is_reported(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -541,7 +522,6 @@ class TestRevisionGraphIsCheckedWithoutADatabase:
         assert [issue.rule_id for issue in issues] == ["migrations.broken_revision_graph"]
         assert "nope" in issues[0].message
 
-    # SUMMARY: Verify a healthy graph changes nothing: the unreachable-database skip follows as before.
     @pytest.mark.unit
     def test_one_chain_still_reaches_the_database_skip(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -560,7 +540,6 @@ class TestRevisionGraphIsCheckedWithoutADatabase:
 
         assert [issue.rule_id for issue in issues] == ["migrations.database_unreachable"]
 
-    # SUMMARY: Verify both new rule ids resolve to a playbook that points at the revision files.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         "rule_id", ["migrations.multiple_heads", "migrations.broken_revision_graph"]
@@ -574,7 +553,7 @@ class TestRevisionGraphIsCheckedWithoutADatabase:
         assert "alembic/versions/" in read_first
 
 
-# SUMMARY: Verify a database stamped with a revision this branch lacks is named as such, before
+# Verify a database stamped with a revision this branch lacks is named as such, before
 # alembic is asked a question it can only answer opaquely.
 # Measured in a project built from this template: fifteen worktrees against one
 # PostgreSQL container. An agent on one branch ran `alembic upgrade head`; a worktree on a branch
@@ -583,7 +562,6 @@ class TestRevisionGraphIsCheckedWithoutADatabase:
 # database. On a database more than one checkout can reach, that drops the schema another branch
 # migrated, and it does not fix this at all: the stamp comes back the moment the other branch runs.
 class TestADatabaseAheadOfThisBranch:
-    # SUMMARY: Verify the case is reported without alembic ever being invoked.
     @pytest.mark.unit
     def test_a_stamped_revision_this_branch_lacks_fails_the_gate(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -612,7 +590,6 @@ class TestADatabaseAheadOfThisBranch:
         assert issues[0].severity == "error"
         assert "zzz" in issues[0].message
 
-    # SUMMARY: Verify the ordinary case still reaches alembic, in the order it always ran in.
     @pytest.mark.unit
     def test_a_stamp_this_branch_does_have_is_quiet(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -634,7 +611,7 @@ class TestADatabaseAheadOfThisBranch:
         assert issues == []
         assert ran == ["head", "check"]
 
-    # SUMMARY: Verify an empty alembic_version reads as "fresh", not as a foreign revision.
+    # Verify an empty alembic_version reads as "fresh", not as a foreign revision.
     @pytest.mark.unit
     def test_a_database_nobody_has_migrated_yet_is_quiet(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -654,7 +631,6 @@ class TestADatabaseAheadOfThisBranch:
 
         assert issues == []
 
-    # SUMMARY: Verify the advice this rule exists to replace is gone from every playbook here.
     # The whole rule is an argument against one sentence. Reintroducing it
     # elsewhere in this file would undo the rule while leaving it green.
     @pytest.mark.unit
@@ -672,7 +648,7 @@ class TestADatabaseAheadOfThisBranch:
         assert "reset the local db" not in advice
         assert "restore the database" not in advice
 
-    # SUMMARY: Verify the new playbook offers catching up and a database of one's own.
+    # Verify the new playbook offers catching up and a database of one's own.
     @pytest.mark.unit
     def test_the_playbook_names_the_way_out(self) -> None:
         playbook = get_migrations_rule_playbook("migrations.foreign_revision")

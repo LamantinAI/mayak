@@ -41,10 +41,9 @@ postgres_settings = PostgresSettings()
 # Set the database URL on the main config object.
 config.set_main_option("sqlalchemy.url", str(postgres_settings.sqlalchemy_database_url))
 
-# SUMMARY: Standard library logger for Alembic migration timing and lifecycle events.
 _migration_logger = logging.getLogger("alembic.migration")
 
-# SUMMARY: The advisory-lock key every process that migrates this database agrees on.
+# The advisory-lock key every process that migrates this database agrees on.
 # entrypoint.sh runs `alembic upgrade head` in EVERY container, so two replicas started
 # together against a database that has never been migrated both try to create `alembic_version` at
 # once. Measured on 2026-09-02, twice: two parallel `docker compose run --rm app` against a fresh
@@ -63,7 +62,6 @@ _migration_logger = logging.getLogger("alembic.migration")
 _MIGRATION_LOCK_KEY = zlib.crc32(b"mayak.alembic.migrations")
 
 
-# SUMMARY: Run migrations in 'offline' mode using URL without Engine creation.
 def run_migrations_offline() -> None:
     _migration_logger.info("Starting offline migrations")
     _start = time.perf_counter()
@@ -84,7 +82,6 @@ def run_migrations_offline() -> None:
     _migration_logger.info("Offline migrations complete in %.1f ms", _elapsed_ms)
 
 
-# SUMMARY: Run migrations in 'online' mode using Engine and connection.
 def run_migrations_online() -> None:
     _migration_logger.info("Starting online migrations")
     _start = time.perf_counter()

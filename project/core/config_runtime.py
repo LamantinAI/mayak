@@ -15,25 +15,22 @@ from project.core.config_settings_core import (
 from project.core.config_settings_agent import AgentSettings
 from project.core.config_settings_observability import ObservabilitySettings
 
-# SUMMARY: The manifest that declares this project's version, located relative to this module.
 # Resolved from __file__ rather than the working directory: the container starts the app from
 # /app with the sources at /app/project/, and a relative path would break under any other cwd.
 _PYPROJECT_PATH = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
-# SUMMARY: Reported when the manifest cannot be read, so the app starts and says so.
+# Reported when the manifest cannot be read, so the app starts and says so.
 _UNKNOWN_APP_VERSION = "0.0.0+unknown"
 
-# SUMMARY: The sample environment file whose values are, by definition, placeholders.
 # Resolved from __file__ for the same reason as the manifest above: the container starts from /app.
 # `.dockerignore` excludes `.env` and not `.env.sample`, so the file is present in the image too.
 _ENV_SAMPLE_PATH = Path(__file__).resolve().parents[2] / ".env.sample"
 
-# SUMMARY: Substrings that mark an environment key as carrying a credential.
 _SECRET_KEY_MARKERS = ("PASSWORD", "API_KEY", "SECRET", "TOKEN")
 
 
-# SUMMARY: Read the credential placeholders `.env.sample` ships, so production can refuse to reuse them.
-# OUTPUT: (dict[str, str]): Environment key to its sample value; empty when the file is unreadable.
+# Read the credential placeholders `.env.sample` ships, so production can refuse to reuse them.
+# Returns environment key to its sample value; empty when the file is unreadable.
 def _sample_placeholder_secrets() -> dict[str, str]:
     # Never raise and never fail closed. A missing sample file must not stop a
     # service from starting — it only means this particular check has nothing to compare against.
@@ -58,8 +55,7 @@ def _sample_placeholder_secrets() -> dict[str, str]:
     return placeholders
 
 
-# SUMMARY: Read the version pyproject.toml declares, falling back to a visible placeholder.
-# OUTPUT: (str): The declared version, or _UNKNOWN_APP_VERSION when the manifest is unreadable.
+# Returns the declared version, or _UNKNOWN_APP_VERSION when the manifest is unreadable.
 def _declared_app_version() -> str:
     # The manifest, not importlib.metadata. Dockerfile builds the image with
     # `uv sync --frozen --no-install-project --no-dev`, so the project distribution is not
@@ -81,16 +77,15 @@ def _declared_app_version() -> str:
         return _UNKNOWN_APP_VERSION
 
 
-# SUMMARY: Single source of truth for the application version, read from pyproject.toml.
 # It reaches /health/, the OpenAPI document and every startup event. As a hardcoded "1.0.0" it
 # disagreed with the manifest the moment anyone set a version there, and the six places
 # `initialize-project` renames did not include it.
 APP_VERSION = _declared_app_version()
 
-# SUMMARY: Optional in-process settings override used by tests and controlled bootstrap flows.
+# Used by tests and controlled bootstrap flows.
 _SETTINGS_OVERRIDE: Optional["Settings"] = None
 
-# SUMMARY: The startup checks in validate_runtime() that APP_DEBUG=true switches off, each named
+# The startup checks in validate_runtime() that APP_DEBUG=true switches off, each named
 # by the variable it protects.
 # One flag, three guards — composition_root.py hard-wires FastAPI(debug=False), so
 # "Starlette's own error page" is never a real effect of this flag and documentation must not
@@ -105,27 +100,19 @@ GUARDS_RELAXED_BY_DEBUG = (
 )
 
 
-# SUMMARY: Main settings facade that combines all configuration sections.
 class Settings:
-    # SUMMARY: Project-specific configuration.
     project: ProjectSettings
 
-    # SUMMARY: LLM service configuration.
     llm: LLMSettings
 
-    # SUMMARY: FastAPI server configuration.
     server: ServerSettings
 
-    # SUMMARY: PostgreSQL database configuration.
     postgres: PostgresSettings
 
-    # SUMMARY: Agent runtime configuration: LLM behaviour, prompts, readiness.
     agent: AgentSettings
 
-    # SUMMARY: Observability / full-trace configuration.
     observability: ObservabilitySettings
 
-    # SUMMARY: Initialize all configuration sections.
     def __init__(self) -> None:
         # Instantiate all settings sections from environment-backed models.
         self.project = ProjectSettings()
@@ -135,8 +122,6 @@ class Settings:
         self.agent = AgentSettings()
         self.observability = ObservabilitySettings()
 
-    # SUMMARY: Validate cross-setting runtime requirements before application startup.
-    # RAISES: ValueError: If a production-critical configuration is unsafe or incomplete.
     def validate_runtime(self) -> None:
         # Trim the API key once so later checks can reason about actual availability.
         api_key = self.llm.api_key.get_secret_value().strip()
@@ -238,7 +223,6 @@ class Settings:
             )
 
 
-# SUMMARY: Get the lazily initialized cached settings instance.
 @functools.lru_cache(maxsize=1)
 def get_settings() -> Settings:
     # Return the explicit override when tests or bootstrap code install one.
@@ -247,7 +231,6 @@ def get_settings() -> Settings:
     return Settings()
 
 
-# SUMMARY: Install an explicit settings instance override for subsequent get_settings() calls.
 def set_settings_override(settings: Settings) -> None:
     # Clear the cached instance so the override becomes the single source of truth.
     global _SETTINGS_OVERRIDE
@@ -255,7 +238,6 @@ def set_settings_override(settings: Settings) -> None:
     _SETTINGS_OVERRIDE = settings
 
 
-# SUMMARY: Remove any explicit settings override and reset the cached lazy instance.
 def clear_settings_override() -> None:
     # Drop the override and invalidate the cache for the next caller.
     global _SETTINGS_OVERRIDE

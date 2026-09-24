@@ -44,12 +44,12 @@ class ValidatorIssuePayload(TypedDict):
 
 
 # Assemble a validator issue payload guaranteed to satisfy ValidatorIssuePayload's required keys, sourcing suggested_fix/read_first/next_commands/stop_widening_condition from the validator's own rule-playbook dict so every JSON converter surfaces the same remediation guidance already available to query_ai_context.py failure rule.
-# file (str): Repo-relative path (or best-effort mapping) identifying the issue location.
-# line (int): 1-based line number, or 1 when the issue has no line concept.
-# playbook (dict[str, object] | None): The validator's own rule-playbook dict for this rule_id (e.g. from get_architecture_rule_playbook), or None when no playbook is registered for the rule_id.
-# severity (str): 'error', 'warning', or 'info'. Defaults to 'error' to match every validator's existing default for issues that carry no explicit severity field.
-# extra (dict[str, object] | None): Validator-specific additional fields to merge in without overwriting the canon keys above (e.g. entry_key, command_name, field, source_file, path, line_count, limit, returncode, stderr).
-# (dict[str, object]): Plain dict satisfying ValidatorIssuePayload's required keys — the canon block is annotated as that TypedDict, so mypy enforces the floor — plus any extra fields, ready for JSON serialization.
+# file: Repo-relative path (or best-effort mapping) identifying the issue location.
+# line: 1-based line number, or 1 when the issue has no line concept.
+# playbook: The validator's own rule-playbook dict for this rule_id (e.g. from get_architecture_rule_playbook), or None when no playbook is registered for the rule_id.
+# severity: 'error', 'warning', or 'info'. Defaults to 'error' to match every validator's existing default for issues that carry no explicit severity field.
+# extra: Validator-specific additional fields to merge in without overwriting the canon keys above (e.g. entry_key, command_name, field, source_file, path, line_count, limit, returncode, stderr).
+# Returns: Plain dict satisfying ValidatorIssuePayload's required keys — the canon block is annotated as that TypedDict, so mypy enforces the floor — plus any extra fields, ready for JSON serialization.
 def build_validator_issue_payload(
     *,
     rule_id: str,

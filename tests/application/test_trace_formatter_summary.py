@@ -13,7 +13,6 @@ import pytest
 from project.core.logging.trace_formatter import format_trace_for_llm
 
 
-# SUMMARY: Build a minimal one-span NDJSON trace carrying the given request.summary payload.
 def _trace(summary: dict[str, object]) -> list[str]:
     def event(event_id: str, **extra: object) -> str:
         payload: dict[str, object] = {
@@ -38,7 +37,6 @@ def _trace(summary: dict[str, object]) -> list[str]:
     ]
 
 
-# SUMMARY: Return the rendered request.summary line from a formatted trace.
 def _summary_line(summary: dict[str, object]) -> str:
     rendered = format_trace_for_llm(_trace(summary))
     lines = [line for line in rendered.splitlines() if "request.summary" in line]
@@ -46,7 +44,7 @@ def _summary_line(summary: dict[str, object]) -> str:
     return lines[-1]
 
 
-# SUMMARY: The regression this file exists for.
+# The regression this file exists for.
 @pytest.mark.unit
 def test_legacy_failure_is_not_rendered_as_ok() -> None:
     line = _summary_line({"success": False, "error_count": 1, "child_span_count": 2})
@@ -55,13 +53,12 @@ def test_legacy_failure_is_not_rendered_as_ok() -> None:
     assert "FAILED" in line
 
 
-# SUMMARY: The other half of the old format must keep its meaning.
+# The other half of the old format must keep its meaning.
 @pytest.mark.unit
 def test_legacy_success_still_reads_as_ok() -> None:
     assert "OK" in _summary_line({"success": True, "error_count": 0, "child_span_count": 2})
 
 
-# SUMMARY: The current payload renders the outcome and the status code together.
 @pytest.mark.unit
 def test_current_outcome_is_rendered_with_its_status() -> None:
     line = _summary_line(
@@ -71,7 +68,6 @@ def test_current_outcome_is_rendered_with_its_status() -> None:
     assert "SERVER_ERROR 502" in line
 
 
-# SUMMARY: Absence of evidence is reported as absence, never as success.
 @pytest.mark.unit
 def test_payload_with_neither_field_is_unknown_not_ok() -> None:
     line = _summary_line({"error_count": 0, "child_span_count": 0})

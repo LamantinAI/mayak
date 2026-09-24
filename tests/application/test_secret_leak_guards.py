@@ -29,9 +29,8 @@ _FAKE_DSN = (
 _FAKE_KEY = "sk-abcdefghijklmnopqrstuvwxyz012345"  # allow-secret: fixture for the scrubber
 
 
-# SUMMARY: Guard the shipped .env.sample against re-enabling Starlette's traceback response.
+# Guard the shipped .env.sample against re-enabling Starlette's traceback response.
 class TestEnvSampleDebugFlag:
-    # SUMMARY: Verify .env.sample ships APP_DEBUG disabled so fresh projects never expose tracebacks.
     @pytest.mark.unit
     def test_env_sample_does_not_enable_debug(self) -> None:
         # dev_setup.sh copies this file verbatim into .env for every new project,
@@ -47,9 +46,8 @@ class TestEnvSampleDebugFlag:
         assert assignments == ["false"]
 
 
-# SUMMARY: Verify exception text reaches logs scrubbed, matching the treatment of tracebacks.
+# Verify exception text reaches logs scrubbed, matching the treatment of tracebacks.
 class TestExceptionTextRedaction:
-    # SUMMARY: Verify log_error scrubs secrets embedded in the exception's own text.
     @pytest.mark.unit
     def test_log_error_redacts_exception_message(self, log_capture: list[dict]) -> None:
         logger = get_logger("tests.application.test_secret_leak_guards")
@@ -64,7 +62,7 @@ class TestExceptionTextRedaction:
         assert _FAKE_KEY not in payload["exception_message"]
         assert "***REDACTED***" in payload["exception_message"]
 
-    # SUMMARY: Verify log_critical applies the same scrubbing as log_error.
+    # Verify log_critical applies the same scrubbing as log_error.
     @pytest.mark.unit
     def test_log_critical_redacts_exception_message(self, log_capture: list[dict]) -> None:
         logger = get_logger("tests.application.test_secret_leak_guards")
@@ -79,7 +77,6 @@ class TestExceptionTextRedaction:
         payload = log_capture[0]["kwargs"]["data"]
         assert "hunter2" not in payload["exception_message"]
 
-    # SUMMARY: Verify the free-form message is scrubbed too, since callers pass str(exception) into it.
     @pytest.mark.unit
     def test_log_error_redacts_message_argument(self, log_capture: list[dict]) -> None:
         # project/launcher/main.py logs message=str(e) with no exception object,
@@ -91,9 +88,8 @@ class TestExceptionTextRedaction:
         assert "hunter2" not in log_capture[0]["kwargs"]["data"]["message"]
 
 
-# SUMMARY: Verify the formatter scrubs text fields assembled outside the semantic logger.
+# Verify the formatter scrubs text fields assembled outside the semantic logger.
 class TestFormatterRedactionNet:
-    # SUMMARY: Verify a hand-built payload bypassing the semantic logger is still scrubbed.
     @pytest.mark.unit
     def test_formatter_redacts_exception_message_from_raw_payload(self) -> None:
         record = logging.LogRecord(
@@ -115,9 +111,7 @@ class TestFormatterRedactionNet:
         assert _FAKE_KEY not in entry["data"]["exception_message"]
 
 
-# SUMMARY: Verify APP_DEBUG=true no longer turns the HTTP surface into a traceback page.
 class TestDebugFlagCannotPublishTracebacks:
-    # SUMMARY: Verify the assembled app keeps Starlette's debug off even when APP_DEBUG is on.
     @pytest.mark.unit
     def test_application_never_runs_with_starlette_debug(self) -> None:
         # Starlette answers unhandled exceptions in ServerErrorMiddleware, which
@@ -136,7 +130,6 @@ class TestDebugFlagCannotPublishTracebacks:
 
         assert app.debug is False
 
-    # SUMMARY: Verify a debug build says in its first log lines which startup checks it did not run.
     @pytest.mark.unit
     def test_the_startup_event_names_the_guards_debug_relaxed(
         self, log_capture: list[dict]
@@ -163,7 +156,6 @@ class TestDebugFlagCannotPublishTracebacks:
             GUARDS_RELAXED_BY_DEBUG
         )
 
-    # SUMMARY: Verify the same field is an empty list whenever the guards actually ran.
     @pytest.mark.unit
     def test_a_production_build_reports_no_relaxed_guard(self, log_capture: list[dict]) -> None:
         settings = FixtureSettings()
@@ -181,7 +173,6 @@ class TestDebugFlagCannotPublishTracebacks:
         )
         assert built["kwargs"]["data"]["new_value"]["guards_relaxed_by_debug"] == []
 
-    # SUMMARY: Verify a raising route returns the fixed envelope, not the exception text.
     @pytest.mark.unit
     def test_unhandled_exception_answers_with_the_safe_message(self) -> None:
         settings = FixtureSettings()
@@ -205,9 +196,7 @@ class TestDebugFlagCannotPublishTracebacks:
         assert "Traceback" not in response.text
 
 
-# SUMMARY: Verify the scrubber matches the credential shapes this project actually handles.
 class TestRedactionCoversRealCredentialShapes:
-    # SUMMARY: Verify the SQLAlchemy async DSN form is scrubbed, not only the bare scheme.
     @pytest.mark.unit
     def test_driver_qualified_dsn_is_redacted(self) -> None:
         # The pattern required the scheme name to touch `://`, so a driver-qualified
@@ -218,7 +207,6 @@ class TestRedactionCoversRealCredentialShapes:
 
         assert "hunter2" not in redact_secrets(text)
 
-    # SUMMARY: Verify tokens carrying no `key=` prefix are still scrubbed.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         "secret",
@@ -263,7 +251,6 @@ class TestRedactionCoversRealCredentialShapes:
         assert secret not in redact_secrets(f"provider rejected {secret} at 12:00")
 
 
-# SUMMARY: Verify no tracked file carries a credential shape that GitHub refuses to accept on push.
 # The first push of this repository was rejected: GH013, "Push cannot contain secrets",
 # pointing at a synthetic `sk_live_` fixture in this file. It was never a real key — GitHub matches
 # the shape, not the account — but the shape is enough to block the push, and a template that
@@ -271,7 +258,7 @@ class TestRedactionCoversRealCredentialShapes:
 # with a fixed, publicly documented prefix and length; a scanner-shaped fixture must sit outside
 # them, which for a test costs one character of length or one letter of prefix.
 class TestNothingTrippedByGithubPushProtection:
-    # SUMMARY: Provider name paired with the pattern GitHub's push protection matches.
+    # Provider name paired with the pattern GitHub's push protection matches.
     BLOCKED_SHAPES = (
         ("Stripe live key", r"sk_live_[0-9a-zA-Z]{24,}"),
         ("Stripe restricted key", r"rk_live_[0-9a-zA-Z]{24,}"),
@@ -279,7 +266,6 @@ class TestNothingTrippedByGithubPushProtection:
         ("OpenAI key", r"sk-[a-zA-Z0-9]{48}"),
     )
 
-    # SUMMARY: Verify a fresh clone of this template can be pushed to GitHub without an unblock click.
     @pytest.mark.unit
     @pytest.mark.parametrize("provider,shape", BLOCKED_SHAPES)
     def test_no_tracked_file_carries_a_blocked_credential_shape(

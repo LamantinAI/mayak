@@ -8,7 +8,6 @@ from typing import Optional, Protocol
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 
-# SUMMARY: Flatten a langchain message body into plain text the domain can hold.
 # `content` is typed as str | list[str | dict] because multimodal replies arrive as a list of
 # parts. Joining the text parts keeps the port's `-> str` promise honest instead of stringifying a
 # Python list into the caller's face.
@@ -25,29 +24,23 @@ def _as_text(message: BaseMessage) -> str:
     return "".join(parts)
 
 
-# SUMMARY: The one method this adapter needs from a model: a message list in, a message out.
 # A Protocol rather than the concrete LLMService, so a test can hand this adapter a scripted
 # double — see tests/support/scripted_llm.py — and prove how a vertical handles a reply that is
 # plausible and wrong. Typed against the class, the only model a test could supply was the shipped
 # mock, which computes its answer from the conversation and so cannot produce a wrong one.
 # LLMService satisfies this structurally; nothing about it changes.
 class SupportsMessageCall(Protocol):
-    # SUMMARY: Send the conversation and return the model's reply.
     async def call(self, messages: list[BaseMessage]) -> BaseMessage: ...
 
 
-# SUMMARY: Concrete LLMPort implementation: one text prompt in, the model's text out.
 # This exists because project/domain/ports.py named LLMService as its adapter while the two
 # signatures did not match — the port takes and returns str, LLMService takes and returns
 # BaseMessage. Nothing in the repository implemented the port, so the dependency-inversion boundary
 # the domain documented was never actually crossed by production code, only by a fake in a test.
 class PromptLLMAdapter:
-    # SUMMARY: Wrap an already-configured LLMService instance.
     def __init__(self, llm_service: SupportsMessageCall) -> None:
         self._llm_service = llm_service
 
-    # SUMMARY: Send a text prompt, optionally with a system instruction, and return the reply.
-    # INPUT: system (Optional[str]): Instruction sent in the system role. Omitted when None.
     async def call(self, prompt: str, *, system: Optional[str] = None) -> str:
         # A SystemMessage when there is one, not a prefix glued onto the prompt:
         # the full-trace extractor splits its fields by `isinstance(m, SystemMessage)`, so

@@ -33,11 +33,8 @@ from project.core.logging.redaction import redact_secrets
 from project.domain.exceptions import ExternalServiceError, UpstreamAuthenticationError
 
 
-# SUMMARY: Build body-inclusive extras for llm.call events when full-trace observability is on.
-#          Returns empty dict when disabled so the hot-path cost stays zero.
-# INPUT: full_trace (bool): Whether full-trace is enabled at call time.
-# INPUT: completion_text (str | None): Raw completion text when available.
-# OUTPUT: (dict[str, Any]): Extra kwargs ready to merge into log_llm_call **extra.
+# So the hot-path cost stays zero when full trace is disabled.
+# Returns extra kwargs ready to merge into log_llm_call **extra.
 def _build_full_trace_extras(
     full_trace: bool,
     messages: list[BaseMessage],
@@ -62,30 +59,26 @@ def _build_full_trace_extras(
     return extras
 
 
-# SUMMARY: Structural contract describing the shared LLMService state used by the live-provider mixin.
 class _LLMServiceLiveContract(Protocol):
-    # SUMMARY: Validated application settings used to configure provider clients and retries.
+    # Validated application settings used to configure provider clients and retries.
     _settings: Settings
 
-    # SUMMARY: Semantic logger used for lifecycle, call, and error events.
     _logger: SemanticLogger
 
-    # SUMMARY: Underlying live provider client or None when mock mode is active.
+    # Underlying live provider client or None when mock mode is active.
     _llm: BaseChatModel | None
 
-    # SUMMARY: Provider runnable optionally enhanced with bound tools.
+    # Provider runnable optionally enhanced with bound tools.
     _bound_llm: Any
 
 
-# SUMMARY: Mixin implementing live-provider setup and retryable LLM calls.
 class LLMServiceLiveMixin:
-    # SUMMARY: Underlying live provider client or None when mock mode is active.
+    # Underlying live provider client or None when mock mode is active.
     _llm: BaseChatModel | None
 
-    # SUMMARY: Provider runnable optionally enhanced with bound tools.
+    # Provider runnable optionally enhanced with bound tools.
     _bound_llm: Any
 
-    # SUMMARY: Initialize the live provider client, or leave mock placeholders, from global settings.
     # Kept to a single resolution tier — global settings — deliberately: a per-agent
     # override mechanism would be machinery the kernel cannot demonstrate using, since nothing in
     # the template ever constructs one. A vertical that needs a second LLM endpoint builds its
@@ -140,11 +133,10 @@ class LLMServiceLiveMixin:
             },
         )
 
-    # SUMMARY: Call the LLM with automatic retry logic using configured max retries.
-    # RAISES: UpstreamAuthenticationError: If the provider rejects this service's credentials.
-    # RAISES: ExternalServiceError: If the provider is uninitialised, or fails for any other
-    #         reason — including a retryable failure that used up every attempt.
-    # RAISES: BadRequestError: Untranslated on purpose; see the handler at the end of this method.
+    # Raises UpstreamAuthenticationError if the provider rejects this service's credentials.
+    # Raises ExternalServiceError if the provider is uninitialised, or fails for any other
+    # reason — including a retryable failure that used up every attempt.
+    # Raises BadRequestError untranslated on purpose; see the handler at the end of this method.
     async def _call_llm_with_retry(
         self: _LLMServiceLiveContract,
         messages: list[BaseMessage],

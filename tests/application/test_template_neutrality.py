@@ -17,7 +17,7 @@ from fastapi import FastAPI
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# SUMMARY: Names this template used to carry. A rename adds the retired name here.
+# Names this template used to carry. A rename adds the retired name here.
 SUPERSEDED_TEMPLATE_NAMES = (
     "backendbase",
     "backend-base",
@@ -25,7 +25,7 @@ SUPERSEDED_TEMPLATE_NAMES = (
     "backendscaffold",
 )
 
-# SUMMARY: Optional, git-ignored list of words this checkout must not contain — one per line.
+# Optional, git-ignored list of words this checkout must not contain — one per line.
 # The list is deliberately not committed. Whatever a repository must not mention —
 # a client, an internal service, a stack it does not use — naming those words in a tracked file
 # publishes exactly what the check exists to keep out. So the mechanism ships and the words stay
@@ -34,9 +34,6 @@ SUPERSEDED_TEMPLATE_NAMES = (
 FORBIDDEN_TERMS_FILE = _REPO_ROOT / ".neutrality-terms"
 
 
-# SUMMARY: Read the local word list, ignoring blanks and comments.
-# INPUT: source (Path): File to read; absent is normal and yields no terms.
-# OUTPUT: (tuple[str, ...]): Lower-cased terms to search for.
 def _forbidden_terms(source: Path) -> tuple[str, ...]:
     if not source.is_file():
         return ()
@@ -47,10 +44,8 @@ def _forbidden_terms(source: Path) -> tuple[str, ...]:
     )
 
 
-# SUMMARY: Report which of the given files contain any of the given terms.
-# INPUT: paths (list[Path]): Files to read.
-# INPUT: terms (tuple[str, ...]): Lower-cased terms to look for.
-# OUTPUT: (list[str]): "<relative path>: <term>" for every hit, sorted by discovery order.
+# terms: Lower-cased terms to look for.
+# Returns "<relative path>: <term>" for every hit, sorted by discovery order.
 def _files_containing(paths: list[Path], terms: tuple[str, ...]) -> list[str]:
     hits: list[str] = []
     for path in paths:
@@ -70,14 +65,14 @@ def _files_containing(paths: list[Path], terms: tuple[str, ...]) -> list[str]:
     return hits
 
 
-# SUMMARY: The only heading docs/project_map.md may carry — generic, so it cannot go stale.
+# The only heading docs/project_map.md may carry — generic, so it cannot go stale.
 PROJECT_MAP_HEADING = "# Project Map"
 
-# SUMMARY: The only heading the always-loaded contract may carry. It names the kernel's contract, not a domain.
+# The only heading the always-loaded contract may carry. It names the kernel's contract, not a domain.
 CONTRACT_HEADING = "# AGENTS.md"
 
 
-# SUMMARY: List every file the working copy carries — tracked or newly written — minus what
+# List every file the working copy carries — tracked or newly written — minus what
 # .gitignore excludes.
 # `git ls-files -z` alone reports the index, and a file is not in the index until someone
 # runs `git add`. That is the whole time a new vertical is being drafted, which is exactly when
@@ -86,8 +81,8 @@ CONTRACT_HEADING = "# AGENTS.md"
 # only became visible after the commit that made it tracked. `--others --exclude-standard` adds
 # precisely what `git add .` would pick up, so a .gitignored artifact (.venv, coverage.xml, a
 # log) still stays out and does not turn build litter into a red gate.
-# INPUT: root (Path): Repository to enumerate. The mechanism test points this at a throwaway repo.
-# OUTPUT: (list[Path]): Absolute paths of every tracked or newly added, non-ignored file.
+# root: Repository to enumerate. The mechanism test points this at a throwaway repo.
+# Returns absolute paths of every tracked or newly added, non-ignored file.
 def _working_copy_files(root: Path = _REPO_ROOT) -> list[Path]:
     result = run(
         ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
@@ -99,9 +94,7 @@ def _working_copy_files(root: Path = _REPO_ROOT) -> list[Path]:
     return [root / name for name in result.stdout.split("\0") if name]
 
 
-# SUMMARY: Verify no file in the working copy still carries a retired name of this template.
 class TestNoSupersededTemplateName:
-    # SUMMARY: Verify a rename left nothing behind, including in generated and hand-written docs.
     @pytest.mark.unit
     def test_retired_name_appears_in_no_working_copy_file(self) -> None:
         # This file names the retired strings, so scanning it would always fail.
@@ -123,9 +116,7 @@ class TestNoSupersededTemplateName:
         assert not offenders, "retired template name still present in: " + ", ".join(offenders)
 
 
-# SUMMARY: Verify nothing this checkout may not mention appears in any working-copy file.
 class TestForbiddenTerms:
-    # SUMMARY: Verify the local word list, if there is one, finds nothing.
     @pytest.mark.unit
     def test_no_working_copy_file_contains_a_forbidden_term(self) -> None:
         terms = _forbidden_terms(FORBIDDEN_TERMS_FILE)
@@ -137,12 +128,11 @@ class TestForbiddenTerms:
         assert not offenders, "a forbidden term appears in: " + ", ".join(offenders)
 
 
-# SUMMARY: Verify the guard above would actually catch something, independent of any local list.
+# Verify the guard above would actually catch something, independent of any local list.
 # The enforcing test skips wherever the word list is absent, which is every fresh
 # clone. Without this, a mistake in the reader or the matcher would hide behind that skip forever
 # and the guard would be discovered broken on the day it was needed.
 class TestForbiddenTermsMechanism:
-    # SUMMARY: Verify terms are read, comments and blanks ignored, and matching is case-insensitive.
     @pytest.mark.unit
     def test_a_listed_term_is_found_and_a_comment_is_not(self, tmp_path: Path) -> None:
         listing = tmp_path / ".neutrality-terms"
@@ -158,18 +148,16 @@ class TestForbiddenTermsMechanism:
         assert _files_containing([clean], terms) == []
         assert len(_files_containing([dirty], terms)) == 1
 
-    # SUMMARY: Verify a checkout without the file gets an empty list rather than an error.
     @pytest.mark.unit
     def test_an_absent_list_yields_no_terms(self, tmp_path: Path) -> None:
         assert _forbidden_terms(tmp_path / "nothing-here") == ()
 
 
-# SUMMARY: Verify the enumeration the guards above scan reaches a file before `git add` does.
+# Verify the enumeration the guards above scan reaches a file before `git add` does.
 # The guards themselves only prove the matcher works on whatever they are handed.
 # This proves the hand-off: a file written but not yet added is in scope, and a .gitignored one is
 # still out, so widening the scan did not buy the guards a new way to go red on build litter.
 class TestWorkingCopyEnumerationMechanism:
-    # SUMMARY: Verify an untracked, freshly written file appears in the scan.
     @pytest.mark.unit
     def test_a_file_not_yet_added_is_still_enumerated(self, tmp_path: Path) -> None:
         run(["git", "init", "-q"], cwd=tmp_path, check=True)
@@ -179,7 +167,6 @@ class TestWorkingCopyEnumerationMechanism:
 
         assert "new_vertical.md" in found
 
-    # SUMMARY: Verify .gitignore still keeps build output and scratch work out of the scan.
     @pytest.mark.unit
     def test_an_ignored_file_is_not_enumerated(self, tmp_path: Path) -> None:
         run(["git", "init", "-q"], cwd=tmp_path, check=True)
@@ -191,9 +178,7 @@ class TestWorkingCopyEnumerationMechanism:
         assert "scratch.md" not in found
 
 
-# SUMMARY: Verify the hand-written heading of the generated map cannot carry a project name.
 class TestProjectMapHeading:
-    # SUMMARY: Verify docs/project_map.md opens with a heading no rename can invalidate.
     @pytest.mark.unit
     def test_heading_is_generic(self) -> None:
         # The generated block below the marker already prints the live project
@@ -208,7 +193,7 @@ class TestProjectMapHeading:
         assert first_line == PROJECT_MAP_HEADING
 
 
-# SUMMARY: Verify the identity checklist cannot silently grow a seventh place.
+# Verify the identity checklist cannot silently grow a seventh place.
 # Two surfaces named the template outside the six places initialize-project renames: the
 # operational contract's own heading, and the /tmp file make audit-deps wrote. Neither is
 # project-specific, so each was made generic rather than added to the checklist. These guards
@@ -221,7 +206,6 @@ class TestProjectMapHeading:
 # tests/application/test_config.py::test_default_values, because that one is not decoration — it
 # is what a deployment without APP_NAME serves.
 class TestKernelSurfacesCarryNoProjectName:
-    # SUMMARY: Verify the always-loaded wrapper opens with a heading no rename can invalidate.
     # This used to read ARCHITECTURE.md, then CLAUDE.md. The claim is unchanged —
     # the first thing an agent reads must not carry a project name — only the file that carries it
     # moved, and it now moved again: CLAUDE.md opens with a comment and imports AGENTS.md, so
@@ -232,7 +216,6 @@ class TestKernelSurfacesCarryNoProjectName:
 
         assert first_line == CONTRACT_HEADING
 
-    # SUMMARY: Verify make audit-deps names no fixed /tmp file, which would carry a stale name.
     @pytest.mark.unit
     def test_dependency_audit_writes_to_a_temporary_path_it_did_not_invent(self) -> None:
         recipe = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8").split("\naudit-deps:", 1)[1]
@@ -242,14 +225,14 @@ class TestKernelSurfacesCarryNoProjectName:
         assert "/tmp/" not in recipe
 
 
-# SUMMARY: Phrases in docs/agent_rules.md that turn a command from a suggestion into a requirement.
+# Phrases in docs/agent_rules.md that turn a command from a suggestion into a requirement.
 _MANDATE_MARKERS = (
     "Finish with",
     "Never claim task completion without",
 )
 
 
-# SUMMARY: Verify the agent is allowed to run the command the rules force it to run.
+# Verify the agent is allowed to run the command the rules force it to run.
 # docs/agent_rules.md named a `make quality-gates-with-doctor` variant twice as the only
 # acceptable finish for a non-trivial task, and .claude/settings.json allowed `make quality-gates`
 # but not it. That variant no longer exists — the doctor runs inside quality-gates — but the
@@ -258,7 +241,6 @@ _MANDATE_MARKERS = (
 # where disagreement stops work: the last step. Only mandated commands are checked — targets that
 # change state (`init-project`, `migrate`) stay off the allow-list on purpose.
 class TestAgentPermissionsCoverMandatedCommands:
-    # SUMMARY: Verify each command the rules mandate appears in the permissions allow-list.
     @pytest.mark.unit
     def test_every_mandated_make_command_is_permitted(self) -> None:
         rules = (_REPO_ROOT / "docs" / "agent_rules.md").read_text(encoding="utf-8")
@@ -280,13 +262,12 @@ class TestAgentPermissionsCoverMandatedCommands:
         assert missing == []
 
 
-# SUMMARY: Verify the startup log event names the application's real title, not a baked-in literal.
+# Verify the startup log event names the application's real title, not a baked-in literal.
 # composition_root builds the FastAPI title from settings.project.name and then logged
 # "Mayak API" three lines later as a string literal, so every project built from this template
 # announced the template's name in its own startup event. Nothing caught it: the title in the
 # OpenAPI document was correct, and no assertion ever read the event.
 class TestStartupEventReportsTheLiveTitle:
-    # SUMMARY: Verify the fastapi_application_built event carries the same title the app serves.
     @pytest.mark.unit
     def test_logged_title_follows_the_configured_project_name(
         self,

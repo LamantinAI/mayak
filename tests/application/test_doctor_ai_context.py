@@ -36,7 +36,7 @@ from scripts.validate_module_sizes import ModuleSizeIssue
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-# SUMMARY: Keep every test in this module from shelling out to the gate targets.
+# Keep every test in this module from shelling out to the gate targets.
 # The tests layer runs this very suite. Without the sentinel, one `diagnose_full()` here
 # would spawn a full pytest run, which would reach this module again. The env var is the same one
 # the doctor sets on its own children, so this fixture exercises the real guard rather than a
@@ -51,9 +51,8 @@ def _no_subprocess_layers(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-# SUMMARY: Verify the doctor entrypoint reports the first blocking issue class in priority order.
+# Verify the doctor entrypoint reports the first blocking issue class in priority order.
 class TestDoctorAIContext:
-    # SUMMARY: Verify syntax failures in context extraction short-circuit later validators.
     @pytest.mark.unit
     def test_diagnose_reports_syntax_error_first(
         self,
@@ -79,7 +78,7 @@ class TestDoctorAIContext:
         assert payload["degraded_status"] == "syntax_error"
         assert payload["issues"][0]["issue_type"] == "syntax_error"
 
-    # SUMMARY: Verify the doctor returns the first architecture issue before endpoint/runtime/cbm checks.
+    # Verify the doctor returns the first architecture issue before endpoint/runtime/cbm checks.
     @pytest.mark.unit
     def test_diagnose_reports_architecture_before_other_validators(
         self,
@@ -111,7 +110,6 @@ class TestDoctorAIContext:
         assert payload["blocking_layer"] == "architecture"
         assert payload["issues"][0]["rule_id"] == "arch.infrastructure.no_forbidden_import"
 
-    # SUMMARY: Verify outdated generated artifacts are reported before running deeper validators.
     @pytest.mark.unit
     def test_diagnose_reports_generated_outdated_before_validators(
         self,
@@ -137,7 +135,6 @@ class TestDoctorAIContext:
         assert payload["degraded_status"] == "generated_outdated"
         assert payload["issues"][0]["recommended_next_command"] == "make refresh-generated-docs"
 
-    # SUMMARY: Verify the doctor catches integrity errors in service/dependency wiring.
     @pytest.mark.unit
     def test_diagnose_reports_integrity_error(
         self,
@@ -169,7 +166,6 @@ class TestDoctorAIContext:
         assert payload["status"] == "error"
         assert payload["degraded_status"] == "integrity_error"
 
-    # SUMMARY: Verify the doctor catches endpoint wiring violations after architecture passes.
     @pytest.mark.unit
     def test_diagnose_reports_endpoint_wiring_error(
         self,
@@ -204,8 +200,6 @@ class TestDoctorAIContext:
         assert payload["blocking_layer"] == "endpoint_wiring"
         assert payload["issues"][0]["rule_id"] == "endpoint.no_direct_service_import"
 
-    # SUMMARY: Verify the doctor catches CBM annotation issues and reports a rule_id derived
-    # from the message.
     @pytest.mark.unit
     def test_diagnose_reports_cbm_error(
         self,
@@ -248,7 +242,7 @@ class TestDoctorAIContext:
         # rule_id is derived from the message, not a hard-coded literal.
         assert payload["issues"][0]["rule_id"] == "cbm.missing_file_tag"
 
-    # SUMMARY: Regression guard for the historical bug where doctor reported the fake rule_id "cbm.strict_core_missing_metadata" (not in _CBM_RULE_MAP) for every CBM issue.
+    # Regression guard for the historical bug where doctor reported the fake rule_id "cbm.strict_core_missing_metadata" (not in _CBM_RULE_MAP) for every CBM issue.
     @pytest.mark.unit
     def test_diagnose_reports_cbm_error_rule_id_is_real(
         self,
@@ -295,7 +289,6 @@ class TestDoctorAIContext:
         assert rule_id in real_rule_ids
         assert rule_id != "cbm.strict_core_missing_metadata"
 
-    # SUMMARY: Verify the doctor catches oversized modules after all other validators pass.
     @pytest.mark.unit
     def test_diagnose_reports_module_size_error(
         self,
@@ -340,7 +333,6 @@ class TestDoctorAIContext:
         assert "600 code lines" in payload["issues"][0]["message"]
         assert "comments do not count" in payload["issues"][0]["message"]
 
-    # SUMMARY: Verify the doctor reports ok status with all checked layers when everything passes.
     @pytest.mark.unit
     def test_diagnose_returns_ok_when_all_layers_pass(
         self,
@@ -397,7 +389,6 @@ class TestDoctorAIContext:
         assert "agent_docs_drift" in payload["checked_layers"]
         assert payload["final_gate"] == "make quality-gates"
 
-    # SUMMARY: Verify the doctor CLI renders human-readable error output with blocking layer info.
     @pytest.mark.unit
     def test_main_renders_text_error_output(
         self,
@@ -426,7 +417,6 @@ class TestDoctorAIContext:
         assert "blocking_layer: cbm" in captured.out
         assert "next: uv run python validate_cbm.py" in captured.out
 
-    # SUMMARY: Verify the doctor CLI supports machine-readable JSON output.
     @pytest.mark.unit
     def test_main_renders_json_output(
         self,
@@ -450,9 +440,9 @@ class TestDoctorAIContext:
         assert '"status": "ok"' in captured.out
 
 
-# SUMMARY: Verify the doctor reports the new validator layers added by the validator-recovery bundle.
+# Verify the doctor reports the new validator layers added by the validator-recovery bundle.
 class TestExtendedCheckedLayers:
-    # SUMMARY: Run doctor against the live repo and assert the four new layers are present in the OK payload.
+    # Run doctor against the live repo and assert the four new layers are present in the OK payload.
     @pytest.mark.unit
     def test_checked_layers_include_new_layers(self) -> None:
         from scripts.doctor_ai_context import diagnose
@@ -492,13 +482,11 @@ class TestExtendedCheckedLayers:
             }, f"Unexpected blocking_layer: {blocking!r}"
 
 
-# SUMMARY: Verify the doctor can name a blocking layer for every step `make quality-gates` runs.
+# Verify the doctor can name a blocking layer for every step `make quality-gates` runs.
 # The doctor answered "doctor status: ok" on a red suite, twice, on two different failures.
 # It modelled 14 of the 23 steps and the nine it missed included the test run, mypy and ruff —
 # while the rendered contract says to run it first to find the blocking layer.
 class TestGateLayersAreModelled:
-    # SUMMARY: Read the commands `quality-gates` runs straight out of the Makefile.
-    # OUTPUT: (list[str]): One entry per recipe line, sub-make lines resolved to their target name.
     # The steps live in `quality-gates-steps`. `quality-gates` itself is two lines — run the
     # steps, and on failure run the doctor — so finding the doctor does not depend on a habit of
     # typing a second target name instead of the one people reach for automatically.
@@ -513,7 +501,6 @@ class TestGateLayersAreModelled:
             steps.append(line.strip().lstrip("@"))
         return steps
 
-    # SUMMARY: Verify each gate step maps to one named doctor layer, and no reported layer is idle.
     @pytest.mark.unit
     def test_every_quality_gates_step_maps_to_a_doctor_layer(self) -> None:
         # One explicit step -> layer pair, not a bag of candidates. The first
@@ -568,7 +555,6 @@ class TestGateLayersAreModelled:
             f"the doctor reports layers no quality-gates step corresponds to: {sorted(layers - needed)}"
         )
 
-    # SUMMARY: Verify a failing gate target becomes a payload whose rule_id has a playbook.
     @pytest.mark.unit
     def test_tool_layer_reports_the_failing_target_with_a_resolvable_rule(
         self, monkeypatch: pytest.MonkeyPatch
@@ -592,7 +578,7 @@ class TestGateLayersAreModelled:
         assert payload["issues"][0]["message"] == "some/file.py:3: error: bad type"
         assert get_doctor_layer_playbook(str(payload["issues"][0]["rule_id"])) is not None
 
-    # SUMMARY: Verify the security layer reports bandit's issue line, not the noise around it.
+    # Verify the security layer reports bandit's issue line, not the noise around it.
     # bandit prints a `[tester] WARNING nosec encountered ...` line for each suppression it
     # meets, before any finding. That line matches none of the other diagnostic shapes, so it was
     # the first candidate and would have been reported as the diagnosis — sending the reader to a
@@ -622,7 +608,7 @@ class TestGateLayersAreModelled:
         assert payload["issues"][0]["message"].startswith(">> Issue: [B608")
         assert get_doctor_layer_playbook(str(payload["issues"][0]["rule_id"])) is not None
 
-    # SUMMARY: Verify a printed rule_id is one `failure rule` can answer.
+    # Verify a printed rule_id is one `failure rule` can answer.
     @pytest.mark.unit
     @pytest.mark.parametrize("layer", [*TOOL_LAYERS, TESTS_LAYER], ids=lambda layer: layer.name)
     def test_every_tool_layer_rule_id_resolves_through_failure_playbook(
@@ -632,7 +618,7 @@ class TestGateLayersAreModelled:
 
         assert failure_playbook(layer.rule_id)["rule_id"] == layer.rule_id
 
-    # SUMMARY: Regression guard: the parametrised test above covers gate layers only, so a rule id the doctor can print outside them needs its own case or it reaches `failure rule` as a KeyError.
+    # Regression guard: the parametrised test above covers gate layers only, so a rule id the doctor can print outside them needs its own case or it reaches `failure rule` as a KeyError.
     @pytest.mark.unit
     def test_the_unavailable_layer_rule_id_resolves_too(self) -> None:
         from ai_query.common import failure_playbook
@@ -642,7 +628,7 @@ class TestGateLayersAreModelled:
         assert playbook["rule_id"] == LAYER_UNAVAILABLE_RULE_ID
         assert playbook["likely_fix_shape"]
 
-    # SUMMARY: Regression guard: the gate payload dropped `likely_fix_shape`, so the doctor answered a failed `make gate-format` with "run make gate-format" and kept "run make ai-autofix" to itself.
+    # Regression guard: the gate payload dropped `likely_fix_shape`, so the doctor answered a failed `make gate-format` with "run make gate-format" and kept "run make ai-autofix" to itself.
     @pytest.mark.unit
     def test_a_gate_layer_payload_carries_the_fix_shape(
         self, monkeypatch: pytest.MonkeyPatch
@@ -664,7 +650,6 @@ class TestGateLayersAreModelled:
         issue = payload["issues"][0]
         assert "ai-autofix" in str(issue["likely_fix_shape"])
 
-    # SUMMARY: Verify a doctor running inside its own child process cannot spawn the suite again.
     @pytest.mark.unit
     def test_reentry_sentinel_disables_the_subprocess_layers(
         self, monkeypatch: pytest.MonkeyPatch
@@ -684,7 +669,6 @@ class TestGateLayersAreModelled:
         assert payload is None
         assert executed == ()
 
-    # SUMMARY: Verify a failing tool step short-circuits ahead of the context map.
     @pytest.mark.unit
     def test_diagnose_full_returns_an_early_failure_before_the_validators(
         self, monkeypatch: pytest.MonkeyPatch
@@ -704,9 +688,9 @@ class TestGateLayersAreModelled:
         assert diagnose_full()["blocking_layer"] == "lint"
 
 
-# SUMMARY: Verify a validator the doctor cannot import is diagnosed rather than raised as a traceback.
+# Verify a validator the doctor cannot import is diagnosed rather than raised as a traceback.
 class TestDoctorSurvivesItsOwnTooling:
-    # SUMMARY: Regression guard: deleting scripts/validate_cbm.py made `make doctor` exit with a raw ModuleNotFoundError from ai_query/common.py, at the one moment a diagnostic tool has a job to do.
+    # Regression guard: deleting scripts/validate_cbm.py made `make doctor` exit with a raw ModuleNotFoundError from ai_query/common.py, at the one moment a diagnostic tool has a job to do.
     @pytest.mark.unit
     def test_a_missing_validator_becomes_a_named_issue(
         self, monkeypatch: pytest.MonkeyPatch
@@ -723,7 +707,7 @@ class TestDoctorSurvivesItsOwnTooling:
         assert issue["rule_id"] == LAYER_UNAVAILABLE_RULE_ID
         assert "validate_cbm" in str(issue["message"])
 
-    # SUMMARY: The payload has to say that the layers below the broken one were never run, or a reader treats one reported issue as the whole diagnosis.
+    # The payload has to say that the layers below the broken one were never run, or a reader treats one reported issue as the whole diagnosis.
     @pytest.mark.unit
     def test_the_unavailable_payload_names_what_went_unchecked(self) -> None:
         issue = unavailable_validator_payload("No module named 'scripts.validate_secrets'")[
@@ -733,7 +717,7 @@ class TestDoctorSurvivesItsOwnTooling:
         assert "unchecked" in str(issue["message"])
         assert issue["likely_fix_shape"]
 
-    # SUMMARY: Regression guard: `likely_fix_shape` was built and never printed, so the terse output offered only `next:` — which for every gate layer is the command that just failed.
+    # Regression guard: `likely_fix_shape` was built and never printed, so the terse output offered only `next:` — which for every gate layer is the command that just failed.
     @pytest.mark.unit
     def test_terse_output_prints_the_fix_shape(
         self,
@@ -764,7 +748,7 @@ class TestDoctorSurvivesItsOwnTooling:
         assert printed.index("fix:") < printed.index("next:")
 
 
-# SUMMARY: Verify an "ok" doctor run still says when the migration check never reached a database.
+# Verify an "ok" doctor run still says when the migration check never reached a database.
 # The skip is not an error, so it is filtered out of the blocking set, and without this
 # notice the doctor reports a clean run indistinguishable from a verified one. Measured in both
 # projects of an independent duel: a migration that dropped a column instead of renaming it
@@ -772,8 +756,6 @@ class TestDoctorSurvivesItsOwnTooling:
 # re-worded, so the sentence is written once — this asserts both halves, that it is carried and
 # that it is that one.
 class TestDoctorRepeatsTheUnverifiedMigrationNotice:
-    # SUMMARY: Verify the skip's own message is what the doctor reports.
-    # OUTPUT: (None): None.
     @pytest.mark.unit
     def test_the_skip_is_pulled_out_of_the_issue_batch(self) -> None:
         from scripts.validate_migrations import _NOT_VERIFIED_BANNER, MigrationIssue
@@ -798,8 +780,6 @@ class TestDoctorRepeatsTheUnverifiedMigrationNotice:
         assert notice is not None
         assert notice.startswith(_NOT_VERIFIED_BANNER)
 
-    # SUMMARY: Verify nothing is announced when the database was actually reached.
-    # OUTPUT: (None): None.
     @pytest.mark.unit
     def test_a_verified_run_carries_no_notice(self) -> None:
         from scripts.validate_migrations import MigrationIssue
@@ -820,7 +800,7 @@ class TestDoctorRepeatsTheUnverifiedMigrationNotice:
             is None
         )
 
-    # SUMMARY: Verify the print survives — an "ok" payload holding the notice says so on stdout.
+    # Verify the print survives — an "ok" payload holding the notice says so on stdout.
     # The two tests above pin `_migrations_not_verified_notice` alone, which an independent
     # review of this branch pointed out is only a third of the path: deleting the print in
     # `main()` or the call in `diagnose()` would have left them green and `make doctor` silent
@@ -852,7 +832,7 @@ class TestDoctorRepeatsTheUnverifiedMigrationNotice:
         assert "doctor status: ok" in captured.out
         assert _NOT_VERIFIED_BANNER in captured.out
 
-    # SUMMARY: Verify the skip reaches the payload, not only the helper that can find it.
+    # Verify the skip reaches the payload, not only the helper that can find it.
     # Skips on a working tree that is failing some other layer, the same way
     # TestExtendedCheckedLayers does — there is no "ok" payload to read then, and stubbing every
     # other layer to manufacture one would test the stubs.

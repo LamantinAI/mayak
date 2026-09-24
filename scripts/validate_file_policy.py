@@ -167,7 +167,7 @@ def get_file_policy_rule_playbook(rule_id: str) -> dict[str, object] | None:
 
 
 # Extract a 'scripts/<file>.py' path from a 'uv run python scripts/<file>.py [...]' command, if present.
-# (str | None): The relative path to the script, or None when the command does not reference one.
+# Returns: The relative path to the script, or None when the command does not reference one.
 def _extract_script_path(command: str) -> str | None:
     match = re.search(r"\b(scripts/[^\s]+\.py)\b", command)
     if match:
@@ -176,8 +176,8 @@ def _extract_script_path(command: str) -> str | None:
 
 
 # Validate the FILE_POLICY_INDEX (or an override) against schema invariants.
-# edit_zones_override (dict[str, list[str]] | None): Optional override of EDIT_ZONES used for zone-drift detection (tests only).
-# (list[FilePolicyIssue]): All issues found. Empty list means the index is clean.
+# edit_zones_override: Optional override of EDIT_ZONES used for zone-drift detection (tests only).
+# Returns: All issues found. Empty list means the index is clean.
 def collect_file_policy_issues(
     root_dir: Path,
     index_override: dict[str, dict[str, object]] | None = None,
@@ -313,7 +313,7 @@ def _issue_to_payload(issue: FilePolicyIssue) -> dict[str, object]:
 
 
 # Validate the FILE_POLICY_INDEX and return a process exit code.
-# (int): Zero when the index is clean, non-zero on detected issues.
+# Returns: Zero when the index is clean, non-zero on detected issues.
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Validate ai_context.file_policy.FILE_POLICY_INDEX schema invariants."

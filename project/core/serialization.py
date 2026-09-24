@@ -10,12 +10,11 @@ import orjson
 
 # ==================== CONFIGURATION ====================
 
-# SUMMARY: Shared repr helper configured to keep fallback serialization output bounded.
+# Used for fallback serialization.
 _REPR = reprlib.Repr()
 _REPR.maxstring = 2000
 _REPR.maxother = 2000
 
-# SUMMARY: Sensitive key fragments that trigger value redaction during structured serialization.
 REDACT_KEYS = {
     "password",
     "token",
@@ -29,9 +28,9 @@ REDACT_KEYS = {
     "cookie",
 }
 
-# SUMMARY: Exact field names that would otherwise match REDACT_KEYS by substring
-#          but are non-sensitive metadata (e.g. LLM token counters, not auth tokens).
-#          These must never be redacted so observability / cost analysis keeps numbers.
+# Exact field names that would otherwise match REDACT_KEYS by substring
+# but are non-sensitive metadata (e.g. LLM token counters, not auth tokens).
+# These must never be redacted so observability / cost analysis keeps numbers.
 REDACT_EXEMPT_KEYS = {
     "input_tokens",
     "output_tokens",
@@ -51,19 +50,14 @@ REDACT_EXEMPT_KEYS = {
     "total_output_tokens",
 }
 
-# SUMMARY: Maximum number of collection items preserved during safe serialization.
 # Performance optimization constants
 MAX_COLLECTION_SIZE = 100
-# SUMMARY: Maximum recursion depth preserved during safe serialization.
 MAX_DEPTH = 5
-# SUMMARY: Maximum string length preserved before truncation is applied.
 MAX_STRING_LENGTH = 2000
 
 # ==================== UTILITIES ====================
 
 
-# SUMMARY: Check if a key should be redacted based on sensitive keywords.
-# OUTPUT: (bool): True if the key should be redacted, False otherwise.
 def _redact_key(k: str) -> bool:
     # Normalize key format for consistent checking.
     lk = k.lower().replace("-", "_")
@@ -75,10 +69,6 @@ def _redact_key(k: str) -> bool:
     return any(s in lk for s in REDACT_KEYS)
 
 
-# SUMMARY: Optimized serialization using orjson for high-performance structured data handling.
-# INPUT: _depth (int): Current recursion depth for circular reference protection.
-# INPUT: _seen (Optional[Set[int]]): Set of seen object IDs for circular reference detection.
-# OUTPUT: (Any): Serialized object safe for structured logging output.
 def safe_serialize(obj: Any, _depth: int = 0, _seen: Optional[Set[int]] = None) -> Any:
     if _seen is None:
         _seen = set()

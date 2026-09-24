@@ -12,9 +12,7 @@ from project.core.logging.redaction import (
 )
 
 
-# SUMMARY: Verify logging helpers keep structure while dropping raw payload values.
 class TestLoggingRedaction:
-    # SUMMARY: Verify text summaries retain only structural metadata without raw content.
     @pytest.mark.unit
     def test_summarize_text_uses_structure_only(self) -> None:
         value = "  hello\nworld  "
@@ -27,14 +25,12 @@ class TestLoggingRedaction:
         assert summary["has_trailing_whitespace"] is True
         assert "hello" not in str(summary)
 
-    # SUMMARY: Verify mapping summaries retain only keys and counts.
     @pytest.mark.unit
     def test_summarize_mapping_hides_values(self) -> None:
         summary = summarize_mapping({"token": "secret", "region": "eu"})
 
         assert summary == {"key_count": 2, "keys": ["region", "token"]}
 
-    # SUMMARY: Verify chat message summaries omit raw message text.
     @pytest.mark.unit
     def test_summarize_chat_messages_hides_content(self) -> None:
         summary = summarize_chat_messages(
@@ -50,7 +46,6 @@ class TestLoggingRedaction:
         assert "hello" not in str(summary)
         assert "world!" not in str(summary)
 
-    # SUMMARY: Verify payload summaries expose only structure for tool-style inputs.
     @pytest.mark.unit
     def test_summarize_payload_hides_nested_tool_values(self) -> None:
         summary = summarize_payload({"query": "show me users", "limit": 10})

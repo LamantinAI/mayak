@@ -18,34 +18,25 @@ from scripts.run_all_tests import (
 )
 
 
-# SUMMARY: Verify CLI parsing, step planning, and functional env bootstrap behavior for the canonical test runner.
 class TestRunAllTests:
-    # SUMMARY: Ensure the runner defaults to local plus functional suites.
-    # OUTPUT: (None): None.
     def test_parse_args_defaults_to_full_suite(self) -> None:
         args = _parse_args([])
 
         assert args.skip_functional is False
         assert args.functional_only is False
 
-    # SUMMARY: Ensure the runner can skip functional tests for quick local loops.
-    # OUTPUT: (None): None.
     def test_parse_args_supports_skip_functional(self) -> None:
         args = _parse_args(["--skip-functional"])
 
         assert args.skip_functional is True
         assert args.functional_only is False
 
-    # SUMMARY: Ensure the runner can execute only the functional Docker-based suite.
-    # OUTPUT: (None): None.
     def test_parse_args_supports_functional_only(self) -> None:
         args = _parse_args(["--functional-only"])
 
         assert args.skip_functional is False
         assert args.functional_only is True
 
-    # SUMMARY: Ensure the default plan includes both local and functional suites in order.
-    # OUTPUT: (None): None.
     def test_build_test_steps_defaults_to_local_and_functional(self) -> None:
         steps = _build_test_steps(skip_functional=False, functional_only=False)
 
@@ -56,15 +47,11 @@ class TestRunAllTests:
         assert steps[0].cwd == ROOT_DIR
         assert steps[1].cwd == ROOT_DIR / "tests" / "functional"
 
-    # SUMMARY: Ensure quick local mode omits the Docker-based functional suite.
-    # OUTPUT: (None): None.
     def test_build_test_steps_can_skip_functional(self) -> None:
         steps = _build_test_steps(skip_functional=True, functional_only=False)
 
         assert [step.name for step in steps] == ["local-suites"]
 
-    # SUMMARY: A new suite directory under tests/ must reach the local step, not be silently skipped.
-    # OUTPUT: (None): None.
     def test_local_step_runs_every_non_functional_suite(self) -> None:
         # tests/integration shipped for months without being listed here, so no
         # local gate ever ran it. Discovering the directories instead of repeating the list is
@@ -82,17 +69,11 @@ class TestRunAllTests:
         for suite in suites:
             assert f"tests/{suite}" in argv, f"tests/{suite} is never run by the local step"
 
-    # SUMMARY: Ensure functional-only mode omits the local unit and integration suite.
-    # OUTPUT: (None): None.
     def test_build_test_steps_can_run_only_functional(self) -> None:
         steps = _build_test_steps(skip_functional=False, functional_only=True)
 
         assert [step.name for step in steps] == ["functional"]
 
-    # SUMMARY: Ensure the runner bootstraps the functional env file from the sample when needed.
-    # INPUT: monkeypatch (pytest.MonkeyPatch): Fixture used to redirect module-level paths to a temp directory.
-    # INPUT: tmp_path (Path): Temporary directory used as an isolated functional test folder.
-    # OUTPUT: (None): None.
     def test_ensure_functional_env_copies_missing_env_file(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -111,27 +92,19 @@ class TestRunAllTests:
 
         assert env_file.read_text(encoding="utf-8") == sample.read_text(encoding="utf-8")
 
-    # SUMMARY: Ensure both shapes of sample drift are named: a value that moved, a key that appeared.
-    # OUTPUT: (None): None.
     def test_env_sample_drift_reports_a_changed_default_and_a_new_key(self) -> None:
         sample = {"AGENT_LLM_MODE": "mock", "APP_PORT": "8000", "NEW_KEY": "value"}
         current = {"AGENT_LLM_MODE": "live", "APP_PORT": "8000"}
 
         assert env_sample_drift(sample, current) == ["AGENT_LLM_MODE", "NEW_KEY"]
 
-    # SUMMARY: Ensure a key the local file adds on its own is treated as an override, not as drift.
-    # OUTPUT: (None): None.
     def test_env_sample_drift_ignores_a_local_only_key(self) -> None:
         sample = {"AGENT_LLM_MODE": "mock"}
         current = {"AGENT_LLM_MODE": "mock", "POSTGRES_PORT": "15432"}
 
         assert env_sample_drift(sample, current) == []
 
-    # SUMMARY: Ensure the drift is named before Docker starts, not discovered inside a container.
-    # INPUT: monkeypatch (pytest.MonkeyPatch): Fixture used to redirect module-level paths.
-    # INPUT: tmp_path (Path): Temporary directory used as an isolated functional test folder.
-    # INPUT: capsys (pytest.CaptureFixture[str]): Fixture capturing the runner's progress lines.
-    # OUTPUT: (None): None.
+    # Ensure the drift is named before Docker starts, not discovered inside a container.
     # The bootstrap copies the sample once and then returns early forever after.
     # Without this test the comparison could exist and never be called, which is the state this
     # runner was in: a sample that gained a key left the local file answering with the old one.
@@ -159,9 +132,6 @@ class TestRunAllTests:
         # A warning, not a failure — and the file it warns about is left alone.
         assert env_file.read_text(encoding="utf-8") == "AGENT_LLM_MODE=live\n"
 
-    # SUMMARY: Ensure `export`, inline comments, quotes and values containing `=` all read right.
-    # INPUT: tmp_path (Path): Temporary directory holding the env file under test.
-    # OUTPUT: (None): None.
     # Each line here is a shape that, read naively, reports drift on a file that
     # matches the sample: the key would be "export FOO", the value would carry its own comment,
     # and a URL would be cut at its first `=`.
@@ -184,9 +154,7 @@ class TestRunAllTests:
             "DATABASE_URL": "postgres://user:pw@db:5432/app?sslmode=disable",
         }
 
-    # SUMMARY: Ensure a local file written for `source` matches a sample written without `export`.
-    # INPUT: tmp_path (Path): Temporary directory holding both files.
-    # OUTPUT: (None): None.
+    # Ensure a local file written for `source` matches a sample written without `export`.
     def test_an_exported_key_is_not_reported_as_drift(self, tmp_path: Path) -> None:
         sample = tmp_path / ".env.sample"
         sample.write_text("AGENT_LLM_MODE=mock\n", encoding="utf-8")
@@ -195,22 +163,17 @@ class TestRunAllTests:
 
         assert env_sample_drift(_parse_env_file(sample), _parse_env_file(local)) == []
 
-    # SUMMARY: Ensure exported path constants target the repository functional suite by default.
-    # OUTPUT: (None): None.
     def test_functional_env_paths_point_to_repository_suite(self) -> None:
         assert FUNCTIONAL_ENV_SAMPLE == ROOT_DIR / "tests" / "functional" / ".env.sample"
         assert FUNCTIONAL_ENV_FILE == ROOT_DIR / "tests" / "functional" / ".env"
 
 
-# SUMMARY: Verify the total-coverage floor is asked for by the full run and by nothing else.
 # The floor used to sit in pytest.ini's `addopts`, which pytest applies to every invocation.
 # `uv run pytest tests/one_file.py` reported every test passing and then exited 1 on total
 # coverage, because three tests cannot cover project/. A red exit that says nothing about the
 # tests that ran teaches the reader to stop reading red exits, so the floor now belongs to the one
 # run that can honestly carry it.
 class TestCoverageFloorAppliesToTheFullRunOnly:
-    # SUMMARY: Verify no coverage floor reaches a narrow run through pytest.ini's addopts.
-    # OUTPUT: (None): None.
     @pytest.mark.unit
     def test_pytest_ini_does_not_impose_a_total_on_every_invocation(self) -> None:
         addopts = [
@@ -222,8 +185,6 @@ class TestCoverageFloorAppliesToTheFullRunOnly:
         assert addopts, "pytest.ini has no addopts line — the assertion below would pass vacuously"
         assert "--cov-fail-under" not in addopts[0]
 
-    # SUMMARY: Verify the local-suites step carries the floor the addopts line no longer does.
-    # OUTPUT: (None): None.
     @pytest.mark.unit
     def test_the_full_local_run_asks_for_the_floor_itself(self) -> None:
         local = next(
@@ -238,7 +199,6 @@ class TestCoverageFloorAppliesToTheFullRunOnly:
         assert COVERAGE_FLOOR_PERCENT == 60
 
 
-# SUMMARY: Verify no built service pins an image tag, so two checkouts cannot test each other's code.
 # functional_compose_project() gives each checkout its own containers, network and volume,
 # and the compose file used to undo that for the images: `image: test-app-image` names the build
 # result, one tag for every checkout on the host. Two `make test-e2e` runs at once — two worktrees,

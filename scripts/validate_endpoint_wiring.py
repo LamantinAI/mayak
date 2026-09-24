@@ -246,8 +246,8 @@ class EndpointWiringIssue:
 
 
 # Report whether a repository-relative path belongs to the validated FastAPI endpoint module set.
-# path (Path): Repository-relative file path.
-# (bool): True when the file is an endpoint module under project/infrastructure/api/endpoints.
+# path: Repository-relative file path.
+# Returns: True when the file is an endpoint module under project/infrastructure/api/endpoints.
 def _is_endpoint_module(path: Path) -> bool:
     return (
         path.parts[:4] == ("project", "infrastructure", "api", "endpoints")
@@ -257,7 +257,7 @@ def _is_endpoint_module(path: Path) -> bool:
 
 
 # Build a local symbol-to-module map for top-level imports in an endpoint module.
-# (dict[str, str]): Imported symbol names mapped to their fully qualified modules.
+# Returns: Imported symbol names mapped to their fully qualified modules.
 def _build_import_map(tree: ast.AST) -> dict[str, str]:
     imports: dict[str, str] = {}
     for node in getattr(tree, "body", []):
@@ -273,7 +273,7 @@ def _build_import_map(tree: ast.AST) -> dict[str, str]:
 
 
 # Extract the application-service modules, service types, and dependency alias registry from the context map.
-# (tuple[set[str], set[str], dict[str, dict[str, str]]]): Service module paths, service type names, and alias registry.
+# Returns: Service module paths, service type names, and alias registry.
 def _service_contracts(
     context_map: dict[str, object],
 ) -> tuple[set[str], set[str], dict[str, dict[str, str]]]:
@@ -292,7 +292,7 @@ def _service_contracts(
 
 
 # Extract APIRouter variable names declared in an endpoint module with their line numbers.
-# (dict[str, int]): Router variable names mapped to their 1-based assignment lines.
+# Returns: Router variable names mapped to their 1-based assignment lines.
 def _router_definitions(tree: ast.AST) -> dict[str, int]:
     routers: dict[str, int] = {}
     for node in getattr(tree, "body", []):
@@ -308,8 +308,8 @@ def _router_definitions(tree: ast.AST) -> dict[str, int]:
 
 
 # Collect fully qualified router names that router_registration.py actually includes on the app.
-# repo_root (Path): Repository root containing project/infrastructure/api/router_registration.py.
-# (set[str]): Dotted "module.router_name" entries reachable through include_router calls.
+# repo_root: Repository root containing project/infrastructure/api/router_registration.py.
+# Returns: Dotted "module.router_name" entries reachable through include_router calls.
 def collect_registered_router_qualnames(repo_root: Path) -> set[str]:
     registration_path = repo_root / REGISTRATION_RELATIVE_PATH
     try:
@@ -339,7 +339,7 @@ def collect_registered_router_qualnames(repo_root: Path) -> set[str]:
 
 
 # Report which known APIRouter variables a function is bound to as a route handler.
-# (set[str]): Router variable names whose HTTP-method decorator wraps this function.
+# Returns: Router variable names whose HTTP-method decorator wraps this function.
 def _route_handler_routers(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     routers: set[str],
@@ -360,7 +360,7 @@ def _route_handler_routers(
 
 
 # Yield route-handler parameters with their aligned default values.
-# (list[tuple[ast.arg, ast.AST | None]]): Parameters paired with optional defaults.
+# Returns: Parameters paired with optional defaults.
 def _iter_parameters(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
 ) -> list[tuple[ast.arg, ast.AST | None]]:
@@ -375,7 +375,7 @@ def _iter_parameters(
 
 
 # Report whether a default-value expression is a FastAPI Depends call.
-# (bool): True when the node is a Depends(...) call.
+# Returns: True when the node is a Depends(...) call.
 def _is_depends_call(node: ast.AST | None) -> bool:
     if not isinstance(node, ast.Call):
         return False
@@ -387,7 +387,7 @@ def _is_depends_call(node: ast.AST | None) -> bool:
 
 
 # Return the shared remediation playbook for a stable endpoint-wiring rule ID.
-# (dict[str, object] | None): Remediation metadata or None when the rule is unknown.
+# Returns: Remediation metadata or None when the rule is unknown.
 def get_endpoint_rule_playbook(rule_id: str) -> dict[str, object] | None:
     playbook = _ENDPOINT_RULE_PLAYBOOKS.get(rule_id)
     if playbook is None:
@@ -404,7 +404,7 @@ def get_endpoint_rule_playbook(rule_id: str) -> dict[str, object] | None:
 
 
 # Convert an endpoint-wiring issue into a JSON-serializable remediation payload.
-# repo_root (Path): Repository root used for relative-path rendering.
+# repo_root: Repository root used for relative-path rendering.
 def _issue_to_payload(issue: EndpointWiringIssue, repo_root: Path) -> dict[str, object]:
     playbook = get_endpoint_rule_playbook(issue.rule_id)
     return build_validator_issue_payload(
@@ -418,8 +418,8 @@ def _issue_to_payload(issue: EndpointWiringIssue, repo_root: Path) -> dict[str, 
 
 
 # Validate a single endpoint module against the endpoint-facing wiring contract.
-# path (Path): Absolute endpoint-module path.
-# context_map (dict[str, object]): Context map providing service and alias contracts.
+# path: Absolute endpoint-module path.
+# context_map: Context map providing service and alias contracts.
 def validate_endpoint_module(
     path: Path,
     repo_root: Path,
@@ -643,7 +643,7 @@ def validate_endpoint_module(
 
 
 # Validate all endpoint modules in the repository against the endpoint-facing wiring contract.
-# context_map (dict[str, object] | None): Optional pre-built context map used by tests or callers.
+# context_map: Optional pre-built context map used by tests or callers.
 def collect_endpoint_wiring_issues(
     repo_root: Path,
     context_map: dict[str, object] | None = None,
@@ -662,7 +662,7 @@ def collect_endpoint_wiring_issues(
 
 
 # Run endpoint-wiring validation from the repository root and return a process exit code.
-# (int): Zero when validation succeeds and non-zero otherwise.
+# Returns: Zero when validation succeeds and non-zero otherwise.
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate endpoint-facing wiring contracts.")
     parser.add_argument(

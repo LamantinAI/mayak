@@ -8,9 +8,6 @@ import psycopg
 from utils.helpers import PostgresSettings
 
 
-# SUMMARY: Checks if PostgreSQL is ready to accept connections.
-# INPUT: settings (PostgresSettings): Settings object containing database connection info.
-# OUTPUT: (bool): True if PostgreSQL is ready, False otherwise.
 def is_postgres_ready(settings: PostgresSettings) -> bool:
     # Attempt to connect and execute a simple query. The password is a
     # pydantic SecretStr, whose str() is a row of asterisks — passing it straight to psycopg
@@ -35,9 +32,6 @@ def is_postgres_ready(settings: PostgresSettings) -> bool:
         return False
 
 
-# SUMMARY: Waits for PostgreSQL readiness with exponential backoff.
-# INPUT: settings (PostgresSettings): Settings object containing database connection info.
-# RAISES: Exception: If PostgreSQL connection fails after retries.
 @backoff.on_exception(
     backoff.expo,
     Exception,

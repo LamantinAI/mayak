@@ -186,7 +186,7 @@ def get_runtime_ownership_rule_playbook(rule_id: str) -> dict[str, object] | Non
 
 
 # Convert a RuntimeOwnershipIssue into a stable JSON-serializable payload, routing suggested_fix/read_first/next_commands/stop_widening_condition through the shared rule playbook instead of the previous inline main() dict literal that dropped read_first, next_commands, and stop_widening_condition entirely.
-# repo_root (Path): Repository root used for relative-path rendering.
+# repo_root: Repository root used for relative-path rendering.
 def _issue_to_payload(issue: RuntimeOwnershipIssue, repo_root: Path) -> dict[str, object]:
     playbook = get_runtime_ownership_rule_playbook(issue.rule_id)
     return build_validator_issue_payload(
@@ -235,8 +235,8 @@ def _iter_assignment_targets(node: ast.AST) -> list[ast.AST]:
 
 
 # Map each local name a module binds to the dotted path it was imported from.
-# tree (ast.AST): Parsed module.
-# (dict[str, str]): Local name to dotted origin, e.g. {"_env": "os.environ"}.
+# tree: Parsed module.
+# Returns: Local name to dotted origin, e.g. {"_env": "os.environ"}.
 def _import_bindings(tree: ast.AST) -> dict[str, str]:
     # Without this map the rules matched the literal spellings `os.getenv` and
     # `os.environ` and nothing else, so `from os import getenv` — ordinary style, not an evasion —
@@ -260,9 +260,9 @@ def _import_bindings(tree: ast.AST) -> dict[str, str]:
 
 
 # Resolve an expression back to the dotted path of the module member it reads.
-# node (ast.AST): Expression to resolve.
-# bindings (dict[str, str]): Import map from _import_bindings.
-# (str | None): Dotted path, or None when the expression is not an imported reference.
+# node: Expression to resolve.
+# bindings: Import map from _import_bindings.
+# Returns: Dotted path, or None when the expression is not an imported reference.
 def _dotted_path(node: ast.AST, bindings: dict[str, str]) -> str | None:
     if isinstance(node, ast.Name):
         return bindings.get(node.id)
@@ -273,7 +273,7 @@ def _dotted_path(node: ast.AST, bindings: dict[str, str]) -> str | None:
 
 
 # Report which guarded shared resource a call constructs, following import aliases.
-# (str | None): Resource name from the allowlist, or None.
+# Returns: Resource name from the allowlist, or None.
 def _resource_name_from_call(node: ast.Call, bindings: dict[str, str]) -> str | None:
     dotted = _dotted_path(node.func, bindings)
     if dotted is not None:
@@ -287,7 +287,7 @@ def _resource_name_from_call(node: ast.Call, bindings: dict[str, str]) -> str | 
 
 
 # Classify an expression that reads process environment, whatever it was imported as.
-# (str | None): "os.getenv" or "os.environ" for the message, or None.
+# Returns: "os.getenv" or "os.environ" for the message, or None.
 def _env_access_kind(node: ast.AST, bindings: dict[str, str]) -> str | None:
     target = node.func if isinstance(node, ast.Call) else node
     if isinstance(target, ast.Subscript):

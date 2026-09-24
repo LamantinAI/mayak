@@ -21,22 +21,21 @@ from scripts.sync_agent_docs import (
     render_python_versions,
 )
 
-# SUMMARY: Repository root, for the tests that compare two hand-written documents against each other.
+# Repository root, for the tests that compare two hand-written documents against each other.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# SUMMARY: The import line as literal text. Written out rather than read from the generator, so a
+# The import line as literal text. Written out rather than read from the generator, so a
 # guard cannot agree with a renderer that points the import at the wrong file.
 _IMPORT_TEXT = "@AGENTS.md"
 
-# SUMMARY: A block HTML comment, which Claude Code strips before the file reaches the model — so
+# A block HTML comment, which Claude Code strips before the file reaches the model — so
 # what the stub actually contributes to a session is whatever survives this substitution.
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
-# SUMMARY: The command list is not rendered into the wrapper any more (regression guard below); the
+# The command list is not rendered into the wrapper any more (regression guard below); the
 # two version numbers still are, and still must come from their own files rather than be typed.
 class TestCommandReference:
-    # SUMMARY: The two version numbers are read from pyproject.toml and .python-version, not typed.
     @pytest.mark.unit
     def test_python_versions_come_from_their_own_files(self) -> None:
         minimum, toolchain = render_python_versions()
@@ -46,7 +45,7 @@ class TestCommandReference:
         )
         assert (ROOT_DIR / ".python-version").read_text(encoding="utf-8").strip() == toolchain
 
-    # SUMMARY: Regression guard: a hand-rendered "Common Commands" catalogue used to duplicate the
+    # Regression guard: a hand-rendered "Common Commands" catalogue used to duplicate the
     # Makefile's own annotations and could fall out of step with a renamed or deleted target
     # (test_gate_recipes.py::TestDocumentedTargetsRunWithoutAPrompt reads the Makefile directly, not
     # this wrapper, so it does not depend on this catalogue existing). `make help` reads the same
@@ -59,9 +58,7 @@ class TestCommandReference:
         assert "make help" in agents_content
 
 
-# SUMMARY: Verify shared rules are embedded into the one generated wrapper, AGENTS.md.
 class TestSyncAgentDocs:
-    # SUMMARY: Verify the generated contract includes the shared rules body and generation notice.
     @pytest.mark.unit
     def test_build_documents_embeds_shared_rules(
         self,
@@ -90,7 +87,7 @@ class TestSyncAgentDocs:
         assert "ARCHITECTURE.md" not in agents_content
         assert "- keep tests updated" in agents_content
 
-    # SUMMARY: Regression guard: dropping an unrecognized section from the shared source silently
+    # Regression guard: dropping an unrecognized section from the shared source silently
     # drops it from the wrapper too, so a rule added there never reaches the agent meant to follow it.
     @pytest.mark.unit
     def test_additional_sections_reach_the_wrapper(
@@ -115,7 +112,7 @@ class TestSyncAgentDocs:
         assert "## Validator authoring conventions" in agents_content
         assert "- define stable rule_id constants" in agents_content
 
-    # SUMMARY: Regression guard: the Quick Start was a literal in the generator, so the one
+    # Regression guard: the Quick Start was a literal in the generator, so the one
     # instruction a project most needs to change was the one place it could not.
     @pytest.mark.unit
     def test_the_quick_start_comes_from_the_shared_source(
@@ -146,7 +143,6 @@ class TestSyncAgentDocs:
         # reached no wrapper at all while the tuple claimed someone else was handling it.
         assert agents_content.count("- Copy the `invoice` vertical") == 1
 
-    # SUMMARY: One number, two documents: the vertical's file count must not drift between them.
     @pytest.mark.unit
     def test_the_quick_start_states_the_file_count_the_skill_states(self) -> None:
         # The skill's heading once went from nine files to eleven while the
@@ -165,7 +161,7 @@ class TestSyncAgentDocs:
         assert quick_start is not None, "docs/agent_rules.md no longer carries a Start here list"
         assert f"{heading.group(1)} files" in quick_start.group(1)
 
-    # SUMMARY: Sections the wrapper places by hand must not be emitted twice by the generic carry-over pass.
+    # Sections the wrapper places by hand must not be emitted twice by the generic carry-over pass.
     @pytest.mark.unit
     def test_working_notes_are_not_duplicated_as_a_section(
         self,
@@ -186,7 +182,7 @@ class TestSyncAgentDocs:
         assert agents_content.count("- keep tests updated") == 1
         assert agents_content.count("- branch before you edit") == 1
 
-    # SUMMARY: Regression guard: a hardcoded "Finish with" line appended below one already carried
+    # Regression guard: a hardcoded "Finish with" line appended below one already carried
     # over from the shared source would tell the agent two different final commands.
     @pytest.mark.unit
     def test_wrapper_states_one_final_command(
@@ -206,7 +202,6 @@ class TestSyncAgentDocs:
 
         assert agents_content.count("Finish with") == 1
 
-    # SUMMARY: Verify JSON check mode emits stable remediation metadata when a generated wrapper is missing.
     @pytest.mark.unit
     def test_main_check_json_reports_structured_drift_issue(
         self,
@@ -232,7 +227,7 @@ class TestSyncAgentDocs:
         assert '"rule_id": "drift.agent_docs.missing"' in captured.out
         assert '"suggested_fix"' in captured.out
 
-    # SUMMARY: Verify a bullet section whose heading the renderer cannot match is reported instead of vanishing, and that a plain heading passes.
+    # Verify a bullet section whose heading the renderer cannot match is reported instead of vanishing, and that a plain heading passes.
     @pytest.mark.unit
     def test_section_lost_to_heading_punctuation_is_reported(
         self,
@@ -274,9 +269,9 @@ class TestSyncAgentDocs:
         assert dropped_section_headings(shared_rules.read_text(encoding="utf-8"), documents) == []
 
 
-# SUMMARY: A heading the renderer cannot read must stop generation, never produce a plausible wrapper built on a guess.
+# A heading the renderer cannot read must stop generation, never produce a plausible wrapper built on a guess.
 class TestUnparsedHeadingIsRefused:
-    # SUMMARY: Regression guard: `Working notes:` fell back to every bullet in the file, so one prose line under the heading turned 20 rules into 49 with every gate green.
+    # Regression guard: `Working notes:` fell back to every bullet in the file, so one prose line under the heading turned 20 rules into 49 with every gate green.
     @pytest.mark.unit
     def test_prose_between_working_notes_and_its_bullets_is_refused(
         self,
@@ -307,7 +302,7 @@ class TestUnparsedHeadingIsRefused:
         # complete rule set and carried the wrong rules, which is worse than no file at all.
         assert not (tmp_path / "CLAUDE.md").exists()
 
-    # SUMMARY: Regression guard: `Task process:` fell back to an empty string, and the whole `## Task Process` section left CLAUDE.md unannounced.
+    # Regression guard: `Task process:` fell back to an empty string, and the whole `## Task Process` section left CLAUDE.md unannounced.
     @pytest.mark.unit
     def test_prose_between_task_process_and_its_bullets_is_refused(
         self,
@@ -331,7 +326,7 @@ class TestUnparsedHeadingIsRefused:
 
         assert raised.value.headings == ["Task process:"]
 
-    # SUMMARY: Regression guard: the section-dropped net required heading and bullets on adjacent lines, so one prose line between them hid a whole section from CLAUDE.md and from the net.
+    # Regression guard: the section-dropped net required heading and bullets on adjacent lines, so one prose line between them hid a whole section from CLAUDE.md and from the net.
     @pytest.mark.unit
     def test_prose_between_any_other_heading_and_its_bullets_is_reported(
         self,
@@ -351,7 +346,7 @@ class TestUnparsedHeadingIsRefused:
 
         assert raised.value.headings == ["Where a fact goes:"]
 
-    # SUMMARY: A project that carries no task process at all is a legitimate source shape; only a heading that is present and unparsed is a failure.
+    # A project that carries no task process at all is a legitimate source shape; only a heading that is present and unparsed is a failure.
     @pytest.mark.unit
     def test_an_absent_heading_is_not_an_error(self) -> None:
         source = "Working notes:\n- keep tests updated\n"
@@ -359,9 +354,7 @@ class TestUnparsedHeadingIsRefused:
         assert malformed_section_headings(source) == []
 
 
-# SUMMARY: Verify each generated file still delivers what the agent reading it will load.
 class TestBothWrappersStayReadable:
-    # SUMMARY: Verify AGENTS.md stays under the size Codex reads by default.
     # Codex truncates the project doc at `project_doc_max_bytes`, 32 KiB by
     # default, and says nothing when it does — the rules past the cut simply are not there. The
     # file is generated, so it grows whenever docs/agent_rules.md does, and nothing else would
@@ -376,7 +369,7 @@ class TestBothWrappersStayReadable:
             f"AGENTS.md is {size} bytes; Codex reads only the first {codex_default_budget}"
         )
 
-    # SUMMARY: Verify the stub adds no rule of its own, so no rule can reach one agent and not the other.
+    # Verify the stub adds no rule of its own, so no rule can reach one agent and not the other.
     # This replaces the check that compared two rendered bodies for equality. There
     # is one body now, so the drift it guarded against can only re-enter one way: a rule written
     # into CLAUDE.md below the import. Claude Code would read it and Codex never would. Strip what
@@ -392,7 +385,7 @@ class TestBothWrappersStayReadable:
             "Claude Code and never reaches Codex. It belongs in docs/agent_rules.md."
         )
 
-    # SUMMARY: Verify the import is an import — quoted or indented it is prose, and the session loads no rules at all.
+    # Verify the import is an import — quoted or indented it is prose, and the session loads no rules at all.
     # Claude Code skips `@` references inside code spans and fenced blocks, by
     # design, and four spaces of indentation make a block of the line just as surely as a fence
     # does — measured against the CLI, an indented import expands to nothing. So a well-meant edit
@@ -409,7 +402,7 @@ class TestBothWrappersStayReadable:
         assert f"`{_IMPORT_TEXT}`" not in body
         assert "```" not in body
 
-    # SUMMARY: Pin the import target as literal text, since the two guards above read what the same constant produced.
+    # Pin the import target as literal text, since the two guards above read what the same constant produced.
     # Both guards above compare the rendered stub against `_IMPORT_TEXT`. That is
     # only worth anything if `_IMPORT_TEXT` is the name the rules actually live under: pointing
     # `IMPORT_LINE` at CLAUDE.md itself would make the stub import itself, and every check that
@@ -420,7 +413,6 @@ class TestBothWrappersStayReadable:
         assert AGENTS_PATH.name in _IMPORT_TEXT
         assert AGENTS_PATH.exists()
 
-    # SUMMARY: Verify a rule from the shared source reaches AGENTS.md and only AGENTS.md.
     @pytest.mark.unit
     def test_the_rules_body_is_rendered_once(
         self,

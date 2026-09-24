@@ -19,13 +19,12 @@ from project.application.reference_task_dtos import (
 from project.domain.reference_task import DEFAULT_STATUS
 from project.infrastructure.api.dependencies import ReferenceTaskServiceDep
 
-# SUMMARY: Router exposing the reference vertical. Registered in router_registration.py only when
+# Registered in router_registration.py only when
 # the service exists — see the comment there.
 reference_tasks_router = APIRouter(prefix="/reference-tasks", tags=["reference-tasks"])
 
 
-# SUMMARY: Create one reference task.
-# OUTPUT: (ReferenceTaskResponse): The stored task with its generated id and creation time.
+# Returns the stored task with its generated id and creation time.
 @reference_tasks_router.post(
     "",
     response_model=ReferenceTaskResponse,
@@ -43,8 +42,6 @@ async def create_reference_task(
     return ReferenceTaskResponse.from_domain(task)
 
 
-# SUMMARY: Load one reference task by identifier.
-# OUTPUT: (ReferenceTaskResponse): The stored task.
 @reference_tasks_router.get(
     "/{task_id}",
     response_model=ReferenceTaskResponse,
@@ -63,8 +60,6 @@ async def get_reference_task(
     return ReferenceTaskResponse.from_domain(task)
 
 
-# SUMMARY: Change some fields of one reference task.
-# OUTPUT: (ReferenceTaskResponse): The stored task after the change.
 @reference_tasks_router.patch(
     "/{task_id}",
     response_model=ReferenceTaskResponse,
@@ -94,8 +89,7 @@ async def update_reference_task(
     return ReferenceTaskResponse.from_domain(task)
 
 
-# SUMMARY: List reference tasks in one workflow status, newest first.
-# OUTPUT: (ReferenceTaskListResponse): Matching tasks and their count.
+# Newest first.
 @reference_tasks_router.get(
     "",
     response_model=ReferenceTaskListResponse,

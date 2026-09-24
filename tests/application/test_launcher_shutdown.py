@@ -15,11 +15,10 @@ from project.launcher.main import (
     _restore_termination_default,
 )
 
-# SUMMARY: The launcher module, read as text for the structural assertion at the end of this file.
+# The launcher module, read as text for the structural assertion at the end of this file.
 LAUNCHER_SOURCE = Path(__file__).resolve().parents[2] / "project" / "launcher" / "main.py"
 
 
-# SUMMARY: Verify SIGTERM lets the shutdown work after uvicorn.run run, instead of killing the process.
 # The trace summary is written after `uvicorn.run(...)` returns. uvicorn restores the signal
 # handlers it found and then re-raises the signal it caught, and Python's stock disposition for
 # SIGTERM is SIG_DFL — so the process died where it stood and the summary was never written.
@@ -27,7 +26,6 @@ LAUNCHER_SOURCE = Path(__file__).resolve().parents[2] / "project" / "launcher" /
 # and a summary, because SIGINT's default raises a catchable KeyboardInterrupt. In Docker the app is
 # PID 1, where the kernel drops an unhandled signal, so this only ever bit outside a container.
 class TestTerminationSignalIsSurvivable:
-    # SUMMARY: Verify SIGTERM is no longer left at SIG_DFL once the launcher has installed its handler.
     @pytest.mark.unit
     def test_the_handler_replaces_the_fatal_default(self) -> None:
         previous = signal_module.getsignal(signal_module.SIGTERM)
@@ -40,7 +38,6 @@ class TestTerminationSignalIsSurvivable:
         finally:
             signal_module.signal(signal_module.SIGTERM, previous)
 
-    # SUMMARY: Verify the handler returns normally, which is what keeps the shutdown path alive.
     @pytest.mark.unit
     def test_a_raised_signal_is_recorded_and_does_not_end_the_process(self) -> None:
         # `raise_signal` is exactly what uvicorn does on its way out
@@ -57,7 +54,6 @@ class TestTerminationSignalIsSurvivable:
             del _RECEIVED_SIGNALS[before:]
             signal_module.signal(signal_module.SIGTERM, previous)
 
-    # SUMMARY: Verify SIGTERM becomes fatal again, so the process never stops answering to it.
     @pytest.mark.unit
     def test_the_protection_is_handed_back_when_the_window_closes(self) -> None:
         # The handler exists to protect the shutdown work after uvicorn.run from
@@ -73,7 +69,6 @@ class TestTerminationSignalIsSurvivable:
         finally:
             signal_module.signal(signal_module.SIGTERM, previous)
 
-    # SUMMARY: Verify the restore sits in a finally, not on the happy path only.
     @pytest.mark.unit
     def test_the_launcher_restores_the_default_on_every_exit_path(self) -> None:
         # A startup failure raises out of main() through the same block. If the

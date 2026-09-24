@@ -16,26 +16,22 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# SUMMARY: The tool steps that must exist as their own target, because more than one caller runs them.
+# The tool steps that must exist as their own target, because more than one caller runs them.
 _SHARED_GATE_TARGETS = ("gate-lockfile", "gate-lint", "gate-format", "gate-types", "gate-tests")
 
 
-# SUMMARY: Return the recipe lines of one Makefile target.
-# INPUT: target (str): Target name, without the colon.
-# OUTPUT: (list[str]): Recipe lines, tabs and leading `@` stripped.
+# target: Target name, without the colon.
 def _recipe(target: str) -> list[str]:
     makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
     body = makefile.split(f"\n{target}:", 1)[1].split("\n\n", 1)[0]
     return [line.strip().lstrip("@") for line in body.splitlines() if line.startswith("\t")]
 
 
-# SUMMARY: Verify the diff-coverage gate warns about the files it is structurally blind to.
 # diff-cover reads `git diff`, which never lists an untracked file — and a new vertical is
 # mostly untracked files. Measured: 17 lines across 4 files before committing, 176 across 9 after
 # the same commit. The gate whose whole purpose is uncovered NEW code was measuring a tenth of it
 # and reporting a pass.
 class TestDiffCoverageAnnouncesWhatItCannotSee:
-    # SUMMARY: Verify the recipe asks git for untracked sources and says they are unmeasured.
     @pytest.mark.unit
     def test_the_recipe_lists_untracked_sources_before_measuring(self) -> None:
         recipe = "\n".join(_recipe("diff-coverage"))
@@ -47,7 +43,7 @@ class TestDiffCoverageAnnouncesWhatItCannotSee:
         # in the middle of a change they are not finished with.
         assert "git add" in recipe
 
-    # SUMMARY: Verify the warning cannot be buried under the test output it precedes.
+    # Verify the warning cannot be buried under the test output it precedes.
     @pytest.mark.unit
     def test_the_warning_runs_before_the_measurement(self) -> None:
         lines = _recipe("diff-coverage")
@@ -57,12 +53,10 @@ class TestDiffCoverageAnnouncesWhatItCannotSee:
         assert warning_index < measure_index
 
 
-# SUMMARY: Verify no caller re-spells a gate step instead of calling the target that owns it.
 # scripts/doctor_ai_context.py runs these targets to diagnose a failed gate. A second spelling
 # of `ruff check $(PYTHON_SOURCES)` anywhere means the doctor and the gate can disagree about what
 # the step is — which is the class of defect this repository keeps paying for.
 class TestToolStepsHaveOneDefinition:
-    # SUMMARY: Verify the targets the doctor invokes are actually declared.
     @pytest.mark.unit
     @pytest.mark.parametrize("target", _SHARED_GATE_TARGETS)
     def test_each_shared_step_exists_as_its_own_target(self, target: str) -> None:
@@ -71,7 +65,6 @@ class TestToolStepsHaveOneDefinition:
         assert f"\n{target}:" in makefile
         assert _recipe(target), f"{target} is declared with an empty recipe"
 
-    # SUMMARY: Verify the aggregates delegate rather than repeat the tool invocation.
     @pytest.mark.unit
     @pytest.mark.parametrize("aggregate", ["quality-gates-steps"])
     def test_no_aggregate_target_respells_a_shared_step(self, aggregate: str) -> None:
@@ -89,7 +82,6 @@ class TestToolStepsHaveOneDefinition:
             "Call `$(MAKE) --no-print-directory gate-<name>` instead."
         )
 
-    # SUMMARY: Verify every make target scripts/doctor_ai_context.py invokes is declared.
     @pytest.mark.unit
     def test_the_doctor_names_targets_that_exist(self) -> None:
         source = (_REPO_ROOT / "scripts" / "doctor_ai_context.py").read_text(encoding="utf-8")
@@ -100,7 +92,6 @@ class TestToolStepsHaveOneDefinition:
         missing = sorted(target for target in named if f"\n{target}:" not in makefile)
         assert missing == [], f"the doctor would run targets that do not exist: {missing}"
 
-    # SUMMARY: Verify no CI job, generator or doc hands anyone a second spelling of a gate step.
     # Restricting this check to the Makefile is how three stale copies survived unnoticed:
     # .github/workflows/ci.yml ran mypy over four roots where the gate covers five and installed
     # it with `--with mypy` instead of the pin; ai_context/build_context_map.py handed an agent a
@@ -158,12 +149,10 @@ class TestToolStepsHaveOneDefinition:
         )
 
 
-# SUMMARY: Verify the suite an agent runs while working is the one that runs bandit.
 # If `security-scan` were only a lane of `make ci-local`, `make quality-gates` would be
 # green on code bandit would reject, and only the pipeline could see it. Nobody runs `ci-local`
 # between edits; that is what makes the difference load-bearing.
 class TestTheSecurityScanIsPartOfTheGate:
-    # SUMMARY: Verify the step list behind `make quality-gates` calls the security-scan target.
     @pytest.mark.unit
     def test_the_gate_runs_the_security_scan(self) -> None:
         recipe = "\n".join(_recipe("quality-gates-steps"))
@@ -173,7 +162,6 @@ class TestTheSecurityScanIsPartOfTheGate:
             "green on anything only bandit would catch."
         )
 
-    # SUMMARY: Verify the step delegates rather than keeping a second copy of the command.
     @pytest.mark.unit
     def test_the_gate_calls_the_target_instead_of_respelling_bandit(self) -> None:
         # Same rule as the shared gate-* targets above — one spelling per command.
@@ -184,17 +172,13 @@ class TestTheSecurityScanIsPartOfTheGate:
         assert "bandit" not in recipe
 
 
-# SUMMARY: Verify a suppression marker one line off does not suppress anything.
 # This pins tool behaviour, not a recipe, because the behaviour is what made the gap above
 # expensive. In the field an agent put `# nosec B608` on the closing-paren line of a multi-line
 # query — reviewable-looking, and suppressing nothing, since bandit matches the marker against
 # the exact line it reports the issue on. Neither half of this is guesswork now: both directions
 # run the real command.
 class TestBanditResolvesNosecByLine:
-    # SUMMARY: Run the security-scan command over a throwaway `project/` package.
-    # INPUT: tmp_path (Path): Directory the package is written into and the command runs from.
-    # INPUT: source (str): Contents of the single module in that package.
-    # OUTPUT: (CompletedProcess[str]): bandit's completed run, unasserted.
+    # Returns bandit's completed run, unasserted.
     @staticmethod
     def _scan(tmp_path: Path, source: str) -> CompletedProcess[str]:
         package = tmp_path / "project"
@@ -210,7 +194,6 @@ class TestBanditResolvesNosecByLine:
             text=True,
         )
 
-    # SUMMARY: Verify the field mistake still fails the scan.
     @pytest.mark.unit
     def test_a_marker_on_the_closing_paren_line_suppresses_nothing(self, tmp_path: Path) -> None:
         result = self._scan(
@@ -226,7 +209,6 @@ class TestBanditResolvesNosecByLine:
         )
         assert "B608" in result.stdout + result.stderr
 
-    # SUMMARY: Verify the same query with the marker one line up passes.
     @pytest.mark.unit
     def test_a_marker_on_the_literals_own_line_suppresses_the_finding(self, tmp_path: Path) -> None:
         result = self._scan(
@@ -242,7 +224,6 @@ class TestBanditResolvesNosecByLine:
         )
 
 
-# SUMMARY: Verify the per-worktree database targets cannot regress to sharing one container.
 # No gate here starts Docker — `gate-tests` skips the functional suite — so this reads the
 # recipes and runs the naming formula itself. What it guards is the field defect: fifteen
 # worktrees of one project on a single PostgreSQL container, because Compose names a project
@@ -250,9 +231,7 @@ class TestBanditResolvesNosecByLine:
 # checked, since either alone leaves the collision: a project name unique per checkout, and a
 # port that is not one shared default.
 class TestTheWorktreeDatabaseIsThisWorktreesAlone:
-    # SUMMARY: Read one `NAME := value` assignment out of the Makefile.
-    # INPUT: name (str): Variable name, without the assignment operator.
-    # OUTPUT: (str): The right-hand side, stripped.
+    # name: Variable name, without the assignment operator.
     @staticmethod
     def _make_variable(name: str) -> str:
         makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
@@ -260,7 +239,6 @@ class TestTheWorktreeDatabaseIsThisWorktreesAlone:
         assert match is not None, f"{name} is not declared in the Makefile"
         return match.group(1).strip()
 
-    # SUMMARY: Verify the Compose project name cannot collide between two same-named worktrees.
     @pytest.mark.unit
     def test_the_project_name_is_derived_from_the_whole_path(self) -> None:
         # `notdir $(CURDIR)` — what SMOKE_PROJECT uses — is enough for a stack
@@ -270,7 +248,6 @@ class TestTheWorktreeDatabaseIsThisWorktreesAlone:
         assert "$(CURDIR)" in self._make_variable("WORKTREE_HASH")
         assert "$(WORKTREE_HASH)" in self._make_variable("WORKTREE_PROJECT")
 
-    # SUMMARY: Run the Makefile's own formula over two colliding paths and compare the results.
     @pytest.mark.unit
     def test_two_worktrees_sharing_a_basename_get_different_projects_and_ports(self) -> None:
         def digest(path: str) -> int:
@@ -288,12 +265,10 @@ class TestTheWorktreeDatabaseIsThisWorktreesAlone:
         assert first != second
         assert first % 10000 + 20000 != second % 10000 + 20000
 
-    # SUMMARY: Verify the published port is folded from the digest, not a literal every checkout shares.
     @pytest.mark.unit
     def test_the_port_is_not_one_shared_default(self) -> None:
         assert "$(WORKTREE_HASH)" in self._make_variable("WORKTREE_POSTGRES_PORT")
 
-    # SUMMARY: Verify no compose call in either recipe runs without `-p`.
     # One unscoped call is all it takes: Compose falls back to the directory name
     # and the container, network or volume it touches belongs to whoever got there first.
     @pytest.mark.unit
@@ -305,7 +280,6 @@ class TestTheWorktreeDatabaseIsThisWorktreesAlone:
         for line in compose_lines:
             assert "-p $(WORKTREE_PROJECT)" in line, line
 
-    # SUMMARY: Verify the target reports the port it chose instead of editing .env.
     # `make init-project` is idempotent by rule, and a target that rewrote .env
     # would overwrite whatever a project put there. It reads the current value and says what to
     # change; the developer decides.
@@ -318,7 +292,7 @@ class TestTheWorktreeDatabaseIsThisWorktreesAlone:
         assert "grep -E '^POSTGRES_PORT=' .env" in recipe
 
 
-# SUMMARY: Every job in .github/workflows/ci.yml and the local command that covers it.
+# Every job in .github/workflows/ci.yml and the local command that covers it.
 # The value is either a `make` target `ci-local` runs as one of its lanes, or the sentinel
 # below for a job whose check is a step inside `make quality-gates` rather than a lane of its own.
 # This table is the coupling between the pipeline and the local command, checked here as code
@@ -338,8 +312,6 @@ _CI_JOB_TO_LOCAL_COVER: dict[str, str] = {
 }
 
 
-# SUMMARY: Read the job names out of the workflow, ignoring the trigger block above `jobs:`.
-# OUTPUT: (set[str]): Job identifiers declared under `jobs:`.
 def _ci_job_names() -> set[str]:
     workflow = (_REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     # `on:` declares `push:` at the same indentation as a job, so a regex over the
@@ -348,13 +320,11 @@ def _ci_job_names() -> set[str]:
     return {match.group(1) for match in re.finditer(r"(?m)^  ([a-z0-9-]+):\s*$", jobs_block)}
 
 
-# SUMMARY: Verify `make ci-local` still answers "would the pipeline pass?" — the claim it is named for.
 # A workflow nobody watches can quietly drift from the local command that claims to mirror
 # it — once, this pipeline was believed dead while it kept running the whole time, green, on
 # every push to main, and the drift stayed invisible because both stayed green. Two of these
 # tests exist so adding or removing a job cannot be a silent decision.
 class TestPipelineAndLocalCommandCoverTheSameGround:
-    # SUMMARY: Verify no job runs in the pipeline without a decision about how it runs locally.
     @pytest.mark.unit
     def test_every_ci_job_has_a_declared_local_cover(self) -> None:
         jobs = _ci_job_names()
@@ -368,7 +338,6 @@ class TestPipelineAndLocalCommandCoverTheSameGround:
             "_CI_JOB_TO_LOCAL_COVER with the lane that covers it, or add a lane to `ci-local`."
         )
 
-    # SUMMARY: Verify each make target the table names is actually a lane of the ci-local recipe.
     @pytest.mark.unit
     def test_every_named_lane_exists_in_ci_local(self) -> None:
         # Only the lines that invoke something count — every lane is preceded by
@@ -388,7 +357,6 @@ class TestPipelineAndLocalCommandCoverTheSameGround:
             f"the table maps a CI job onto a lane `ci-local` does not run: {missing}"
         )
 
-    # SUMMARY: Verify the recipe runs one command per lane it announces, and as many as it counts.
     @pytest.mark.unit
     def test_every_announced_lane_actually_runs_something(self) -> None:
         # The test above cannot see a deleted lane whose target name still appears
@@ -414,7 +382,6 @@ class TestPipelineAndLocalCommandCoverTheSameGround:
             f"ci-local announces {len(banners)} lanes and runs {len(commands)} commands"
         )
 
-    # SUMMARY: Verify the pipeline runs the gate in strict mode, as `ci-local` does.
     @pytest.mark.unit
     def test_the_gate_job_refuses_a_stale_generated_artifact(self) -> None:
         # Locally the gate regenerates a stale artifact and prints a notice,
@@ -433,13 +400,11 @@ class TestPipelineAndLocalCommandCoverTheSameGround:
         )
 
 
-# SUMMARY: Verify every target the command list advertises is pre-approved in .claude/settings.json.
 # `make migrate` carried a help annotation for months and was missing from the permission
 # allowlist — the one target of nineteen that stopped an agent mid-task with a permission prompt.
 # Two lists of the same commands, kept in step by nobody, is the same defect class the
 # GENERATED_PATHS list already fixed for the hooks.
 class TestDocumentedTargetsRunWithoutAPrompt:
-    # SUMMARY: Verify the help annotations and the permission allowlist name the same targets.
     @pytest.mark.unit
     def test_every_documented_target_is_pre_approved(self) -> None:
         # The help annotations are what `make help` prints, which is where the
@@ -470,13 +435,11 @@ class TestDocumentedTargetsRunWithoutAPrompt:
         )
 
 
-# SUMMARY: Verify the local gate fixes stale generated artifacts and the strict one still refuses them.
 # Measured. An A/B measurement ran the same task twice, and the ONLY red gate either arm
 # saw was `drift.generated.outdated` — a generated map left behind by an edit, fixed by the same
 # command both times. Two out of two, plus three more in one session. A
 # step whose remedy is always the identical command is a ritual, not a check.
 class TestGeneratedArtifactsAreRefreshedNotReported:
-    # SUMMARY: Verify `quality-gates` regenerates before running the steps that check generation.
     @pytest.mark.unit
     def test_the_gate_refreshes_before_it_checks(self) -> None:
         recipe = _recipe("quality-gates")
@@ -490,7 +453,6 @@ class TestGeneratedArtifactsAreRefreshedNotReported:
         steps_at = next(index for index, line in enumerate(recipe) if "quality-gates-steps" in line)
         assert refresh_at < steps_at, "the refresh has to happen before the checks, not after"
 
-    # SUMMARY: Verify the pre-push command still fails on stale artifacts instead of fixing them.
     @pytest.mark.unit
     def test_ci_local_asks_for_the_strict_behaviour(self) -> None:
         # ci-local answers "would the pipeline pass?". There a stale artifact is a
@@ -506,7 +468,6 @@ class TestGeneratedArtifactsAreRefreshedNotReported:
             f"every ci-local gate lane must be strict about generated artifacts: {gate_lanes}"
         )
 
-    # SUMMARY: Verify the pre-commit hook does not keep a second copy of the list.
     @pytest.mark.unit
     def test_the_hook_reads_the_generated_paths_from_the_makefile(self) -> None:
         # The hook's own copy had drifted once — it named six of the eight outputs,
@@ -516,7 +477,7 @@ class TestGeneratedArtifactsAreRefreshedNotReported:
         assert "make -s print-generated-paths" in hook
         assert "docs/ai_context_map.json docs/ai_change_map.json" not in hook
 
-    # SUMMARY: Verify the list names real outputs, so the refresh and the hook act on something.
+    # Verify the list names real outputs, so the refresh and the hook act on something.
     @pytest.mark.unit
     def test_every_declared_generated_path_exists(self) -> None:
         listed = run(
@@ -533,17 +494,16 @@ class TestGeneratedArtifactsAreRefreshedNotReported:
         assert missing == [], f"GENERATED_PATHS names things that do not exist: {missing}"
 
 
-# SUMMARY: Verify the PreToolUse hook is installed and actually denies a write to every generated
+# Verify the PreToolUse hook is installed and actually denies a write to every generated
 # path, running the hook rather than reading it.
 # CLAUDE.md's comment says "Do not edit this file manually" and the AGENTS.md bullet it
 # imports says both wrappers "are generated and must not be edited directly" — enforced only here. The drift check cannot catch this any more: once the gate
 # refreshes generated artifacts itself, a hand edit is simply overwritten on the next run and the
 # work disappears silently. The hook is the only place the agent still learns anything.
 class TestGeneratedFilesRefuseTheEdit:
-    # SUMMARY: Run the hook against one absolute path and return its decision, or None for allow.
-    # INPUT: path (str): Absolute path the tool would write to.
-    # INPUT: cwd (Path): Repository the hook resolves its generated list from.
-    # OUTPUT: (str | None): The permissionDecision, or None when the hook stayed silent.
+    # Run the hook against one absolute path and return its decision, or None for allow.
+    # cwd: Repository the hook resolves its generated list from.
+    # Returns the permissionDecision, or None when the hook stayed silent.
     @staticmethod
     def _decision(path: str, cwd: Path = _REPO_ROOT) -> str | None:
         payload = json.dumps({"tool_name": "Edit", "tool_input": {"file_path": path}})
@@ -559,7 +519,6 @@ class TestGeneratedFilesRefuseTheEdit:
             return None
         return str(json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"])
 
-    # SUMMARY: Verify settings.json wires the guard to Edit, Write and MultiEdit.
     @pytest.mark.unit
     def test_the_hook_is_registered_for_every_writing_tool(self) -> None:
         settings = json.loads(
@@ -574,7 +533,6 @@ class TestGeneratedFilesRefuseTheEdit:
             {"Edit", "Write", "MultiEdit"} <= set(matcher.split("|")) for matcher in matchers
         ), f"the guard must cover every writing tool; matchers are {matchers}"
 
-    # SUMMARY: Verify the hook denies each path `make print-generated-paths` names.
     @pytest.mark.unit
     def test_every_generated_path_is_refused(self) -> None:
         listed = run(
@@ -592,7 +550,6 @@ class TestGeneratedFilesRefuseTheEdit:
 
         assert allowed == [], f"the guard let a generated path through: {allowed}"
 
-    # SUMMARY: Verify the prefix case, not only exact equality.
     # No entry in GENERATED_PATHS is a directory today — `.claude/commands` was the
     # last one and it left with its generator. The branch stays because a project that generates a
     # directory needs it, and it is exercised here against a synthetic entry so that removing the
@@ -610,7 +567,6 @@ class TestGeneratedFilesRefuseTheEdit:
 
         assert self._decision(str(page), cwd=tmp_path) == "deny"
 
-    # SUMMARY: Verify the guard stays silent for the files an agent is supposed to edit.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         "name",
@@ -624,7 +580,6 @@ class TestGeneratedFilesRefuseTheEdit:
     def test_hand_written_sources_are_left_alone(self, name: str) -> None:
         assert self._decision(str(_REPO_ROOT / name)) is None
 
-    # SUMMARY: Verify a hook that cannot parse its input fails open, not closed.
     @pytest.mark.unit
     def test_an_unreadable_payload_allows_rather_than_blocks(self) -> None:
         # Failing closed here would block every edit in the repository on a machine
@@ -641,12 +596,10 @@ class TestGeneratedFilesRefuseTheEdit:
         assert result.stdout.strip() == ""
 
 
-# SUMMARY: Verify the pre-edit guard is registered for Codex as well, against the same script.
 class TestBothAgentsRunTheSameGuard:
-    # SUMMARY: Repository-relative path both agent configurations must name.
+    # Repository-relative path both agent configurations must name.
     GUARD = ".agents/hooks/pre-edit-guard.sh"
 
-    # SUMMARY: Verify .codex/hooks.json fires the guard on Edit, Write and apply_patch.
     # apply_patch is the one Claude Code has no equivalent of, and it is how Codex
     # edits a file by default — a matcher that lists only Edit and Write would leave the ordinary
     # path unguarded while looking configured.
@@ -661,7 +614,6 @@ class TestBothAgentsRunTheSameGuard:
         for tool in ("Edit", "Write", "apply_patch"):
             assert tool in matchers
 
-    # SUMMARY: Verify the guard reads a path out of an apply_patch body, not only file_path.
     # Codex sends the whole patch as `tool_input.command`. A guard that only knew
     # `file_path` would return silence here — allowing every Codex edit while every Claude Code
     # edit was refused, which is worse than no guard because it looks like one.
@@ -682,7 +634,6 @@ class TestBothAgentsRunTheSameGuard:
         decision = json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"]
         assert decision == "deny"
 
-    # SUMMARY: Verify neither agent grew its own copy of the guard.
     @pytest.mark.unit
     def test_both_agent_configurations_name_the_one_script(self) -> None:
         claude = (_REPO_ROOT / ".claude" / "settings.json").read_text(encoding="utf-8")
@@ -692,7 +643,6 @@ class TestBothAgentsRunTheSameGuard:
         assert self.GUARD in codex
         assert len(_copies_outside_nested_checkouts(_REPO_ROOT, "**/pre-edit-guard.sh")) == 1
 
-    # SUMMARY: Verify a worktree inside the tree does not read as one agent having grown its own guard.
     # The count above was a plain `**/` glob, which counts the guard once per
     # checkout. `git worktree add .claude/worktrees/<name>`, which this template's own workflow
     # asks for, put a second copy in the tree and turned this test red with nothing in the
@@ -715,10 +665,7 @@ class TestBothAgentsRunTheSameGuard:
         ]
 
 
-# SUMMARY: Files matching a glob, minus those living inside a checkout nested in this one.
-# INPUT: root (Path): Directory the glob and the emptiness check are anchored to.
-# INPUT: pattern (str): Glob relative to root, `**/` included when the search is recursive.
-# OUTPUT: (list[Path]): Absolute paths that belong to this checkout and no other.
+# pattern: Glob relative to root, `**/` included when the search is recursive.
 def _copies_outside_nested_checkouts(root: Path, pattern: str) -> list[Path]:
     copies: list[Path] = []
     for path in sorted(root.glob(pattern)):
@@ -732,9 +679,7 @@ def _copies_outside_nested_checkouts(root: Path, pattern: str) -> list[Path]:
     return copies
 
 
-# SUMMARY: Build an environment whose `docker` is a shell script with the given exit status.
-# INPUT: stdout (str): Written to standard output before exiting, as `docker compose logs` would.
-# OUTPUT: (dict[str, str]): os.environ with the shim's directory first on PATH.
+# stdout: Written to standard output before exiting, as `docker compose logs` would.
 def _with_docker_shim(directory: Path, *, exit_code: int, stdout: str = "") -> dict[str, str]:
     shim = directory / "docker"
     shim.write_text(
@@ -744,19 +689,16 @@ def _with_docker_shim(directory: Path, *, exit_code: int, stdout: str = "") -> d
     return {**os.environ, "PATH": f"{directory}{os.pathsep}{os.environ['PATH']}"}
 
 
-# SUMMARY: Run one Makefile target from the repository root with the given environment.
 def _make(target: str, env: dict[str, str]) -> tuple[int, str]:
     result = run(["make", "-s", target], cwd=_REPO_ROOT, env=env, capture_output=True, text=True)
     return result.returncode, result.stdout
 
 
-# SUMMARY: Verify `make logs` and `make logs-raw` exit non-zero when `docker compose logs` fails.
 # Behavioural, with a fake `docker` on PATH — not a grep over the recipe. The first
 # version pinned the words "mktemp" and "&&", and a reviewer rewrote the recipe to contain both
 # while piping compose into the formatter exactly as before: 35 passed, exit 0 restored. Why the
 # recipes do not use `set -o pipefail` is explained above the `logs` target in the Makefile.
 class TestLogTargetsReportAFailedCompose:
-    # SUMMARY: Verify a failed compose call is not rendered as a service that logged nothing.
     @pytest.mark.unit
     def test_logs_fails_when_compose_fails(self, tmp_path: Path) -> None:
         returncode, stdout = _make("logs", _with_docker_shim(tmp_path, exit_code=1))
@@ -764,7 +706,6 @@ class TestLogTargetsReportAFailedCompose:
         assert returncode != 0
         assert "(no events found)" not in stdout
 
-    # SUMMARY: Verify the healthy case — compose succeeded with nothing to show — still exits 0.
     @pytest.mark.unit
     def test_logs_renders_an_empty_log_as_no_events(self, tmp_path: Path) -> None:
         returncode, stdout = _make("logs", _with_docker_shim(tmp_path, exit_code=0))
@@ -772,7 +713,6 @@ class TestLogTargetsReportAFailedCompose:
         assert returncode == 0
         assert "(no events found)" in stdout
 
-    # SUMMARY: Verify a failed dump exits non-zero and leaves no empty file behind.
     # LOGS_DIR is pinned to a tmp_path, not this checkout's own logs/. That
     # directory is written into by whatever container is actually running this checkout, and a
     # before/after glob compared against it went red whenever that happened mid-test — the new
@@ -789,7 +729,6 @@ class TestLogTargetsReportAFailedCompose:
         assert returncode != 0
         assert list(logs_dir.glob("container-*.ndjson")) == []
 
-    # SUMMARY: Verify a successful dump prints a path holding exactly what compose produced.
     @pytest.mark.unit
     def test_logs_raw_prints_the_file_it_wrote(self, tmp_path: Path) -> None:
         logs_dir = tmp_path / "logs"
@@ -803,7 +742,7 @@ class TestLogTargetsReportAFailedCompose:
         assert written.parent == logs_dir
         assert written.read_text(encoding="utf-8") == line
 
-    # SUMMARY: Trap for the LOGS_DIR isolation above — a decoy file in the real logs/ changes nothing.
+    # Trap for the LOGS_DIR isolation above — a decoy file in the real logs/ changes nothing.
     # This guards what the two tests above can get wrong: a file appearing in this
     # checkout's own logs/ while they run, from a source that has nothing to do with the recipe
     # under test. Writing that decoy here and staying green is the fix; reverting either test above
@@ -841,14 +780,14 @@ class TestLogTargetsReportAFailedCompose:
             if created_the_directory and not any(real_logs_dir.iterdir()):
                 real_logs_dir.rmdir()
 
-    # SUMMARY: Verify the fix did not reach for the option dash does not have.
+    # Verify the fix did not reach for the option dash does not have.
     @pytest.mark.unit
     @pytest.mark.parametrize("target", ["logs", "logs-raw"])
     def test_neither_recipe_relies_on_pipefail(self, target: str) -> None:
         assert "pipefail" not in "\n".join(_recipe(target))
 
 
-# SUMMARY: Verify `make logs` and `make logs-raw` scope `docker compose logs` to this worktree's
+# Verify `make logs` and `make logs-raw` scope `docker compose logs` to this worktree's
 # own Compose project — the one `db-up-worktree` started — instead of the bare compose default.
 # Without `-p $(WORKTREE_PROJECT)` compose falls back to the directory-derived project name
 # — the same collision TestTheWorktreeDatabaseIsThisWorktreesAlone guards `db-up-worktree` and
@@ -858,7 +797,6 @@ class TestLogTargetsReportAFailedCompose:
 # directory-derived project a bare `docker compose up` creates instead — the assertion is that a
 # project is named at all, not which one.
 class TestLogTargetsReadThisWorktreesComposeProject:
-    # SUMMARY: Verify neither recipe's `docker compose logs` call runs without `-p`.
     @pytest.mark.unit
     @pytest.mark.parametrize("target", ["logs", "logs-raw"])
     def test_the_compose_logs_call_is_scoped_to_the_worktree_project(self, target: str) -> None:

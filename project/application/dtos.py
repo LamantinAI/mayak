@@ -9,9 +9,7 @@ from pydantic import Field, field_serializer
 from project.application.core_model import CoreModel
 
 
-# SUMMARY: Standard error response model for API errors.
 class ErrorDetail(CoreModel):
-    # SUMMARY: Stable machine-readable error classification.
     type: str = Field(
         ...,
         title="Error Type",
@@ -19,7 +17,6 @@ class ErrorDetail(CoreModel):
         examples=["ValidationError"],
     )
 
-    # SUMMARY: Human-readable client-facing error message.
     message: str = Field(
         ...,
         title="Error Message",
@@ -27,7 +24,6 @@ class ErrorDetail(CoreModel):
         examples=["Request validation failed"],
     )
 
-    # SUMMARY: HTTP status code associated with the error.
     status_code: int = Field(
         ...,
         title="Status Code",
@@ -35,7 +31,7 @@ class ErrorDetail(CoreModel):
         examples=[422],
     )
 
-    # SUMMARY: Optional structured detail payload returned for validation-like errors.
+    # Returned for validation-like errors.
     details: list[dict[str, Any]] | Dict[str, Any] | None = Field(
         default=None,
         title="Error Details",
@@ -43,9 +39,7 @@ class ErrorDetail(CoreModel):
     )
 
 
-# SUMMARY: Standard error envelope for API errors.
 class ErrorResponse(CoreModel):
-    # SUMMARY: Structured error payload returned to the client.
     error: ErrorDetail = Field(
         ...,
         title="Error",
@@ -53,9 +47,7 @@ class ErrorResponse(CoreModel):
     )
 
 
-# SUMMARY: Response model for health check endpoint.
 class HealthResponse(CoreModel):
-    # SUMMARY: Aggregated health status of the service.
     status: Literal["healthy", "unhealthy"] = Field(
         ...,
         title="Status",
@@ -63,7 +55,6 @@ class HealthResponse(CoreModel):
         examples=["healthy"],
     )
 
-    # SUMMARY: Application version reported by the health endpoint.
     version: str = Field(
         ...,
         title="Version",
@@ -71,7 +62,7 @@ class HealthResponse(CoreModel):
         examples=["1.0.0"],
     )
 
-    # SUMMARY: UTC timestamp when the health payload was generated.
+    # UTC.
     timestamp: datetime = Field(
         ...,
         title="Timestamp",
@@ -79,7 +70,6 @@ class HealthResponse(CoreModel):
         examples=["2024-01-01T12:00:00Z"],
     )
 
-    # SUMMARY: Process uptime in seconds at the moment of the health check.
     uptime_seconds: float = Field(
         ...,
         title="Uptime",
@@ -87,15 +77,12 @@ class HealthResponse(CoreModel):
         examples=[3600.5],
     )
 
-    # SUMMARY: Serializes datetime to ISO format for JSON response.
     @field_serializer("timestamp")
     def serialize_timestamp(self, value: datetime) -> str:
         return value.isoformat()
 
 
-# SUMMARY: Detailed response model for health check with additional system information.
 class DetailedHealthResponse(HealthResponse):
-    # SUMMARY: Per-component readiness details for service wiring, the LLM, and the database.
     checks: Dict[str, Dict[str, Any]] = Field(
         ...,
         title="Health Checks",

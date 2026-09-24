@@ -6,7 +6,6 @@ from urllib.parse import quote_plus
 from pydantic import PostgresDsn
 
 
-# SUMMARY: Build a PostgreSQL DSN with safe credential escaping for libpq-compatible runtime contexts.
 def build_postgres_dsn(
     user: str,
     password: str,
@@ -21,7 +20,6 @@ def build_postgres_dsn(
     return PostgresDsn(f"postgresql://{encoded_user}:{encoded_password}@{host}:{port}/{database}")
 
 
-# SUMMARY: Build a PostgreSQL DSN for SQLAlchemy using the psycopg v3 dialect.
 def build_sqlalchemy_postgres_dsn(
     user: str,
     password: str,

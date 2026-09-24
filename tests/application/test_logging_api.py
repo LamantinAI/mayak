@@ -16,9 +16,7 @@ from project.core.logging.logger import SemanticLogger
 from project.domain.exceptions import ConflictError
 
 
-# SUMMARY: Verify the logging helper API exposes summary-only user-input logging.
 class TestLoggingApi:
-    # SUMMARY: Verify the helper no longer accepts raw message_text and exposes message_summary instead.
     @pytest.mark.unit
     def test_log_user_input_signature_uses_message_summary(self) -> None:
         signature = inspect.signature(SemanticLogger.log_user_input)
@@ -26,7 +24,6 @@ class TestLoggingApi:
         assert "message_summary" in signature.parameters
         assert "message_text" not in signature.parameters
 
-    # SUMMARY: Verify the helper forwards only structural summaries into the semantic event payload.
     @pytest.mark.unit
     def test_log_user_input_emits_message_summary_payload(self, log_capture: list[dict]) -> None:
         logger = get_logger("tests.application.test_logging_api")
@@ -40,7 +37,6 @@ class TestLoggingApi:
         assert log_capture[0]["kwargs"]["data"]["message_summary"] == {"length": 5}
         assert "message_text" not in log_capture[0]["kwargs"]["data"]
 
-    # SUMMARY: Verify the removed raw-text logging keyword is absent from production Python code.
     @pytest.mark.unit
     def test_production_code_does_not_use_removed_message_text_keyword(self) -> None:
         root_dir = Path(__file__).resolve().parents[2]
@@ -53,14 +49,13 @@ class TestLoggingApi:
         assert violations == []
 
 
-# SUMMARY: Verify a child span skips the work behind its own DEBUG events, without losing the
+# Verify a child span skips the work behind its own DEBUG events, without losing the
 # things the root span's summary reads: the child count, the error count and the error event.
 # This guard is what makes it affordable to wrap every repository method in a span. Measured
 # on this machine: a child span cost 12821 ns with debug on and 2784 ns with it off, because both
 # lifecycle events were assembled in full and then dropped by `logging`, and the stack walk that
 # fed them ran too. Three spans per request is 0.8 % of one core at 1000 rps.
 class TestChildSpanCostsNothingWhenFiltered:
-    # SUMMARY: Verify no start/finish event is built for a child span at production level.
     @pytest.mark.unit
     def test_child_span_emits_nothing_when_debug_is_off(
         self, log_capture: list[dict], caplog: pytest.LogCaptureFixture
@@ -77,7 +72,7 @@ class TestChildSpanCostsNothingWhenFiltered:
 
             assert [event["kwargs"].get("event_id") for event in log_capture] == []
 
-    # SUMMARY: Verify turning DEBUG on restores the full trace — the guard is a filter, not a delete.
+    # Verify turning DEBUG on restores the full trace — the guard is a filter, not a delete.
     @pytest.mark.unit
     def test_child_span_emits_both_events_when_debug_is_on(
         self, log_capture: list[dict], caplog: pytest.LogCaptureFixture
@@ -95,7 +90,7 @@ class TestChildSpanCostsNothingWhenFiltered:
                 "span.finish",
             ]
 
-    # SUMMARY: Verify the error branch survives the guard, resolving the caller it never resolved.
+    # Verify the error branch survives the guard, resolving the caller it never resolved.
     @pytest.mark.unit
     def test_a_filtered_child_span_still_reports_its_error(
         self, log_capture: list[dict], caplog: pytest.LogCaptureFixture
@@ -117,7 +112,6 @@ class TestChildSpanCostsNothingWhenFiltered:
         assert caller is not None
         assert Path(caller[0]).name == "test_logging_api.py"
 
-    # SUMMARY: Verify the summary separates spans a reader can find from spans the filter swallowed.
     @pytest.mark.unit
     def test_a_filtered_child_span_is_counted_apart_from_the_ones_a_reader_can_find(
         self, log_capture: list[dict], caplog: pytest.LogCaptureFixture
@@ -146,7 +140,7 @@ class TestChildSpanCostsNothingWhenFiltered:
         assert data["child_span_count"] == 1
         assert data["filtered_child_span_count"] == 3
 
-    # SUMMARY: Verify a filtered child that raises or is cancelled lands in one counter, not both.
+    # Verify a filtered child that raises or is cancelled lands in one counter, not both.
     @pytest.mark.unit
     @pytest.mark.parametrize("interruption", [ValueError("boom"), asyncio.CancelledError()])
     def test_a_filtered_span_that_fails_is_counted_once_where_it_can_be_read(
@@ -176,14 +170,14 @@ class TestChildSpanCostsNothingWhenFiltered:
         assert data.get("filtered_child_span_count", 0) == 0
 
 
-# SUMMARY: Verify a span cut short by cancellation writes its error and summary and re-raises as-is.
+# Verify a span cut short by cancellation writes its error and summary and re-raises as-is.
 # `except Exception` does not see asyncio.CancelledError, KeyboardInterrupt or SystemExit.
 # A request cancelled by uvicorn's graceful-shutdown timeout therefore emitted span.start and
 # nothing else, and the trace tree — built from span.finish and span.error — had no node for it.
 # Measured: ['span.start'] against ['span.start', 'span.error', 'request.summary'] for a
 # RuntimeError in the same harness.
 class TestAnInterruptedSpanStillReportsItself:
-    # SUMMARY: Verify the three events appear, at WARNING, and the same object comes back out.
+    # Verify the three events appear, at WARNING, and the same object comes back out.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         "interruption", [asyncio.CancelledError, KeyboardInterrupt, SystemExit]
@@ -221,7 +215,6 @@ class TestAnInterruptedSpanStillReportsItself:
         assert summary["kwargs"]["data"]["outcome"] == "cancelled"
         assert summary["kwargs"]["level"] == logging.WARNING
 
-    # SUMMARY: Verify a child at production level still writes its error, and the root its summary.
     @pytest.mark.unit
     def test_an_interrupted_child_span_is_reported_under_its_root(
         self, log_capture: list[dict], caplog: pytest.LogCaptureFixture
@@ -248,7 +241,6 @@ class TestAnInterruptedSpanStillReportsItself:
         assert log_capture[0]["kwargs"]["parent_span_id"] is not None
         assert log_capture[1]["kwargs"]["name"] == "http_request"
 
-    # SUMMARY: Verify an error raised while logging the interruption is dropped, not propagated.
     @pytest.mark.unit
     def test_a_failing_log_cannot_replace_the_cancellation(
         self, log_capture: list[dict], monkeypatch: pytest.MonkeyPatch
@@ -270,7 +262,7 @@ class TestAnInterruptedSpanStillReportsItself:
         assert excinfo.value is raised
 
 
-# SUMMARY: A ConflictError/NotFoundError/etc. raised inside a span is the application working, not
+# A ConflictError/NotFoundError/etc. raised inside a span is the application working, not
 # failing — the same fact exception_handlers.py already acts on, applied here to the span itself.
 # Without this distinction span() judges every exception the same way: ERROR, full
 # traceback. A nested span that raises a domain rejection — a repository call translating a
@@ -283,7 +275,6 @@ class TestAnInterruptedSpanStillReportsItself:
 # is the unit-level one, isolating span() the way TestAnInterruptedSpanStillReportsItself above
 # isolates the interruption branch.
 class TestASpanThatRejectsIsNotReportedAsAFailure:
-    # SUMMARY: Verify level, exc_info, event_type, and the client_rejection field all move together.
     @pytest.mark.unit
     def test_a_conflict_error_is_warning_with_no_traceback_and_is_marked_a_rejection(
         self, log_capture: list[dict], caplog: pytest.LogCaptureFixture
@@ -310,7 +301,7 @@ class TestASpanThatRejectsIsNotReportedAsAFailure:
         assert record["client_rejection"] is True
         assert errors[0]["event_type"] is EventType.ISSUE_WARNING
 
-    # SUMMARY: Verify the new branch did not quieten the failures that ARE the application's own.
+    # Verify the new branch did not quieten the failures that ARE the application's own.
     @pytest.mark.unit
     def test_an_unrelated_exception_is_still_an_error_with_a_traceback(
         self, log_capture: list[dict], caplog: pytest.LogCaptureFixture
@@ -331,13 +322,12 @@ class TestASpanThatRejectsIsNotReportedAsAFailure:
         assert record["client_rejection"] is False
 
 
-# SUMMARY: log_llm_call escalates a `length` finish_reason to WARNING even though success=True.
+# log_llm_call escalates a `length` finish_reason to WARNING even though success=True.
 # Complements tests/application/test_llm_service_retry.py, which pins that
 # llm_service_live.py READS finish_reason off response_metadata and passes it through; this class
 # pins what log_llm_call DOES with it once it arrives — the escalation llm_service_live.py itself
 # has no part in and should not have to know about.
 class TestATruncatedLLMCallIsAWarning:
-    # SUMMARY: Verify finish_reason="stop" (or none at all) does not touch the level.
     @pytest.mark.unit
     @pytest.mark.parametrize("finish_reason", ["stop", "tool_calls", None])
     def test_a_normal_completion_stays_info(
@@ -351,7 +341,7 @@ class TestATruncatedLLMCallIsAWarning:
         assert record["level"] == logging.INFO
         assert record["data"]["finish_reason"] == finish_reason
 
-    # SUMMARY: Verify an unhashable value where a stop reason belongs is ignored, not fatal.
+    # Verify an unhashable value where a stop reason belongs is ignored, not fatal.
     # `extra` is typed LogValue, which admits a list and a dict, so a provider answering with
     # a malformed `response_metadata` reaches the membership test below, which raises TypeError:
     # unhashable type unless guarded — the logging call would crash the request it was describing,
@@ -369,7 +359,6 @@ class TestATruncatedLLMCallIsAWarning:
         assert record["level"] == logging.INFO
         assert record["data"]["finish_reason"] == finish_reason
 
-    # SUMMARY: Verify finish_reason="length" raises the level even though success stayed True.
     @pytest.mark.unit
     def test_a_length_truncated_completion_is_a_warning(self, log_capture: list[dict]) -> None:
         logger = get_logger("tests.application.test_logging_api.llm_truncated")
@@ -387,7 +376,6 @@ class TestATruncatedLLMCallIsAWarning:
         # the entry, not inside `kwargs` alongside `level` and `data`.
         assert "truncated" in entry["msg"]
 
-    # SUMMARY: Verify the pre-existing success=False path is untouched by this change.
     @pytest.mark.unit
     def test_a_failed_call_stays_a_warning_regardless_of_finish_reason(
         self, log_capture: list[dict]

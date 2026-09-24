@@ -30,7 +30,7 @@ from project.core.config_settings_observability import ObservabilitySettings
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# SUMMARY: Every settings model whose env_prefix appears in .env.sample.
+# Every settings model whose env_prefix appears in .env.sample.
 _SETTINGS_MODELS: tuple[type[BaseSettings], ...] = (
     ProjectSettings,
     ServerSettings,
@@ -40,7 +40,6 @@ _SETTINGS_MODELS: tuple[type[BaseSettings], ...] = (
     ObservabilitySettings,
 )
 
-# SUMMARY: Keys whose sample value is deliberately not the code default.
 _INTENTIONAL_OVERRIDES = frozenset(
     {
         # Placeholders a human must replace before the service can start.
@@ -63,9 +62,7 @@ _INTENTIONAL_OVERRIDES = frozenset(
 )
 
 
-# SUMMARY: Render a value in a form that compares equal across JSON and Python spellings.
-# INPUT: value (Any): Raw value from the sample file or from a field default.
-# OUTPUT: (str): Canonical text form.
+# Render a value in a form that compares equal across JSON and Python spellings.
 def _comparable(value: Any) -> str:
     # Unwrap SecretStr before stringifying. str(SecretStr('')) is '**********',
     # so without this a documented empty default compares unequal to an empty code default and
@@ -80,17 +77,12 @@ def _comparable(value: Any) -> str:
         return text.lower() if text.lower() in {"true", "false"} else text
 
 
-# SUMMARY: Read the env prefix a settings model declares.
-# OUTPUT: (str): Prefix such as "APP_", or an empty string when the model declares none.
+# Returns the prefix such as "APP_", or an empty string when the model declares none.
 def _env_prefix(model: type[BaseSettings]) -> str:
     return str(model.model_config.get("env_prefix", ""))
 
 
-# SUMMARY: Resolve the environment variable name pydantic-settings actually reads for a field.
-# INPUT: prefix (str): The model's env_prefix.
-# INPUT: field_name (str): Python attribute name.
-# INPUT: field (Any): The FieldInfo, consulted for validation_alias.
-# OUTPUT: (str): Upper-case variable name.
+# field: The FieldInfo, consulted for validation_alias.
 def _env_key(prefix: str, field_name: str, field: Any) -> str:
     # A validation_alias replaces the whole name, prefix included. Building the
     # key from field_name alone invented DEEP_TRACE_ENABLED, which appears in no file, while the
@@ -106,8 +98,6 @@ def _env_key(prefix: str, field_name: str, field: Any) -> str:
     return f"{prefix}{field_name}".upper()
 
 
-# SUMMARY: Map every environment variable name to the default its settings field declares.
-# OUTPUT: (dict[str, Any]): Environment variable name to default value.
 def _code_defaults() -> dict[str, Any]:
     defaults: dict[str, Any] = {}
     for model in _SETTINGS_MODELS:
@@ -122,9 +112,6 @@ def _code_defaults() -> dict[str, Any]:
     return defaults
 
 
-# SUMMARY: Parse KEY=VALUE assignments out of an env sample file.
-# INPUT: path (Path): File to read.
-# OUTPUT: (dict[str, str]): Assignment map with comments and blank lines removed.
 def _sample_assignments(path: Path) -> dict[str, str]:
     assignments: dict[str, str] = {}
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -136,9 +123,7 @@ def _sample_assignments(path: Path) -> dict[str, str]:
     return assignments
 
 
-# SUMMARY: Verify the shipped sample never quietly contradicts a settings default.
 class TestEnvSampleMatchesCodeDefaults:
-    # SUMMARY: Verify every sample assignment either equals the code default or is an allowed override.
     @pytest.mark.unit
     def test_sample_values_match_settings_defaults(self) -> None:
         defaults = _code_defaults()
@@ -160,7 +145,6 @@ class TestEnvSampleMatchesCodeDefaults:
 
         assert mismatches == []
 
-    # SUMMARY: Verify the two shipped samples do not disagree on a shared key.
     @pytest.mark.unit
     def test_functional_sample_agrees_with_root_sample(self) -> None:
         root = _sample_assignments(_REPO_ROOT / ".env.sample")
@@ -176,8 +160,7 @@ class TestEnvSampleMatchesCodeDefaults:
         assert disagreements == []
 
 
-# SUMMARY: Read out of the launcher which settings attribute actually decides whether a log file is written.
-# OUTPUT: (str): Attribute name, e.g. "full_trace_enabled".
+# Returns the attribute name, e.g. "full_trace_enabled".
 def _flag_gating_the_log_file() -> str:
     tree = ast.parse((_REPO_ROOT / "project" / "launcher" / "main.py").read_text(encoding="utf-8"))
     for node in ast.walk(tree):
@@ -196,10 +179,7 @@ def _flag_gating_the_log_file() -> str:
     raise AssertionError("no branch in project/launcher/main.py calls create_run_log_path")
 
 
-# SUMMARY: Collect the contiguous comment lines immediately above an assignment in an env sample.
-# INPUT: path (Path): File to read.
-# INPUT: key (str): Assignment key, e.g. "APP_LOG_DIR".
-# OUTPUT: (str): The comment block, newline-joined.
+# Returns the comment block, newline-joined.
 def _sample_comment_above(path: Path, key: str) -> str:
     lines = path.read_text(encoding="utf-8").splitlines()
     index = next(i for i, line in enumerate(lines) if line.startswith(f"{key}="))
@@ -210,7 +190,7 @@ def _sample_comment_above(path: Path, key: str) -> str:
     return "\n".join(comment)
 
 
-# SUMMARY: Verify everything describing APP_LOG_DIR names the flag that really creates the file.
+# Verify everything describing APP_LOG_DIR names the flag that really creates the file.
 # Three places — .env.sample, the CBM comment, and the Pydantic description visible in the
 # settings schema — all said the log file appears "in debug mode". It does not: the launcher gates
 # it on ENABLE_FULL_TRACE, deliberately separated from APP_DEBUG so an eval stand can collect
@@ -218,7 +198,6 @@ def _sample_comment_above(path: Path, key: str) -> str:
 # and got no file. The flag is read out of the launcher here, so moving the gate breaks this test
 # rather than quietly re-creating the same lie.
 class TestLogFileGateIsDocumentedAsItself:
-    # SUMMARY: Verify the field description and the sample comment name the real gate, not APP_DEBUG.
     @pytest.mark.unit
     def test_documentation_names_the_flag_the_launcher_checks(self) -> None:
         gate_field = _flag_gating_the_log_file()
@@ -237,8 +216,7 @@ class TestLogFileGateIsDocumentedAsItself:
         assert "debug mode" not in description.lower()
 
 
-# SUMMARY: Count the reads of `self.project.debug` inside Settings.validate_runtime.
-# OUTPUT: (int): How many startup guards the flag switches off — one read per guard.
+# Returns how many startup guards the flag switches off — one read per guard.
 # Every read, in whatever expression — counting only `not self.project.debug` would miss a
 # guard written as `self.project.debug is False` (the same gate, one operator away), leaving the
 # tuple, README and the startup event stuck at three while a fourth guard goes undocumented.
@@ -252,19 +230,17 @@ def _debug_gated_guards_in_validate_runtime() -> int:
     )
 
 
-# SUMMARY: Verify README and both env samples credit APP_DEBUG with the guards it relaxes, and no more.
+# Verify README and both env samples credit APP_DEBUG with the guards it relaxes, and no more.
 # README's row said "Starlette's own error page" — an effect composition_root.py removed when
 # it hard-wired FastAPI(debug=False) — and .env.sample named two of the three guards the flag
 # switches off. The list is read out of config_runtime.py, and the number of debug-gated
 # conditions out of validate_runtime's own AST, so a fourth guard or a removed one fails here
 # instead of quietly leaving the prose behind again.
 class TestDebugFlagIsDocumentedAsItself:
-    # SUMMARY: Verify GUARDS_RELAXED_BY_DEBUG has one entry per `not self.project.debug` condition.
     @pytest.mark.unit
     def test_the_tuple_counts_every_guard_the_flag_gates(self) -> None:
         assert _debug_gated_guards_in_validate_runtime() == len(GUARDS_RELAXED_BY_DEBUG)
 
-    # SUMMARY: Verify the README row lists the three variables and no longer credits the error page.
     @pytest.mark.unit
     def test_readme_names_every_relaxed_guard_and_no_dead_effect(self) -> None:
         readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
@@ -274,7 +250,6 @@ class TestDebugFlagIsDocumentedAsItself:
             assert f"`{variable}`" in row
         assert "Starlette's own error page" not in row
 
-    # SUMMARY: Verify the comment above APP_DEBUG in each sample lists the variables and drops the dead claim.
     @pytest.mark.unit
     @pytest.mark.parametrize("sample", [".env.sample", "tests/functional/.env.sample"])
     def test_every_sample_comment_names_every_relaxed_guard(self, sample: str) -> None:
@@ -287,9 +262,7 @@ class TestDebugFlagIsDocumentedAsItself:
         assert "intercepts unhandled exceptions" not in comment
 
 
-# SUMMARY: Verify the hand-written README agrees with the files that own the version numbers.
 class TestReadmePythonVersions:
-    # SUMMARY: Verify README's Python line matches pyproject.toml and .python-version.
     @pytest.mark.unit
     def test_readme_states_the_declared_versions(self) -> None:
         # README is prose, not generated, so nothing else would notice a version
@@ -304,13 +277,11 @@ class TestReadmePythonVersions:
         assert f"`{minimum}`" in readme
 
 
-# SUMMARY: A three-cell README table row whose first and last cells are single backticked tokens.
+# A three-cell README table row whose first and last cells are single backticked tokens.
 _README_ROW = re.compile(r"^\|\s*`([A-Z][A-Z0-9_]*)`\s*\|[^|]*\|\s*`([^`|]*)`\s*\|\s*$")
 
 
-# SUMMARY: Verify README's "Default" column states the value the code actually declares.
 class TestReadmeDocumentsRealDefaults:
-    # SUMMARY: Verify every documented default equals the settings field's default.
     @pytest.mark.unit
     def test_readme_default_column_matches_settings(self) -> None:
         # README carried `AGENT_MAX_TOKENS | 2000` for three months against a
@@ -336,9 +307,7 @@ class TestReadmeDocumentsRealDefaults:
         assert mismatches == []
 
 
-# SUMMARY: Verify the README skills table does not silently omit a shipped skill.
 class TestReadmeListsEverySkill:
-    # SUMMARY: Verify each directory under .agents/skills/ is named in README.
     @pytest.mark.unit
     def test_every_skill_directory_appears_in_readme(self) -> None:
         # The table listed seven of nine after add-vertical and one now-removed skill were
@@ -351,12 +320,11 @@ class TestReadmeListsEverySkill:
         assert missing == []
 
 
-# SUMMARY: Any decimal number in a comment line.
+# Any decimal number in a comment line.
 _NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 
 
-# SUMMARY: The numeric bounds of one settings field, minus the ones a reader would never test.
-# OUTPUT: (dict[str, float]): Constraint name -> value, for every ge/gt/le/lt that is not zero.
+# Returns constraint name -> value, for every ge/gt/le/lt that is not zero.
 # Zero is excluded on purpose. `gt=0` on a token count or a pool size says "a positive
 # number", which is what a reader already assumes; a rule demanding that every such field spell
 # out "minimum 1" would fire on documentation that is already correct, and a rule that fires on
@@ -375,12 +343,11 @@ def _rejecting_bounds(field: Any) -> dict[str, float]:
     return bounds
 
 
-# SUMMARY: Every number written in the .env.sample comment block above one variable.
 def _documented_bounds(path: Path, key: str) -> set[float]:
     return {float(match.group()) for match in _NUMBER.finditer(_sample_comment_above(path, key))}
 
 
-# SUMMARY: Verify a bound that rejects plausible values is named where the value is chosen.
+# Verify a bound that rejects plausible values is named where the value is chosen.
 # OPENAI_COMPATIBLE_REQUEST_TIMEOUT carries `ge=5` and the sample said only "in seconds", so
 # a 2-second timeout — an ordinary thing to want while testing a retry path — was accepted by the
 # file, refused by Pydantic, and reported as a validation error during startup with no pointer
@@ -388,7 +355,6 @@ def _documented_bounds(path: Path, key: str) -> set[float]:
 # lowering it in the code turns this test red until the sample agrees, rather than leaving a
 # second copy of the number to drift.
 class TestASampleSaysWhichValuesAreRefused:
-    # SUMMARY: Verify each ge/gt/le/lt that is not zero appears above its variable in .env.sample.
     @pytest.mark.unit
     def test_every_non_zero_bound_is_named_in_the_sample_comment(self) -> None:
         sample = _REPO_ROOT / ".env.sample"
@@ -414,7 +380,7 @@ class TestASampleSaysWhichValuesAreRefused:
         )
 
 
-# SUMMARY: Spelled-out counts README uses in prose, as far as any count here plausibly reaches.
+# Spelled-out counts README uses in prose, as far as any count here plausibly reaches.
 _NUMBER_WORDS = {
     "eight": 8,
     "nine": 9,
@@ -432,13 +398,12 @@ _NUMBER_WORDS = {
 }
 
 
-# SUMMARY: Verify the validator count README states matches the number of validators on disk.
+# Verify the validator count README states matches the number of validators on disk.
 # README says it twice, in prose, spelled out. Nothing regenerates README, so adding or
 # removing a validator left both sentences confidently wrong — and this is the number a reader
 # uses to decide whether the template's tax is worth paying, which the section above it now asks
 # them to weigh.
 class TestReadmeCountsTheValidatorsThatExist:
-    # SUMMARY: Verify each "<number> validators" in README equals the count of scripts/validate_*.py.
     @pytest.mark.unit
     def test_every_stated_validator_count_matches_the_scripts_directory(self) -> None:
         # The template's own README, not a project's. A project inherits this test

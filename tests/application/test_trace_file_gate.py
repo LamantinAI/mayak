@@ -10,19 +10,16 @@ import pytest
 
 from project.core.config_settings_observability import ObservabilitySettings
 
-# SUMMARY: The module holding the gate. Read as text because the gate lives inside main()'s body
+# Read as text because the gate lives inside main()'s body
 # and cannot be called without starting a server.
 LAUNCHER_SOURCE = Path(__file__).resolve().parents[2] / "project" / "launcher" / "main.py"
 
-# SUMMARY: The call that only ever runs behind the gate — used to find the gate in the syntax tree.
+# The call that only ever runs behind the gate — used to find the gate in the syntax tree.
 LOG_PATH_FACTORY = "create_run_log_path"
 
-# SUMMARY: The settings attribute the gate must test.
 GATE_ATTRIBUTE = "full_trace_enabled"
 
 
-# SUMMARY: Locate the `if` statement whose body creates the run log, and return its condition.
-# OUTPUT: (ast.expr): The condition expression guarding log-file creation.
 def _guard_of_the_log_file_branch() -> ast.expr:
     tree = ast.parse(LAUNCHER_SOURCE.read_text(encoding="utf-8"))
     guards = [
@@ -41,9 +38,7 @@ def _guard_of_the_log_file_branch() -> ast.expr:
     return guards[0]
 
 
-# SUMMARY: Verify the flag is off unless somebody asks for it.
 class TestTheSettingItself:
-    # SUMMARY: Verify a deployment that says nothing gets no trace file.
     # `_env_file=None` alongside delenv. pydantic-settings reads the process
     # environment *and* the .env on disk, so clearing only the former left the developer's own
     # file in play — and this test went red on the machine of anyone who had actually switched
@@ -56,7 +51,7 @@ class TestTheSettingItself:
 
         assert settings.full_trace_enabled is False
 
-    # SUMMARY: Verify the documented variable is the one actually read.
+    # Verify the documented variable is the one actually read.
     @pytest.mark.unit
     @pytest.mark.parametrize("raw", ["1", "true", "True", "yes", "on"])
     def test_the_environment_variable_turns_it_on(
@@ -67,9 +62,7 @@ class TestTheSettingItself:
         assert ObservabilitySettings().full_trace_enabled is True
 
 
-# SUMMARY: Verify the branch that creates the log file is bound to the observability setting alone.
 class TestTheGateInTheLauncher:
-    # SUMMARY: Verify the guard reads full_trace_enabled.
     # Matched in the syntax tree rather than by substring. A substring search finds
     # the words anywhere in the module — including in the comment that explains the gate — so it
     # would stay green if the `if` itself were rewritten to test something else entirely.
@@ -80,7 +73,6 @@ class TestTheGateInTheLauncher:
         attributes = {node.attr for node in ast.walk(guard) if isinstance(node, ast.Attribute)}
         assert GATE_ATTRIBUTE in attributes
 
-    # SUMMARY: Verify the two switches stay orthogonal — debug ergonomics must not start writing files.
     # The pairing is what the separation is for: an eval stand wants full traces
     # without reload and verbose stdout, and a developer wants those without a growing NDJSON file
     # on disk. Re-coupling them is the regression this catches.

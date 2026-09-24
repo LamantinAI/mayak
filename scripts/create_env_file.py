@@ -23,8 +23,8 @@ _GENERATED_KEYS: tuple[str, ...] = ("POSTGRES_PASSWORD",)
 
 
 # Return the .env body for a sample file, with every generated key given a fresh value.
-# sample_text (str): Full text of .env.sample.
-# (str): Text to write to .env.
+# sample_text: Full text of .env.sample.
+# Returns: Text to write to .env.
 def render_env_from_sample(sample_text: str) -> str:
     rendered: list[str] = []
     for line in sample_text.splitlines(keepends=True):
@@ -42,8 +42,8 @@ def render_env_from_sample(sample_text: str) -> str:
 
 
 # Write .env from .env.sample unless one already exists.
-# root (Path): Repository root holding .env.sample.
-# (str): "created" when a file was written, "exists" when one was already there.
+# root: Repository root holding .env.sample.
+# Returns: "created" when a file was written, "exists" when one was already there.
 def create_env_file(root: Path) -> str:
     env_path = root / ".env"
     # An existing .env is never touched, not even to fill a missing key. It holds
@@ -57,7 +57,7 @@ def create_env_file(root: Path) -> str:
 
 
 # Create the file and report what happened, for `dev_setup.sh` to print.
-# (int): Process exit code.
+# Returns: Process exit code.
 def main() -> int:
     if create_env_file(ROOT_DIR) == "exists":
         print(".env already exists, leaving it alone.")

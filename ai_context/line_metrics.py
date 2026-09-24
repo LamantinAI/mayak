@@ -74,7 +74,7 @@ class ModuleMetrics:
     # Lines carrying executable source. This is what size budgets charge for.
     code_lines: int
 
-    # Lines whose only content is a `#` comment, including all CBM markup.
+    # Lines whose only content is a `#` comment, the file header included.
     comment_lines: int
 
     # Lines occupied solely by a standalone string expression.
@@ -90,7 +90,7 @@ class ModuleMetrics:
     detail: str = ""
 
     # Return the function with the most code lines, or None when the module declares none.
-    # (FunctionSpan | None): Largest function by code lines, ties broken by source order.
+    # Returns: Largest function by code lines, ties broken by source order.
     def longest_function(self) -> FunctionSpan | None:
         if not self.functions:
             return None
@@ -98,7 +98,7 @@ class ModuleMetrics:
 
 
 # Decode module bytes to text, tolerating a UTF-8 BOM, and report failure instead of raising.
-# (tuple[str | None, str]): Decoded text and an empty reason, or None and the failure reason.
+# Returns: Decoded text and an empty reason, or None and the failure reason.
 def decode_source(data: bytes) -> tuple[str | None, str]:
     # utf-8-sig strips a leading BOM when present and is otherwise identical to
     # utf-8, so a BOM-prefixed module is measured rather than reported as unreadable.
@@ -109,7 +109,7 @@ def decode_source(data: bytes) -> tuple[str | None, str]:
 
 
 # Label every physical line of a module as code, comment, docstring, or blank.
-# (tuple[list[str], str, str]): Per-line labels (index 0 is line 1), the analysis status, and a detail string.
+# Returns: Per-line labels (index 0 is line 1), the analysis status, and a detail string.
 def classify_lines(source: str) -> tuple[list[str], str, str]:
     lines = source.splitlines()
     labels = [LINE_BLANK if not line.strip() else LINE_CODE for line in lines]
@@ -138,7 +138,7 @@ def classify_lines(source: str) -> tuple[list[str], str, str]:
 
 
 # Measure one module, charging the size budget for executable lines only.
-# (ModuleMetrics): Metrics with a status describing how far the analysis got.
+# Returns: Metrics with a status describing how far the analysis got.
 def compute_module_metrics(data: bytes) -> ModuleMetrics:
     source, decode_reason = decode_source(data)
     if source is None:
@@ -184,10 +184,10 @@ def compute_module_metrics(data: bytes) -> ModuleMetrics:
 
 
 # Check whether everything before a column on a line is whitespace.
-# lines (list[str]): Module lines without terminators.
-# row (int): 1-based line number.
-# column (int): 0-based column where the token starts.
-# (bool): True when the token is the first non-whitespace content on its line.
+# lines: Module lines without terminators.
+# row: 1-based line number.
+# column: 0-based column where the token starts.
+# Returns: True when the token is the first non-whitespace content on its line.
 def _prefix_is_blank(lines: list[str], row: int, column: int) -> bool:
     if row < 1 or row > len(lines):
         return False
@@ -195,8 +195,8 @@ def _prefix_is_blank(lines: list[str], row: int, column: int) -> bool:
 
 
 # Label the lines of every standalone string expression — module, class, and function docstrings plus free-floating string statements — as documentation rather than code.
-# lines (list[str]): Module lines without terminators.
-# labels (list[str]): Per-line labels, mutated in place — this is where the result lands.
+# lines: Module lines without terminators.
+# labels: Per-line labels, mutated in place — this is where the result lands.
 def _mark_standalone_strings(tree: ast.AST, lines: list[str], labels: list[str]) -> None:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Constant):
@@ -221,8 +221,8 @@ def _mark_standalone_strings(tree: ast.AST, lines: list[str], labels: list[str])
 
 
 # Walk the AST and record how many code lines each function or method body occupies.
-# labels (list[str]): Per-line labels produced by classify_lines.
-# (list[FunctionSpan]): One span per function or method, in source order.
+# labels: Per-line labels produced by classify_lines.
+# Returns: One span per function or method, in source order.
 def _collect_function_spans(tree: ast.AST, labels: list[str]) -> list[FunctionSpan]:
     spans: list[FunctionSpan] = []
 
@@ -253,8 +253,8 @@ def _collect_function_spans(tree: ast.AST, labels: list[str]) -> list[FunctionSp
 
 
 # Count how many lines in an inclusive 1-based range are labelled as code.
-# start (int): 1-based first line of the range.
-# end (int): 1-based last line of the range.
+# start: 1-based first line of the range.
+# end: 1-based last line of the range.
 def _count_code_lines(labels: list[str], start: int, end: int) -> int:
     lower = max(start, 1)
     upper = min(end, len(labels))
@@ -262,8 +262,8 @@ def _count_code_lines(labels: list[str], start: int, end: int) -> int:
 
 
 # Convenience wrapper that reads a file from disk and measures it.
-# path (object): Anything with a `read_bytes()` method, normally a pathlib.Path.
-# (ModuleMetrics): Metrics for the file, with STATUS_UNPARSEABLE when it cannot be read.
+# path: Anything with a `read_bytes()` method, normally a pathlib.Path.
+# Returns: Metrics for the file, with STATUS_UNPARSEABLE when it cannot be read.
 def measure_path(path: object) -> ModuleMetrics:
     read_bytes = getattr(path, "read_bytes", None)
     if read_bytes is None:

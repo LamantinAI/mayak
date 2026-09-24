@@ -14,9 +14,8 @@ from scripts.structure_builder import main as structure_builder_main
 from scripts.structure_builder import update_project_map_file
 
 
-# SUMMARY: Verify structure_builder updates docs/project_map.md instead of the operational architecture doc.
+# Verify structure_builder updates docs/project_map.md instead of the operational architecture doc.
 class TestStructureBuilder:
-    # SUMMARY: Verify the generated tree is injected between the project-map markers.
     @pytest.mark.unit
     def test_update_project_map_file_replaces_marker_block(self, tmp_path: Path) -> None:
         target_path = tmp_path / "docs" / "project_map.md"
@@ -40,7 +39,6 @@ class TestStructureBuilder:
         assert "new tree" in content
         assert "old content" not in content
 
-    # SUMMARY: Verify --check exits 0 with an "up to date" message when the on-disk project_map matches the regenerated tree.
     @pytest.mark.unit
     def test_main_check_mode_succeeds_when_project_map_is_current(
         self,
@@ -73,7 +71,6 @@ class TestStructureBuilder:
         captured = capsys.readouterr()
         assert "up to date" in captured.out
 
-    # SUMMARY: Verify --check exits 1 with a unified diff on stderr when the on-disk project_map drifts from the regenerated tree.
     @pytest.mark.unit
     def test_main_check_mode_fails_when_project_map_is_outdated(
         self,
@@ -115,7 +112,6 @@ class TestStructureBuilder:
         assert "---" in captured.err
         assert "+++" in captured.err
 
-    # SUMMARY: Verify --check exits 1 with a clear message when docs/project_map.md is absent.
     @pytest.mark.unit
     def test_main_check_mode_fails_when_project_map_missing(
         self,
@@ -134,11 +130,8 @@ class TestStructureBuilder:
         assert "make refresh-project-map" in captured.err
 
 
-# SUMMARY: Initialize a minimal git repository under tmp_path with a committed docs/ fixture so
-#          git-index-driven enumeration has a real index to query.
-# INPUT: repo_root (Path): Directory to initialize as a git repository.
-# INPUT: project_name (str): Value written to docs/project_context.json's project_name field.
-# OUTPUT: (None): Repository is initialized and the fixture files are committed.
+# Initialize a minimal git repository under tmp_path with a committed docs/ fixture so
+# git-index-driven enumeration has a real index to query.
 def _init_git_repo(repo_root: Path, project_name: str = "Mayak") -> None:
     # Minimal project_context.json shape accepted by resolve_project_name.
     docs_dir = repo_root / "docs"
@@ -167,10 +160,10 @@ def _init_git_repo(repo_root: Path, project_name: str = "Mayak") -> None:
     run("commit", "-q", "-m", "initial fixture commit")
 
 
-# SUMMARY: Red-to-green coverage for the non-determinism defects fixed by T1
-#          (hermetic-project-map): a cwd-derived title and raw-iterdir junk leakage.
+# Red-to-green coverage for the non-determinism defects fixed by T1
+# (hermetic-project-map): a cwd-derived title and raw-iterdir junk leakage.
 class TestHermeticProjectMap:
-    # SUMMARY: AC1 — the map header comes from project_context.json:project_name, not Path.cwd().name.
+    # AC1 — the map header comes from project_context.json:project_name, not Path.cwd().name.
     @pytest.mark.unit
     def test_title_uses_project_context_name_not_cwd_basename(self, tmp_path: Path) -> None:
         # Use a distinctive cwd basename that must NOT leak into the rendered header.
@@ -183,7 +176,6 @@ class TestHermeticProjectMap:
         assert "Project Map: Mayak" in content
         assert "hopeful-shirley-87c989" not in content
 
-    # SUMMARY: Direct unit check on the name-resolution helper in isolation.
     @pytest.mark.unit
     def test_resolve_project_name_reads_project_context_json(self, tmp_path: Path) -> None:
         docs_dir = tmp_path / "docs"
@@ -194,7 +186,6 @@ class TestHermeticProjectMap:
 
         assert resolve_project_name(tmp_path) == "SomeOtherProject"
 
-    # SUMMARY: When project_context.json is absent, fall back to [project].name in pyproject.toml.
     @pytest.mark.unit
     def test_resolve_project_name_falls_back_to_pyproject_toml(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text(
@@ -204,8 +195,8 @@ class TestHermeticProjectMap:
 
         assert resolve_project_name(tmp_path) == "fallback-project"
 
-    # SUMMARY: With neither source available, resolve_project_name must raise rather than
-    #          silently degrade to Path.cwd().name (forbidden source per spec).
+    # With neither source available, resolve_project_name must raise rather than
+    # silently degrade to Path.cwd().name (forbidden source per spec).
     @pytest.mark.unit
     def test_resolve_project_name_never_uses_cwd_basename(self, tmp_path: Path) -> None:
         distinctive_root = tmp_path / "totally-unrelated-basename"
@@ -214,8 +205,8 @@ class TestHermeticProjectMap:
         with pytest.raises(RuntimeError):
             resolve_project_name(distinctive_root)
 
-    # SUMMARY: AC3 — a file that exists on disk but is git-ignored must not appear in the
-    #          generated map, even though raw iterdir() would see it.
+    # AC3 — a file that exists on disk but is git-ignored must not appear in the
+    # generated map, even though raw iterdir() would see it.
     @pytest.mark.unit
     def test_gitignored_file_excluded_from_tree(self, tmp_path: Path) -> None:
         _init_git_repo(tmp_path)
@@ -245,8 +236,8 @@ class TestHermeticProjectMap:
         assert ".tiktoken_cache" not in content
         assert "cache.bin" not in content
 
-    # SUMMARY: AC2 — a fresh `git worktree add` off a repo whose HEAD has a correctly generated
-    #          project_map.md must pass --check with zero manual actions.
+    # AC2 — a fresh `git worktree add` off a repo whose HEAD has a correctly generated
+    # project_map.md must pass --check with zero manual actions.
     @pytest.mark.unit
     def test_check_mode_green_in_fresh_git_worktree(
         self,
@@ -294,23 +285,23 @@ class TestHermeticProjectMap:
         assert structure_builder_main() == 0
 
 
-# SUMMARY: The actual project repository root, resolved from this test file's location, used by the
-#          live regression probes below that must run against the real .gitignore (not a synthetic
-#          fixture) to prove the audit's cited real-world junk paths are genuinely excluded.
+# The actual project repository root, resolved from this test file's location, used by the
+# live regression probes below that must run against the real .gitignore (not a synthetic
+# fixture) to prove the audit's cited real-world junk paths are genuinely excluded.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-# SUMMARY: AC3's synthetic-fixture test
-#          (TestHermeticProjectMap.test_gitignored_file_excluded_from_tree) supplies its OWN
-#          throwaway .gitignore rule, so it proves the git-index-driven enumeration mechanism
-#          respects whatever .gitignore says, but never proves THIS repository's actual root
-#          .gitignore covers the paths the original audit cited (.tiktoken_cache/, docs/research/).
-#          These tests run against the real repo root (not tmp_path) via subprocess, so they
-#          exercise the exact CLI entrypoint an agent/CI invokes and would catch a real
-#          .tiktoken_cache/probe.bin producing "Drift detected" / exit 1.
+# AC3's synthetic-fixture test
+# (TestHermeticProjectMap.test_gitignored_file_excluded_from_tree) supplies its OWN
+# throwaway .gitignore rule, so it proves the git-index-driven enumeration mechanism
+# respects whatever .gitignore says, but never proves THIS repository's actual root
+# .gitignore covers the paths the original audit cited (.tiktoken_cache/, docs/research/).
+# These tests run against the real repo root (not tmp_path) via subprocess, so they
+# exercise the exact CLI entrypoint an agent/CI invokes and would catch a real
+# .tiktoken_cache/probe.bin producing "Drift detected" / exit 1.
 class TestLiveRepoRegressionProbes:
-    # SUMMARY: AC3 (live) — creating .tiktoken_cache/__probe.bin under the real repo root must not
-    #          break `structure_builder.py --check`, now that .gitignore covers .tiktoken_cache/.
+    # AC3 (live) — creating .tiktoken_cache/__probe.bin under the real repo root must not
+    # break `structure_builder.py --check`, now that .gitignore covers .tiktoken_cache/.
     @pytest.mark.unit
     def test_tiktoken_cache_probe_excluded_from_real_repo_map(self) -> None:
         probe_dir = _REPO_ROOT / ".tiktoken_cache"
@@ -359,8 +350,8 @@ class TestLiveRepoRegressionProbes:
             if created_dir and probe_dir.exists():
                 probe_dir.rmdir()
 
-    # SUMMARY: AC3 (live) — same probe for docs/research/, the second real-world junk path that
-    #          drifted the committed map before .gitignore covered it.
+    # AC3 (live) — same probe for docs/research/, the second real-world junk path that
+    # drifted the committed map before .gitignore covered it.
     @pytest.mark.unit
     def test_docs_research_probe_excluded_from_real_repo_map(self) -> None:
         probe_dir = _REPO_ROOT / "docs" / "research"
@@ -396,24 +387,24 @@ class TestLiveRepoRegressionProbes:
                 probe_dir.rmdir()
 
 
-# SUMMARY: A pre-commit hook invocation of this test suite sets GIT_DIR/GIT_INDEX_FILE/GIT_PREFIX
-#          in its own process environment pointing at the REAL repository. Every git subprocess
-#          call this test file and scripts/structure_builder.py make used to inherit those
-#          variables silently, so fixture git operations that intended to target a throwaway
-#          tmp_path repo (git init/add/commit/worktree add) were actually applied to the real
-#          repository instead — confirmed by finding core.bare=true and a stray test identity
-#          (user.email=test@example.com, user.name=Test User) in the real repo's local config
-#          after a hook-context pytest run. hermetic_git_env() (imported from
-#          scripts.structure_builder) strips every GIT_*-prefixed variable before each git
-#          subprocess call; these tests prove that protection holds both for the test fixtures
-#          themselves and for structure_builder.py's own git ls-files call, under a deliberately
-#          hostile, hook-like environment.
+# A pre-commit hook invocation of this test suite sets GIT_DIR/GIT_INDEX_FILE/GIT_PREFIX
+# in its own process environment pointing at the REAL repository. Every git subprocess
+# call this test file and scripts/structure_builder.py make used to inherit those
+# variables silently, so fixture git operations that intended to target a throwaway
+# tmp_path repo (git init/add/commit/worktree add) were actually applied to the real
+# repository instead — confirmed by finding core.bare=true and a stray test identity
+# (user.email=test@example.com, user.name=Test User) in the real repo's local config
+# after a hook-context pytest run. hermetic_git_env() (imported from
+# scripts.structure_builder) strips every GIT_*-prefixed variable before each git
+# subprocess call; these tests prove that protection holds both for the test fixtures
+# themselves and for structure_builder.py's own git ls-files call, under a deliberately
+# hostile, hook-like environment.
 class TestHookEnvironmentIsolation:
-    # SUMMARY: Safety invariant: even with GIT_DIR/GIT_INDEX_FILE set in this test process's own
-    #          environment (simulating a pre-commit hook), _init_git_repo's
-    #          hermetic_git_env()-protected git calls must still create their repository in
-    #          tmp_path — not silently mutate whatever repository GIT_DIR/GIT_INDEX_FILE happen
-    #          to point at.
+    # Safety invariant: even with GIT_DIR/GIT_INDEX_FILE set in this test process's own
+    # environment (simulating a pre-commit hook), _init_git_repo's
+    # hermetic_git_env()-protected git calls must still create their repository in
+    # tmp_path — not silently mutate whatever repository GIT_DIR/GIT_INDEX_FILE happen
+    # to point at.
     @pytest.mark.unit
     def test_fixture_repo_init_lands_in_tmp_path_under_inherited_hook_env(
         self,
@@ -467,22 +458,22 @@ class TestHookEnvironmentIsolation:
             "hermetic_git_env() failed to prevent the incident it exists to prevent."
         )
 
-    # SUMMARY: Regression test for the bug where `GIT_DIR=.git GIT_INDEX_FILE=.git/index <python>
-    #          -m pytest ...` made TestLiveRepoRegressionProbes fail with "fatal: ... index file
-    #          open failed" / "this operation must be run in a work tree" (git exit 128) because git
-    #          subprocess calls inherited those variables. This test invokes structure_builder.py
-    #          --check as a subprocess with GIT_DIR/GIT_INDEX_FILE explicitly injected into ITS
-    #          environment (the same shape a pre-commit hook produces), proving the fix
-    #          (hermetic_git_env() inside list_repo_files) holds even when the hostile variables are
-    #          set on the immediate child process, not just inherited transitively.
-    #          IMPORTANT METHODOLOGICAL NOTE: asserting only `returncode == 0` is NOT sufficient
-    #          here. If list_repo_files' git call fails silently
-    #          (returns None), _build_tree_content falls back to the iterdir()-based walk, which
-    #          also produces exit 0 when the resulting tree happens to match the committed map — so
-    #          a weak version of this test could pass for the WRONG reason (silently exercising the
-    #          fallback path instead of proving the git-index path survives the hostile env). The
-    #          real assertion is the ABSENCE of the fallback warning on stderr — that warning only
-    #          fires when list_repo_files returned None, i.e. exactly when the hostile env broke it.
+    # Regression test for the bug where `GIT_DIR=.git GIT_INDEX_FILE=.git/index <python>
+    # -m pytest ...` made TestLiveRepoRegressionProbes fail with "fatal: ... index file
+    # open failed" / "this operation must be run in a work tree" (git exit 128) because git
+    # subprocess calls inherited those variables. This test invokes structure_builder.py
+    # --check as a subprocess with GIT_DIR/GIT_INDEX_FILE explicitly injected into ITS
+    # environment (the same shape a pre-commit hook produces), proving the fix
+    # (hermetic_git_env() inside list_repo_files) holds even when the hostile variables are
+    # set on the immediate child process, not just inherited transitively.
+    # IMPORTANT METHODOLOGICAL NOTE: asserting only `returncode == 0` is NOT sufficient
+    # here. If list_repo_files' git call fails silently
+    # (returns None), _build_tree_content falls back to the iterdir()-based walk, which
+    # also produces exit 0 when the resulting tree happens to match the committed map — so
+    # a weak version of this test could pass for the WRONG reason (silently exercising the
+    # fallback path instead of proving the git-index path survives the hostile env). The
+    # real assertion is the ABSENCE of the fallback warning on stderr — that warning only
+    # fires when list_repo_files returned None, i.e. exactly when the hostile env broke it.
     @pytest.mark.unit
     def test_structure_builder_check_survives_hook_style_git_env_in_subprocess(self) -> None:
         hook_like_env = dict(os.environ)
@@ -531,10 +522,10 @@ class TestHookEnvironmentIsolation:
             "fallback produced a matching (but non-hermetic) tree by coincidence."
         )
 
-    # SUMMARY: Narrower unit-level companion to the subprocess test above — calls list_repo_files()
-    #          directly (in-process) under a monkeypatched hook-style environment and asserts it
-    #          still returns a real file list (not None), i.e. the git call actually succeeded rather
-    #          than triggering the fallback branch by returning None.
+    # Narrower unit-level companion to the subprocess test above — calls list_repo_files()
+    # directly (in-process) under a monkeypatched hook-style environment and asserts it
+    # still returns a real file list (not None), i.e. the git call actually succeeded rather
+    # than triggering the fallback branch by returning None.
     @pytest.mark.unit
     def test_list_repo_files_does_not_silently_fall_back_under_hook_style_env(
         self,

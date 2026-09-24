@@ -9,9 +9,7 @@ from project.core.logging.logger_events_base import SemanticLoggerEventContract
 from project.core.logging.logger_types import LogPayload, LogValue
 
 
-# SUMMARY: Mixin implementing state snapshots, data operation events, and decision logging helpers.
 class SemanticLoggerStateEventsMixin:
-    # SUMMARY: Log changes to entity state with detailed diff information.
     def log_state_change(
         self: SemanticLoggerEventContract,
         entity: str,
@@ -34,7 +32,6 @@ class SemanticLoggerStateEventsMixin:
             data=payload,
         )
 
-    # SUMMARY: Log a snapshot of the current state for debugging or auditing.
     def log_state_snapshot(
         self: SemanticLoggerEventContract,
         entity: str,
@@ -57,7 +54,6 @@ class SemanticLoggerStateEventsMixin:
             data=payload,
         )
 
-    # SUMMARY: Log data loading operations from various sources.
     def log_data_load(
         self: SemanticLoggerEventContract,
         source: str,
@@ -77,7 +73,6 @@ class SemanticLoggerStateEventsMixin:
             data=payload,
         )
 
-    # SUMMARY: Log data transformation operations with input and output metrics.
     def log_data_transform(
         self: SemanticLoggerEventContract,
         operation: str,
@@ -102,7 +97,6 @@ class SemanticLoggerStateEventsMixin:
             data=payload,
         )
 
-    # SUMMARY: Log data saving operations to various destinations.
     def log_data_save(
         self: SemanticLoggerEventContract,
         destination: str,
@@ -122,7 +116,6 @@ class SemanticLoggerStateEventsMixin:
             data=payload,
         )
 
-    # SUMMARY: Log business logic decisions with reasoning and alternatives.
     def log_decision(
         self: SemanticLoggerEventContract,
         decision_point: str,
@@ -150,7 +143,6 @@ class SemanticLoggerStateEventsMixin:
             data=payload,
         )
 
-    # SUMMARY: Log validation results with pass or fail status.
     def log_validation(
         self: SemanticLoggerEventContract,
         validator: str,

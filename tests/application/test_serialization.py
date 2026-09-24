@@ -19,10 +19,10 @@ from project.core.serialization import (
     safe_serialize,
 )
 
-# SUMMARY: The package whose own literal payload keys must survive redaction untouched.
+# The package whose own literal payload keys must survive redaction untouched.
 _LOGGING_PACKAGE = Path(__file__).resolve().parents[2] / "project" / "core" / "logging"
 
-# SUMMARY: Every name REDACT_KEYS holds, written out by hand rather than read off the set.
+# Every name REDACT_KEYS holds, written out by hand rather than read off the set.
 # The parametrised test below takes its cases from REDACT_KEYS itself, so deleting
 # "password" from the set also deletes the case that would have noticed: the suite went from ten
 # cases to nine, stayed green, and `safe_serialize({"password": "hunter2"})` returned the password
@@ -42,7 +42,7 @@ _REDACTED_KEY_NAMES = (
     "cookie",
 )
 
-# SUMMARY: Every name REDACT_EXEMPT_KEYS holds, for the same reason as _REDACTED_KEY_NAMES.
+# Every name REDACT_EXEMPT_KEYS holds, for the same reason as _REDACTED_KEY_NAMES.
 # The mirror trap: drop "total_tokens" from the exempt set and the parametrised test drops
 # the case with it, while every request summary starts reporting its token count as
 # "***REDACTED***". The observability numbers this set exists to protect would vanish under a
@@ -62,21 +62,17 @@ _EXEMPT_KEY_NAMES = (
 )
 
 
-# SUMMARY: Simple enum used to verify enum serialization behavior.
 class ExampleEnum(Enum):
     VALUE = "value"
 
 
-# SUMMARY: Dataclass payload used to verify nested serialization behavior.
 @dataclass
 class ExamplePayload:
     token: str
     values: list[int]
 
 
-# SUMMARY: Verify low-level serialization keeps structure while applying truncation, redaction, and safety guards.
 class TestSerialization:
-    # SUMMARY: Verify sensitive key names are redacted recursively.
     @pytest.mark.unit
     def test_safe_serialize_redacts_sensitive_keys(self) -> None:
         payload = {"token": "secret", "nested": {"api_key": "hidden", "region": "eu"}}
@@ -87,7 +83,6 @@ class TestSerialization:
         assert serialized["nested"]["api_key"] == "***REDACTED***"
         assert serialized["nested"]["region"] == "eu"
 
-    # SUMMARY: Verify each name in REDACT_KEYS is actually redacted, not just the two spot-checked ones.
     @pytest.mark.unit
     @pytest.mark.parametrize("key", sorted(REDACT_KEYS))
     def test_safe_serialize_redacts_every_declared_key(self, key: str) -> None:
@@ -99,7 +94,6 @@ class TestSerialization:
 
         assert serialized[key] == "***REDACTED***"
 
-    # SUMMARY: Verify each name in the hand-written copy is redacted — the copy cannot shrink with the set.
     @pytest.mark.unit
     @pytest.mark.parametrize("key", _REDACTED_KEY_NAMES)
     def test_every_key_named_by_hand_is_still_redacted(self, key: str) -> None:
@@ -110,7 +104,6 @@ class TestSerialization:
 
         assert serialized[key] == "***REDACTED***"
 
-    # SUMMARY: Verify the literal tuple and REDACT_KEYS name the same keys, so neither drifts.
     @pytest.mark.unit
     def test_the_hand_written_copy_and_the_set_agree(self) -> None:
         # Equality, both ways. A key added to the set without being added here
@@ -118,7 +111,6 @@ class TestSerialization:
         # left here after leaving the set is a stale claim. Editing both in one change is the cost.
         assert set(_REDACTED_KEY_NAMES) == REDACT_KEYS
 
-    # SUMMARY: Verify a key arriving as an HTTP header — capitalised, hyphenated — is still redacted.
     @pytest.mark.unit
     @pytest.mark.parametrize("key", ["Password", "AUTHORIZATION", "Api-Key", "Set-Cookie"])
     def test_redaction_ignores_case_and_hyphens(self, key: str) -> None:
@@ -130,8 +122,8 @@ class TestSerialization:
 
         assert serialized[key] == "***REDACTED***"
 
-    # SUMMARY: Verify LLM usage counters like input_tokens/output_tokens/total_tokens
-    #          are preserved intact despite containing the `token` substring.
+    # LLM usage counters like input_tokens/output_tokens/total_tokens
+    # are preserved intact despite containing the `token` substring.
     @pytest.mark.unit
     def test_safe_serialize_exempts_llm_token_counters(self) -> None:
         payload = {
@@ -163,7 +155,6 @@ class TestSerialization:
         assert serialized["access_token"] == "***REDACTED***"
         assert serialized["api_key"] == "***REDACTED***"
 
-    # SUMMARY: Verify each name in REDACT_EXEMPT_KEYS survives serialization with its value intact.
     @pytest.mark.unit
     @pytest.mark.parametrize("key", sorted(REDACT_EXEMPT_KEYS))
     def test_safe_serialize_exempts_every_declared_exempt_key(self, key: str) -> None:
@@ -176,7 +167,6 @@ class TestSerialization:
 
         assert serialized[key] == 1234
 
-    # SUMMARY: Verify each name in the hand-written copy keeps its value — the copy cannot shrink with the set.
     @pytest.mark.unit
     @pytest.mark.parametrize("key", _EXEMPT_KEY_NAMES)
     def test_every_exempt_key_named_by_hand_still_survives(self, key: str) -> None:
@@ -184,12 +174,10 @@ class TestSerialization:
 
         assert serialized[key] == 1234
 
-    # SUMMARY: Verify the literal tuple and REDACT_EXEMPT_KEYS name the same keys.
     @pytest.mark.unit
     def test_the_hand_written_exempt_copy_and_the_set_agree(self) -> None:
         assert set(_EXEMPT_KEY_NAMES) == REDACT_EXEMPT_KEYS
 
-    # SUMMARY: Verify every literal payload key the logging package writes survives redaction.
     @pytest.mark.unit
     def test_logging_package_writes_no_key_its_own_redactor_would_hide(self) -> None:
         # Redaction matches key names by substring, and the logging package writes
@@ -226,7 +214,6 @@ class TestSerialization:
             "add them to REDACT_EXEMPT_KEYS or rename them: " + ", ".join(sorted(set(offenders)))
         )
 
-    # SUMMARY: Verify serializer handles dataclasses, enums, and non-serializable objects without raising.
     @pytest.mark.unit
     def test_safe_serialize_supports_dataclass_enum_and_non_serializable_values(
         self,
@@ -242,7 +229,6 @@ class TestSerialization:
         assert serialized["enum"] == "value"
         assert isinstance(serialized["object"], str)
 
-    # SUMMARY: Verify serializer truncates recursion depth and large collections to bounded sizes.
     @pytest.mark.unit
     def test_safe_serialize_limits_depth_and_collection_size(self) -> None:
         nested: dict[str, Any] = {}

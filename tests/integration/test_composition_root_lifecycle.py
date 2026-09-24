@@ -10,7 +10,7 @@ from httpx import AsyncClient
 from tests.conftest import registered_paths
 
 
-# SUMMARY: End-to-end check that CompositionRoot.build_application returns a responsive FastAPI app.
+# End-to-end check that CompositionRoot.build_application returns a responsive FastAPI app.
 class TestCompositionRootLifecycle:
     @pytest.mark.integration
     async def test_lifecycle_full_loop_health_ok(

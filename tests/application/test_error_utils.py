@@ -13,16 +13,13 @@ from project.core.error_utils import (
 from project.domain.exceptions import ConflictError, ExternalServiceError, ProjectError
 
 
-# SUMMARY: Verify exception helpers keep client messages stable while redacting raw details.
 class TestErrorUtils:
-    # SUMMARY: Verify safe domain-state errors keep their explicit message.
     @pytest.mark.unit
     def test_get_client_safe_message_preserves_safe_domain_errors(self) -> None:
         assert (
             get_client_safe_message(ConflictError("Task already exists")) == "Task already exists"
         )
 
-    # SUMMARY: Verify upstream failures return a stable safe message.
     @pytest.mark.unit
     def test_get_client_safe_message_redacts_external_service_details(self) -> None:
         assert (
@@ -30,7 +27,6 @@ class TestErrorUtils:
             == SAFE_EXTERNAL_SERVICE_MESSAGE
         )
 
-    # SUMMARY: Verify generic project errors do not expose their original message.
     @pytest.mark.unit
     def test_get_client_safe_message_redacts_generic_project_error_details(
         self,
@@ -40,12 +36,10 @@ class TestErrorUtils:
             == SAFE_PROJECT_ERROR_MESSAGE
         )
 
-    # SUMMARY: Verify unexpected exceptions return the stable internal error message.
     @pytest.mark.unit
     def test_get_client_safe_message_redacts_unexpected_exceptions(self) -> None:
         assert get_client_safe_message(RuntimeError("boom secret")) == SAFE_INTERNAL_ERROR_MESSAGE
 
-    # SUMMARY: Verify exception summaries keep type information but not raw message text.
     @pytest.mark.unit
     def test_summarize_exception_for_logging_uses_structural_message_summary(
         self,

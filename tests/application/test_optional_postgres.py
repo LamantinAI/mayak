@@ -25,17 +25,13 @@ from tests.conftest import _FixtureSettings as FixtureSettings
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-# SUMMARY: Build test settings that declare no relational store.
-# OUTPUT: (FixtureSettings): Settings with the database switched off.
 def _settings_without_postgres() -> FixtureSettings:
     settings = FixtureSettings()
     settings.postgres.enabled = False
     return settings
 
 
-# SUMMARY: Verify the composition root produces a working registry with no pool in it.
 class TestKernelAssemblesWithoutPostgres:
-    # SUMMARY: Verify db_pool becomes None while the registry keeps its shape.
     @pytest.mark.unit
     def test_pool_is_absent_but_key_remains(self, app_without_postgres: FastAPI) -> None:
         services = app_without_postgres.state.services
@@ -46,15 +42,13 @@ class TestKernelAssemblesWithoutPostgres:
         # asserts db_pool is among the kernel's shared services.
         assert "db_pool" in services
 
-    # SUMMARY: Verify the default path is untouched, so existing projects keep working.
+    # Verify the default path is untouched, so existing projects keep working.
     @pytest.mark.unit
     def test_pool_is_built_when_enabled(self, fastapi_app: FastAPI) -> None:
         assert fastapi_app.state.services["db_pool"] is not None
 
 
-# SUMMARY: Verify the conditional pool construction keeps the service registry resolvable.
 class TestStaticAnalysisSurvivesTheBranch:
-    # SUMMARY: Verify the generated context map still names the pool class with high confidence.
     @pytest.mark.unit
     def test_db_pool_still_resolves_to_its_class(self) -> None:
         # This is the regression that made the branch order non-negotiable.
@@ -73,7 +67,7 @@ class TestStaticAnalysisSurvivesTheBranch:
         assert entries["db_pool"]["confidence"] == "high"
         assert entries["db_pool"]["resolution_status"] == "resolved"
 
-    # SUMMARY: Verify nobody reintroduces the `else` that breaks the extractor.
+    # Verify nobody reintroduces the `else` that breaks the extractor.
     @pytest.mark.unit
     def test_composition_root_has_no_else_branch_for_the_pool(self) -> None:
         source = (_REPO_ROOT / "project" / "core" / "composition_root.py").read_text(
@@ -86,9 +80,7 @@ class TestStaticAnalysisSurvivesTheBranch:
         assert "else:" not in branch
 
 
-# SUMMARY: Verify a project without a relational store still reports itself ready.
 class TestReadinessWithoutPostgres:
-    # SUMMARY: Verify the absent pool is reported as disabled rather than as a fault.
     @pytest.mark.unit
     def test_ready_returns_200_and_marks_database_disabled(
         self,
@@ -104,7 +96,6 @@ class TestReadinessWithoutPostgres:
         assert response.status_code == 200
         assert response.json()["checks"]["database"]["status"] == "disabled"
 
-    # SUMMARY: Verify the disabled branch does not mask a genuinely broken configuration.
     @pytest.mark.unit
     def test_missing_pool_is_still_a_fault_when_database_is_enabled(
         self,
@@ -119,9 +110,9 @@ class TestReadinessWithoutPostgres:
         assert response.json()["checks"]["database"]["status"] == "unhealthy"
 
 
-# SUMMARY: Verify the migration gate distinguishes "not used" from "temporarily unreachable".
+# Verify the migration gate distinguishes "not used" from "temporarily unreachable".
 class TestMigrationGateWithoutPostgres:
-    # SUMMARY: Verify the gate passes with a dedicated informational rule, not the skip path.
+    # Verify the gate passes with a dedicated informational rule, not the skip path.
     @pytest.mark.unit
     def test_disabled_database_reports_its_own_rule(
         self,
@@ -134,7 +125,6 @@ class TestMigrationGateWithoutPostgres:
         assert [issue.rule_id for issue in issues] == ["migrations.database_disabled"]
         assert issues[0].severity == "info"
 
-    # SUMMARY: Verify CI does not demand a database the project declared it does not use.
     @pytest.mark.unit
     def test_disabled_database_passes_even_in_ci(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("POSTGRES_ENABLED", "false")
@@ -143,7 +133,7 @@ class TestMigrationGateWithoutPostgres:
 
         assert migrations_main([]) == 0
 
-    # SUMMARY: Verify the strict CI behaviour added earlier is untouched for projects that use a database.
+    # Verify the strict CI behaviour added earlier is untouched for projects that use a database.
     @pytest.mark.unit
     def test_enabled_database_still_fails_in_ci_without_a_server(
         self,
@@ -158,7 +148,6 @@ class TestMigrationGateWithoutPostgres:
 
         assert migrations_main([]) == 1
 
-    # SUMMARY: Verify the new rule carries remediation guidance like every other rule.
     @pytest.mark.unit
     def test_disabled_rule_has_a_playbook(self) -> None:
         playbook = get_migrations_rule_playbook("migrations.database_disabled")
@@ -167,9 +156,7 @@ class TestMigrationGateWithoutPostgres:
         assert playbook["stop_widening_condition"]
 
 
-# SUMMARY: Verify configuration guards do not demand credentials for an unused database.
 class TestRuntimeValidationWithoutPostgres:
-    # SUMMARY: Verify a project without a database is not forced to invent a password.
     # no-assert-ok: the assertion is that validate_runtime() does not raise; it returns None.
     @pytest.mark.unit
     def test_default_password_is_accepted_when_database_is_disabled(self) -> None:
@@ -179,7 +166,6 @@ class TestRuntimeValidationWithoutPostgres:
 
         settings.validate_runtime()  # no-assert-ok: the assertion is that this does not raise
 
-    # SUMMARY: Verify the guard is intact for projects that do use a database.
     @pytest.mark.unit
     def test_default_password_is_still_rejected_when_database_is_enabled(self) -> None:
         settings = FixtureSettings()
@@ -189,9 +175,7 @@ class TestRuntimeValidationWithoutPostgres:
             settings.validate_runtime()
 
 
-# SUMMARY: Verify the toggle survives the trip from the shell into the running image.
 class TestFlagReachesTheContainer:
-    # SUMMARY: Verify docker-compose.yml forwards POSTGRES_ENABLED instead of relying on .env alone.
     @pytest.mark.unit
     def test_compose_passes_the_toggle_into_the_app_service(self) -> None:
         # A literal check, because the thing being guarded is a literal line in a
@@ -204,9 +188,9 @@ class TestFlagReachesTheContainer:
         assert "POSTGRES_ENABLED: ${POSTGRES_ENABLED:-true}" in compose
 
 
-# SUMMARY: Verify the agent learns the project's composition from a query, not from reading .env.
+# Verify the agent learns the project's composition from a query, not from reading .env.
 class TestAgentCanSeeTheSubsystemState:
-    # SUMMARY: Verify docs/project_context.json finally reaches the query layer.
+    # Verify docs/project_context.json finally reaches the query layer.
     @pytest.mark.unit
     def test_overview_reports_declared_integrations(self) -> None:
         # overview and bootstrap were built only from the generated maps, so the
@@ -216,7 +200,7 @@ class TestAgentCanSeeTheSubsystemState:
         assert "postgres" in integrations
         assert integrations["postgres"]["type"] == "database"
 
-    # SUMMARY: Verify the reported state follows the environment rather than the description text.
+    # Verify the reported state follows the environment rather than the description text.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         ("value", "expected"),
@@ -232,12 +216,10 @@ class TestAgentCanSeeTheSubsystemState:
 
         assert integrations_overview()["postgres"]["enabled"] is expected
 
-    # SUMMARY: Verify the agent is told which variable to change, not just the current state.
     @pytest.mark.unit
     def test_overview_names_the_toggle_variable(self) -> None:
         assert integrations_overview()["postgres"]["toggle"] == "POSTGRES_ENABLED"
 
-    # SUMMARY: Verify the files this feature edits carry guidance instead of an unindexed error.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         "path",

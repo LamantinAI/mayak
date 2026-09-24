@@ -15,9 +15,7 @@ import random
 from project.core.config import get_settings
 
 
-# SUMMARY: Report whether this health-check request should be logged.
-# INPUT: custom_rate (float | None): Explicit rate for one call; None reads APP_SAMPLING_HEALTH_CHECK_RATE.
-# OUTPUT: (bool): True when the request should be logged.
+# custom_rate: Explicit rate for one call; None reads APP_SAMPLING_HEALTH_CHECK_RATE.
 def should_sample_health_check(custom_rate: float | None = None) -> bool:
     # The rate is read per call rather than cached in a singleton. A health probe
     # arrives a few times a minute, so one settings lookup costs nothing measurable, and reading it

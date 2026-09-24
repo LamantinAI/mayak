@@ -8,22 +8,22 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-# SUMMARY: Status every task starts in. Mirrors the server-side default in the ORM model.
+# Mirrors the server-side default in the ORM model.
 DEFAULT_STATUS = "pending"
 
-# SUMMARY: The status that frees a task's title for reuse.
+# The status that frees a task's title for reuse.
 # The rule it belongs to — at most one open task per title, case-insensitively — is not
 # enforced here or in the service. It spans rows, so only the database can hold it for two
 # concurrent writers: the partial unique index uq_reference_tasks_open_title (`WHERE status <>
 # 'done'`), turned into ConflictError by the repository. See ADR-007.
 CLOSED_STATUS = "done"
 
-# SUMMARY: The closed set of workflow statuses. Lives in the domain, not in the DTO, because it is
+# The closed set of workflow statuses. Lives in the domain, not in the DTO, because it is
 # a business rule rather than a wire-format detail: the service enforces it for every caller,
 # including callers that never pass through FastAPI validation.
 ALLOWED_STATUSES = frozenset({DEFAULT_STATUS, "in_progress", CLOSED_STATUS})
 
-# SUMMARY: Longest title the store can hold. One number, three consumers: the ORM column, the
+# Longest title the store can hold. One number, three consumers: the ORM column, the
 # request DTO, and the service. Living only in the DTO and the ORM column would let a caller
 # that reaches the service without passing through FastAPI — a background job, a queue
 # consumer, a test — hand over a longer title and turn its own mistake into a database error
@@ -31,9 +31,7 @@ ALLOWED_STATUSES = frozenset({DEFAULT_STATUS, "in_progress", CLOSED_STATUS})
 MAX_TITLE_LENGTH = 200
 
 
-# SUMMARY: Reduce a caller-supplied identifier to its canonical form, or report that it names nothing.
-# INPUT: task_id (str): Identifier supplied by a caller, typically straight off a URL path.
-# OUTPUT: (Optional[str]): Canonical lowercase hyphenated UUID, or None when the value cannot be one.
+# Returns canonical lowercase hyphenated UUID, or None when the value cannot be one.
 # The store keys tasks by a uuid column, so a value that is not a UUID cannot match any row.
 # Saying that here, in the domain, rather than letting the driver discover it: PostgreSQL answers a
 # malformed literal with InvalidTextRepresentation, which unwinds as an unhandled exception and
@@ -54,25 +52,20 @@ def normalize_task_id(task_id: str) -> Optional[str]:
         return None
 
 
-# SUMMARY: Immutable domain view of a reference task, expressed without ORM or driver types.
 @dataclass(frozen=True, slots=True)
 class ReferenceTask:
-    # SUMMARY: Stable identifier. Always a string at the domain boundary, never a uuid.UUID.
+    # Never a uuid.UUID at the domain boundary.
     id: str
 
-    # SUMMARY: Human-readable task title.
     title: str
 
-    # SUMMARY: Optional task description.
     details: str | None
 
-    # SUMMARY: Workflow status of the task.
     status: str
 
-    # SUMMARY: Timestamp when the task was created.
     created_at: datetime
 
-    # SUMMARY: Timestamp of the last write, and the token that makes an update detect a lost one.
+    # Timestamp of the last write, and the token that makes an update detect a lost one.
     # This field exists for the concurrency check, not for display. An update reads the task,
     # changes a field and writes it back; between the read and the write another request can do the
     # same, and a blind `UPDATE ... WHERE id = %s` then overwrites whatever that request stored —

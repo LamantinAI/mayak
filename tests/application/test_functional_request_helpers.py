@@ -24,8 +24,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _FUNCTIONAL_DIR = _REPO_ROOT / "tests" / "functional"
 
 
-# SUMMARY: Import tests/functional/conftest.py, the real one, with its own imports resolvable.
-# OUTPUT: (ModuleType): The loaded module; its fixtures are still pytest-wrapped.
+# Returns the loaded module; its fixtures are still pytest-wrapped.
 # That conftest does `from settings import ...`, which only resolves with tests/functional
 # on sys.path — that is how tests/functional/pytest.ini runs it and not how this suite does. Both
 # entries are removed again so they cannot leak into a module collected later. The dotted name
@@ -40,16 +39,13 @@ def _load_functional_conftest() -> ModuleType:
             sys.path.remove(path)
 
 
-# SUMMARY: Answer every verb the way FastAPI answers a 204 route: no body, JSON content type.
 class _EmptyJsonResponseClient:
-    # SUMMARY: Return the 204 response shape, ignoring whatever the helper passed.
     async def _respond(self, *_args: Any, **_kwargs: Any) -> httpx.Response:
         return httpx.Response(204, headers={"content-type": "application/json"}, content=b"")
 
     post = get = put = patch = delete = _respond
 
 
-# SUMMARY: Verify each helper survives the empty body FastAPI sends with a JSON content type.
 @pytest.mark.unit
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -75,7 +71,7 @@ async def test_a_request_helper_reads_an_empty_204_body_as_text(helper_name: str
     assert result == {"status": 204, "body": ""}
 
 
-# SUMMARY: Verify a query string in the path reaches the server, alone and next to `params`.
+# Verify a query string in the path reaches the server, alone and next to `params`.
 # httpx replaces a query string already in the URL with `params` — for an empty dict too,
 # which was the helper's default. `make_get_request("/sessions?hall_id=7")` therefore fetched the
 # unfiltered list, and a filter test asserted against it and passed. Found by the bench2
@@ -98,7 +94,6 @@ async def test_the_get_helper_keeps_a_filter_written_into_the_path(
     conftest = _load_functional_conftest()
     sent: list[httpx.URL] = []
 
-    # SUMMARY: Keep the URL the helper actually sent and answer with an empty list.
     def _record(request: httpx.Request) -> httpx.Response:
         sent.append(request.url)
         return httpx.Response(200, json=[])

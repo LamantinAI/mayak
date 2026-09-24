@@ -169,7 +169,7 @@ Project Map: Mayak
 │   ├── query_ai_context.py
 │   ├── run_all_tests.py
 │   ├── run_mutations.py
-│   ├── structure_builder.py  ---  A utility script to generate a project tree map with file summaries extracted from CBM tags, using the git index (tracked + untracked-not-ignored files) so the map is hermetic across worktrees and checkouts.
+│   ├── structure_builder.py  ---  A utility script to generate a project tree map with file summaries read from each file's header, using the git index (tracked + untracked-not-ignored files) so the map is hermetic across worktrees and checkouts.
 │   ├── sync_agent_docs.py
 │   ├── validate_architecture.py  ---  Repository utility that enforces the hexagonal architecture import boundaries for production modules.
 │   ├── validate_cbm.py  ---  Check that every Python file under project/ opens with its header — `# FILE:` and `# SUMMARY:`.
@@ -267,7 +267,7 @@ Project Map: Mayak
 │   │   ├── docker-compose.yml
 │   │   ├── pytest.ini
 │   │   ├── requirements.txt
-│   │   └── settings.py  ---  Base settings class for functional tests.
+│   │   └── settings.py
 │   ├── infrastructure/
 │   │   ├── __init__.py  ---  Infrastructure layer test package.
 │   │   └── test_persistence_models.py  ---  Verify the kernel placeholder ORM (ReferenceTaskORM) declares the expected schema.

@@ -11,10 +11,9 @@ from project.core.logging.logger_types import LogValue
 from project.core.logging.redaction import redact_secrets
 
 
-# SUMMARY: Mixin implementing error and critical issue helpers with causal-link metadata support.
+# With causal-link metadata support.
 class SemanticLoggerIssueEventsMixin:
-    # SUMMARY: Log a rejection the caller caused — a 4xx — at WARNING, under its own event id.
-    # INPUT: error_type (str): Short slug describing the rejection, e.g. "http_exception".
+    # error_type: Short slug describing the rejection, e.g. "http_exception".
     # Same shape as log_error and deliberately not the same level. A 404 or a 422 is the
     # application working: it looked at a request it could not serve and said so. Recorded as
     # `error.*` at ERROR, those lines made a healthy service read as a failing one — `make
@@ -54,9 +53,6 @@ class SemanticLoggerIssueEventsMixin:
             data=payload,
         )
 
-    # SUMMARY: Log error events with exception details, context information, and causal linking.
-    # INPUT: exception (Optional[Exception]): Actual exception object if available.
-    # INPUT: caused_by (Optional[str]): Explicit error_id that caused this error.
     def log_error(
         self: SemanticLoggerEventContract,
         error_type: str,
@@ -91,9 +87,6 @@ class SemanticLoggerIssueEventsMixin:
             data=payload,
         )
 
-    # SUMMARY: Log critical failure events with impact assessment and causal linking.
-    # INPUT: exception (Optional[Exception]): Actual exception object if available.
-    # INPUT: caused_by (Optional[str]): Explicit error_id that caused this critical failure.
     def log_critical(
         self: SemanticLoggerEventContract,
         failure_type: str,

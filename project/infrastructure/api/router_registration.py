@@ -9,9 +9,6 @@ from project.infrastructure.api.endpoints.health import health_router
 from project.infrastructure.api.endpoints.reference_tasks import reference_tasks_router
 
 
-# SUMMARY: Register all application routers on the FastAPI instance.
-# INPUT: services (Dict[str, Any] | None): Service registry used to skip routers whose backing
-#        service was not built.
 def include_application_routers(app: FastAPI, services: Dict[str, Any] | None = None) -> None:
     # Register the kernel health router. Verticals add their own
     # routers here when they introduce new endpoints.

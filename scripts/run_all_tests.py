@@ -32,7 +32,7 @@ COVERAGE_FLOOR_PERCENT = 60
 
 
 # Name the functional stack's Compose project after this checkout, not its directory.
-# (str): A Compose-legal project name unique to this worktree.
+# Returns: A Compose-legal project name unique to this worktree.
 # Compose defaults to naming a project after the directory it runs in, which for every
 # checkout of this repository is `functional` — so two worktrees running `make test-e2e` at once
 # share containers, a volume and a database, and the second one's `down -v` removes the first's
@@ -58,7 +58,7 @@ class TestStep:
 
 
 # Parse CLI arguments controlling which test suites are executed.
-# argv (Sequence[str] | None): Optional CLI argument list used by tests or the default process argv.
+# argv: Optional CLI argument list used by tests or the default process argv.
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run Mayak test suites through one canonical entrypoint."
@@ -78,9 +78,9 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 # Build the ordered list of test runner steps for the requested execution mode.
-# skip_functional (bool): Whether the functional Docker-based suite should be skipped.
-# functional_only (bool): Whether only the functional Docker-based suite should be executed.
-# (list[TestStep]): Ordered runnable test steps.
+# skip_functional: Whether the functional Docker-based suite should be skipped.
+# functional_only: Whether only the functional Docker-based suite should be executed.
+# Returns: Ordered runnable test steps.
 def _build_test_steps(
     skip_functional: bool,
     functional_only: bool,
@@ -145,9 +145,9 @@ def _emit(message: str) -> None:
 
 
 # Report the sample keys a local env file is missing or answers differently.
-# sample (Mapping[str, str | None]): Keys and defaults the committed sample declares.
-# current (Mapping[str, str | None]): Keys the local, git-ignored env file carries.
-# (list[str]): Sorted sample keys absent from `current` or holding a different value.
+# sample: Keys and defaults the committed sample declares.
+# current: Keys the local, git-ignored env file carries.
+# Returns: Sorted sample keys absent from `current` or holding a different value.
 # Asymmetric on purpose. A key the local file ADDS is a deliberate override and is not
 # drift; a key the sample gained, or a default it changed, is — the local file is generated once
 # and then never compared again, so it keeps answering with last month's value.
@@ -160,8 +160,8 @@ def env_sample_drift(
 
 
 # Read an env file into a mapping, tolerating comments, blanks, quotes and `export`.
-# path (Path): File to read; a missing file reads as empty.
-# (dict[str, str]): Key to value, with `export ` dropped and surrounding quotes stripped.
+# path: File to read; a missing file reads as empty.
+# Returns: Key to value, with `export ` dropped and surrounding quotes stripped.
 # Hand-rolled rather than `dotenv_values` because this runner is the one script that must
 # work before the project's environment is installed. The syntax it needs to understand is the
 # syntax docker compose reads: KEY=value, `#` comments, optional quotes — plus two conventions
@@ -259,7 +259,7 @@ def _run_functional_step(step: TestStep) -> None:
 
 
 # Execute the requested set of Mayak test suites through the canonical runner.
-# argv (Sequence[str] | None): Optional CLI argument list used by tests or the default process argv.
+# argv: Optional CLI argument list used by tests or the default process argv.
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     steps = _build_test_steps(

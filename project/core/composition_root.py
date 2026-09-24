@@ -17,16 +17,12 @@ from project.infrastructure.api.middleware import AILoggingMiddleware
 from project.infrastructure.api.router_registration import include_application_routers
 
 
-# SUMMARY: Assembles all application dependencies, encapsulating the component creation process for FastAPI.
 class CompositionRoot:
-    # SUMMARY: Initializes the Composition Root.
     def __init__(self) -> None:
         # Initialize logger for dependency injection tracking.
         self._logger = get_logger(__name__)
         self._settings: Settings | None = None
 
-    # SUMMARY: Assembles all application dependencies.
-    # RAISES: ProjectError: If errors occur during dependency creation.
     def build_dependencies(self) -> Dict[str, Any]:
         with self._logger.span("build_dependencies") as span_ctx:
             try:
@@ -105,9 +101,6 @@ class CompositionRoot:
                 )
                 raise ProjectError(error_message) from e
 
-    # SUMMARY: Builds and configures the FastAPI application with all dependencies.
-    # INPUT: lifespan (Any): Lifespan context manager for FastAPI.
-    # RAISES: ProjectError: If errors occur during application building.
     def build_application(self, lifespan: Any = None) -> FastAPI:
 
         with self._logger.span("build_application") as span_ctx:
@@ -227,7 +220,6 @@ class CompositionRoot:
                 raise ProjectError(error_message) from e
 
 
-# SUMMARY: Clean up all services and their resources.
 async def cleanup_services(services: Dict[str, Any]) -> None:
     logger = get_logger(__name__)
 

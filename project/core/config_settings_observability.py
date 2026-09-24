@@ -5,9 +5,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-# SUMMARY: Everything the operator can change about how much the service records.
 class ObservabilitySettings(BaseSettings):
-    # SUMMARY: Read from the process environment, falling back to .env, names case-insensitive.
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -15,7 +13,6 @@ class ObservabilitySettings(BaseSettings):
         extra="ignore",
     )
 
-    # SUMMARY: Record the whole run to a file instead of only its summary.
     # One flag, three consequences, all in one direction — more on disk. It opens
     # the NDJSON file in `project/launcher/main.py`, drops the level to DEBUG so span events
     # survive, and lets `_build_full_trace_extras` attach the LLM prompt and completion bodies.

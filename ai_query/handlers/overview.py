@@ -22,9 +22,9 @@ _RUNTIME_TOGGLES: dict[str, tuple[str, bool]] = {
 
 
 # Read a boolean environment variable, falling back to the project's .env file.
-# name (str): Variable name.
-# default (bool): Value used when the variable is absent everywhere.
-# (bool): Effective value.
+# name: Variable name.
+# default: Value used when the variable is absent everywhere.
+# Returns: Effective value.
 def _env_flag(name: str, default: bool) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -41,7 +41,7 @@ def _env_flag(name: str, default: bool) -> bool:
 
 
 # Report which external systems this project declares, and which are switched on now.
-# (dict[str, dict[str, Any]]): Integration name mapped to its declared and live state.
+# Returns: Integration name mapped to its declared and live state.
 def integrations_overview() -> dict[str, dict[str, Any]]:
     # docs/project_context.json is the one place a project says which external
     # systems it uses. Reporting the declaration next to the live toggle here means an agent does

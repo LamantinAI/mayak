@@ -8,13 +8,11 @@ from project.core.logging.enums import EventType
 from project.core.logging.logger_types import CallerInfo, LogPayload, LogValue
 
 
-# SUMMARY: Structural contract required by semantic event helper mixins.
 class SemanticLoggerEventContract(Protocol):
-    # SUMMARY: Return caller information for log-source attribution.
-    # OUTPUT: (CallerInfo): Caller pathname, line number, and function name.
+    # For log-source attribution.
+    # Returns caller pathname, line number, and function name.
     def _resolve_caller(self) -> CallerInfo: ...
 
-    # SUMMARY: Emit a structured semantic event with optional payload and metadata.
     def log_event(
         self,
         event_type: EventType,

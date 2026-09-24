@@ -21,7 +21,6 @@ from project.infrastructure.agents.llm_service_live import _build_full_trace_ext
 from project.launcher.main import main
 
 
-# SUMMARY: The warning_type of every warning record in the capture.
 def _warning_types(log_capture: list[dict]) -> list[str]:
     return [
         event["kwargs"]["data"]["warning_type"]
@@ -32,9 +31,7 @@ def _warning_types(log_capture: list[dict]) -> list[str]:
     ]
 
 
-# SUMMARY: Verify the startup warning follows the flag and nothing else.
 class TestTheServiceSaysWhatItIsRecording:
-    # SUMMARY: Verify the warning is written when full trace is on and never when it is off.
     @pytest.mark.unit
     @pytest.mark.parametrize("full_trace", [True, False])
     def test_the_warning_follows_the_flag(
@@ -82,9 +79,7 @@ class TestTheServiceSaysWhatItIsRecording:
         assert announced is full_trace
 
 
-# SUMMARY: Verify a credential pasted into a prompt or returned in a completion is redacted.
 class TestTheRecordedTextIsScrubbed:
-    # SUMMARY: Verify each of the three recorded fields goes through the scrubber.
     @pytest.mark.unit
     def test_a_credential_in_the_recorded_text_is_replaced(self) -> None:
         # allow-secret: an invented literal in the shape the scrubber matches, so that the
@@ -103,7 +98,6 @@ class TestTheRecordedTextIsScrubbed:
         assert secret not in extras["user_message"]
         assert secret not in extras["completion_text"]
 
-    # SUMMARY: Verify the hot path stays empty when full trace is disabled.
     @pytest.mark.unit
     def test_nothing_is_recorded_while_the_flag_is_off(self) -> None:
         extras = _build_full_trace_extras(

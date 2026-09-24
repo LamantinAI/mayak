@@ -8,9 +8,6 @@ import httpx
 from utils.helpers import ServiceSettings
 
 
-# SUMMARY: Checks if the API is ready to accept requests.
-# INPUT: settings (ServiceSettings): Settings object containing host information.
-# OUTPUT: (bool): True if API is ready, False otherwise.
 def is_api_ready(settings: ServiceSettings) -> bool:
     # Attempt to call the health check endpoint.
     try:
@@ -24,9 +21,6 @@ def is_api_ready(settings: ServiceSettings) -> bool:
         return False
 
 
-# SUMMARY: Waits for API readiness with exponential backoff.
-# INPUT: settings (ServiceSettings): Settings object containing host information.
-# RAISES: Exception: If API connection fails after retries.
 @backoff.on_exception(
     backoff.expo,
     Exception,

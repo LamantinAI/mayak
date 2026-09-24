@@ -5,8 +5,6 @@ import re
 from typing import Any, Mapping
 
 
-# SUMMARY: Convert raw text into a low-risk structured summary for logs.
-# OUTPUT: (dict[str, Any]): Summary containing only structural properties.
 def summarize_text(value: str) -> dict[str, Any]:
     # Retain only non-sensitive structural metadata about the text.
     return {
@@ -18,8 +16,6 @@ def summarize_text(value: str) -> dict[str, Any]:
     }
 
 
-# SUMMARY: Convert arbitrary mapping input into a safe structural summary for logs.
-# OUTPUT: (dict[str, Any] | None): Summary with size and keys only.
 def summarize_mapping(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
     # Preserve absence while avoiding logging raw values.
     if value is None:
@@ -32,8 +28,6 @@ def summarize_mapping(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
-# SUMMARY: Convert arbitrary payloads into a safe structural summary for logs.
-# OUTPUT: (dict[str, Any] | None): Summary preserving only shape, counts, and types.
 def summarize_payload(value: Any) -> dict[str, Any] | None:
     # Preserve explicit absence while avoiding raw value logging.
     if value is None:
@@ -89,9 +83,6 @@ _TRACEBACK_REDACT_PATTERNS = [
 _REDACTED = "***REDACTED***"
 
 
-# SUMMARY: Scrub known secret patterns (connection strings, API keys, tokens) from any log text.
-# INPUT: text (str): Free-form text headed for a log record.
-# OUTPUT: (str): Same text with recognized secret patterns replaced by a redaction marker.
 def redact_secrets(text: str) -> str:
     """Scrub known secret patterns from arbitrary log-bound text."""
     result = text
@@ -100,14 +91,11 @@ def redact_secrets(text: str) -> str:
     return result
 
 
-# SUMMARY: Scrub known secret patterns from traceback text.
 def redact_traceback(tb_text: str) -> str:
     """Scrub known secret patterns from traceback text."""
     return redact_secrets(tb_text)
 
 
-# SUMMARY: Build a safe summary for chat message collections without logging full content.
-# INPUT: messages (list[Any]): Sequence of DTO or domain message-like objects.
 def summarize_chat_messages(messages: list[Any]) -> dict[str, Any]:
     # Extract roles and lengths from compatible message objects or mappings.
     roles: list[str] = []

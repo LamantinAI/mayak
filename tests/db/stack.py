@@ -15,30 +15,28 @@ import sys
 import zlib
 from pathlib import Path
 
-# SUMMARY: Repository root; the digest of its absolute path keeps two checkouts apart.
+# Repository root; the digest of its absolute path keeps two checkouts apart.
 ROOT_DIR = Path(__file__).resolve().parents[2]
 
-# SUMMARY: The tier's compose file, independent of the application's.
+# The tier's compose file, independent of the application's.
 COMPOSE_FILE = Path(__file__).resolve().parent / "docker-compose.yml"
 
-# SUMMARY: Environment variable naming a database this module must use as is.
+# Environment variable naming a database this module must use as is.
 EXTERNAL_URL_ENV = "TEST_DATABASE_URL"
 
-# SUMMARY: Per-checkout number the compose project and the published port are derived from.
+# Per-checkout number the compose project and the published port are derived from.
 # Same idea as run_all_tests.functional_compose_project and the Makefile's db-up-worktree:
 # two worktrees running `make test` at once must not share one database, because each drops and
 # recreates it every session and empties its tables before every test. Ports fold into 30000-39999, clear of the Makefile's worktree
 # databases (20000-29999) and of the application defaults.
 _DIGEST = zlib.crc32(str(ROOT_DIR).encode("utf-8"))
 
-# SUMMARY: Compose project name of this checkout's test database.
 PROJECT = f"test-db-{_DIGEST}"
 
-# SUMMARY: Host port this checkout's test database is published on (127.0.0.1 only).
+# Host port this checkout's test database is published on (127.0.0.1 only).
 PORT = _DIGEST % 10000 + 30000
 
 
-# SUMMARY: The URL the db tier connects to: TEST_DATABASE_URL when set, else this checkout's own.
 def database_url() -> str:
     return (
         os.environ.get(EXTERNAL_URL_ENV)
@@ -48,8 +46,6 @@ def database_url() -> str:
     )
 
 
-# SUMMARY: Run one docker compose command against this checkout's test-database project.
-# OUTPUT: (subprocess.CompletedProcess[str]): The finished command, output captured.
 def _compose(*arguments: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["docker", "compose", "-p", PROJECT, "-f", str(COMPOSE_FILE), *arguments],
@@ -60,9 +56,7 @@ def _compose(*arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-# SUMMARY: Make sure the test database answers, starting this checkout's container when needed.
-# OUTPUT: (str): The URL to connect to.
-# RAISES: RuntimeError: When the container cannot be started; the message says why and what to do.
+# Raises RuntimeError when the container cannot be started; the message says why and what to do.
 # `up --wait` on a running, healthy container returns in about a second, so this is called
 # on every session rather than remembered — a stale "it was up last time" is how a suite ends up
 # timing out against a container somebody stopped.
@@ -78,7 +72,7 @@ def ensure_up() -> str:
     return database_url()
 
 
-# SUMMARY: Explain a failed start with the ways out, in the order people reach for them.
+# Explain a failed start with the ways out, in the order people reach for them.
 def _cannot_start(detail: str) -> str:
     return (
         "The db tier could not start its PostgreSQL "
@@ -90,12 +84,12 @@ def _cannot_start(detail: str) -> str:
     )
 
 
-# SUMMARY: Remove this checkout's test database container; its data lived in tmpfs and goes with it.
+# Remove this checkout's test database container; its data lived in tmpfs and goes with it.
 def stop() -> int:
     return _compose("down", "-v", "--remove-orphans").returncode
 
 
-# SUMMARY: Command-line entry for `make test-db-down` and for printing the URL.
+# Command-line entry for `make test-db-down` and for printing the URL.
 def main(argv: list[str]) -> int:
     command = argv[0] if argv else "url"
     if command == "up":

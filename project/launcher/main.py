@@ -17,19 +17,19 @@ from project.core.lifecycle import create_lifespan
 from project.core.logging import get_logger, setup_logging
 from project.domain.exceptions import ProjectError
 
-# SUMMARY: Signals a process manager sends to ask for shutdown, and which must not be fatal here.
+# Signals a process manager sends to ask for shutdown, and which must not be fatal here.
 # SIGINT is absent on purpose: its default already raises KeyboardInterrupt, which the branch below
 # catches, so it never had this problem.
 _TERMINATION_SIGNALS: tuple[int, ...] = (signal.SIGTERM,)
 
-# SUMMARY: One-slot mailbox the handler writes into, read after uvicorn returns.
+# One-slot mailbox the handler writes into, read after uvicorn returns.
 # A list rather than a module-level int so the handler needs no `global`.
 _RECEIVED_SIGNALS: list[int] = []
 
 
-# SUMMARY: Make a termination signal survivable so shutdown work after uvicorn.run still runs.
+# Make a termination signal survivable so shutdown work after uvicorn.run still runs.
 def _install_termination_handler() -> None:
-    # SUMMARY: Record the signal and return, which is what keeps the process alive.
+    # Record the signal and return, which is what keeps the process alive.
     def _remember(signum: int, _frame: Optional[FrameType]) -> None:
         _RECEIVED_SIGNALS.append(signum)
 
@@ -37,7 +37,7 @@ def _install_termination_handler() -> None:
         signal.signal(termination_signal, _remember)
 
 
-# SUMMARY: Hand SIGTERM back to the operating system once the shutdown work is done being protected.
+# Hand SIGTERM back to the operating system once the shutdown work is done being protected.
 # Without this the handler outlives its purpose. It is installed so the code after
 # uvicorn.run — flushing handlers, rendering the trace summary into the log file — is not killed
 # mid-write, but leaving it in place means every later SIGTERM is swallowed too, and a process
@@ -49,7 +49,7 @@ def _restore_termination_default() -> None:
         signal.signal(termination_signal, signal.SIG_DFL)
 
 
-# SUMMARY: Where uvicorn imports the application from — in this process with one worker, in each
+# Where uvicorn imports the application from — in this process with one worker, in each
 # worker process with several.
 # An import string, not the application object. With SERVER_WORKERS above one uvicorn starts
 # separate processes that each import the application, and it refuses an object outright: the
@@ -59,7 +59,7 @@ def _restore_termination_default() -> None:
 APPLICATION_FACTORY = "project.launcher.main:create_app"
 
 
-# SUMMARY: Build the FastAPI application with its lifespan; what every worker process calls.
+# Build the FastAPI application with its lifespan; what every worker process calls.
 # Logging is not configured here: uvicorn applies the log config main() passes it in every
 # worker before calling this, and settings were validated once, in main(), before any worker exists.
 # With ENABLE_FULL_TRACE and several workers that config gives each worker its own FileHandler on
@@ -72,8 +72,6 @@ def create_app() -> FastAPI:
     return CompositionRoot().build_application(lifespan=lifespan)
 
 
-# SUMMARY: The application's entry point. Initializes and starts FastAPI server.
-# RAISES: ProjectError: In case of critical errors during startup.
 def main() -> None:
     # Initialize application environment and logging.
     # We initialize logging in a safe bootstrap mode first, then reconfigure after validated settings load.
@@ -283,8 +281,6 @@ def main() -> None:
             sys.stderr.write(f"[shutdown] trace summary not written: {error!r}\n")
 
 
-# SUMMARY: Entry point wrapper that handles application execution and error scenarios.
-# RAISES: SystemExit: For various error conditions.
 def run_application() -> None:
     # Execute main function.
     try:

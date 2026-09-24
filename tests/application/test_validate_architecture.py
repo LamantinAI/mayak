@@ -16,18 +16,12 @@ from scripts.validate_architecture import (
 )
 
 
-# SUMMARY: Write a Python source fixture into a temporary repository layout.
-# INPUT: path (Path): Target file path.
-# INPUT: content (str): Python source content.
-# OUTPUT: (None): None.
 def _write_fixture(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
 
-# SUMMARY: Verify the architecture validator catches forbidden imports and allows valid ones.
 class TestValidateArchitecture:
-    # SUMMARY: Verify the machine-readable layer rules separate declared dependencies from runtime-enforced prefixes.
     @pytest.mark.unit
     def test_get_layer_rules_exposes_declared_and_runtime_constraints(self) -> None:
         layer_rules: dict[str, dict[str, Any]] = get_layer_rules()
@@ -70,7 +64,6 @@ class TestValidateArchitecture:
         assert layer_rules["application"]["runtime_enforced"]["allowed_imports"] == ()
         assert "whitelist gate" in layer_rules["domain"]["enforcement_summary"]
 
-    # SUMMARY: Verify architecture rule playbooks are reusable by the query layer.
     @pytest.mark.unit
     def test_get_architecture_rule_playbook_returns_shared_failure_guidance(
         self,
@@ -86,7 +79,6 @@ class TestValidateArchitecture:
         )
         assert "project/core/composition_root.py" in playbook["read_first"]
 
-    # SUMMARY: Verify domain modules cannot import infrastructure adapters directly.
     @pytest.mark.unit
     def test_validator_rejects_domain_importing_infrastructure(
         self,
@@ -105,7 +97,7 @@ class TestValidateArchitecture:
             for issue in issues
         )
 
-    # SUMMARY: Verify importlib.import_module and __import__ are checked like a written import.
+    # Verify importlib.import_module and __import__ are checked like a written import.
     # The regression this pins is one line long. The walk used to skip every node that was
     # not ast.Import/ast.ImportFrom, so `importlib.import_module("psycopg")` in a domain
     # module left the full `make quality-gates` at exit 0 — measured, both this validator and
@@ -143,7 +135,7 @@ class TestValidateArchitecture:
             for issue in issues
         )
 
-    # SUMMARY: Verify only names this file bound to importlib count, not every `import_module`.
+    # Verify only names this file bound to importlib count, not every `import_module`.
     # The regression this reproduces: the first version of the
     # detector matched any attribute called `import_module`, so an unrelated object with a method
     # of that name was reported as a forbidden import. A gate that fires on correct code is worse
@@ -163,7 +155,6 @@ class TestValidateArchitecture:
 
         assert collect_architecture_issues(tmp_path) == []
 
-    # SUMMARY: Verify a non-literal argument is left alone rather than reported under a made-up name.
     @pytest.mark.unit
     def test_a_dynamic_import_of_a_variable_module_is_not_guessed(self, tmp_path: Path) -> None:
         # The module here is decided at runtime, so there is no name to check. A
@@ -175,7 +166,6 @@ class TestValidateArchitecture:
 
         assert collect_architecture_issues(tmp_path) == []
 
-    # SUMMARY: Verify the import that motivated the allowlist is rejected by name.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         "line",
@@ -200,7 +190,7 @@ class TestValidateArchitecture:
 
         assert [issue.rule_id for issue in issues] == ["arch.domain.import_not_allowed"]
 
-    # SUMMARY: Verify the allowlist covers what has not been invented yet — the point of inverting.
+    # Verify the allowlist covers what has not been invented yet — the point of inverting.
     @pytest.mark.unit
     def test_validator_rejects_a_library_nobody_thought_to_ban(self, tmp_path: Path) -> None:
         _write_fixture(
@@ -212,7 +202,6 @@ class TestValidateArchitecture:
 
         assert [issue.rule_id for issue in issues] == ["arch.domain.import_not_allowed"]
 
-    # SUMMARY: Verify the allowlist does not reject what every domain module actually imports.
     @pytest.mark.unit
     def test_validator_allows_the_standard_library_and_its_own_layer(
         self,
@@ -233,7 +222,6 @@ class TestValidateArchitecture:
 
         assert collect_architecture_issues(tmp_path) == []
 
-    # SUMMARY: Verify application modules cannot import infrastructure implementations.
     @pytest.mark.unit
     def test_validator_rejects_application_importing_infrastructure(
         self,
@@ -252,7 +240,6 @@ class TestValidateArchitecture:
             for issue in issues
         )
 
-    # SUMMARY: Verify infrastructure modules may depend on application code.
     @pytest.mark.unit
     def test_validator_allows_infrastructure_importing_application(
         self,
@@ -267,7 +254,6 @@ class TestValidateArchitecture:
 
         assert issues == []
 
-    # SUMMARY: Verify infrastructure modules cannot couple back into runtime assembly modules.
     @pytest.mark.unit
     def test_validator_rejects_infrastructure_importing_composition_root(
         self,
@@ -286,7 +272,7 @@ class TestValidateArchitecture:
             for issue in issues
         )
 
-    # SUMMARY: Regression guard: a broken Python file must surface as a structured ArchitectureIssue with rule_id 'arch.syntax_error', not a raw Python traceback.
+    # Regression guard: a broken Python file must surface as a structured ArchitectureIssue with rule_id 'arch.syntax_error', not a raw Python traceback.
     @pytest.mark.unit
     def test_validator_emits_syntax_error_issue_on_broken_file(
         self,
@@ -305,7 +291,6 @@ class TestValidateArchitecture:
         # Playbook is registered so failure_playbook() can route this rule_id.
         assert get_architecture_rule_playbook("arch.syntax_error") is not None
 
-    # SUMMARY: Verify JSON mode emits stable remediation metadata for architecture violations.
     @pytest.mark.unit
     def test_main_json_output_includes_rule_and_remediation(
         self,

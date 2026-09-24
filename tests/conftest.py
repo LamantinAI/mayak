@@ -27,9 +27,7 @@ setup_logging(level="DEBUG", force=True)
 logger = get_logger(__name__)
 
 
-# SUMMARY: Test-specific settings override for isolated test environments.
 class _FixtureSettings(Settings):
-    # SUMMARY: Initializes test settings with safe defaults.
     def __init__(self) -> None:
         # Set required env vars before base init to satisfy validation.
         os.environ.setdefault("OPENAI_COMPATIBLE_API_KEY", "test_api_key")
@@ -67,17 +65,12 @@ class _FixtureSettings(Settings):
         self.postgres.port = 5432
 
 
-# SUMMARY: Provide test-specific settings for isolated test environments.
-# OUTPUT: (_FixtureSettings): Test settings instance.
 @pytest.fixture(scope="session")
 def test_settings() -> _FixtureSettings:
     # Return test settings instance.
     return _FixtureSettings()
 
 
-# SUMMARY: Provide a FastAPI application instance for testing with mocked settings.
-# INPUT: test_settings (_FixtureSettings): Test settings fixture.
-# OUTPUT: (FastAPI): FastAPI application instance.
 @pytest.fixture(scope="function")
 def fastapi_app(test_settings: _FixtureSettings) -> Generator[FastAPI, None, None]:
     # Install one canonical settings override used by all runtime modules.
@@ -95,8 +88,6 @@ def fastapi_app(test_settings: _FixtureSettings) -> Generator[FastAPI, None, Non
         clear_settings_override()
 
 
-# SUMMARY: Assemble the application with the relational store switched off.
-# OUTPUT: (Generator[FastAPI, None, None]): Application built with postgres.enabled False.
 # Here rather than in a vertical's own test file, which is where it used to live —
 # in two files at once, in two shapes. Every storage-backed vertical needs it to prove its half of
 # ADR-006 (routes absent, service key present and None), so a project's second vertical copied it
@@ -113,9 +104,6 @@ def app_without_postgres() -> Generator[FastAPI, None, None]:
         clear_settings_override()
 
 
-# SUMMARY: Provide an AsyncClient for HTTP testing of FastAPI endpoints.
-# INPUT: fastapi_app (FastAPI): FastAPI application fixture.
-# OUTPUT: (AsyncGenerator[AsyncClient, None]): AsyncClient instance.
 @pytest.fixture(scope="function")
 async def async_client(fastapi_app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
     # Create AsyncClient with ASGITransport.
@@ -124,8 +112,6 @@ async def async_client(fastapi_app: FastAPI) -> AsyncGenerator[AsyncClient, None
         yield client
 
 
-# SUMMARY: Pin POSTGRES_ENABLED for the whole suite so tests never depend on the developer's .env.
-# OUTPUT: (Generator[None, None, None]): Yields with the variable set to the enabled default.
 @pytest.fixture(autouse=True)
 def pin_postgres_toggle(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     # Settings and the migration gate both read POSTGRES_ENABLED from the
@@ -137,8 +123,6 @@ def pin_postgres_toggle(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None
     yield
 
 
-# SUMMARY: Pin AGENT_LLM_MODE for the whole suite so tests never depend on the operator's .env.
-# OUTPUT: (Generator[None, None, None]): Yields with the variable set to the mock default.
 @pytest.fixture(autouse=True)
 def pin_llm_mode_toggle(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     # Symmetric to pin_postgres_toggle above, for the same reason.
@@ -154,8 +138,6 @@ def pin_llm_mode_toggle(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None
     yield
 
 
-# SUMMARY: Capture log messages for verifying logging behavior in tests.
-# OUTPUT: (Generator[list, None, None]): List that accumulates log entries.
 @pytest.fixture
 def log_capture() -> Generator[list, None, None]:
     # Create list to capture log messages.
@@ -173,9 +155,7 @@ def log_capture() -> Generator[list, None, None]:
         yield captured_logs
 
 
-# SUMMARY: List the paths an assembled application actually serves.
-# INPUT: app (FastAPI): Application built by CompositionRoot.
-# OUTPUT: (set[str]): Path templates, e.g. {"/health/", "/reference-tasks/{task_id}"}.
+# Returns path templates, e.g. {"/health/", "/reference-tasks/{task_id}"}.
 # Tests used to read `app.routes` directly. Starlette 1.x stopped flattening included
 # routers into that list — `include_router` now leaves an opaque `_IncludedRouter` entry with no
 # `path`, so the same comprehension silently returned only the docs routes and an assertion that

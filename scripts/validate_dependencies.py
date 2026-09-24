@@ -98,23 +98,23 @@ class DependencyIssue:
 
 
 # Return the shared remediation playbook for a stable dependency rule ID.
-# (dict[str, object] | None): Remediation metadata, or None when the rule is unknown.
+# Returns: Remediation metadata, or None when the rule is unknown.
 def get_dependencies_rule_playbook(rule_id: str) -> dict[str, object] | None:
     playbook = _DEPENDENCIES_RULE_PLAYBOOKS.get(rule_id)
     return dict(playbook) if playbook is not None else None
 
 
 # Normalize a distribution name per PEP 503 so pyproject and metadata spellings compare equal.
-# name (str): Raw distribution name.
-# (str): Lowercase name with runs of -, _ and . collapsed to a single dash.
+# name: Raw distribution name.
+# Returns: Lowercase name with runs of -, _ and . collapsed to a single dash.
 def normalize_distribution_name(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
 # Collect every requirement string a pyproject document declares, from all three places
 # a dependency can be named.
-# pyproject_text (str): Full text of pyproject.toml.
-# (list[str]): Requirement strings from [project].dependencies, optional-dependencies
+# pyproject_text: Full text of pyproject.toml.
+# Returns: Requirement strings from [project].dependencies, optional-dependencies
 # and dependency-groups.
 # This was a hand-rolled line scanner, justified by a 3.10 floor where tomllib does not
 # exist. That scanner cost two defects before it worked — it counted the brackets inside
@@ -144,8 +144,8 @@ def _requirement_strings(pyproject_text: str) -> list[str]:
 
 
 # Read the distribution names this project declares as its own dependencies.
-# repo_root (Path): Repository root containing pyproject.toml.
-# (set[str]): Normalized names from [project].dependencies, optional-dependencies and
+# repo_root: Repository root containing pyproject.toml.
+# Returns: Normalized names from [project].dependencies, optional-dependencies and
 # dependency-groups.
 def declared_distributions(repo_root: Path) -> set[str]:
     raw = _requirement_strings((repo_root / "pyproject.toml").read_text(encoding="utf-8"))
@@ -168,9 +168,9 @@ def declared_distributions(repo_root: Path) -> set[str]:
 
 
 # List the distributions a declared package pulls in through one of its extras.
-# distribution (str): Declared distribution name.
-# extra (str): Extra name requested in the declaration.
-# (set[str]): Normalized names required by that extra, empty when metadata is unavailable.
+# distribution: Declared distribution name.
+# extra: Extra name requested in the declaration.
+# Returns: Normalized names required by that extra, empty when metadata is unavailable.
 def _distributions_required_by_extra(distribution: str, extra: str) -> set[str]:
     try:
         requires = metadata(distribution).get_all("Requires-Dist") or []
@@ -188,7 +188,7 @@ def _distributions_required_by_extra(distribution: str, extra: str) -> set[str]:
 
 
 # Collect the top-level module name of every import in a module, with its line.
-# (list[tuple[str, int]]): Pairs of top-level module name and 1-based line number.
+# Returns: Pairs of top-level module name and 1-based line number.
 def _top_level_imports(tree: ast.AST) -> list[tuple[str, int]]:
     found: list[tuple[str, int]] = []
     for node in ast.walk(tree):
@@ -208,8 +208,8 @@ def _top_level_imports(tree: ast.AST) -> list[tuple[str, int]]:
 
 
 # Check every third-party import under project/ against the declared dependency set.
-# repo_root (Path): Repository root to scan.
-# (list[DependencyIssue]): Issues found, ordered by path then line.
+# repo_root: Repository root to scan.
+# Returns: Issues found, ordered by path then line.
 def collect_dependency_issues(repo_root: Path) -> list[DependencyIssue]:
     runtime_dir = repo_root / RUNTIME_PACKAGE
     if not runtime_dir.is_dir():
@@ -267,7 +267,7 @@ def collect_dependency_issues(repo_root: Path) -> list[DependencyIssue]:
 
 
 # Convert one issue into a JSON-serializable remediation payload.
-# repo_root (Path): Repository root used for relative-path rendering.
+# repo_root: Repository root used for relative-path rendering.
 def _issue_to_payload(issue: DependencyIssue, repo_root: Path) -> dict[str, object]:
     return build_validator_issue_payload(
         rule_id=issue.rule_id,
@@ -280,7 +280,7 @@ def _issue_to_payload(issue: DependencyIssue, repo_root: Path) -> dict[str, obje
 
 
 # Run dependency validation and return a process exit code.
-# (int): Zero when every runtime import is backed by a declared dependency.
+# Returns: Zero when every runtime import is backed by a declared dependency.
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Validate runtime imports against declared dependencies."

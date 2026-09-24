@@ -24,12 +24,10 @@ from project.domain.exceptions import (
     AuthenticationError,
 )
 
-# SUMMARY: Semantic logger used for API exception diagnostics.
 logger = get_logger(__name__)
 
 
-# SUMMARY: Convert validation input to a low-risk log representation without storing full payloads.
-# INPUT: value (object): Raw validation input from Pydantic error details.
+# value: Raw validation input from Pydantic error details.
 def _safe_validation_input(value: object) -> str | None:
     # Represent only type and approximate size to avoid leaking user-provided data.
     if value is None:
@@ -39,9 +37,6 @@ def _safe_validation_input(value: object) -> str | None:
     return type(value).__name__
 
 
-# SUMMARY: Map a domain error onto the status it answers with.
-# INPUT: exc (ProjectError): The raised domain error.
-# OUTPUT: (int): HTTP status code; 400 for a ProjectError subclass with no mapping of its own.
 # Lifted out of the handler so the log line above can be chosen by the same answer the
 # response carries — a level decided separately from a status is a level that drifts from it.
 def _project_error_status(exc: ProjectError) -> int:
@@ -58,16 +53,13 @@ def _project_error_status(exc: ProjectError) -> int:
     return int(status.HTTP_400_BAD_REQUEST)
 
 
-# SUMMARY: Manager class for registering exception handlers with FastAPI application.
 class ExceptionHandlerManager:
-    # SUMMARY: Initialize the exception handler manager.
     def __init__(self, app: FastAPI):
         # Store FastAPI app instance.
         self.app = app
         # Register all exception handlers.
         self._register_handlers()
 
-    # SUMMARY: Register all exception handlers with the FastAPI application.
     def _register_handlers(self) -> None:
         # Register ProjectError handler.
         self.app.add_exception_handler(ProjectError, self._handle_project_error)
@@ -86,14 +78,11 @@ class ExceptionHandlerManager:
         # Register generic Exception handler.
         self.app.add_exception_handler(Exception, self._handle_generic_exception)
 
-    # SUMMARY: Handle ProjectError exceptions and translate to HTTP responses.
-    # INPUT: exc (Exception): The exception instance provided by Starlette handler contract.
     async def _handle_project_error(self, request: Request, exc: Exception) -> JSONResponse:
         if not isinstance(exc, ProjectError):
             return await self._handle_generic_exception(request, exc)
         return await self._render_project_error(request, exc)
 
-    # SUMMARY: Render ProjectError exceptions with domain-specific HTTP mapping.
     async def _render_project_error(self, request: Request, exc: ProjectError) -> JSONResponse:
         # A 404 or a 422 is this application working — it read a request it could
         # not serve and said so — and recording it at ERROR made a healthy service read as a
@@ -129,14 +118,11 @@ class ExceptionHandlerManager:
             },
         )
 
-    # SUMMARY: Handle FastAPI HTTPException instances.
-    # INPUT: exc (Exception): The exception instance provided by Starlette handler contract.
     async def _handle_http_exception(self, request: Request, exc: Exception) -> JSONResponse:
         if not isinstance(exc, HTTPException):
             return await self._handle_generic_exception(request, exc)
         return await self._render_http_exception(request, exc)
 
-    # SUMMARY: Render FastAPI HTTPException instances.
     async def _render_http_exception(self, request: Request, exc: HTTPException) -> JSONResponse:
         # Log the HTTP exception with context.
         detail_text = str(exc.detail) if exc.detail is not None else ""
@@ -165,8 +151,6 @@ class ExceptionHandlerManager:
             },
         )
 
-    # SUMMARY: Handle Starlette HTTPException instances.
-    # INPUT: exc (Exception): The exception instance provided by Starlette handler contract.
     async def _handle_starlette_http_exception(
         self, request: Request, exc: Exception
     ) -> JSONResponse:
@@ -174,7 +158,6 @@ class ExceptionHandlerManager:
             return await self._handle_generic_exception(request, exc)
         return await self._render_starlette_http_exception(request, exc)
 
-    # SUMMARY: Render Starlette HTTPException instances.
     async def _render_starlette_http_exception(
         self, request: Request, exc: StarletteHTTPException
     ) -> JSONResponse:
@@ -205,14 +188,11 @@ class ExceptionHandlerManager:
             },
         )
 
-    # SUMMARY: Handle RequestValidationError exceptions from Pydantic validation.
-    # INPUT: exc (Exception): The exception instance provided by Starlette handler contract.
     async def _handle_validation_error(self, request: Request, exc: Exception) -> JSONResponse:
         if not isinstance(exc, RequestValidationError):
             return await self._handle_generic_exception(request, exc)
         return await self._render_validation_error(request, exc)
 
-    # SUMMARY: Render RequestValidationError exceptions without leaking user input.
     async def _render_validation_error(
         self, request: Request, exc: RequestValidationError
     ) -> JSONResponse:
@@ -264,8 +244,6 @@ class ExceptionHandlerManager:
             },
         )
 
-    # SUMMARY: Handle unexpected generic exceptions as critical server errors.
-    # OUTPUT: (JSONResponse): HTTP 500 response with generic error message.
     async def _handle_generic_exception(self, request: Request, exc: Exception) -> JSONResponse:
         # The logging middleware already unwound and reset the trace ContextVar
         # by the time an unhandled exception reaches this handler, so this record — the only one
@@ -306,7 +284,6 @@ class ExceptionHandlerManager:
         )
 
 
-# SUMMARY: Setup function to register all exception handlers with FastAPI application.
 def setup_exception_handlers(app: FastAPI) -> None:
     # Create exception handler manager and register handlers.
     ExceptionHandlerManager(app)

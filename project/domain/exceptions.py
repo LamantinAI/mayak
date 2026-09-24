@@ -2,32 +2,26 @@
 # SUMMARY: Defines the hierarchy of custom exceptions for the entire application.
 
 
-# SUMMARY: Base class for all custom exceptions in the application.
 class ProjectError(Exception):
     pass
 
 
-# SUMMARY: Raised when input data fails domain validation rules.
 class ValidationError(ProjectError):
     pass
 
 
-# SUMMARY: Raised when a requested resource does not exist.
 class NotFoundError(ProjectError):
     pass
 
 
-# SUMMARY: Raised when an operation conflicts with the current state of a resource.
 class ConflictError(ProjectError):
     pass
 
 
-# SUMMARY: Raised when an external service call fails.
 class ExternalServiceError(ProjectError):
     pass
 
 
-# SUMMARY: Raised when the CALLER's authentication fails or their credentials are invalid.
 # About whoever is calling this service, never about a credential this service presents to
 # someone else — the handler answers it with 401, and error_utils treats its message as safe to
 # return verbatim. For a provider that rejects OUR key, see UpstreamAuthenticationError below.
@@ -35,7 +29,7 @@ class AuthenticationError(ProjectError):
     pass
 
 
-# SUMMARY: Raised when an upstream provider refuses the credentials this service presents — either
+# Raised when an upstream provider refuses the credentials this service presents — either
 # because it does not accept them at all, or because they do not carry the access being asked for.
 # A subclass of ExternalServiceError, so it answers 502 with the generic upstream message,
 # and deliberately NOT of AuthenticationError: the caller's own credentials are fine, and telling
@@ -46,10 +40,7 @@ class UpstreamAuthenticationError(ExternalServiceError):
     pass
 
 
-# SUMMARY: Report whether `error` is a domain exception this application answers with a 4xx, as
-# opposed to one it answers with a 5xx or one outside the ProjectError hierarchy altogether.
-# INPUT: error (Exception): Anything caught — the hierarchy check is the whole test.
-# OUTPUT: (bool): True for every ProjectError subclass except ExternalServiceError — the one
+# ExternalServiceError is the one
 # subclass exception_handlers.py's _project_error_status maps onto 502.
 # Consumed by project.core.logging.logger.span() and by
 # project.infrastructure.api.exception_handlers._render_project_error. Without this function, a

@@ -11,7 +11,6 @@ from typing import Any
 # ==================== CONFIGURATION ====================
 
 
-# SUMMARY: Returns logging configuration dict compatible with Uvicorn and standard logging.
 def get_logging_config(
     level: str = "INFO",
     log_file_path: str | None = None,
@@ -97,9 +96,8 @@ def get_logging_config(
     }
 
 
-# SUMMARY: Configure the semantic logging system with NDJSON formatter and return the config dict.
-# INPUT: level (str | None): Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
-# OUTPUT: (dict): The logging configuration dict (useful for passing to uvicorn).
+# level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+# Returns the logging configuration dict (useful for passing to uvicorn).
 def setup_logging(
     *,
     level: str | None = None,

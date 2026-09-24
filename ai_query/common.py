@@ -1437,7 +1437,7 @@ _SYMBOL_KIND_ORDER = {"class": 0, "function": 1, "attribute": 2}
 
 
 # List every first-party .py file `symbol` is allowed to open.
-# (Iterator[Path]): Files under _SYMBOL_SEARCH_ROOTS, sorted for deterministic output.
+# Returns: Files under _SYMBOL_SEARCH_ROOTS, sorted for deterministic output.
 def _symbol_search_files() -> Iterator[Path]:
     for root_name in _SYMBOL_SEARCH_ROOTS:
         root = ROOT_DIR / root_name
@@ -1447,9 +1447,9 @@ def _symbol_search_files() -> Iterator[Path]:
 
 
 # Find every definition or name binding matching `name` in one source file.
-# path (Path): File to parse.
-# name (str): Exact identifier to match (case-sensitive — Python names are).
-# (list[dict[str, object]]): {"file", "line", "kind"} entries, kind in class/function/attribute.
+# path: File to parse.
+# name: Exact identifier to match (case-sensitive — Python names are).
+# Returns: {"file", "line", "kind"} entries, kind in class/function/attribute.
 # `ast`, not a regex over `def NAME(` / `class NAME` / `NAME =` — indentation,
 # multi-line signatures and string literals containing the name all defeat a line-based scan
 # without visibly failing, and this repository already leans on `ast` for the same reason in
@@ -1480,10 +1480,10 @@ def _symbol_matches_in_file(path: Path, name: str) -> list[dict[str, object]]:
 
 # Find name bindings written directly in a module body or a class body, never in a
 # function body.
-# scope (ast.AST): Module or ClassDef whose own statements are read.
-# name (str): Exact identifier to match.
-# relative_path (str): Repository-relative path, carried into each entry.
-# (list[dict[str, object]]): {"file", "line", "kind"} entries with kind "attribute".
+# scope: Module or ClassDef whose own statements are read.
+# name: Exact identifier to match.
+# relative_path: Repository-relative path, carried into each entry.
+# Returns: {"file", "line", "kind"} entries with kind "attribute".
 def _field_bindings_in_scope(
     scope: ast.AST,
     name: str,
@@ -1506,8 +1506,8 @@ def _field_bindings_in_scope(
 
 
 # Locate a function, class or field by exact name — file and line, without a repo-wide grep.
-# name (str): Exact identifier to search for.
-# (dict[str, object]): {"name", "matches", "truncated"}. `matches` is capped at
+# name: Exact identifier to search for.
+# Returns: {"name", "matches", "truncated"}. `matches` is capped at
 # _SYMBOL_RESULT_LIMIT and sorted class-before-function-before-attribute, then by file and line;
 # `truncated` is true when more matches existed than the cap kept.
 def find_symbol(name: str) -> dict[str, object]:

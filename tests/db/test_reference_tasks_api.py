@@ -22,7 +22,6 @@ from project.domain.reference_task import MAX_TITLE_LENGTH, ReferenceTask
 from project.infrastructure.persistence.reference_task_repository import ReferenceTaskRepository
 
 
-# SUMMARY: An HTTP client for the assembled application, its reference service over `repository`.
 @asynccontextmanager
 async def _serve(app: FastAPI, repository: ReferenceTaskRepository) -> AsyncIterator[AsyncClient]:
     app.state.services["reference_task_service"] = ReferenceTaskService(repository=repository)
@@ -30,7 +29,6 @@ async def _serve(app: FastAPI, repository: ReferenceTaskRepository) -> AsyncIter
         yield client
 
 
-# SUMMARY: The real repository, except that another writer acts once, right after the first read.
 # The race staged where it happens: the service holds a row the table no longer has. Real SQL
 # on both sides, so the outcome is decided by the WHERE clause, not by an imitation of it.
 class _SomebodyElseActsAfterTheRead(ReferenceTaskRepository):
@@ -99,7 +97,7 @@ async def test_the_list_answers_the_status_it_was_asked_for(
     assert (unknown.status_code, too_long.status_code, blank.status_code) == (422, 422, 422)
 
 
-# SUMMARY: Verify a patch touches only its fields, moves the token, clears on null, and does not block the next.
+# Verify a patch touches only its fields, moves the token, clears on null, and does not block the next.
 # Three patches in a row, because the defects that break the token show on the second: a
 # token that never moves, a write conditioned on the new timestamp, or a mapper that swaps the two
 # stamps each leave the first patch looking fine and answer 409 to the next.
@@ -165,7 +163,7 @@ async def test_a_patch_of_a_task_deleted_since_the_read_answers_404_not_409(
     assert response.status_code == 404
 
 
-# SUMMARY: Verify every path to a second open title — create, rename, reopen by status alone — is refused.
+# Verify every path to a second open title — create, rename, reopen by status alone — is refused.
 # The status-only PATCH is the one bench2's service-side check never looked at: it validated a
 # title when one was sent, and reopening a closed task sends none. The index sees the row, not the
 # request, so every path is covered by the same rule.

@@ -26,26 +26,24 @@ from settings import postgres_settings
 # Marked at module level so `-m e2e` selects it with the rest of the suite.
 pytestmark = pytest.mark.e2e
 
-# SUMMARY: Throwaway database this test migrates from empty, so the race is the first-ever migration.
+# Throwaway database this test migrates from empty, so the race is the first-ever migration.
 # A fresh database, not the suite's own: the collision is over CREATE TABLE alembic_version,
 # which only happens when nothing has migrated yet. The suite's database is already at head by the
 # time any test runs, so racing there would prove nothing.
 _PROBE_DATABASE = "mayak_migration_lock_probe"
 
-# SUMMARY: How many processes migrate at once. Two is the reported topology; more only slows the test.
+# How many processes migrate at once. Two is the reported topology; more only slows the test.
 _REPLICAS = 2
 
 
-# SUMMARY: Open an autocommit connection to the suite's database for CREATE/DROP DATABASE.
-# OUTPUT: (psycopg.AsyncConnection): Connection outside any transaction.
+# Returns a connection outside any transaction.
 # autocommit is required, not stylistic: PostgreSQL refuses CREATE DATABASE inside a
 # transaction block, and psycopg opens one on the first statement otherwise.
 async def _admin_connection() -> psycopg.AsyncConnection:
     return await psycopg.AsyncConnection.connect(postgres_settings.database_url, autocommit=True)
 
 
-# SUMMARY: Create an empty database for the race and drop it afterwards.
-# OUTPUT: (AsyncGenerator[str, None]): Name of the database to migrate.
+# Returns the name of the database to migrate.
 @pytest_asyncio.fixture(scope="function", loop_scope="session")
 async def probe_database() -> AsyncGenerator[str, None]:
     connection = await _admin_connection()
@@ -70,9 +68,7 @@ async def probe_database() -> AsyncGenerator[str, None]:
             await cleanup.close()
 
 
-# SUMMARY: Run `alembic upgrade head` against the probe database in its own process.
-# INPUT: database (str): Database name the process should migrate.
-# OUTPUT: (tuple[int, str]): Exit code and the combined output, for the failure message.
+# Returns exit code and the combined output, for the failure message.
 async def _run_alembic_upgrade(database: str) -> tuple[int, str]:
     environment = dict(os.environ, POSTGRES_DB=database)
     process = await asyncio.create_subprocess_exec(
@@ -92,7 +88,7 @@ async def _run_alembic_upgrade(database: str) -> tuple[int, str]:
     return process.returncode or 0, output.decode(errors="replace")
 
 
-# SUMMARY: Verify the advisory lock serialises concurrent migrations instead of letting one crash.
+# Verify the advisory lock serialises concurrent migrations instead of letting one crash.
 @pytest.mark.asyncio
 async def test_two_processes_migrating_at_once_both_succeed(probe_database: str) -> None:
     results = await asyncio.gather(

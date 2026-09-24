@@ -15,25 +15,22 @@ from project.core.config import clear_settings_override, set_settings_override
 from tests.conftest import _FixtureSettings as FixtureSettings
 
 
-# SUMMARY: Verify the rate boundaries and the settings lookup behind them.
 class TestHealthCheckSampling:
-    # SUMMARY: Verify a rate of 0.0 suppresses every request, not almost every one.
     @pytest.mark.unit
     def test_zero_never_samples(self) -> None:
         assert not any(should_sample_health_check(0.0) for _ in range(200))
 
-    # SUMMARY: Verify a rate of 1.0 logs every request.
     @pytest.mark.unit
     def test_one_always_samples(self) -> None:
         assert all(should_sample_health_check(1.0) for _ in range(200))
 
-    # SUMMARY: Verify values outside 0..1 are clamped rather than passed to the RNG.
+    # Verify values outside 0..1 are clamped rather than passed to the RNG.
     @pytest.mark.unit
     @pytest.mark.parametrize(("rate", "expected"), [(-5.0, False), (5.0, True)])
     def test_rate_is_clamped_into_range(self, rate: float, expected: bool) -> None:
         assert should_sample_health_check(rate) is expected
 
-    # SUMMARY: Verify the configured rate is read per call, so a changed setting takes effect.
+    # Verify the configured rate is read per call, so a changed setting takes effect.
     @pytest.mark.unit
     @pytest.mark.parametrize(("configured", "expected"), [(0.0, False), (1.0, True)])
     def test_settings_supply_the_rate_when_no_argument_is_given(
@@ -49,7 +46,6 @@ class TestHealthCheckSampling:
         finally:
             clear_settings_override()
 
-    # SUMMARY: Verify a rate between the ends actually samples rather than picking one branch.
     @pytest.mark.unit
     def test_middle_rate_produces_both_outcomes(self) -> None:
         # 200 draws at 0.5; the chance of an all-True or all-False run is 2^-199.

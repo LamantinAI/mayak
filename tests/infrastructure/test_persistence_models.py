@@ -12,7 +12,6 @@ from project.domain.reference_task import MAX_TITLE_LENGTH
 from project.infrastructure.persistence.orm_models import Base, ReferenceTaskORM
 
 
-# SUMMARY: Schema invariants for the kernel placeholder ORM.
 class TestReferenceTaskORMSchema:
     @pytest.mark.unit
     def test_reference_task_orm_table_name(self) -> None:
@@ -29,8 +28,6 @@ class TestReferenceTaskORMSchema:
     def test_reference_task_orm_has_title_column(self) -> None:
         assert "title" in ReferenceTaskORM.__table__.columns
 
-    # SUMMARY: Verify the column's declared length is the domain constant, not a literal that
-    # happens to equal it today.
     @pytest.mark.unit
     def test_title_column_is_as_long_as_the_domain_allows(self) -> None:
         # Read off the metadata, so `String(200)` written in place of
@@ -43,7 +40,6 @@ class TestReferenceTaskORMSchema:
         assert column_type.length == MAX_TITLE_LENGTH
 
 
-# SUMMARY: The reference vertical's table is registered in the SQLAlchemy metadata.
 # The exact-set ledger that used to live here is gone, deliberately. It asserted
 # `set(Base.metadata.tables) == {"reference_tasks"}` — the same sentence, on the same object, as
 # tests/application/test_validate_migrations.py. Two copies in two directories meant a first table
@@ -57,8 +53,7 @@ class TestORMRegistry:
         assert "reference_tasks" in Base.metadata.tables
 
 
-# SUMMARY: Every column in the metadata that carries a ForeignKey with no explicit `ondelete`.
-# OUTPUT: (list[str]): `"<table>.<column>"` for each bare foreign key, sorted for a stable message.
+# Returns `"<table>.<column>"` for each bare foreign key, sorted for a stable message.
 # `alembic revision --autogenerate` copies whatever `ForeignKey(...)` the model declares and
 # chooses nothing on its own — a bare one autogenerates without complaint, and PostgreSQL's own
 # default (behaviourally RESTRICT) only surfaces the day something deletes a parent with a child
@@ -79,7 +74,6 @@ def _foreign_keys_missing_ondelete(metadata: MetaData) -> list[str]:
     )
 
 
-# SUMMARY: Guard the deletion policy of every foreign key the kernel's ORM metadata declares.
 # The reference vertical ships one table and zero relationships, so it cannot demonstrate this
 # on its own — the two tests below build a throwaway MetaData to prove the checker actually catches
 # a bare ForeignKey and actually accepts an explicit one, before the third test points the same
@@ -98,8 +92,7 @@ class TestForeignKeysDeclareOnDelete:
 
         assert _foreign_keys_missing_ondelete(bare) == ["children.parent_id"]
 
-    # SUMMARY: Verify an empty policy is caught at model level rather than at DDL compilation.
-    # OUTPUT: (None): None.
+    # Verify an empty policy is caught at model level rather than at DDL compilation.
     @pytest.mark.unit
     def test_a_foreign_key_with_a_blank_ondelete_is_reported(self) -> None:
         blank = MetaData()
@@ -126,7 +119,6 @@ class TestForeignKeysDeclareOnDelete:
 
         assert _foreign_keys_missing_ondelete(explicit) == []
 
-    # SUMMARY: The live guard — vacuous today, and the point of it, per the NOTE above.
     @pytest.mark.unit
     def test_no_shipped_foreign_key_is_missing_a_deletion_policy(self) -> None:
         # Passes vacuously while the shipped schema has no ForeignKey at all — the

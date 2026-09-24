@@ -17,28 +17,22 @@ from project.application.dtos import (
 from project.core.config import APP_VERSION
 from project.core.logging import get_logger
 
-# SUMMARY: Semantic logger instance for health endpoint diagnostics.
 logger = get_logger(__name__)
 
-# SUMMARY: Stable client-facing message used when the database readiness check fails.
 _DATABASE_HEALTH_FAILURE_MESSAGE = "Database connection failed"
 
-# SUMMARY: Wall-clock budget for the readiness DB probe; bounds /health/ready latency
+# Wall-clock budget for the readiness DB probe; bounds /health/ready latency
 # so a half-open TCP connection cannot stall the probe past k8s timeoutSeconds.
 READINESS_DB_TIMEOUT_SECONDS = 2.0
 
-# SUMMARY: Stable client-facing message used when the LLM service is not initialized.
 _LLM_HEALTH_UNAVAILABLE_MESSAGE = "LLM service is unavailable"
 
-# SUMMARY: Stable client-facing message used when the LLM provider probe fails.
 _LLM_HEALTH_PROBE_FAILURE_MESSAGE = "LLM provider probe failed"
 
-# SUMMARY: Router exposing liveness and readiness endpoints.
 # Create router for health endpoints
 health_router = APIRouter(prefix="/health", tags=["health"])
 
 
-# SUMMARY: Calculate application uptime from start_time stored in app.state.
 def _get_uptime_seconds(request: Request) -> float:
     # Compute elapsed time since application start.
     start_time = getattr(request.app.state, "start_time", None)
@@ -47,8 +41,8 @@ def _get_uptime_seconds(request: Request) -> float:
     return time.monotonic() - start_time
 
 
-# SUMMARY: Inner DB readiness probe that reaches the database and confirms migrations have run. Separated from _check_database so the surrounding asyncio.wait_for can cancel it on timeout.
-# OUTPUT: (tuple[float, bool]): Probe latency in milliseconds, and whether the schema is migrated.
+# Inner DB readiness probe that reaches the database and confirms migrations have run. Separated from _check_database so the surrounding asyncio.wait_for can cancel it on timeout.
+# Returns probe latency in milliseconds, and whether the schema is migrated.
 # A bare SELECT 1 answered "healthy" against a database with no tables at all. That is the
 # exact state you land in after `make run-local` on a fresh checkout, so readiness lied at the one
 # moment it mattered. Reading alembic_version costs a second round trip and turns the silent case
@@ -66,7 +60,6 @@ async def _run_db_probe(pool: AsyncConnectionPool[Any]) -> tuple[float, bool]:
     return (time.perf_counter_ns() - start_ns) / 1e6, migrated
 
 
-# SUMMARY: Perform a real database health check using the checkpoint connection pool, bounded by READINESS_DB_TIMEOUT_SECONDS so a half-open TCP cannot stall the readiness probe.
 async def _check_database(pool: AsyncConnectionPool[Any]) -> dict[str, Any]:
     # Execute the probe under an asyncio.wait_for budget to bound probe latency.
     try:
@@ -114,7 +107,6 @@ async def _check_database(pool: AsyncConnectionPool[Any]) -> dict[str, Any]:
         }
 
 
-# SUMMARY: Validate the LLM service according to configured readiness mode.
 async def _check_llm_service(request: Request) -> dict[str, Any]:
     # Retrieve the LLM service from app.state and validate access.
     services = getattr(request.app.state, "services", {})
@@ -138,7 +130,7 @@ async def _check_llm_service(request: Request) -> dict[str, Any]:
     return sanitized
 
 
-# SUMMARY: Build aggregated readiness status from critical and optional dependency checks. Every
+# Build aggregated readiness status from critical and optional dependency checks. Every
 # check always runs and its status is always reported in the returned dict; a per-check "critical"
 # flag, not presence in the dict, decides whether that status can flip the overall verdict — see
 # ADR-008.
@@ -219,7 +211,6 @@ async def _build_readiness_response(
     return "healthy", checks
 
 
-# SUMMARY: Basic health check endpoint.
 @health_router.get(
     "/",
     response_model=HealthResponse,
@@ -248,8 +239,7 @@ async def health_check(request: Request) -> HealthResponse:
     )
 
 
-# SUMMARY: Readiness check endpoint validating the three dependencies the kernel has: service wiring, the LLM, and the database.
-# INPUT: response (Response): The outgoing HTTP response used to set readiness status.
+# Readiness check endpoint validating the three dependencies the kernel has: service wiring, the LLM, and the database.
 @health_router.get(
     "/ready",
     response_model=DetailedHealthResponse,

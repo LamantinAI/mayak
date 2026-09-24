@@ -12,13 +12,11 @@ from project.core.config import Settings
 from project.core.logging import SemanticLogger
 
 
-# SUMMARY: Create FastAPI lifespan context manager for async resource management.
 def create_lifespan(
     settings: Settings, logger: SemanticLogger
 ) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
     _ = settings  # reserved for future per-vertical hooks
 
-    # SUMMARY: Manage async resource lifecycle (startup/shutdown) for FastAPI application.
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         from project.core.composition_root import cleanup_services

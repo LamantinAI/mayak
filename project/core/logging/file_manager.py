@@ -6,8 +6,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-# SUMMARY: Create a unique NDJSON log file path for the current application run.
-# OUTPUT: (Path): Absolute path to the new log file (directory created if missing).
 def create_run_log_path(log_dir: str) -> Path:
     """Create a unique NDJSON log file path for the current application run.
 
@@ -26,8 +24,6 @@ def create_run_log_path(log_dir: str) -> Path:
     return dir_path / filename
 
 
-# SUMMARY: Remove oldest NDJSON log files keeping only the most recent ones.
-# INPUT: max_files (int): Maximum number of files to retain (0 disables rotation).
 def rotate_log_files(log_dir: str, max_files: int) -> int:
     """Delete oldest ``.ndjson`` log files, keeping *max_files* most recent.
 

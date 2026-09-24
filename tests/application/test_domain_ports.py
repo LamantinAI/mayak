@@ -8,9 +8,7 @@ import pytest
 from project.domain.ports import LLMPort
 
 
-# SUMMARY: Verify the LLMPort Protocol can be implemented by a domain-pure class.
 class TestLLMPort:
-    # SUMMARY: Ensure a class with the right structural shape satisfies LLMPort and can be invoked.
     @pytest.mark.unit
     async def test_protocol_can_be_implemented_and_called(self) -> None:
         # The keyword-only `system` is what makes this a conforming

@@ -11,51 +11,47 @@ from project.core.logging import SemanticLogger
 from project.infrastructure.agents.llm_service_live import _build_full_trace_extras
 
 
-# SUMMARY: Structural contract describing the shared LLMService state used by the mock-response mixin.
 class _LLMServiceMockContract(Protocol):
-    # SUMMARY: Validated application settings used to label deterministic mock responses.
+    # Validated application settings used to label deterministic mock responses.
     _settings: Settings
 
-    # SUMMARY: Semantic logger used for mock LLM call telemetry.
     _logger: SemanticLogger
 
-    # SUMMARY: Tools currently bound to the service for deterministic mock tool-call flows.
+    # Tools currently bound to the service for deterministic mock tool-call flows.
     _mock_tools: list[Any]
 
-    # SUMMARY: Optional per-tool argument override, keyed by tool name. See the NOTE on
+    # Optional per-tool argument override, keyed by tool name. See the NOTE on
     # `_build_mock_response` for why this exists and, just as importantly, what it deliberately
     # does not attempt.
     _mock_tool_args: dict[str, dict[str, Any]]
 
-    # SUMMARY: Return the first bound tool, in binding order, that has not yet produced a
+    # Return the first bound tool, in binding order, that has not yet produced a
     # ToolMessage anywhere in this conversation.
     def _next_uncalled_tool_name(self, messages: list[BaseMessage]) -> str | None: ...
 
-    # SUMMARY: Return the names of every tool the conversation already has a result for.
+    # Return the names of every tool the conversation already has a result for.
     def _answered_tool_names(self, messages: list[BaseMessage]) -> set[str]: ...
 
-    # SUMMARY: Return the most recent human-authored message content.
-    # OUTPUT: (str): Latest human message content or an empty string.
+    # Latest human message content or an empty string.
     def _extract_last_human_message(self, messages: list[BaseMessage]) -> str: ...
 
-    # SUMMARY: Return every ToolMessage of the current turn, in order.
+    # Return every ToolMessage of the current turn, in order.
     def _collect_tool_messages(self, messages: list[BaseMessage]) -> list[ToolMessage]: ...
 
-    # SUMMARY: Return the messages that follow the most recent human question.
+    # Return the messages that follow the most recent human question.
     def _current_turn(self, messages: list[BaseMessage]) -> list[BaseMessage]: ...
 
-    # SUMMARY: Return the tool name behind every tool-call id issued this turn.
+    # Return the tool name behind every tool-call id issued this turn.
     def _tool_calls_by_id(self, messages: list[BaseMessage]) -> dict[str, str]: ...
 
-    # SUMMARY: Return the tool a result answers, by its own field or by the call id.
+    # Return the tool a result answers, by its own field or by the call id.
     def _tool_name_of(
         self, tool_message: ToolMessage, by_call_id: dict[str, str]
     ) -> str | None: ...
 
 
-# SUMMARY: Mixin implementing deterministic mock-mode tool selection and response synthesis.
 class LLMServiceMockMixin:
-    # SUMMARY: Class-level default: no overrides, so `_build_mock_response` falls back to the
+    # Class-level default: no overrides, so `_build_mock_response` falls back to the
     # `{"query": <last human message>}` shape it always sent. A caller that needs a bound tool's
     # actual schema satisfied — Decimal, a nested object, an enum — sets this as an instance
     # attribute after `bind_tools(...)` (`bound._mock_tool_args = {"charge_customer": {...}}`).
@@ -63,9 +59,6 @@ class LLMServiceMockMixin:
     # nothing here mutates the shared class-level dict, only reads it.
     _mock_tool_args: dict[str, dict[str, Any]] = {}
 
-    # SUMMARY: Select the next bound tool, in binding order, that this conversation has not yet
-    # called — the mechanism that turns one mock tool call into a cycle over every bound tool.
-    # OUTPUT: (str | None): Next tool to call, or None once every bound tool has answered.
     # Cycling through bound tools in order matters: always answering `_mock_tools[0]` and
     # finalizing the instant any ToolMessage reaches the tail of the conversation would make
     # every extra bound tool dead weight — binding a second or third tool would change nothing
@@ -89,9 +82,8 @@ class LLMServiceMockMixin:
                 return name
         return None
 
-    # SUMMARY: Name every tool this conversation already has a result for.
-    # OUTPUT: (set[str]): Tool names, resolved by ToolMessage.name where it is set and by the
-    #         tool call the message answers where it is not.
+    # Returns tool names, resolved by ToolMessage.name where it is set and by the
+    # tool call the message answers where it is not.
     # `ToolMessage.name` is optional in langchain-core, and the hand-written agent loop this
     # template tells a vertical to write is exactly the caller most likely to omit it —
     # `ToolMessage(content=..., tool_call_id=...)` is the shortest thing that works. Reading only
@@ -112,9 +104,7 @@ class LLMServiceMockMixin:
                 answered.add(resolved)
         return answered
 
-    # SUMMARY: Map every tool-call id this turn issued to the tool it asked for.
-    # INPUT: messages (list[BaseMessage]): The whole conversation; only the current turn is read.
-    # OUTPUT: (dict[str, str]): Tool name per call id.
+    # Returns tool name per call id.
     def _tool_calls_by_id(
         self: _LLMServiceMockContract,
         messages: list[BaseMessage],
@@ -130,10 +120,6 @@ class LLMServiceMockMixin:
                     by_call_id[call_id] = call_name
         return by_call_id
 
-    # SUMMARY: Name the tool one result answers, by its own field or by the call it replies to.
-    # INPUT: tool_message (ToolMessage): The result to name.
-    # INPUT: by_call_id (dict[str, str]): Tool name per tool-call id, from this turn's AI messages.
-    # OUTPUT: (str | None): The tool's name, or None when neither source knows it.
     def _tool_name_of(
         self: _LLMServiceMockContract,
         tool_message: ToolMessage,
@@ -143,8 +129,6 @@ class LLMServiceMockMixin:
             return tool_message.name
         return by_call_id.get(tool_message.tool_call_id)
 
-    # SUMMARY: Retrieve the latest human-authored message content from a prompt stack.
-    # OUTPUT: (str): Latest human message content or an empty string.
     def _extract_last_human_message(
         self: _LLMServiceMockContract,
         messages: list[BaseMessage],
@@ -155,7 +139,6 @@ class LLMServiceMockMixin:
                 return content if isinstance(content, str) else str(content)
         return ""
 
-    # SUMMARY: Collect every tool message in the conversation, in the order they occurred.
     # A trailing-only scan — only the contiguous block of ToolMessages at the end of the
     # list — is correct for a single-tool loop, where the one and only ToolMessage is always
     # trailing when the mock is asked to finalize. A three-tool loop calls this again after each
@@ -171,10 +154,8 @@ class LLMServiceMockMixin:
             message for message in self._current_turn(messages) if isinstance(message, ToolMessage)
         ]
 
-    # SUMMARY: Return the messages that belong to the question being answered right now.
-    # INPUT: messages (list[BaseMessage]): The whole conversation as the caller keeps it.
-    # OUTPUT: (list[BaseMessage]): Everything after the last HumanMessage, or all of it when the
-    #         conversation has no human turn at all.
+    # Returns everything after the last HumanMessage, or all of it when the
+    # conversation has no human turn at all.
     # The cycle over bound tools has to remember what it already called within one answer and
     # forget it at the next question. Scanning the whole conversation gets the first half right and
     # the second half badly wrong: measured, a second question in the same conversation got no tool
@@ -189,7 +170,6 @@ class LLMServiceMockMixin:
                 return messages[index + 1 :]
         return list(messages)
 
-    # SUMMARY: Produce a deterministic assistant response without calling an external provider.
     # What this mock guarantees and what it does not is the load-bearing fact for anyone
     # copying it into a vertical, and it lives here rather than only in the ADR because this is
     # the code a reader ends up in when the behavior surprises them. Guaranteed: with N tools

@@ -13,9 +13,9 @@ from project.infrastructure.api import exception_handlers
 _REQUEST_ID = "9f3ab2e4-e271-4f37-851f-e07a992ae3a7"
 
 
-# SUMMARY: Verify trace correlation survives the unwind from the span to the exception handler.
+# Verify trace correlation survives the unwind from the span to the exception handler.
 class TestCriticalEventTraceId:
-    # SUMMARY: Verify the handler restores the trace context the middleware already reset.
+    # Verify the handler restores the trace context the middleware already reset.
     @pytest.mark.unit
     def test_critical_record_is_written_with_trace_id(
         self,

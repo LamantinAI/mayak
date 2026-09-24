@@ -13,9 +13,8 @@ from project.application.core_model import CoreModel
 from project.domain.reference_task import MAX_TITLE_LENGTH, ReferenceTask
 
 
-# SUMMARY: Request body accepted by POST /reference-tasks.
 class ReferenceTaskCreateRequest(CoreModel):
-    # SUMMARY: Human-readable task title. The upper bound is the domain's MAX_TITLE_LENGTH, which
+    # The upper bound is the domain's MAX_TITLE_LENGTH, which
     # also sizes the ORM column — a DTO that accepts more than the column holds turns a client
     # mistake into a 500. Declaring it here as well buys the 422 with a field-level message.
     title: str = Field(
@@ -27,7 +26,6 @@ class ReferenceTaskCreateRequest(CoreModel):
         examples=["Draft the migration plan"],
     )
 
-    # SUMMARY: Optional free-form description.
     details: str | None = Field(
         default=None,
         title="Details",
@@ -36,14 +34,13 @@ class ReferenceTaskCreateRequest(CoreModel):
     )
 
 
-# SUMMARY: Request body accepted by PATCH /reference-tasks/{task_id}.
 # Every field is optional and every default is None, which is what makes this a patch rather
 # than a replacement: an absent field keeps its stored value. The service refuses a body where all
 # three are absent, so "optional" never degrades into "a write that changes nothing but bumps the
 # timestamp". The bounds repeat the create request's on purpose — a caller who patches a title past
 # the column width deserves the same 422 as one who creates it that way.
 class ReferenceTaskUpdateRequest(CoreModel):
-    # SUMMARY: New title, or None to keep the stored one.
+    # New title, or None to keep the stored one.
     title: str | None = Field(
         default=None,
         min_length=1,
@@ -53,7 +50,7 @@ class ReferenceTaskUpdateRequest(CoreModel):
         examples=["Draft the rollback plan"],
     )
 
-    # SUMMARY: New description, or None to keep the stored one.
+    # New description, or None to keep the stored one.
     details: str | None = Field(
         default=None,
         title="Details",
@@ -61,7 +58,7 @@ class ReferenceTaskUpdateRequest(CoreModel):
         examples=["Cover the forward path too"],
     )
 
-    # SUMMARY: New workflow status, or None to keep the stored one.
+    # New workflow status, or None to keep the stored one.
     # Typed as a plain string here and checked against ALLOWED_STATUSES in the service, not
     # as an Enum in the DTO. The closed set is a business rule, and a caller that reaches the
     # service without passing through FastAPI — a job, a queue consumer, a test — must meet it too.
@@ -74,9 +71,7 @@ class ReferenceTaskUpdateRequest(CoreModel):
     )
 
 
-# SUMMARY: Response model for a single reference task.
 class ReferenceTaskResponse(CoreModel):
-    # SUMMARY: Stable task identifier.
     id: str = Field(
         ...,
         title="Identifier",
@@ -84,17 +79,14 @@ class ReferenceTaskResponse(CoreModel):
         examples=["6f1b7d18-6f1a-4a1f-9a4c-2a0f5f0b6c11"],
     )
 
-    # SUMMARY: Human-readable task title.
     title: str = Field(..., title="Title", description="Human-readable task title")
 
-    # SUMMARY: Optional free-form description.
     details: str | None = Field(
         default=None,
         title="Details",
         description="Optional free-form task description",
     )
 
-    # SUMMARY: Workflow status of the task.
     status: str = Field(
         ...,
         title="Status",
@@ -102,7 +94,6 @@ class ReferenceTaskResponse(CoreModel):
         examples=["pending"],
     )
 
-    # SUMMARY: UTC timestamp when the task was created.
     created_at: datetime = Field(
         ...,
         title="Created At",
@@ -110,7 +101,7 @@ class ReferenceTaskResponse(CoreModel):
         examples=["2026-08-05T12:00:00Z"],
     )
 
-    # SUMMARY: UTC timestamp of the last write; a client re-reads it before it patches again.
+    # UTC timestamp of the last write; a client re-reads it before it patches again.
     updated_at: datetime = Field(
         ...,
         title="Updated At",
@@ -118,8 +109,6 @@ class ReferenceTaskResponse(CoreModel):
         examples=["2026-08-05T12:30:00Z"],
     )
 
-    # SUMMARY: Build the wire model from the domain object.
-    # OUTPUT: (ReferenceTaskResponse): DTO carrying the same values as the domain task.
     @classmethod
     def from_domain(cls, task: ReferenceTask) -> "ReferenceTaskResponse":
         # The conversion lives on the DTO, so the endpoint stays a router and the
@@ -133,22 +122,20 @@ class ReferenceTaskResponse(CoreModel):
             updated_at=task.updated_at,
         )
 
-    # SUMMARY: Render both timestamps in ISO 8601, matching HealthResponse.
+    # ISO 8601, rendered the way HealthResponse renders its timestamps.
     @field_serializer("created_at", "updated_at")
     def serialize_timestamps(self, value: datetime) -> str:
         return value.isoformat()
 
 
-# SUMMARY: Response model for a status-filtered task list.
 class ReferenceTaskListResponse(CoreModel):
-    # SUMMARY: Matching tasks, newest first.
     items: list[ReferenceTaskResponse] = Field(
         ...,
         title="Items",
         description="Matching tasks, ordered by creation time descending",
     )
 
-    # SUMMARY: Number of tasks in this page. An envelope, not a bare array, because a bare
+    # An envelope, not a bare array, because a bare
     # top-level array cannot grow a pagination cursor without breaking every client.
     count: int = Field(
         ...,
@@ -158,8 +145,6 @@ class ReferenceTaskListResponse(CoreModel):
         examples=[2],
     )
 
-    # SUMMARY: Build the envelope from domain objects.
-    # OUTPUT: (ReferenceTaskListResponse): DTO wrapping the converted tasks and their count.
     @classmethod
     def from_domain(cls, tasks: list[ReferenceTask]) -> "ReferenceTaskListResponse":
         items = [ReferenceTaskResponse.from_domain(task) for task in tasks]

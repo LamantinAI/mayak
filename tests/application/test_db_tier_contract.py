@@ -14,17 +14,13 @@ from pathlib import Path
 
 import pytest
 
-# SUMMARY: Repository root, where the subprocess pytest runs.
+# Repository root, where the subprocess pytest runs.
 _ROOT = Path(__file__).resolve().parents[2]
 
-# SUMMARY: A database URL whose port refuses every connection; its name passes the tier's suffix guard.
+# A database URL whose port refuses every connection; its name passes the tier's suffix guard.
 _NOWHERE = "postgresql://nobody:nothing@127.0.0.1:1/nowhere_test"  # allow-secret: a port nothing listens on
 
 
-# SUMMARY: Run pytest on part of the db tier with TEST_DATABASE_URL pointing nowhere.
-# INPUT: target (str): The tests/db path to run.
-# INPUT: postgres_enabled (str): The project's POSTGRES_ENABLED for the subprocess.
-# OUTPUT: (subprocess.CompletedProcess[str]): The finished run, output captured.
 def _run_tier(target: str, postgres_enabled: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "pytest", target, "-q", "--no-cov", "-p", "no:cacheprovider"],
@@ -36,7 +32,6 @@ def _run_tier(target: str, postgres_enabled: str) -> subprocess.CompletedProcess
     )
 
 
-# SUMMARY: Verify a missing database is an error naming the address, never a skip.
 @pytest.mark.unit
 def test_an_unreachable_database_fails_the_tier_instead_of_skipping_it() -> None:
     done = _run_tier("tests/db/test_migrations_match_models.py", postgres_enabled="true")
@@ -46,7 +41,6 @@ def test_an_unreachable_database_fails_the_tier_instead_of_skipping_it() -> None
     assert "1 error" in done.stdout and "skipped" not in done.stdout
 
 
-# SUMMARY: Verify POSTGRES_ENABLED=false runs none of the tier and prints why.
 @pytest.mark.unit
 def test_a_project_without_a_database_deselects_the_tier_and_says_so() -> None:
     done = _run_tier("tests/db", postgres_enabled="false")

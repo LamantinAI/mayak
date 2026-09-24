@@ -97,8 +97,8 @@ LAYER_UNAVAILABLE_RULE_ID = "doctor.layer_unavailable"
 
 
 # Build the doctor payload for a validator module that could not be imported.
-# detail (str): The import error, naming the module that is missing or broken.
-# (dict[str, object]): Same payload shape every other layer returns.
+# detail: The import error, naming the module that is missing or broken.
+# Returns: Same payload shape every other layer returns.
 def unavailable_validator_payload(detail: str) -> dict[str, object]:
     return {
         "status": "error",
@@ -129,9 +129,9 @@ def unavailable_validator_payload(detail: str) -> dict[str, object]:
 
 
 # Pull the unreachable-database skip message out of a batch of migration issues.
-# issues (Sequence[object]): Everything collect_migration_issues(ROOT_DIR) returned —
+# issues: Everything collect_migration_issues(ROOT_DIR) returned —
 # errors, skips and disabled-store informational issues alike, unfiltered by severity.
-# (str | None): The skip's own message (carrying the MIGRATIONS NOT VERIFIED banner), or
+# Returns: The skip's own message (carrying the MIGRATIONS NOT VERIFIED banner), or
 # None when migrations were actually verified, POSTGRES_ENABLED=false, or a real error
 # already short-circuited diagnose() before reaching the "ok" payload this feeds.
 # Read from validate_migrations.py's own issue rather than re-worded here, so the wording an
@@ -371,8 +371,8 @@ def skipped_layer_names() -> tuple[str, ...]:
 
 # Run one gate target once and turn a non-zero exit into a doctor payload from that same
 # result — never re-run to fetch the error after checking pass/fail separately.
-# layer (ToolLayer): The step to run.
-# (dict[str, object] | None): Issue payload when the step fails, otherwise None.
+# layer: The step to run.
+# Returns: Issue payload when the step fails, otherwise None.
 def diagnose_tool_layer(layer: ToolLayer) -> dict[str, object] | None:
     make = shutil.which("make")
     if make is None or not tool_layers_enabled():
@@ -519,7 +519,7 @@ _LATE_LAYERS: tuple[Callable[[], dict[str, object] | None], ...] = (
 
 
 # Diagnose the four tool steps quality-gates runs before any validator.
-# (tuple[dict[str, object] | None, tuple[str, ...]]): First failing payload (or None) and
+# Returns: First failing payload (or None) and
 # the names of the layers that actually ran, so `checked_layers` never over-claims.
 def diagnose_early_layers() -> tuple[dict[str, object] | None, tuple[str, ...]]:
     if not tool_layers_enabled():
@@ -666,7 +666,7 @@ def diagnose() -> dict[str, object]:
     if cbm_issues:
         issue = cbm_issues[0]
         # Derive the real rule_id from the issue message so the agent routes to the
-        # correct CBM playbook, not a hard-coded literal that masks which of the 9 CBM rules fired.
+        # correct playbook, not a hard-coded literal that masks which header rule fired.
         cbm_rule_id = classify_issue_rule_id(issue.message)
         cbm_playbook = get_cbm_rule_playbook(cbm_rule_id) or {}
         return {
@@ -810,7 +810,7 @@ def diagnose() -> dict[str, object]:
 
 
 # Every layer `make quality-gates` runs — the tool steps around `diagnose()`'s validators.
-# (dict[str, object]): Same payload shape as diagnose(), with checked_layers widened.
+# Returns: Same payload shape as diagnose(), with checked_layers widened.
 # Separate from diagnose() on purpose — diagnose() is exercised directly by many tests in
 # tests/application/test_doctor_ai_context.py, and the tests layer runs that very suite; folding the
 # two together made the first clean run recurse.

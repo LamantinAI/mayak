@@ -1,5 +1,5 @@
 # FILE: structure_builder.py
-# SUMMARY: A utility script to generate a project tree map with file summaries extracted from CBM tags, using the git index (tracked + untracked-not-ignored files) so the map is hermetic across worktrees and checkouts.
+# SUMMARY: A utility script to generate a project tree map with file summaries read from each file's header, using the git index (tracked + untracked-not-ignored files) so the map is hermetic across worktrees and checkouts.
 
 import argparse
 import difflib
@@ -57,7 +57,7 @@ def load_gitignore_patterns(root_path: Path) -> list:
 
 
 # Load extra ignore globs from the checked-in LLM export profile when present.
-# (list[str]): Additional ignore patterns declared for AI-facing exports.
+# Returns: Additional ignore patterns declared for AI-facing exports.
 def load_export_profile_patterns(root_path: Path) -> list[str]:
     profile_path = root_path / EXPORT_PROFILE_PATH
     if not profile_path.exists():
@@ -121,7 +121,7 @@ def resolve_project_name(root_path: Path) -> str:
 # Filtering the whole GIT_ prefix (not just two known names) is deliberate: git's own hook
 # environment varies by git version and hook type, so an allowlist of "known offenders" would
 # silently miss the next one.
-# (dict[str, str]): A copy of os.environ with all GIT_*-prefixed keys removed; everything else
+# Returns: A copy of os.environ with all GIT_*-prefixed keys removed; everything else
 # (PATH, HOME, etc.) is preserved so the subprocess can still find and run git normally.
 def hermetic_git_env() -> dict[str, str]:
     return {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
@@ -130,7 +130,7 @@ def hermetic_git_env() -> dict[str, str]:
 # Enumerate tracked + untracked-not-ignored files via the git index, so the generated map
 # never includes gitignored local junk (e.g. cache directories) regardless of what a raw
 # directory walk would see.
-# (list[str] | None): Sorted repo-relative POSIX paths, or None if root_path is not inside a
+# Returns: Sorted repo-relative POSIX paths, or None if root_path is not inside a
 # usable git working tree (caller falls back to a raw directory walk).
 def list_repo_files(root_path: Path) -> list[str] | None:
     try:
@@ -151,9 +151,9 @@ def list_repo_files(root_path: Path) -> list[str] | None:
 # Build a nested dict representing directories/files from a flat list of repo-relative
 # POSIX paths, so the renderer can walk a virtual tree derived from the git index instead
 # of a real directory listing.
-# paths (list[str]): Repo-relative POSIX file paths (no directory entries — git does not
+# paths: Repo-relative POSIX file paths (no directory entries — git does not
 # track empty directories, so none are synthesized here).
-# (dict): Nested structure; each dict maps a path segment to either another dict (directory)
+# Returns: Nested structure; each dict maps a path segment to either another dict (directory)
 # or None (file leaf).
 def build_tree_from_paths(paths: list[str]) -> dict:
     root: dict = {}
@@ -167,8 +167,8 @@ def build_tree_from_paths(paths: list[str]) -> dict:
 
 
 # Checks if a file or directory matches any of the ignore patterns.
-# root_path (Path): Repository root used for relative-path matching.
-# (bool): True if the item should be ignored.
+# root_path: Repository root used for relative-path matching.
+# Returns: True if the item should be ignored.
 def should_ignore(item: Path, root_path: Path, patterns: list) -> bool:
     # Check both basename and repository-relative path so export-specific globs can hide noisy artifacts.
     name = item.name
@@ -198,7 +198,7 @@ def should_ignore(item: Path, root_path: Path, patterns: list) -> bool:
 
 
 # Reads the first 20 lines of a file and searches for a line starting with '# SUMMARY:'.
-# (str): The extracted summary text or an empty string if not found.
+# Returns: The extracted summary text or an empty string if not found.
 def get_file_summary(file_path: Path) -> str:
     # Read first 20 lines and extract SUMMARY tag content.
     try:
@@ -278,12 +278,12 @@ def generate_tree(
 # instead of a raw directory walk. This is the primary rendering path: since the input
 # paths already come from `git ls-files --cached --others --exclude-standard`, gitignored
 # local junk can never appear here regardless of what exists on disk.
-# node (dict): Current subtree from build_tree_from_paths (segment -> dict | None).
-# node_path (str): Repo-relative POSIX path of this node ("" for the root).
-# root_path (Path): Repository root — used to resolve real files for CBM summary extraction
+# node: Current subtree from build_tree_from_paths (segment -> dict | None).
+# node_path: Repo-relative POSIX path of this node ("" for the root).
+# root_path: Repository root — used to resolve real files for CBM summary extraction
 # and for should_ignore's relative-path matching (defense-in-depth on top of the git filter,
 # e.g. for DEFAULT_IGNORE_PATTERNS and any llm_export_profile.json globs).
-# ignore_patterns (list): Extra ignore patterns (gitignore-derived + export profile).
+# ignore_patterns: Extra ignore patterns (gitignore-derived + export profile).
 def generate_tree_from_git_paths(
     node: dict,
     node_path: str,
@@ -325,13 +325,13 @@ def generate_tree_from_git_paths(
 
 
 # Replaces the project map section inside a supported markdown reference file.
-# file_path (Path): Target markdown file containing project map markers.
-# tree_content (str): Rendered project tree block to inject between markers.
+# file_path: Target markdown file containing project map markers.
+# tree_content: Rendered project tree block to inject between markers.
 # SystemExit: If the target file does not exist or is missing required markers.
 # Compute the updated project_map.md content (with the freshly generated tree) without writing to disk.
-# file_path (Path): Path to the existing project_map.md file (must exist with required markers).
-# tree_content (str): Newly generated project tree content to inject between markers.
-# (str): Updated full file content with the project map block replaced.
+# file_path: Path to the existing project_map.md file (must exist with required markers).
+# tree_content: Newly generated project tree content to inject between markers.
+# Returns: Updated full file content with the project map block replaced.
 # FileNotFoundError: If the target file does not exist.
 # ValueError: If the required markers are missing from the target file.
 def _compute_updated_content(file_path: Path, tree_content: str) -> str:
@@ -357,9 +357,9 @@ def _compute_updated_content(file_path: Path, tree_content: str) -> str:
 
 
 # Replace the project map block in the target file with the newly generated tree.
-# file_path (Path): Path to the existing project_map.md file.
-# tree_content (str): Newly generated project tree content to inject between markers.
-# (None): Writes the updated content to disk and prints a confirmation line.
+# file_path: Path to the existing project_map.md file.
+# tree_content: Newly generated project tree content to inject between markers.
+# Returns: Writes the updated content to disk and prints a confirmation line.
 def update_project_map_file(file_path: Path, tree_content: str) -> None:
     try:
         new_content = _compute_updated_content(file_path, tree_content)
@@ -375,7 +375,7 @@ def update_project_map_file(file_path: Path, tree_content: str) -> None:
 
 
 # Walk the project tree starting at root_dir and return the markdown-fenced project map block as a string. Prefers git-index-driven enumeration (tracked + untracked-not-ignored) for hermetic output across worktrees/checkouts; falls back to a raw directory walk only outside a git working tree.
-# (str): Complete fenced project map block ready for marker replacement.
+# Returns: Complete fenced project map block ready for marker replacement.
 def _build_tree_content(root_dir: Path) -> str:
     ignore_patterns = load_gitignore_patterns(root_dir)
     project_name = resolve_project_name(root_dir)
@@ -412,7 +412,7 @@ def _build_tree_content(root_dir: Path) -> str:
 
 
 # The script's entry point. Generates the project tree and either writes it to docs/project_map.md or verifies the committed copy is up to date.
-# (int): Process exit code (0 on success, 1 on drift/missing target in --check mode).
+# Returns: Process exit code (0 on success, 1 on drift/missing target in --check mode).
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(

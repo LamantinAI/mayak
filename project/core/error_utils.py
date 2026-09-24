@@ -13,18 +13,13 @@ from project.domain.exceptions import (
     ValidationError,
 )
 
-# SUMMARY: Stable client-facing message for upstream dependency failures.
 SAFE_EXTERNAL_SERVICE_MESSAGE = "An upstream service is temporarily unavailable"
 
-# SUMMARY: Stable client-facing message for generic project-level failures.
 SAFE_PROJECT_ERROR_MESSAGE = "The request could not be completed"
 
-# SUMMARY: Stable client-facing message for unexpected internal failures.
 SAFE_INTERNAL_ERROR_MESSAGE = "An internal server error occurred"
 
 
-# SUMMARY: Report whether a ProjectError subclass is allowed to expose its exact message to clients.
-# OUTPUT: (bool): True when the message can be returned verbatim to clients.
 def is_client_safe_project_error(error: ProjectError) -> bool:
     # Allow only domain-safe validation and state errors to expose their message.
     return isinstance(
@@ -33,8 +28,7 @@ def is_client_safe_project_error(error: ProjectError) -> bool:
     )
 
 
-# SUMMARY: Return a stable client-facing message without exposing unsafe internal exception details.
-# OUTPUT: (str): Safe message suitable for HTTP and SSE responses.
+# Safe message suitable for HTTP and SSE responses.
 def get_client_safe_message(error: Exception) -> str:
     # Preserve exact messages only for explicitly safe ProjectError subclasses.
     if isinstance(error, ProjectError) and is_client_safe_project_error(error):
@@ -52,7 +46,6 @@ def get_client_safe_message(error: Exception) -> str:
     return SAFE_INTERNAL_ERROR_MESSAGE
 
 
-# SUMMARY: Build a sanitized structured summary for exception logging without exposing raw messages.
 def summarize_exception_for_logging(error: Exception) -> dict[str, Any]:
     # Capture a structural summary of the original exception message without logging raw text.
     error_message = str(error)

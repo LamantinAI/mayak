@@ -21,7 +21,7 @@ from project.core.logging.trace_tree import (
     _TOOL_SPAN_PREFIX,
 )
 
-# SUMMARY: request.summary outcomes that are not the application failing.
+# request.summary outcomes that are not the application failing.
 # A 4xx belongs here. Counting it as a failure put the ✗ of a 500 on a validation error and
 # reported a healthy log as one with errors in it — the confusion the WARNING level and the
 # `client_error.` event prefix exist to remove, one layer further out.
@@ -33,14 +33,11 @@ _ROUTINE_STATUSES = frozenset(
 # ==================== RENDERING ====================
 
 
-# SUMMARY: How much of one string tool argument the compact tree prints before cutting it.
 _MAX_ARG_CHARS = 80
 
 
-# SUMMARY: Make one string argument safe to put on a tree line: single-line, and short.
-# INPUT: value (str): The argument as the span recorded it.
-# OUTPUT: (str): The value with its line breaks escaped, cut to _MAX_ARG_CHARS with the remaining
-#         length stated, so the reader knows something was cut and by how much.
+# Returns the value with its line breaks escaped, cut to _MAX_ARG_CHARS with the remaining
+# length stated, so the reader knows something was cut and by how much.
 # Escaping comes before cutting, and it is not cosmetic. This renderer draws a tree
 # with box-drawing characters, one node per line, and a tool argument is attacker-reachable input —
 # a prompt, a pasted page, a search query. A value containing "\n└── db.thing.delete ✓" printed
@@ -53,7 +50,6 @@ def _clipped(value: str) -> str:
     return f"{flattened[:_MAX_ARG_CHARS]}… (+{len(flattened) - _MAX_ARG_CHARS} chars)"
 
 
-# SUMMARY: Render a single span node as a compact text line.
 def _render_span_line(node: SpanNode) -> str:
     sid = f"[{node.span_id[:8]}] " if node.span_id else ""
     dur = f"({node.duration_ms}ms)" if node.duration_ms is not None else ""
@@ -99,7 +95,6 @@ def _render_span_line(node: SpanNode) -> str:
     return f"{sid}{node.name}{args_suffix} {dur}{suffix}".strip()
 
 
-# SUMMARY: Recursively render a span tree with box-drawing characters.
 def _render_tree(
     node: SpanNode | LeafEvent,
     prefix: str = "",
@@ -124,7 +119,7 @@ def _render_tree(
 # ==================== PUBLIC API ====================
 
 
-# SUMMARY: Render the outcome of a request.summary payload, understanding both the current and the pre-2026-08-05 shape.
+# Render the outcome of a request.summary payload, understanding both the current and the pre-2026-08-05 shape.
 # Logs written before `outcome` existed carry a boolean `success`. Defaulting a missing
 # `outcome` to OK made every archived failure render as OK — the exact lie the outcome field was
 # introduced to remove, reappearing in the reader instead of the writer. Old files are the ones an
@@ -139,9 +134,7 @@ def _summary_status(sdata: dict[str, Any]) -> str:
     return "UNKNOWN"
 
 
-# SUMMARY: Transform NDJSON log lines into a compact LLM-friendly text tree.
-# INPUT: lines (Iterable[str]): NDJSON log lines (file, stdin, list).
-# INPUT: trace_id (str | None): Optional trace ID filter; auto-detects if None.
+# trace_id: Auto-detects if None.
 def format_trace_for_llm(
     lines: Iterable[str],
     *,
@@ -245,8 +238,6 @@ def format_trace_for_llm(
     return "\n".join(parts)
 
 
-# SUMMARY: Transform NDJSON log lines into compact text trees for ALL HTTP traces in the file.
-# OUTPUT: (str): Concatenated compact text trees separated by blank lines.
 def format_all_traces_for_llm(lines: Iterable[str]) -> str:
     # Collect all events and discover distinct HTTP trace IDs (ordered by appearance).
     all_events: list[dict[str, Any]] = []
@@ -286,10 +277,8 @@ def format_all_traces_for_llm(lines: Iterable[str]) -> str:
     return "\n\n---\n\n".join(sections) if sections else "(no traces rendered)"
 
 
-# SUMMARY: List the HTTP traces present in a log and mark which of them failed or were cancelled.
-# INPUT: lines (Iterable[str]): NDJSON log lines.
-# OUTPUT: (tuple[list[str], set[str], set[str]]): Ordered HTTP trace ids, the subset that carries
-#         a failure, and the subset that was cancelled without failing.
+# Returns ordered HTTP trace ids, the subset that carries
+# a failure, and the subset that was cancelled without failing.
 def trace_inventory(lines: Iterable[str]) -> tuple[list[str], set[str], set[str]]:
     trace_ids: list[str] = []
     seen: set[str] = set()
@@ -343,10 +332,6 @@ def trace_inventory(lines: Iterable[str]) -> tuple[list[str], set[str], set[str]
     return trace_ids, failed, cancelled - failed
 
 
-# SUMMARY: Build the one-line note telling the reader what the single-trace view is not showing.
-# INPUT: shown_trace_id (str): Trace id that was rendered.
-# INPUT: cancelled (set[str] | None): Traces that were cancelled; named separately from failures.
-# OUTPUT: (str): Note text, or an empty string when the log holds nothing else worth mentioning.
 def render_inventory_note(
     trace_ids: list[str],
     failed: set[str],
@@ -372,8 +357,6 @@ def render_inventory_note(
     return note + " — rerun with --all to see them)"
 
 
-# SUMMARY: Read an NDJSON log file, generate compact trace trees, and prepend them to the file.
-# OUTPUT: (bool): True if summary was prepended, False if no HTTP traces found or file missing.
 def prepend_trace_summary(log_file_path: str) -> bool:
     from pathlib import Path
 

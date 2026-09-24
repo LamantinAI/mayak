@@ -11,7 +11,6 @@
 from scripts.validate_migrations import MigrationIssue
 
 
-# SUMMARY: Verify `alembic check` reports no difference between the migrated schema and the models.
 def test_alembic_head_matches_the_orm_metadata(migration_issues: list[MigrationIssue]) -> None:
     assert migration_issues == [], "\n".join(
         f"{issue.rule_id}: {issue.message}" for issue in migration_issues

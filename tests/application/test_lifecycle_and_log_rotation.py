@@ -22,17 +22,14 @@ from project.core.logging import get_logger
 from project.core.logging.file_manager import create_run_log_path, rotate_log_files
 
 
-# SUMMARY: Build a bare FastAPI carrying a service registry, without the composition root.
-# OUTPUT: (FastAPI): Application whose state holds the given registry.
+# Build a bare FastAPI carrying a service registry, without the composition root.
 def _app_with_services(services: dict[str, Any]) -> FastAPI:
     app = FastAPI()
     app.state.services = services
     return app
 
 
-# SUMMARY: Verify the startup path actually runs and behaves on both branches.
 class TestLifespanStartup:
-    # SUMMARY: Verify the happy path opens the pool once and stamps uptime's origin.
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_startup_opens_the_pool_and_records_start_time(
@@ -49,7 +46,6 @@ class TestLifespanStartup:
 
         pool.open.assert_awaited_once_with()
 
-    # SUMMARY: Verify a pool that cannot open closes what was built and fails startup loudly.
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_startup_failure_cleans_up_and_reraises(self, test_settings: Any) -> None:
@@ -71,7 +67,6 @@ class TestLifespanStartup:
         # says only the first half, and validate_test_quality.py exists because of what that costs.
         pool.close.assert_awaited_once_with()
 
-    # SUMMARY: Verify the normal exit path releases the pool.
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_shutdown_closes_the_pool(self, test_settings: Any) -> None:
@@ -86,7 +81,7 @@ class TestLifespanStartup:
 
         pool.close.assert_awaited_once_with()
 
-    # SUMMARY: Verify POSTGRES_ENABLED=false leaves startup working rather than raising.
+    # Verify POSTGRES_ENABLED=false leaves startup working rather than raising.
     @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_startup_without_a_pool_is_not_an_error(self, test_settings: Any) -> None:
@@ -97,10 +92,8 @@ class TestLifespanStartup:
             assert app.state.services["db_pool"] is None
 
 
-# SUMMARY: Verify rotation deletes the oldest files and only those.
 class TestLogRotation:
-    # SUMMARY: Create numbered log files whose names sort chronologically.
-    # OUTPUT: (list[Path]): Created paths, oldest first.
+    # Returns created paths, oldest first.
     @staticmethod
     def _make_logs(directory: Path, count: int) -> list[Path]:
         paths = []
@@ -110,7 +103,6 @@ class TestLogRotation:
             paths.append(path)
         return paths
 
-    # SUMMARY: Verify retention keeps exactly max_files, and the surviving ones are the newest.
     @pytest.mark.unit
     def test_keeps_the_newest_and_deletes_the_rest(self, tmp_path: Path) -> None:
         created = self._make_logs(tmp_path, 5)
@@ -121,7 +113,6 @@ class TestLogRotation:
         survivors = sorted(p.name for p in tmp_path.glob("*.ndjson"))
         assert survivors == [created[3].name, created[4].name]
 
-    # SUMMARY: Verify a directory under the limit loses nothing.
     @pytest.mark.unit
     def test_rotation_is_a_no_op_below_the_limit(self, tmp_path: Path) -> None:
         self._make_logs(tmp_path, 2)
@@ -129,7 +120,6 @@ class TestLogRotation:
         assert rotate_log_files(str(tmp_path), max_files=5) == 0
         assert len(list(tmp_path.glob("*.ndjson"))) == 2
 
-    # SUMMARY: Verify max_files=0 keeps every file rather than clearing the directory.
     @pytest.mark.unit
     def test_zero_disables_rotation_instead_of_deleting_everything(self, tmp_path: Path) -> None:
         # The off-by-one that matters. Read as "keep zero files", this would wipe
@@ -139,7 +129,6 @@ class TestLogRotation:
         assert rotate_log_files(str(tmp_path), max_files=0) == 0
         assert len(list(tmp_path.glob("*.ndjson"))) == 3
 
-    # SUMMARY: Verify rotation never touches files it does not own.
     @pytest.mark.unit
     def test_non_ndjson_files_are_left_alone(self, tmp_path: Path) -> None:
         self._make_logs(tmp_path, 4)
@@ -150,12 +139,11 @@ class TestLogRotation:
 
         assert keeper.exists()
 
-    # SUMMARY: Verify a first run with no log directory yet returns zero instead of raising.
     @pytest.mark.unit
     def test_missing_directory_is_not_an_error(self, tmp_path: Path) -> None:
         assert rotate_log_files(str(tmp_path / "nope"), max_files=3) == 0
 
-    # SUMMARY: Verify the per-run path creates its parent and sorts chronologically by name.
+    # Verify the per-run path creates its parent and sorts chronologically by name.
     @pytest.mark.unit
     def test_run_log_path_is_created_inside_a_new_directory(self, tmp_path: Path) -> None:
         target = tmp_path / "fresh" / "logs"

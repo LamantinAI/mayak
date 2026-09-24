@@ -241,7 +241,7 @@ _ARCHITECTURE_RULE_PLAYBOOKS = {
 
 
 # Return the canonical layer rules with runtime enforcement separated from guidance-only constraints.
-# (dict[str, dict[str, object]]): Mapping of layer names to runtime-enforced and guidance-only metadata.
+# Returns: Mapping of layer names to runtime-enforced and guidance-only metadata.
 def get_layer_rules() -> dict[str, dict[str, object]]:
     return {
         layer: {
@@ -288,7 +288,7 @@ def get_layer_rules() -> dict[str, dict[str, object]]:
 
 
 # Return the shared remediation playbook for a runtime architecture rule ID.
-# (dict[str, object] | None): Remediation metadata or None when the rule is unknown.
+# Returns: Remediation metadata or None when the rule is unknown.
 def get_architecture_rule_playbook(rule_id: str) -> dict[str, object] | None:
     playbook = _ARCHITECTURE_RULE_PLAYBOOKS.get(rule_id)
     if playbook is None:
@@ -324,23 +324,23 @@ class ArchitectureIssue:
 
 
 # Check whether a file is within the production architecture validation scope.
-# (bool): True when the file belongs to project/** and should be validated.
+# Returns: True when the file belongs to project/** and should be validated.
 def _is_production_python_file(path: Path) -> bool:
     parts = path.parts
     return len(parts) >= 2 and parts[0] == "project" and path.suffix == ".py"
 
 
 # Convert a repository-relative Python file path into an importable module name.
-# path (Path): Repository-relative file path.
-# (str): Dotted module path without the .py suffix.
+# path: Repository-relative file path.
+# Returns: Dotted module path without the .py suffix.
 def _module_name_from_path(path: Path) -> str:
     # Drop the file suffix and convert path segments to a dotted module path.
     return ".".join(path.with_suffix("").parts)
 
 
 # Determine the architectural layer name from a production file path.
-# path (Path): Repository-relative production file path.
-# (str | None): Layer identifier or None when the path is outside the layered subtree.
+# path: Repository-relative production file path.
+# Returns: Layer identifier or None when the path is outside the layered subtree.
 def _layer_from_path(path: Path) -> str | None:
     # Use the first package segment below project/ as the layer key.
     parts = path.parts
@@ -350,8 +350,8 @@ def _layer_from_path(path: Path) -> str | None:
 
 
 # Resolve an import statement to its absolute dotted name when possible.
-# current_module (str): Dotted module path of the file being validated.
-# (list[str]): Absolute dotted import targets extracted from the node.
+# current_module: Dotted module path of the file being validated.
+# Returns: Absolute dotted import targets extracted from the node.
 def _resolve_import_name(
     current_module: str,
     node: ast.Import | ast.ImportFrom,
@@ -373,15 +373,15 @@ def _resolve_import_name(
 
 
 # Check whether an import path matches a banned prefix exactly or as a child module.
-# (bool): True when the import violates the banned prefix.
+# Returns: True when the import violates the banned prefix.
 def _matches_prefix(import_name: str, banned_prefix: str) -> bool:
     # Treat exact matches and nested submodules as violations.
     return import_name == banned_prefix or import_name.startswith(f"{banned_prefix}.")
 
 
 # Decide whether one import is inside a layer's allowlist.
-# allowed_prefixes (tuple[str, ...]): Project prefixes permitted on top of the standard library.
-# (bool): True when the import is stdlib or sits under one of the allowed prefixes.
+# allowed_prefixes: Project prefixes permitted on top of the standard library.
+# Returns: True when the import is stdlib or sits under one of the allowed prefixes.
 def _is_allowed_import(import_name: str, allowed_prefixes: tuple[str, ...]) -> bool:
     # The standard library is read from the interpreter rather than listed here.
     # A hand-written list of stdlib names is a maintenance debt with no upside, and it would go
@@ -392,7 +392,7 @@ def _is_allowed_import(import_name: str, allowed_prefixes: tuple[str, ...]) -> b
 
 
 # Validate a resolved import path against the rules for the current architectural layer.
-# (str | None): Violation message when the import breaks a boundary.
+# Returns: Violation message when the import breaks a boundary.
 def _validate_import(layer: str | None, import_name: str) -> tuple[str, str] | None:
     # Match imports against the canonical forbidden prefixes for the current layer.
     layer_rules = _LAYER_RULES.get(layer)
@@ -426,7 +426,7 @@ def _validate_import(layer: str | None, import_name: str) -> tuple[str, str] | N
 
 
 # Convert an architecture issue into a stable JSON-serializable payload.
-# repo_root (Path): Repository root used for relative paths.
+# repo_root: Repository root used for relative paths.
 def _issue_to_payload(issue: ArchitectureIssue, repo_root: Path) -> dict[str, object]:
     playbook = get_architecture_rule_playbook(issue.rule_id)
     return build_validator_issue_payload(
@@ -440,7 +440,7 @@ def _issue_to_payload(issue: ArchitectureIssue, repo_root: Path) -> dict[str, ob
 
 
 # Validate all import statements in a single production Python file.
-# path (Path): Absolute production source file path.
+# path: Absolute production source file path.
 def validate_python_source(path: Path, repo_root: Path) -> list[ArchitectureIssue]:
     relative_path = path.relative_to(repo_root)
     current_module = _module_name_from_path(relative_path)
@@ -515,7 +515,7 @@ def collect_architecture_issues(repo_root: Path) -> list[ArchitectureIssue]:
 
 
 # Run architecture validation from the repository root and return a process exit code.
-# (int): Zero when validation succeeds and non-zero otherwise.
+# Returns: Zero when validation succeeds and non-zero otherwise.
 def main() -> int:
     # Validate the current repository and print any architecture boundary failures.
     parser = argparse.ArgumentParser(description="Validate repository architecture boundaries.")

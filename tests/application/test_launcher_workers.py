@@ -16,20 +16,17 @@ from project.launcher.main import main
 from tests.conftest import _FixtureSettings as FixtureSettings
 
 
-# SUMMARY: Stand-in for uvicorn's multi-process supervisor: keeps the config instead of forking workers.
+# Stand-in for uvicorn's multi-process supervisor: keeps the config instead of forking workers.
 class _RecordingSupervisor:
     started: list[Any] = []
 
-    # SUMMARY: Accept what uvicorn.run hands its supervisor.
     def __init__(self, config: Any, sockets: list[Any]) -> None:
         self.config = config
 
-    # SUMMARY: Record the config the workers would have been started from.
     def run(self) -> None:
         _RecordingSupervisor.started.append(self.config)
 
 
-# SUMMARY: Verify uvicorn accepts the launcher's application for two workers and a worker can build it.
 # SERVER_WORKERS=2 ended the process at once with exit code 3. uvicorn refuses an application
 # object when it has to start several workers — each worker process imports the application itself —
 # and the launcher handed it the object it had just built. Found by the bench2 measurement
