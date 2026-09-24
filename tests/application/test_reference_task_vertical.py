@@ -71,7 +71,7 @@ class InMemoryReferenceTaskRepository:
     # nothing interleaves between the read and the write in one process, so a repository that
     # dropped the condition entirely would still pass every test in this file as long as the tests
     # never staged a second writer by hand. The test that watches two real transactions collide is
-    # tests/functional/src/test_reference_task_repository.py.
+    # tests/db/test_reference_task_repository.py.
     async def update(
         self,
         task: ReferenceTask,

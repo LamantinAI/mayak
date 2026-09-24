@@ -28,9 +28,9 @@ before writing your own — every constraint below is already satisfied in them.
 | 8 | `project/infrastructure/api/endpoints/<name>s.py` | Router and handlers. Parse, delegate, convert. |
 | 9 | `tests/application/test_<name>_vertical.py` | Service rules, wiring, HTTP surface — against a fake repository. |
 | 10 | `tests/infrastructure/test_<name>_repository.py` | The row mapper and the parameterisation of every query, without a database. |
-| 11 | `tests/functional/src/test_<name>s_api.py` and `test_<name>_repository.py` | The same paths against real HTTP and a real database. |
+| 11 | `tests/db/test_<name>_repository.py` and `tests/functional/src/test_<name>s_api.py` | The queries against a real PostgreSQL inside `make test` (the db tier); HTTP against the built image in `make test-e2e`. |
 
-Every file here is type-checked — `MYPY_TARGETS` covers all four test suites, so a hand-written fake
+Every file here is type-checked — `MYPY_TARGETS` covers every test suite, so a hand-written fake
 that drifts from the Protocol fails `make gate-types` even though pytest cannot see the drift.
 Copying the reference vertical keeps you clear of it.
 
@@ -71,12 +71,13 @@ anywhere in the tree.
    **Without a database** — write the revision by hand, modelled on
    `alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py`, and check it offline with
    `uv run alembic -c alembic.ini heads` and `... upgrade head --sql`. Neither compares
-   `orm_models.py` against a real schema — the revision stays unverified until `make test-e2e` or CI
-   runs `alembic upgrade head` and `alembic check` for real.
+   `orm_models.py` against a real schema. `make test` does, for real: its db tier starts a PostgreSQL
+   of its own and runs `alembic upgrade head` and `alembic check` there.
 4. `make refresh-generated-docs`, as soon as the first new file exists — a missing or extra file
    moves `docs/project_map.md`, which every gate compares against the tree.
-5. Repository, then `tests/infrastructure/test_<name>_repository.py`, then its functional test —
-   `make quality-gates` runs none of your queries. Wrap each method in
+5. Repository, then `tests/infrastructure/test_<name>_repository.py`, then
+   `tests/db/test_<name>_repository.py` — the db tier is the one place in `make test` where your
+   queries actually run; `tests/db/conftest.py` gives it `db_pool`, every table emptied. Wrap each method in
    `with logger.span("db.<name>.<op>", ...)` and put the outcome in `span.output` (a row count, a
    found/not-found flag), which only survives the success path — a driver error translated into a
    domain one is asserted on `span.error`, not on an output line before `raise`.
@@ -208,7 +209,7 @@ git rm project/domain/reference_task.py \
        project/infrastructure/api/endpoints/reference_tasks.py \
        tests/application/test_reference_task_vertical.py \
        tests/infrastructure/test_reference_task_repository.py \
-       tests/functional/src/test_reference_task_repository.py \
+       tests/db/test_reference_task_repository.py \
        tests/functional/src/test_reference_tasks_api.py \
        docs/mutations/reference_task.json \
        scripts/run_mutations.py

@@ -8,7 +8,7 @@ itself. One document holds the rules either way — ADR-011.
 Start here:
 - Copy the `reference_task` vertical. It is the one worked example and it exists to be copied — eleven files plus three wiring edits; `.agents/skills/add-vertical` carries the order and the removal list for when your own vertical replaces it. A project that has replaced it edits this line and nothing else: the wrapper's Quick Start is generated from these bullets.
 - If `.env` is missing: `make init-project`. Nothing else creates it, and the app does not start without it. Idempotent — it never overwrites an existing `.env`.
-- `make quality-gates` before committing. When the diff touched persistence, endpoints, wiring or a migration, `make test-e2e` too — the gates run none of your queries.
+- `make quality-gates` before committing — its test run includes the db tier, which runs your queries and migrations against a PostgreSQL it starts itself (needs Docker). When the diff touched endpoints, wiring or a migration, `make test-e2e` too: only it runs the built image over HTTP.
 - Reach for `uv run python scripts/query_ai_context.py bootstrap` when you need the wiring map, and `workset diff` when you already have local edits — not as a ritual.
 
 Source of truth order:
@@ -30,9 +30,9 @@ Working notes:
 - `PROJECT.md` and `docs/project_context.json` carry the business domain; this file covers only the kernel.
 - If `.env` is missing, run `make init-project` (idempotent) — nothing else creates it. `make run-local`/`make migrate` need reachable PostgreSQL unless `POSTGRES_ENABLED=false`; bring one up with `docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d db`.
 - `make quality-gates` runs `make doctor` on failure and refreshes generated artifacts first, so a stale map is fixed, not red; `make ci-local` adds `STRICT_GENERATED=1` and fails on one instead. A narrow `pytest` run does not fail on total coverage — that floor lives in `scripts/run_all_tests.py`'s full run, not `pytest.ini`.
-- Gates run none of your queries — a SQL defect is caught only if a test pins its clause as literal text, and a migration is verified only against a real database. See ADR-010.
+- A query is verified by a test that runs it: repository tests go in `tests/db`, which `make test` runs against a real PostgreSQL database created for the session and migrated from nothing (`alembic upgrade head`, then `alembic check`), emptying every table before each test. A mocked pool proves only what its author imagined. See ADR-010.
 - A write to a generated path is refused by `.agents/hooks/pre-edit-guard.sh`, naming the file — the list is `make print-generated-paths`, shared with the pre-commit hook and both agents.
-- Finish with `make quality-gates`, and with `make test-e2e` as well when the diff touched persistence, endpoints, wiring, or a migration — a migration is the one change the gates cannot check at all without a database.
+- Finish with `make quality-gates`, and with `make test-e2e` as well when the diff touched endpoints, wiring, or a migration — the image, its entrypoint's migration run and HTTP against the running container are what e2e alone exercises.
 - Read a trace with `make format-trace ARGS="<logfile>"` or `make logs` (a running container); see `docs/tracing.md` for span names, outcome filtering, and two silent-failure traps.
 - Repeatable workflows belong in a versioned skill under `.agents/skills/`, not in this file.
 - `before-edit file <path>` returns the FILE_POLICY entry plus `derived: bool`. An unindexed path needs an explicit entry in `ai_context/file_policy.py`; add one, then `make refresh-ai-context`.

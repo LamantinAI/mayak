@@ -16,9 +16,11 @@ concurrency:
 jobs:
   quality-gates:
     runs-on: ubuntu-latest
-    # Postgres is provisioned here because validate_migrations.py otherwise downgrades itself
-    # to an informational skip: a second alembic head or a dangling down_revision would then
-    # reach main behind a green pipeline. With CI=true the skip is a hard failure.
+    # Postgres is provisioned here for two readers. validate_migrations.py otherwise downgrades
+    # itself to an informational skip: a second alembic head or a dangling down_revision would then
+    # reach main behind a green pipeline. With CI=true the skip is a hard failure. And the db tier
+    # of the test run (tests/db) needs a database; TEST_DATABASE_URL below points it at a database
+    # of its own on this server instead of letting it start a container.
     services:
       postgres:
         image: postgres:16-alpine
@@ -39,6 +41,9 @@ jobs:
       POSTGRES_DB: scaffold_ci
       POSTGRES_HOST: localhost
       POSTGRES_PORT: "5432"
+      # A separate database, created by tests/db/conftest.py on first use: the db tier truncates
+      # every table before each test, and scaffold_ci is the one validate_migrations.py migrates.
+      TEST_DATABASE_URL: postgresql://scaffold_ci:scaffold_ci@localhost:5432/scaffold_ci_test  # allow-secret: the throwaway CI service credentials declared above
       # Locally `make quality-gates` regenerates a stale artifact and prints a notice, because the
       # fix is always the same command. Here it must be a failure instead: no later step will
       # rerun the generator, so a green pipeline over a stale map would publish the drift. This is
@@ -66,8 +71,9 @@ jobs:
 
   # Second leg: the one code path `quality-gates` above cannot exercise — a project that declares
   # no relational store. Nothing in the gate reads that flag except two steps: the test run, which
-  # pins POSTGRES_ENABLED=true for itself regardless (tests/conftest.py's pin_postgres_toggle
-  # fixture, so the flag never reaches a single test either way), and
+  # pins POSTGRES_ENABLED=true for every test it runs (tests/conftest.py's pin_postgres_toggle
+  # fixture) but reads the flag once at collection to leave out the db tier (tests/db/conftest.py
+  # — this job has no database, and the summary line says the tier did not run), and
   # scripts/validate_migrations.py, which treats the flag as "no relational store, nothing to
   # verify" and returns an informational pass without opening a connection. Every other step —
   # lint, format, mypy, architecture, bandit, the rest of quality-gates-steps — is identical under
@@ -107,15 +113,14 @@ jobs:
       - name: Verify the migration gate treats POSTGRES_ENABLED=false as informational
         run: uv run python scripts/validate_migrations.py
 
-  # The only job that opens a real database connection. `make quality-gates` runs
-  # run_all_tests.py --skip-functional, so nothing inside it ever reaches a driver: a broken
-  # ORDER BY, a column too narrow for its DTO, or a migration that was never written all stay
-  # green there. Measured, not assumed — reversing the sort in the reference repository left
-  # 593 tests passing while `make test-e2e` failed. Until this job existed the difference was
-  # covered by a sentence in the operational contract asking the agent to remember.
+  # The application as it ships: its image, its entrypoint's migrations, HTTP against the running
+  # container, two Alembic processes racing on a fresh database. Queries and migrations themselves
+  # are checked earlier and faster, by the db tier inside quality-gates (tests/db) — until
+  # 2026-09-24 this was the only job that ran SQL at all, and a reversed ORDER BY left 593 tests
+  # passing everywhere else.
   #
   # It is slower than every other job because it builds the application image and starts a
-  # PostgreSQL container. That cost buys the one thing the rest of the pipeline cannot check.
+  # PostgreSQL container.
   functional-tests:
     runs-on: ubuntu-latest
     # A hung `docker compose up` would otherwise hold a runner until the account-wide limit.
@@ -254,13 +259,32 @@ jobs:
         run: make audit-deps
 
   # Removed: unit-tests ran tests/application alone — a strict subset of what quality-gates'
-  # gate-tests step already runs (tests/application + tests/infrastructure + tests/integration).
+  # gate-tests step already runs (tests/application + tests/infrastructure + tests/integration +
+  # tests/db).
 
   # Removed: infrastructure-tests ran tests/infrastructure alone — the same subset relationship,
   # and covered by the identical gate-tests step inside quality-gates.
 
+  # Its coverage run includes the db tier, so repository code is measured by the tests that run
+  # its queries, not only by mocks — hence the same PostgreSQL service as quality-gates.
   diff-coverage:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scaffold_ci
+          POSTGRES_PASSWORD: scaffold_ci
+          POSTGRES_DB: scaffold_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scaffold_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://scaffold_ci:scaffold_ci@localhost:5432/scaffold_ci_test  # allow-secret: the throwaway CI service credentials declared above
     steps:
       - name: Checkout (full history for diff base)
         uses: actions/checkout@v4

@@ -189,6 +189,7 @@ Project Map: Mayak
 │   │   ├── test_config.py  ---  Unit tests for configuration management and settings validation.
 │   │   ├── test_create_env_file.py  ---  Tests for the .env creation step — what it generates, what it copies, what it refuses to touch.
 │   │   ├── test_critical_event_trace_id.py  ---  Regression guard: the unhandled-exception record must carry the request's trace_id.
+│   │   ├── test_db_tier_contract.py  ---  Verify the db tier fails loudly without its database, and stands aside only when the project declares none.
 │   │   ├── test_doctor_ai_context.py  ---  Unit tests for the AI-context doctor entrypoint.
 │   │   ├── test_domain_ports.py  ---  Smoke tests for canonical domain Protocol declarations to keep them in coverage.
 │   │   ├── test_env_sample_matches_code.py  ---  Guard against .env.sample drifting from the defaults declared in the settings models.
@@ -241,12 +242,17 @@ Project Map: Mayak
 │   │   ├── test_validate_secrets.py  ---  Tests for the credential scanner: what it must catch, and what it must not shout about.
 │   │   ├── test_validate_test_quality.py  ---  Unit tests for the validator that rejects tests which cannot fail.
 │   │   └── test_validator_error_contract.py  ---  Contract test proving every scripts/validate_*.py JSON converter — plus the generate_ai_context.py drift-issue producer — surfaces rule_id, suggested_fix, read_first, next_commands, and stop_widening_condition on every emitted issue. Measured: stop_widening_condition was 0/10 in actual CLI JSON output despite living in every validator's internal rule-playbook dict.
+│   ├── db/
+│   │   ├── __init__.py
+│   │   ├── conftest.py  ---  The db tier: tests that run real SQL against a real PostgreSQL, inside `make test`.
+│   │   ├── docker-compose.yml
+│   │   ├── stack.py  ---  Start, locate and stop the db tier's PostgreSQL for this checkout.
+│   │   ├── test_migrations_match_models.py  ---  Verify the migrations build a schema that matches the ORM metadata, inside `make test`.
+│   │   └── test_reference_task_repository.py  ---  The reference repository's SQL, run against a real PostgreSQL and judged by what it returns.
 │   ├── functional/
 │   │   ├── src/
 │   │   │   ├── __init__.py
 │   │   │   ├── test_migration_lock.py  ---  Prove that two processes migrating the same fresh database at once both succeed.
-│   │   │   ├── test_migrations_match_models.py  ---  Run the migration gate where a database actually exists.
-│   │   │   ├── test_reference_task_repository.py  ---  Functional proof that the reference repository maps real psycopg rows onto domain types.
 │   │   │   └── test_reference_tasks_api.py  ---  Functional proof that the reference vertical answers over real HTTP against a real
 │   │   ├── utils/
 │   │   │   ├── __init__.py

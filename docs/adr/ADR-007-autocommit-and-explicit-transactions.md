@@ -208,7 +208,7 @@ The same asymmetry applies to the lost update above, and for the same reason. A 
 condition — `tests/application/test_reference_task_vertical.py` does, and its in-memory double
 refuses a write whose expected timestamp does not match — but nothing interleaves inside one
 process, so a fake proves only that the service passes the right argument, never that the database
-enforces it. `tests/functional/src/test_reference_task_repository.py` stages the interleaving against
+enforces it. `tests/db/test_reference_task_repository.py` stages the interleaving against
 real PostgreSQL: write, let another writer land, then write from the first read and assert the row
 still holds the other writer's value. `tests/functional/src/test_reference_tasks_api.py` runs the
 unstaged version over HTTP with `asyncio.gather`, asserting the invariant rather than a fixed

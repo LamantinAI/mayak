@@ -1,0 +1,28 @@
+# The db tier's own PostgreSQL: one per checkout, started by tests/db/stack.py (so by `make test`,
+# or by the first `uv run pytest tests/db` in a checkout where it is not up yet).
+#
+# Nothing here is shared with the application's database. Fixed throwaway credentials instead of
+# .env, because the tier truncates every table before each test and must never be pointed at data
+# somebody wants to keep; the data directory is tmpfs, because nothing in it outlives a test run
+# and a disk-backed cluster only made the first start slower. fsync and friends are off for the
+# same reason — durability is not what these tests are about, the SQL is.
+services:
+  test-db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: mayak_test
+      POSTGRES_PASSWORD: mayak_test
+      POSTGRES_DB: mayak_test
+    command: ["postgres", "-c", "fsync=off", "-c", "synchronous_commit=off", "-c", "full_page_writes=off"]
+    ports:
+      - "127.0.0.1:${TEST_POSTGRES_PORT}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      # Over TCP, not the default socket: the image's first-boot init runs a temporary server that
+      # answers on the socket only, so a socket probe reports healthy a moment before that server
+      # stops and the real one starts — and the first connection is then refused.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U mayak_test -d mayak_test"]
+      interval: 1s
+      timeout: 3s
+      retries: 30

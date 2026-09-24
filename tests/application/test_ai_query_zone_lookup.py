@@ -110,7 +110,7 @@ class TestVerticalPathsAreClassified:
             "project/domain/ports.py",
             "project/infrastructure/persistence/reference_task_repository.py",
             "alembic/versions/0001_initial.py",
-            "tests/functional/src/test_reference_task_repository.py",
+            "tests/db/test_reference_task_repository.py",
             "tests/infrastructure/test_reference_task_repository.py",
         ],
     )
