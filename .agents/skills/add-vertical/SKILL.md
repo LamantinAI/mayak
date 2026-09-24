@@ -115,43 +115,44 @@ drops the tables another branch migrated. Catch up instead, or give this worktre
 
 ## Two tests the vertical file must contain, beyond the rules
 
-`test_<name>_vertical.py` covers service rules, the HTTP surface and the wiring. Two shapes matter
+`test_<name>_vertical.py` covers what the service decides before writing, over a stub of the port
+that stores nothing, and the wiring; what needs a write lives in `tests/db`. Two shapes matter
 beyond the obvious happy path.
 
 **1. The arguments arrive.** Not "the repository was called" — *with what*.
 
 ```python
-async def test_the_callers_limit_reaches_the_repository(self) -> None:
-    repository = AsyncMock()
-    repository.list_by_status.return_value = []
-    service = ReferenceTaskService(repository)
+async def test_the_write_is_conditioned_on_the_timestamp_it_read() -> None:
+    port = _Port(_STORED)
 
-    await service.list_tasks(status="pending", limit=7)
+    await _service(port).update_task(_STORED.id, status="done")
 
-    repository.list_by_status.assert_awaited_once_with("pending", 7)  # not assert_awaited_once()
+    ((written, condition),) = port.writes
+    assert condition == _STORED.updated_at < written.updated_at  # not "update was called"
 ```
 
-A bare `assert_awaited_once()` passes even when the service stops forwarding the caller's `limit`
-and always sends its own. `validate_test_quality.py` reports it as
-`test.call_assertion_without_arguments`; a deliberate exception carries `# no-assert-ok: <reason>`.
+Passing the new timestamp as the condition, or not moving it, still stores the row and returns it;
+only the arguments tell. With a mock, a bare `assert_awaited_once()` has the same blindness, and
+`validate_test_quality.py` reports it as `test.call_assertion_without_arguments`; a deliberate
+exception carries `# no-assert-ok: <reason>`.
 
 **2. Both sides of every boundary.** One case exactly on the constant, one case a step past it.
 
 ```python
-@pytest.mark.parametrize("length", [MAX_TITLE_LENGTH - 1, MAX_TITLE_LENGTH])
-async def test_a_title_up_to_the_limit_is_accepted(self, length: int) -> None:
-    service = ReferenceTaskService(AsyncMock())
-
-    task = await service.create_task(title="x" * length)
-
-    assert len(task.title) == length
-
-
-async def test_a_title_one_character_over_the_limit_is_rejected(self) -> None:
-    service = ReferenceTaskService(AsyncMock())
+@pytest.mark.parametrize("title", ["", " \t\n", "x" * (MAX_TITLE_LENGTH + 1)])
+async def test_create_refuses_a_blank_or_overlong_title_before_writing(title: str) -> None:
+    port = _Port()
 
     with pytest.raises(ValidationError):
-        await service.create_task(title="x" * (MAX_TITLE_LENGTH + 1))
+        await _service(port).create_task(title=title)
+
+    assert port.writes == []
+
+
+async def test_create_accepts_a_title_of_exactly_the_maximum_length() -> None:
+    task = await _service(_Port()).create_task(title="x" * MAX_TITLE_LENGTH)
+
+    assert len(task.title) == MAX_TITLE_LENGTH
 ```
 
 A test built from a comfortable middle value — `"a title"` — cannot see `<` silently become `<=`, or

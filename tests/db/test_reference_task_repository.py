@@ -29,6 +29,8 @@ def repository(db_pool: AsyncConnectionPool) -> ReferenceTaskRepository:
 
 # FUNCTION: _task
 # SUMMARY: A task with a fresh id; title and details differ so an exchanged pair of columns shows.
+# NOTE: created_at equals updated_at, as at every real insert — so a mapper that swapped the two
+# is invisible to a plain round trip and is caught by the update test, where they differ.
 def _task(status: str = "pending", minutes_ago: int = 0) -> ReferenceTask:
     stamp = _NOW - timedelta(minutes=minutes_ago)
     return ReferenceTask(
@@ -126,6 +128,7 @@ async def test_every_query_leaves_its_outcome_in_a_span_production_can_see(
     with get_logger("tests.db.request").span("http_request", root=True):
         await repository.add(task)
         await repository.get(task.id)
+        await repository.get(str(uuid4()))
         await repository.list_by_status("pending")
         await repository.update(
             replace(task, updated_at=_NOW + timedelta(seconds=1)), task.updated_at
@@ -141,6 +144,7 @@ async def test_every_query_leaves_its_outcome_in_a_span_production_can_see(
     assert finished == [
         ("db.reference_task.add", logging.INFO, {"rows_written": 1}),
         ("db.reference_task.get", logging.INFO, {"row_found": True}),
+        ("db.reference_task.get", logging.INFO, {"row_found": False}),
         ("db.reference_task.list_by_status", logging.INFO, {"row_count": 1}),
         ("db.reference_task.update", logging.INFO, {"row_written": True}),
         ("db.reference_task.update", logging.INFO, {"row_written": False}),

@@ -92,12 +92,13 @@ async def test_the_list_answers_the_status_it_was_asked_for(
         }
         unknown = await client.get("/reference-tasks", params={"status": "archived"})
         too_long = await client.get("/reference-tasks", params={"limit": MAX_LIST_LIMIT + 1})
+        blank = await client.post("/reference-tasks", json={"title": " "})
 
     assert [item["id"] for item in by_status["done"]["items"]] == [done] and by_status["done"][
         "count"
     ] == 1
     assert [item["id"] for item in by_status["pending"]["items"]] == [kept]
-    assert (unknown.status_code, too_long.status_code) == (422, 422)
+    assert (unknown.status_code, too_long.status_code, blank.status_code) == (422, 422, 422)
 
 
 # FUNCTION: test_each_patch_changes_what_it_sent_and_the_next_one_still_lands
