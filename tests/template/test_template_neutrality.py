@@ -1,4 +1,4 @@
-# FILE: tests/application/test_template_neutrality.py
+# FILE: tests/template/test_template_neutrality.py
 # SUMMARY: Guard every way a stale project name creeps back into a template that must stay neutral.
 # Every guard here exists because the defect it covers shipped. The template was renamed once and a sweep
 # over the code missed `docs/project_map.md:1`, because that line sits OUTSIDE the block

@@ -1,4 +1,4 @@
-# FILE: tests/application/test_ai_query_zone_lookup.py
+# FILE: tests/template/test_ai_query_zone_lookup.py
 # SUMMARY: Unit tests for zone_for_path FILE_POLICY-first resolution and EDIT_ZONES fallback.
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ class TestZoneForPathRegression:
     @pytest.mark.unit
     def test_zone_for_path_regression_unrelated_safe_path(self) -> None:
         rules: dict[str, Any] = build_architecture_rules()
-        result = zone_for_path("tests/application/test_validate_cbm.py", rules)
+        result = zone_for_path("tests/template/test_validate_cbm.py", rules)
         assert result["zone"] != "unclassified"
         assert result["risk"] != "unknown"
 

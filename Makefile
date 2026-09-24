@@ -17,7 +17,7 @@ PYTHON_SOURCES = project tests ai_context ai_query scripts
 # Running a test does not check an annotation. `adapter: SomePort = _Fake()` is an assertion no
 # interpreter evaluates and no Protocol enforces at runtime, so a fake whose signature had drifted
 # from LLMPort kept a green test that proved nothing.
-MYPY_TARGETS = project scripts ai_context ai_query alembic tests/functional tests/application tests/infrastructure tests/integration tests/db tests/support tests/conftest.py
+MYPY_TARGETS = project scripts ai_context ai_query alembic tests/functional tests/application tests/infrastructure tests/integration tests/db tests/support tests/conftest.py $(wildcard tests/template)
 
 # Does this project use a relational store? Asked through the same reader the migration gate
 # uses (scripts/validate_migrations.py::postgres_is_enabled), so there is one implementation of
@@ -386,7 +386,7 @@ diff-coverage:
 		echo "$$untracked" | sed 's/^/    /'; \
 		echo "    Run 'git add' on them and re-run; a commit is not needed."; \
 	fi
-	$(UV) run python -m pytest tests/application tests/infrastructure tests/integration tests/db \
+	$(UV) run python -m pytest tests/application tests/infrastructure tests/integration tests/db $(wildcard tests/template) \
 		--cov=project --cov-report=xml --cov-report=term-missing -q
 	$(UV) run --with diff-cover diff-cover coverage.xml \
 		--compare-branch=$(DIFF_COMPARE_BRANCH) --fail-under=80
@@ -511,7 +511,7 @@ logs: ## Reading a running service | Render the container's semantic log as a tr
 
 # Where logs-raw writes. `?=` so an environment variable overrides it — make imports the
 # environment before reading the makefile, and a conditional assignment leaves an already-set
-# variable alone. tests/application/test_gate_recipes.py::TestLogTargetsReportAFailedCompose uses
+# variable alone. tests/template/test_gate_recipes.py::TestLogTargetsReportAFailedCompose uses
 # exactly that: pointing LOGS_DIR at a tmp_path keeps those tests from reading this checkout's own
 # logs/, which whatever container is actually running writes into concurrently — a before/after
 # glob compared against the shared directory went red whenever that happened mid-test, for a

@@ -1,4 +1,4 @@
-# FILE: tests/application/test_run_all_tests.py
+# FILE: tests/template/test_run_all_tests.py
 # SUMMARY: Unit tests for the canonical all-tests runner script used by AI agents and developers.
 
 from pathlib import Path

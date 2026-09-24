@@ -1,4 +1,4 @@
-# FILE: tests/application/test_create_env_file.py
+# FILE: tests/template/test_create_env_file.py
 # SUMMARY: Tests for the .env creation step — what it generates, what it copies, what it refuses to touch.
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-# FILE: tests/application/test_validate_repository_metadata.py
+# FILE: tests/template/test_validate_repository_metadata.py
 # SUMMARY: Unit tests for the merged repository-metadata validator (skills/commands frontmatter,
 # scripts/*.py path-shaped literals, docs/project_context.json schema + cross-references).
 # Merged 2026-09 (audit item P9) from test_validate_skills_frontmatter.py,

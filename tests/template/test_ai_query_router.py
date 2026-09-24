@@ -1,4 +1,4 @@
-# FILE: tests/application/test_ai_query_router.py
+# FILE: tests/template/test_ai_query_router.py
 # SUMMARY: Unit tests for the ai_query router dispatcher.
 
 from argparse import Namespace

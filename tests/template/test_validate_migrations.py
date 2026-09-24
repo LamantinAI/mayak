@@ -1,4 +1,4 @@
-# FILE: tests/application/test_validate_migrations.py
+# FILE: tests/template/test_validate_migrations.py
 # SUMMARY: Unit tests for the Alembic migration validation quality gate.
 
 import subprocess

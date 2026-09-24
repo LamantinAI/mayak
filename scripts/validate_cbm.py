@@ -78,7 +78,7 @@ def default_repo_root() -> Path:
     # This file lives in scripts/, so the root is two levels up. A single .parent pointed the walk
     # at scripts/ itself, where no relative path starts with "project/", so the production-file
     # filter matched nothing and the validator reported success for every input. Guarded by
-    # tests/application/test_validate_cbm.py.
+    # tests/template/test_validate_cbm.py.
     return Path(__file__).resolve().parent.parent
 
 
@@ -94,7 +94,7 @@ def collect_validation_issues(repo_root: Path) -> list[ValidationIssue]:
 
 # Message keyword -> (rule_id, suggested_fix). Classification finds the keyword inside the finished
 # message, so each keyword is a second copy of wording the validator builds above;
-# tests/application/test_validate_cbm.py compares the two copies.
+# tests/template/test_validate_cbm.py compares the two copies.
 _CBM_RULE_MAP: list[tuple[str, str, str]] = [
     (
         "Module docstrings are not allowed",

@@ -103,7 +103,7 @@ def build_change_map() -> dict[str, object]:
                 "uv run python scripts/generate_ai_context.py --check",
             ],
             "tests_to_run": [
-                "tests/application/test_generate_ai_context.py",
+                "tests/template/test_generate_ai_context.py",
             ],
             "common_mistakes": [
                 "adding a new shared service without aligning typed dependency getters",
@@ -180,7 +180,7 @@ def build_change_map() -> dict[str, object]:
                 "uv run python scripts/generate_ai_context.py --check",
             ],
             "tests_to_run": [
-                "tests/application/test_generate_ai_context.py",
+                "tests/template/test_generate_ai_context.py",
             ],
             "common_mistakes": [
                 "changing composition-root wiring without matching dependency alias updates",
@@ -223,7 +223,7 @@ def build_change_map() -> dict[str, object]:
                 "uv run python scripts/run_all_tests.py --skip-functional",
             ],
             "tests_to_run": [
-                "tests/application/test_validate_migrations.py",
+                "tests/template/test_validate_migrations.py",
             ],
             "verify": ["make quality-gates"],
         },
@@ -245,7 +245,7 @@ def build_change_map() -> dict[str, object]:
                 "make quality-gates",
             ],
             "minimal_checks": ["uv run python scripts/validate_migrations.py"],
-            "tests_to_run": ["tests/application/test_validate_migrations.py"],
+            "tests_to_run": ["tests/template/test_validate_migrations.py"],
             "verify": ["make quality-gates"],
         },
         "change_api_contract": {
@@ -340,7 +340,7 @@ def build_change_map() -> dict[str, object]:
                 "uv run python scripts/validate_repository_metadata.py",
             ],
             "tests_to_run": [
-                "tests/application/test_validate_repository_metadata.py",
+                "tests/template/test_validate_repository_metadata.py",
             ],
             "verify": ["make quality-gates"],
         },
@@ -361,7 +361,7 @@ def build_change_map() -> dict[str, object]:
                 "uv run python scripts/generate_ai_context.py --check",
             ],
             "tests_to_run": [
-                "tests/application/test_generate_ai_context.py",
+                "tests/template/test_generate_ai_context.py",
             ],
             "common_mistakes": [
                 "debugging broad runtime behavior before checking generated wiring context",

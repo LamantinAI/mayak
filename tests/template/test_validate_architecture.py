@@ -1,4 +1,4 @@
-# FILE: tests/application/test_validate_architecture.py
+# FILE: tests/template/test_validate_architecture.py
 # SUMMARY: Unit tests for the repository architecture boundary validator.
 
 from pathlib import Path

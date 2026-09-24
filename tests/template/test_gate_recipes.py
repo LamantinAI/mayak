@@ -1,4 +1,4 @@
-# FILE: tests/application/test_gate_recipes.py
+# FILE: tests/template/test_gate_recipes.py
 # SUMMARY: Guard the Makefile recipes whose defect is what they do NOT do — a gate that measures
 # less than it claims, or that keeps a second copy of a definition that already exists elsewhere.
 
@@ -122,7 +122,7 @@ class TestToolStepsHaveOneDefinition:
         listed = run(
             ["git", "ls-files", "-z"], cwd=_REPO_ROOT, capture_output=True, text=True, check=True
         )
-        exempt = {"Makefile", "tests/application/test_gate_recipes.py"}
+        exempt = {"Makefile", "tests/template/test_gate_recipes.py"}
         offenders: list[str] = []
         for name in listed.stdout.split("\0"):
             if not name or name in exempt:

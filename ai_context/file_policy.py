@@ -351,7 +351,7 @@ FILE_POLICY_INDEX: dict[str, dict[str, object]] = {
         "edit_zone": "expert",
         "regenerate_if_changed": ["make refresh-ai-context"],
         "validators_if_changed": [
-            "uv run pytest tests/application/test_query_ai_context.py -q",
+            "uv run pytest tests/template/test_query_ai_context.py -q",
             "uv run python scripts/generate_ai_context.py --check",
         ],
         "generated_artifacts": [
@@ -387,7 +387,7 @@ FILE_POLICY_INDEX: dict[str, dict[str, object]] = {
         "edit_zone": "expert",
         "regenerate_if_changed": ["make refresh-ai-context"],
         "validators_if_changed": [
-            "uv run pytest tests/application/test_generate_ai_context.py -q",
+            "uv run pytest tests/template/test_generate_ai_context.py -q",
             "uv run python scripts/generate_ai_context.py --check",
         ],
         "generated_artifacts": [
@@ -423,7 +423,7 @@ FILE_POLICY_INDEX: dict[str, dict[str, object]] = {
         "edit_zone": "expert",
         "regenerate_if_changed": ["make refresh-ai-context"],
         "validators_if_changed": [
-            "uv run pytest tests/application/test_doctor_ai_context.py",
+            "uv run pytest tests/template/test_doctor_ai_context.py",
             "uv run python scripts/doctor_ai_context.py",
             "make quality-gates",
         ],
@@ -458,7 +458,7 @@ FILE_POLICY_INDEX: dict[str, dict[str, object]] = {
         "edit_zone": "expert",
         "regenerate_if_changed": [],
         "validators_if_changed": [
-            "uv run pytest tests/application/test_validate_architecture.py -q",
+            "uv run pytest tests/template/test_validate_architecture.py -q",
             "uv run python scripts/validate_architecture.py",
         ],
         "generated_artifacts": [],
@@ -488,7 +488,7 @@ FILE_POLICY_INDEX: dict[str, dict[str, object]] = {
         "edit_zone": "expert",
         "regenerate_if_changed": [],
         "validators_if_changed": [
-            "uv run pytest tests/application/test_validate_endpoint_wiring.py -q",
+            "uv run pytest tests/template/test_validate_endpoint_wiring.py -q",
             "uv run python scripts/validate_endpoint_wiring.py",
         ],
         "generated_artifacts": [],
@@ -520,7 +520,7 @@ FILE_POLICY_INDEX: dict[str, dict[str, object]] = {
         "edit_zone": "expert",
         "regenerate_if_changed": [],
         "validators_if_changed": [
-            "uv run pytest tests/application/test_validate_runtime_ownership.py -q",
+            "uv run pytest tests/template/test_validate_runtime_ownership.py -q",
             "uv run python scripts/validate_runtime_ownership.py",
         ],
         "generated_artifacts": [],

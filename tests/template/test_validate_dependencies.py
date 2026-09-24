@@ -1,4 +1,4 @@
-# FILE: tests/application/test_validate_dependencies.py
+# FILE: tests/template/test_validate_dependencies.py
 # SUMMARY: Unit tests for the validator that ties runtime imports to declared dependencies.
 
 from __future__ import annotations

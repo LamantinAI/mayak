@@ -1,4 +1,4 @@
-# FILE: tests/application/test_structure_builder.py
+# FILE: tests/template/test_structure_builder.py
 # SUMMARY: Unit tests for project-map generation targeting the dedicated reference document.
 
 import json

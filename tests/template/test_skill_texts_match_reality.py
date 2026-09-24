@@ -1,4 +1,4 @@
-# FILE: tests/application/test_skill_texts_match_reality.py
+# FILE: tests/template/test_skill_texts_match_reality.py
 # SUMMARY: Guard the factual claims the skills make about this repository, so prose cannot drift
 # away from the code it instructs an agent to change.
 # Some tests read a SKILL.md and fail when it stops naming something real — they check that a
@@ -370,7 +370,7 @@ class TestDeletionAccountsForEveryMatch:
     # `reference_task` is a stale instruction, and the check above cannot see one.
     # The forward check only asks whether every matching file is named. A row for a file that
     # stopped matching stays green there forever: the row for
-    # `tests/application/test_validate_test_quality.py` survived the deletion of the span rules that
+    # `tests/template/test_validate_test_quality.py` survived the deletion of the span rules that
     # put `reference_task` in it, and pointed a reader at a file with no trace of the vertical left.
     @pytest.mark.unit
     def test_every_file_the_tables_name_still_carries_the_vertical(self) -> None:
@@ -506,7 +506,7 @@ class TestTheMemoryTagStaysGone:
         offenders = [
             name
             for name in listed.stdout.split()
-            if name != "tests/application/test_skill_texts_match_reality.py"
+            if name != "tests/template/test_skill_texts_match_reality.py"
         ]
 
         assert offenders == [], f"`{phantom}` no longer exists but is still named in: {offenders}"

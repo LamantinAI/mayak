@@ -102,6 +102,10 @@ def _build_test_steps(
                     # functional stack: it starts its own PostgreSQL (tests/db/stack.py) and is
                     # deselected by its conftest when POSTGRES_ENABLED=false. See tests/db/conftest.py.
                     "tests/db",
+                    # The template's own tools are tested only where the template is built: a
+                    # project made from it has no tests/template, and `make init-project` removes
+                    # it along with the reference vertical.
+                    *(["tests/template"] if (ROOT_DIR / "tests" / "template").is_dir() else []),
                     "-q",
                     # The floor is asked for here rather than in pytest.ini's
                     # addopts. addopts reach every pytest invocation, so `uv run pytest

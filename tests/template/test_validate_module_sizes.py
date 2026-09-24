@@ -1,4 +1,4 @@
-# FILE: tests/application/test_validate_module_sizes.py
+# FILE: tests/template/test_validate_module_sizes.py
 # SUMMARY: Unit tests for the production module budget validator, including the guarantee that documentation is not charged against the budget.
 
 from pathlib import Path

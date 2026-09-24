@@ -1,4 +1,4 @@
-# FILE: tests/application/test_validate_runtime_ownership.py
+# FILE: tests/template/test_validate_runtime_ownership.py
 # SUMMARY: Unit tests for the runtime ownership validator.
 
 from pathlib import Path

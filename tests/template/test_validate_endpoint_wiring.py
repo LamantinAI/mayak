@@ -1,4 +1,4 @@
-# FILE: tests/application/test_validate_endpoint_wiring.py
+# FILE: tests/template/test_validate_endpoint_wiring.py
 # SUMMARY: Unit tests for the endpoint-facing wiring contract validator.
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-# FILE: tests/application/test_validate_secrets.py
+# FILE: tests/template/test_validate_secrets.py
 # SUMMARY: Tests for the credential scanner: what it must catch, and what it must not shout about.
 #
 # allow-secret-file: every credential-shaped literal here is a synthetic fixture written to exercise

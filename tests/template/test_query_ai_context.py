@@ -1,4 +1,4 @@
-# FILE: tests/application/test_query_ai_context.py
+# FILE: tests/template/test_query_ai_context.py
 # SUMMARY: Unit tests for the AI context query CLI helpers.
 
 from __future__ import annotations
@@ -807,7 +807,7 @@ class TestWorksetFindsTestsNamedAfterTheFile:
     @pytest.mark.unit
     def test_a_changed_test_runs_itself(self) -> None:
         context_map, _, _ = query_common.context_bundle()
-        changed = "tests/application/test_template_neutrality.py"
+        changed = "tests/template/test_template_neutrality.py"
 
         related = _tests_for(context_map, changed)
 
@@ -890,12 +890,12 @@ class TestEveryFileOfAVerticalFindsThatVerticalsTests:
     @pytest.mark.parametrize(
         ("module", "forbidden"),
         [
-            ("project/core/logging/context.py", "tests/application/test_query_ai_context.py"),
+            ("project/core/logging/context.py", "tests/template/test_query_ai_context.py"),
             (
                 "project/infrastructure/api/dependencies.py",
-                "tests/application/test_validate_dependencies.py",
+                "tests/template/test_validate_dependencies.py",
             ),
-            ("project/core/config.py", "tests/application/test_validate_repository_metadata.py"),
+            ("project/core/config.py", "tests/template/test_validate_repository_metadata.py"),
         ],
     )
     def test_a_file_named_after_no_vertical_pulls_in_no_verticals_tests(
