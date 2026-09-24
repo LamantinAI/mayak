@@ -269,6 +269,7 @@ Project Map: Mayak
 │   │   ├── test_optional_postgres_tooling.py  ---  The template's tools with POSTGRES_ENABLED=false: the migration gate's own rule, the query
 │   │   ├── test_query_ai_context.py  ---  Unit tests for the AI context query CLI helpers.
 │   │   ├── test_run_all_tests.py  ---  Unit tests for the canonical all-tests runner script used by AI agents and developers.
+│   │   ├── test_run_mutations.py  ---  The mutation runner measures the vertical's tests, not the template's checks of its files.
 │   │   ├── test_skill_texts_match_reality.py  ---  Guard the factual claims the skills make about this repository, so prose cannot drift
 │   │   ├── test_structure_builder.py  ---  Unit tests for project-map generation targeting the dedicated reference document.
 │   │   ├── test_sync_agent_docs.py  ---  Unit tests for the generated agent wrapper sync script.

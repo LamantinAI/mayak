@@ -54,6 +54,12 @@ _FAILED_LINE = re.compile(r"^(?:\S+\s+\|\s+)?(FAILED|ERROR) (\S+?)(?: - (.*))?$"
 # Terminal colour sequences Compose adds to its output.
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
+# Every tier runs without tests/template. The extraction tests there hold the vertical's files to
+# the digests the template ships, and every defect changes a file, so each would count as caught by
+# a checksum instead of by a test of what the code does: on 2026-09-24 the manifest test turned up
+# in every catch of a run. The template's own tests measure its tools, not the vertical.
+_WITHOUT_TEMPLATE_TESTS = "--ignore=tests/template"
+
 
 # What one tier did with one version of the code.
 @dataclass
@@ -105,7 +111,12 @@ def run_tier(command: Sequence[str]) -> TierResult:
             capture_output=True,
             text=True,
             timeout=TIER_TIMEOUT_SECONDS,
-            env=os.environ | {"COLUMNS": "300"},
+            env=os.environ
+            | {
+                "COLUMNS": "300",
+                "PYTEST_ADDOPTS": f"{os.environ.get('PYTEST_ADDOPTS', '')} "
+                f"{_WITHOUT_TEMPLATE_TESTS}".strip(),
+            },
         )
     except subprocess.TimeoutExpired:
         return TierResult("timeout", TIER_TIMEOUT_SECONDS)
