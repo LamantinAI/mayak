@@ -256,7 +256,26 @@ CUTS: tuple[Cut, ...] = (
         '> below that names one of them points there. "Deleting the reference vertical" is done.\n',
         keep_in_readme=False,
     ),
+    # The way by hand, for a project where this script refused. Here it has acted, and the files
+    # that section tells an agent to `git rm` are gone already.
+    Cut(
+        ".agents/skills/add-vertical/SKILL.md",
+        "## Deleting the reference vertical",
+        None,
+        "## Deleting the reference vertical\n"
+        "\n"
+        "Done in this project by `make init-project`. The vertical's files are in `scaffold/`, and the\n"
+        "lines it added to shared files are in `scaffold/README.md`. Its table is dropped by\n"
+        f"`{DROP_MIGRATION}`, appended after the three revisions\n"
+        "that created it; those stay, since every database made from the template ran them.\n",
+        keep_in_readme=False,
+    ),
 )
+
+# A check the file policy names for editing a tool, and a test the project no longer has: the
+# template's tool tests leave with tests/template, and a command naming one fails when run.
+_POLICY = "ai_context/file_policy.py"
+_POLICY_TEMPLATE_TEST = '"uv run pytest tests/template/'
 
 
 @dataclass
@@ -483,6 +502,10 @@ def build_plan(root: Path) -> Plan | str:
             removed.append((cut.path, taken))
 
     edited["docs/project_context.json"] = _project_context(_read(root, "docs/project_context.json"))
+    policy = _read(root, _POLICY).splitlines(keepends=True)
+    edited[_POLICY] = "".join(
+        line for line in policy if not line.lstrip().startswith(_POLICY_TEMPLATE_TEST)
+    )
 
     deleted = set(SAMPLE_SHA256)
     for path in TEMPLATE_ONLY:
@@ -530,6 +553,12 @@ def apply_plan(root: Path, plan: Plan) -> list[str]:
             for leftover in sorted(target.rglob("*"), reverse=True):
                 leftover.rmdir() if leftover.is_dir() else leftover.unlink()
             target.rmdir()
+    # The project's own modules first. An editable install puts the checkout the interpreter was
+    # installed from on sys.path, so run against a copy — by the tests, by check-product — the
+    # generators read the template's file policy and rewrote the template's maps, leaving the
+    # copy's stale: measured on 2026-09-24.
+    env = hermetic_env()
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(root), env.get("PYTHONPATH")]))
     failures: list[str] = []
     steps = (
         [
@@ -547,9 +576,7 @@ def apply_plan(root: Path, plan: Plan) -> list[str]:
         ["git", "add", "-A", "--", "docs"],
     )
     for command in steps:
-        result = subprocess.run(
-            command, cwd=root, env=hermetic_env(), capture_output=True, text=True
-        )
+        result = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True)
         if result.returncode != 0:
             failures.append(
                 f"{' '.join(command[:3])}: {(result.stderr or result.stdout).strip()[:300]}"

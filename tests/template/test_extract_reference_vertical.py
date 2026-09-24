@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 from collections.abc import Callable
@@ -53,6 +54,34 @@ def _imports_of_the_vertical(root: Path) -> list[str]:
             if module and "reference_task" in module:
                 found.append(f"{path.relative_to(root)}: {module}")
     return found
+
+
+_PATH = re.compile(r"(?<![\w<>./-])((?:[\w.-]+/)+[\w.-]+\.(?:py|json|md|sh|toml))")
+
+
+# The paths an agent in the project is told to act on — the checks the file policy names for an
+# edit (rendered into docs/ai_context_map.json) and the commands in the skills' code blocks — that
+# the project does not have. A command naming a removed file fails the moment an agent follows it.
+def _missing_paths_an_agent_is_told_to_use(root: Path) -> list[str]:
+    missing: list[str] = []
+
+    def commands(node: object) -> list[str]:
+        if isinstance(node, dict):
+            return [c for value in node.values() for c in commands(value)]
+        if isinstance(node, list):
+            return [c for value in node for c in commands(value)]
+        return [node] if isinstance(node, str) and node.startswith("uv run ") else []
+
+    context_map = json.loads((root / "docs/ai_context_map.json").read_text(encoding="utf-8"))
+    sources = [("docs/ai_context_map.json", "\n".join(commands(context_map)))]
+    for skill in sorted(root.glob(".agents/skills/*/SKILL.md")):
+        blocks = re.findall(r"```[a-z]*\n(.*?)```", skill.read_text(encoding="utf-8"), re.S)
+        sources.append((str(skill.relative_to(root)), "\n".join(blocks)))
+    for source, text in sources:
+        missing += [
+            f"{source}: {path}" for path in _PATH.findall(text) if not (root / path).exists()
+        ]
+    return missing
 
 
 # Inside the pre-commit hook git exports GIT_DIR, and the copy these tests make once ran its
@@ -116,7 +145,9 @@ def test_the_template_itself_is_left_alone(
 
 
 @pytest.mark.unit
-def test_a_project_has_the_vertical_taken_out_once(checkout: Path) -> None:
+def test_a_project_has_the_vertical_taken_out_once(
+    checkout: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     replace_identity(checkout)
     shipped = {
         path: (checkout / path).read_text(encoding="utf-8") for path in extraction.SAMPLE_FILES
@@ -124,6 +155,9 @@ def test_a_project_has_the_vertical_taken_out_once(checkout: Path) -> None:
 
     assert extraction.main(["--root", str(checkout)]) == 0
 
+    # A refusal returns 0 as well; without its reason the failure below would be a bare
+    # FileNotFoundError from the scaffold.
+    assert "reference vertical taken out" in capsys.readouterr().out
     scaffold = checkout / extraction.SCAFFOLD
     assert {path: (scaffold / path).read_text(encoding="utf-8") for path in shipped} == shipped
     assert not any((checkout / path).exists() for path in shipped)
@@ -133,6 +167,7 @@ def test_a_project_has_the_vertical_taken_out_once(checkout: Path) -> None:
     assert "reference_task" not in context["verticals"]
     drop = (checkout / extraction.DROP_MIGRATION).read_text(encoding="utf-8")
     assert f'down_revision: Union[str, None] = "{extraction.SAMPLE_HEAD}"' in drop
+    assert _missing_paths_an_agent_is_told_to_use(checkout) == []
     assert extraction.build_plan(checkout) == (
         "already done: the reference vertical is in " + extraction.SCAFFOLD
     )
