@@ -32,16 +32,24 @@ nothing to do with what you were changing.
 4. `make update-deps` — this is `uv lock`, and it is what makes step 3's `pyproject.toml` rename
    real. Skipping it leaves `uv.lock` naming the template package, and `uv lock --check` — the
    first line of `make quality-gates` — fails on a file you did not touch.
-5. `make refresh-generated-docs`. `docs/project_map.md` renders the project name from
+5. `make init-project` again. With `is_template: false` it now takes the reference vertical out of
+   the application, once: its files move to `.agents/skills/add-vertical/scaffold/` (same relative
+   paths — read them there before writing your first vertical), their lines in the shared wiring
+   files are cut, a migration dropping its table is appended, and the template's own tool tests
+   (`tests/template/`) and mutation catalogue go. The changes are staged for `git diff --cached`.
+   It refuses, and changes nothing, while `project_name` still names the template, while a file of
+   the vertical differs from what the template shipped, or once a vertical of your own exists —
+   then follow "Deleting the reference vertical" in `.agents/skills/add-vertical` by hand.
+6. `make refresh-generated-docs`. `docs/project_map.md` renders the project name from
    `docs/project_context.json`, and the agent wrappers are generated too; without this the next gate fails
    on artifact drift rather than on your work.
-6. Decide whether this project needs a relational store. If it does not — a vector-search-only or
+7. Decide whether this project needs a relational store. If it does not — a vector-search-only or
    stateless service — set `POSTGRES_ENABLED=false` in `.env` and say so in the `postgres` entry of
    `docs/project_context.json`. The kernel then starts without a connection pool, runs no
    migrations, and stops reporting the database as a critical readiness check. Leaving the default
    `true` keeps PostgreSQL required, which is right for most services. See
    `docs/adr/ADR-006-optional-postgres.md`.
-7. `make quality-gates`, then continue with `.agents/skills/add-vertical` for the first feature.
+8. `make quality-gates`, then continue with `.agents/skills/add-vertical` for the first feature.
 
 ## The six places the template's identity lives
 

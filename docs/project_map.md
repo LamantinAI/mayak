@@ -163,8 +163,10 @@ Project Map: Mayak
 │   └── __init__.py  ---  Root package for the application.
 ├── scripts/
 │   ├── __init__.py
+│   ├── check_product_from_template.py  ---  Build a throwaway project from this checkout the way a new service is made, and check it.
 │   ├── create_env_file.py
 │   ├── doctor_ai_context.py
+│   ├── extract_reference_vertical.py  ---  Take the reference vertical out of a project made from the template — once, all or nothing.
 │   ├── generate_ai_context.py
 │   ├── query_ai_context.py
 │   ├── run_all_tests.py
@@ -230,6 +232,7 @@ Project Map: Mayak
 │   ├── functional/
 │   │   ├── src/
 │   │   │   ├── __init__.py
+│   │   │   ├── test_health_api.py  ---  The kernel over HTTP in the built image: it serves, and it finds its migrated database ready.
 │   │   │   ├── test_migration_lock.py  ---  Prove that two processes migrating the same fresh database at once both succeed.
 │   │   │   └── test_reference_tasks_api.py  ---  Smoke test of the reference vertical in the built image: HTTP into the container, rows in its database.
 │   │   ├── utils/
@@ -260,6 +263,7 @@ Project Map: Mayak
 │   │   ├── test_ai_query_zone_lookup.py  ---  Unit tests for zone_for_path FILE_POLICY-first resolution and EDIT_ZONES fallback.
 │   │   ├── test_create_env_file.py  ---  Tests for the .env creation step — what it generates, what it copies, what it refuses to touch.
 │   │   ├── test_doctor_ai_context.py  ---  Unit tests for the AI-context doctor entrypoint.
+│   │   ├── test_extract_reference_vertical.py  ---  Taking the reference vertical out of a project: nothing in the template, everything once in
 │   │   ├── test_gate_recipes.py  ---  Guard the Makefile recipes whose defect is what they do NOT do — a gate that measures
 │   │   ├── test_generate_ai_context.py  ---  Unit tests for the AI context map generator script.
 │   │   ├── test_optional_postgres_tooling.py  ---  The template's tools with POSTGRES_ENABLED=false: the migration gate's own rule, the query

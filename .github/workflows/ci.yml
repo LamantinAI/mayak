@@ -157,6 +157,54 @@ jobs:
         working-directory: tests/functional
         run: docker compose down -v --remove-orphans
 
+  # A project made from this template today: its identity replaced, the reference vertical taken
+  # out by the script `make init-project` runs, its inherited Python counted against a ceiling,
+  # then its own gates and e2e — scripts/check_product_from_template.py. The template's gates prove
+  # the template; only this proves what a new service starts from.
+  product-from-template:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scaffold_ci
+          POSTGRES_PASSWORD: scaffold_ci
+          POSTGRES_DB: scaffold_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scaffold_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_USER: scaffold_ci
+      POSTGRES_PASSWORD: scaffold_ci
+      POSTGRES_DB: scaffold_ci
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      TEST_DATABASE_URL: postgresql://scaffold_ci:scaffold_ci@localhost:5432/scaffold_ci_test  # allow-secret: the throwaway CI service credentials declared above
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Make a project from the template and run its gates and e2e
+        run: make check-product
+
   # Runs on its own so a credential-shaped literal is reported even when another gate fails first.
   # The scanner is offline and pattern-based; a dedicated tool such as gitleaks is the upgrade path
   # if this repository ever needs history scanning as well as working-tree scanning.

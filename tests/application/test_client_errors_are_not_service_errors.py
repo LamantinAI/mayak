@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
+from pydantic import BaseModel
 
 from project.domain.exceptions import (
     AuthenticationError,
@@ -29,6 +30,16 @@ from project.domain.exceptions import (
 )
 from project.core.logging import get_logger
 from project.infrastructure.api.exception_handlers import _project_error_status
+
+
+# A body the framework itself validates, so a request missing `title` is refused before any
+# service runs — the shape a malformed request takes in every vertical, with no vertical needed.
+class _Body(BaseModel):
+    title: str
+
+
+async def _accept_body(body: _Body) -> dict[str, str]:
+    return {"title": body.title}
 
 
 def _wire_raising_route(app: FastAPI, path: str, exc: Exception) -> None:
@@ -102,9 +113,10 @@ class TestAClientErrorReadsAsOne:
     async def test_a_malformed_request_body_is_a_client_error(
         self, fastapi_app: FastAPI, async_client: AsyncClient, log_capture: list[dict]
     ) -> None:
+        fastapi_app.add_api_route("/__test_body", _accept_body, methods=["POST"])
         log_capture.clear()
 
-        response = await async_client.post("/reference-tasks", json={"title": ""})
+        response = await async_client.post("/__test_body", json={})
 
         assert response.status_code == 422
         issues = [event for event in _events_from(log_capture) if "error" in event[0]]
@@ -114,8 +126,8 @@ class TestAClientErrorReadsAsOne:
 
 # The hole the class above did not cover: exception_handlers.py judges 4xx-vs-5xx
 # correctly, but a ConflictError raised INSIDE a nested span — a repository call, an
-# application-layer span; see project/infrastructure/persistence/reference_task_repository.py for
-# the copyable pattern every vertical's own db.* span follows — never reaches that handler first.
+# application-layer span, the db.<vertical>.<operation> span every repository opens — never
+# reaches that handler first.
 # project.core.logging.logger.span()'s own `except Exception` branch sees it first, and without
 # the fix this test pins, judges every exception the same way: ERROR level, full traceback,
 # whatever it was going to become. Two independent agents building real projects on this template

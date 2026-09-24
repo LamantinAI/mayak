@@ -206,8 +206,11 @@ too): either **routes absent** — what the reference vertical does — or **rou
 
 ## Deleting the reference vertical
 
-Once your own vertical works, the shipped one is dead weight in your repository. Every file is
-named `reference_task*`, so removal is mechanical:
+In a project, `make init-project` does this once the identity is replaced
+(`.agents/skills/initialize-project`, step 5): it keeps a copy in `scaffold/` next to this file,
+appends the drop migration below and stages the result. What follows is what it does, and the way
+by hand when it refuses — a file of the vertical already edited, or a vertical of your own in place.
+Every file is named `reference_task*`, so removal is mechanical:
 
 ```bash
 git rm project/domain/reference_task.py \
@@ -299,6 +302,9 @@ the vertical without appearing below — trust that test, and the table it check
 | `tests/application/test_functional_request_helpers.py` | a fixture `GET /reference-tasks/<uuid>` |
 | `tests/template/test_gate_recipes.py` | a synthetic `SELECT ... FROM reference_tasks` string |
 | `tests/application/test_trace_formatter_failure_visibility.py` | a fixture span name and path in recorded NDJSON |
+| `scripts/extract_reference_vertical.py` | the script that takes the vertical out; it removes itself |
+| `scripts/check_product_from_template.py` | the template's check of a project made from it; removed with the vertical |
+| `tests/template/test_extract_reference_vertical.py` | tests the extraction; `tests/template` goes with the vertical |
 
 Every one of those is fixture text about a vertical, or a document that names the thing it removes —
 not a use of the vertical. A file outside the table and the three categories means the prose step

@@ -22,6 +22,7 @@
       "Bash(make security-scan)",
       "Bash(make audit-deps)",
       "Bash(make ci-local)",
+      "Bash(make check-product)",
       "Bash(make test)",
       "Bash(make test-all)",
       "Bash(make test-db-down)",

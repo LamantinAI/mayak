@@ -309,6 +309,7 @@ _CI_JOB_TO_LOCAL_COVER: dict[str, str] = {
     "diff-coverage": "diff-coverage",
     "secret-scan": _INSIDE_THE_GATE_SUITE,
     "type-check": _INSIDE_THE_GATE_SUITE,
+    "product-from-template": "check-product",
 }
 
 

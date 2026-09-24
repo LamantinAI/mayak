@@ -223,7 +223,7 @@ def build_change_map() -> dict[str, object]:
                 "uv run python scripts/run_all_tests.py --skip-functional",
             ],
             "tests_to_run": [
-                "tests/template/test_validate_migrations.py",
+                "tests/db/test_migrations_match_models.py",
             ],
             "verify": ["make quality-gates"],
         },
@@ -245,7 +245,7 @@ def build_change_map() -> dict[str, object]:
                 "make quality-gates",
             ],
             "minimal_checks": ["uv run python scripts/validate_migrations.py"],
-            "tests_to_run": ["tests/template/test_validate_migrations.py"],
+            "tests_to_run": ["tests/db/test_migrations_match_models.py"],
             "verify": ["make quality-gates"],
         },
         "change_api_contract": {

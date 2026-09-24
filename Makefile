@@ -1,4 +1,4 @@
-.PHONY: print-generated-paths refresh-generated-unless-strict checksum-generated gate-lockfile gate-lint gate-format gate-types gate-tests help logs logs-raw init-project refresh-ai-context refresh-agent-docs refresh-project-map refresh-generated-docs ai-autofix quality-gates quality-gates-steps doctor doctor-json test test-all test-e2e diff-coverage smoke run-local migrate autogenerate-migration format-trace update-deps audit-deps security-scan ci-local db-up-worktree db-down-worktree
+.PHONY: check-product print-generated-paths refresh-generated-unless-strict checksum-generated gate-lockfile gate-lint gate-format gate-types gate-tests help logs logs-raw init-project refresh-ai-context refresh-agent-docs refresh-project-map refresh-generated-docs ai-autofix quality-gates quality-gates-steps doctor doctor-json test test-all test-e2e diff-coverage smoke run-local migrate autogenerate-migration format-trace update-deps audit-deps security-scan ci-local db-up-worktree db-down-worktree
 
 # Auto-discover uv; override with UV=/path/to/uv if needed.
 UV := $(shell command -v uv 2>/dev/null || echo /opt/homebrew/bin/uv)
@@ -105,6 +105,11 @@ init-project:
 		echo "  rule enforces the pair from that point on."; \
 		echo ""; \
 	fi
+	@# In a project, once the identity is replaced, the reference vertical moves out of the
+	@# application into .agents/skills/add-vertical/scaffold/ — once; the script removes itself.
+	@if [ -f scripts/extract_reference_vertical.py ]; then \
+		$(UV) run python scripts/extract_reference_vertical.py; \
+	fi
 	@if [ "$(VERIFY)" = "1" ]; then \
 		$(MAKE) quality-gates; \
 	fi
@@ -122,6 +127,15 @@ refresh-project-map: ## Refresh generated artifacts | Regenerate docs/project_ma
 # write files. With the map first, a new generated file left `make refresh-generated-docs`
 # immediately followed by a red `structure_builder --check`.
 refresh-generated-docs: refresh-ai-context refresh-agent-docs refresh-project-map ## Refresh generated artifacts | All of the above, in dependency order
+
+# Template only: builds a throwaway project from this checkout, takes the reference vertical out,
+# counts the Python it inherits and runs its gates and e2e. A project has no script to run.
+check-product: ## Validation | Make a project from this template and run its gates
+	@if [ -f scripts/check_product_from_template.py ]; then \
+		$(UV) run python scripts/check_product_from_template.py --gates --e2e; \
+	else \
+		echo "check-product belongs to the template; this project was made from it already."; \
+	fi
 
 ai-autofix: ## Validation | Auto-format + fix lint
 	$(UV) run ruff format $(PYTHON_SOURCES)
@@ -322,17 +336,19 @@ security-scan: ## Validation | bandit security scan over project/
 # `make quality-gates` refreshes instead — by the time you reach ci-local the artifacts are
 # already fresh, so this lane only fires for someone who skipped the gate entirely. Lane 2 sets
 # nothing of the sort: `gate-tests` never touches a generated artifact, so there is nothing to guard.
-ci-local: ## Validation | Everything CI runs, locally: the full gate, the no-Postgres path, audit, e2e
-	@echo "===> 1/5 quality-gates"
+ci-local: ## Validation | Everything CI runs, locally: the full gate, the no-Postgres path, audit, e2e, a project from the template
+	@echo "===> 1/6 quality-gates"
 	@STRICT_GENERATED=1 $(MAKE) --no-print-directory quality-gates
-	@echo "===> 2/5 tests and migrations without PostgreSQL"
+	@echo "===> 2/6 tests and migrations without PostgreSQL"
 	@POSTGRES_ENABLED=false $(MAKE) --no-print-directory gate-tests && POSTGRES_ENABLED=false $(UV) run python scripts/validate_migrations.py
-	@echo "===> 3/5 dependency audit"
+	@echo "===> 3/6 dependency audit"
 	@$(MAKE) --no-print-directory audit-deps
-	@echo "===> 4/5 diff coverage"
+	@echo "===> 4/6 diff coverage"
 	@$(MAKE) --no-print-directory diff-coverage
-	@echo "===> 5/5 functional tests"
+	@echo "===> 5/6 functional tests"
 	@$(MAKE) --no-print-directory test-e2e
+	@echo "===> 6/6 a project made from the template"
+	@$(MAKE) --no-print-directory check-product
 	@echo "===> ci-local: all lanes passed"
 
 # MAYAK_DOCTOR_SUBPROCESS is cleared, not merely unset-by-default. The doctor sets it on the

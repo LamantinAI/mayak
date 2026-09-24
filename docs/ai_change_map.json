@@ -120,7 +120,7 @@
         "make quality-gates"
       ],
       "tests_to_run": [
-        "tests/template/test_validate_migrations.py"
+        "tests/db/test_migrations_match_models.py"
       ],
       "verify": [
         "make quality-gates"
@@ -156,7 +156,7 @@
         ]
       },
       "tests_to_run": [
-        "tests/template/test_validate_migrations.py"
+        "tests/db/test_migrations_match_models.py"
       ],
       "verify": [
         "make quality-gates"
