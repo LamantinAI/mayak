@@ -881,9 +881,12 @@ class TestTheGateFixesLocallyAndFailsStrictly:
         return root
 
     # `uv run <tool>` answered by this environment's own tool, so the recipe runs in a throwaway
-    # repository without uv building an environment for it there.
+    # repository without uv building an environment for it there. STRICT_RUFF comes only from
+    # `env`: CI's gate job and ci-local export it, and inherited it turned the local case into the
+    # strict one — the recipe fixed nothing and this test failed there and nowhere else.
     @staticmethod
     def _fix(repo: Path, shim_dir: Path, **env: str) -> CompletedProcess[str]:
+        inherited = {key: value for key, value in hermetic_env().items() if key != "STRICT_RUFF"}
         shim = shim_dir / "uv"
         shim.write_text(
             f'#!/bin/sh\n[ "$1" = run ] && shift\ntool=$1\nshift\n'
@@ -902,7 +905,7 @@ class TestTheGateFixesLocallyAndFailsStrictly:
                 "PYTHON_SOURCES=src",
             ],
             cwd=repo,
-            env={**hermetic_env(), **env},
+            env={**inherited, **env},
             capture_output=True,
             text=True,
         )
