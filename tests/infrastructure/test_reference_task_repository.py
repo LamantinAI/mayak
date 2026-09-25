@@ -1,7 +1,7 @@
 # FILE: tests/infrastructure/test_reference_task_repository.py
 # SUMMARY: Fast checks for the row -> domain mapper; the driver contract itself is proven functionally.
 # NOTE: These tests hand the mapper the types psycopg really produces. They cannot prove that psycopg
-# produces them — that is what tests/functional/src/test_reference_task_repository.py is for.
+# produces them — that is what tests/db/test_reference_task_repository.py is for.
 
 from __future__ import annotations
 

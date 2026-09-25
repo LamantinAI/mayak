@@ -2,7 +2,28 @@
 
 ## Status
 
-Accepted (2026-09-08)
+Accepted (2026-09-08). Amended 2026-09-24: the db tier — see the section below; the Decision and
+the two measured sections after it describe the gates as they were before it.
+
+## Since 2026-09-24: the db tier runs the queries
+
+`make test`, and therefore `make quality-gates` through `gate-tests`, now includes `tests/db`: tests
+that call a repository against a real PostgreSQL. The tier starts one for the checkout itself
+(`tests/db/stack.py`, a tmpfs container on a port derived from the checkout's path) or uses
+`TEST_DATABASE_URL` (CI); every session it drops and recreates its database, builds the schema from
+nothing with `alembic upgrade head` and runs `alembic check`, both through
+`scripts/validate_migrations.py`; it empties every application table before each test. From nothing,
+because a database kept between runs never re-ran an edited migration that had already been applied —
+the mutation baseline caught exactly that. An unreachable database is an error, not a skip; `POSTGRES_ENABLED=false`
+deselects the tier and says so.
+
+What that changed, measured with `uv run python scripts/run_mutations.py` against the reference
+vertical: an INSERT with two columns exchanged and a migration narrower than the ORM column were
+caught only by `make test-e2e` before and are caught by `make test` now; six SQL defects the fast
+suite caught only through a literal-text pin are now also caught by a test that runs the query. The
+pins stay until a rewrite of the reference tests shows the db tier alone catches everything they
+did. `make test-e2e` remains the only place the built image, its entrypoint and HTTP against the
+running container are exercised.
 
 ## Decision
 
@@ -51,4 +72,5 @@ before that skip, with no database needed: a second head and a `down_revision` n
 
 - `scripts/validate_test_quality.py` — `test.sql_constant_round_trip`.
 - `scripts/validate_migrations.py` — the skip, its CI override, and the two graph checks.
-- `Makefile` — `quality-gates`, `quality-gates-steps`, `test-e2e`, `db-up-worktree`.
+- `Makefile` — `quality-gates`, `quality-gates-steps`, `test-e2e`, `db-up-worktree`, `test-db-down`.
+- `tests/db/conftest.py`, `tests/db/stack.py` — the db tier.

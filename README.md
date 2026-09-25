@@ -174,8 +174,8 @@ the example afterwards.
 Three commands, in order of cost:
 
 ```bash
-make quality-gates    # ~15 s — lint, format, types, eleven validators, unit and integration tests
-make test-e2e         # ~25 s — the functional suite against a real Postgres in Docker
+make quality-gates    # ~25 s — lint, format, types, validators, unit tests and the db tier
+make test-e2e         # ~25 s — the built image over HTTP against a real Postgres in Docker
 make ci-local         # ~75 s — everything the pipeline runs, both database modes included
 ```
 
@@ -184,19 +184,14 @@ checking them, so a stale artifact prints a notice instead of a red gate, and it
 itself when something fails — the doctor names the blocking layer and prints the shape of the fix
 rather than a wall of output.
 
-Two things it cannot do, worth knowing before you trust a green run:
-
-- **It runs none of your SQL, so catching a bad query depends on a test pinning the clause as
-  literal text.** Reversing an `ORDER BY` in the shipped repository was green everywhere but
-  `make test-e2e` on 2026-08-12; remeasured 2026-08-24, the same reversal now fails
-  `make quality-gates` in seconds, on the literal-text assertion in
-  `test_reference_task_repository.py` — not on the `test.sql_constant_round_trip` validator, which
-  still exits 0, because it only checks that some clause is pinned, not that the pinned text is
-  right. A change under `project/infrastructure/persistence/`,
-  `project/infrastructure/api/endpoints/`, or the wiring files is still finished by the functional
-  suite.
-- **The migration check downgrades itself** to an informational skip when no database is reachable,
-  so run it against one before trusting a green migration gate. In CI the skip is a hard failure.
+Its test run includes the **db tier** (`tests/db`): repository tests that run their SQL against a
+PostgreSQL the tier starts for this checkout in Docker, in a database created for the session and
+migrated from nothing (`alembic upgrade head`, then `alembic check`). That is where a bad query or a migration that disagrees with the models goes red —
+until 2026-09-24 both were caught only by `make test-e2e` or by a test pinning the query's text.
+Without Docker, point it at a database you control with `TEST_DATABASE_URL`; a project with
+`POSTGRES_ENABLED=false` skips the tier and says so. What it still cannot see: the built image, its
+entrypoint, and HTTP against the running container — a change to endpoints, wiring or a migration
+is finished by `make test-e2e`.
 
 `make ai-autofix` fixes formatting, lint and comment markup in one pass. Never hand-edit generated
 files — `CLAUDE.md`, `AGENTS.md`, `docs/project_map.md` and `docs/ai_*.json` are rewritten from

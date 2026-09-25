@@ -110,6 +110,10 @@ def _build_test_steps(
                     "tests/application",
                     "tests/infrastructure",
                     "tests/integration",
+                    # **LOGIC_STEP**: The db tier runs here, in the fast suite, not with the Docker
+                    # functional stack: it starts its own PostgreSQL (tests/db/stack.py) and is
+                    # deselected by its conftest when POSTGRES_ENABLED=false. See tests/db/conftest.py.
+                    "tests/db",
                     "-q",
                     # **LOGIC_STEP**: The floor is asked for here rather than in pytest.ini's
                     # addopts. addopts reach every pytest invocation, so `uv run pytest

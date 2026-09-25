@@ -188,7 +188,7 @@
     "test_list_by_status_filters_and_orders_newest_first",
     "test_list_filters_by_status_and_orders_newest_first"
    ],
-   "mechanism": "fast tier only through the SQL-text pin in tests/infrastructure/test_reference_task_repository.py; behaviour seen only in e2e"
+   "mechanism": "fast tier, twice: the SQL-text pin in tests/infrastructure/test_reference_task_repository.py and a db-tier test that runs the query (tests/db); until the db tier (2026-09-24) the behaviour was seen only in e2e"
   },
   {
    "id": "list_order_ascending",
@@ -202,7 +202,7 @@
     "test_list_by_status_filters_and_orders_newest_first",
     "test_list_filters_by_status_and_orders_newest_first"
    ],
-   "mechanism": "fast tier only through the SQL-text pin in tests/infrastructure/test_reference_task_repository.py; behaviour seen only in e2e"
+   "mechanism": "fast tier, twice: the SQL-text pin in tests/infrastructure/test_reference_task_repository.py and a db-tier test that runs the query (tests/db); until the db tier (2026-09-24) the behaviour was seen only in e2e"
   },
   {
    "id": "list_order_dropped",
@@ -216,7 +216,7 @@
     "test_list_by_status_filters_and_orders_newest_first",
     "test_list_filters_by_status_and_orders_newest_first"
    ],
-   "mechanism": "fast tier only through the SQL-text pin in tests/infrastructure/test_reference_task_repository.py; behaviour seen only in e2e"
+   "mechanism": "fast tier, twice: the SQL-text pin in tests/infrastructure/test_reference_task_repository.py and a db-tier test that runs the query (tests/db); until the db tier (2026-09-24) the behaviour was seen only in e2e"
   },
   {
    "id": "list_limit_ignored",
@@ -229,7 +229,7 @@
     "test_list_binds_status_and_limit_instead_of_formatting_them",
     "test_list_by_status_respects_limit"
    ],
-   "mechanism": "fast tier only through the SQL-text pin in tests/infrastructure/test_reference_task_repository.py; behaviour seen only in e2e"
+   "mechanism": "fast tier, twice: the SQL-text pin in tests/infrastructure/test_reference_task_repository.py and a db-tier test that runs the query (tests/db); until the db tier (2026-09-24) the behaviour was seen only in e2e"
   },
   {
    "id": "update_token_loosened",
@@ -243,7 +243,7 @@
     "test_update_refuses_a_row_another_writer_moved",
     "test_concurrent_patches_never_lose_a_write_that_reported_success"
    ],
-   "mechanism": "fast tier only through the SQL-text pin in tests/infrastructure/test_reference_task_repository.py; behaviour seen only in e2e"
+   "mechanism": "fast tier, twice: the SQL-text pin in tests/infrastructure/test_reference_task_repository.py and a db-tier test that runs the query (tests/db); until the db tier (2026-09-24) the behaviour was seen only in e2e"
   },
   {
    "id": "update_set_title_details_swapped",
@@ -256,7 +256,7 @@
     "test_update_binds_the_new_state_and_the_expected_timestamp",
     "test_update_writes_the_new_state_and_returns_it"
    ],
-   "mechanism": "fast tier only through the SQL-text pin in tests/infrastructure/test_reference_task_repository.py; behaviour seen only in e2e"
+   "mechanism": "fast tier, twice: the SQL-text pin in tests/infrastructure/test_reference_task_repository.py and a db-tier test that runs the query (tests/db); until the db tier (2026-09-24) the behaviour was seen only in e2e"
   },
   {
    "id": "insert_title_details_swapped",
@@ -269,7 +269,7 @@
     "test_create_then_read_round_trip",
     "test_created_task_is_persisted_in_the_database"
    ],
-   "mechanism": "e2e only: the INSERT column list is pinned by nothing in the fast tier, only its parameters"
+   "mechanism": "direct, db tier: the round trip compares whole objects with distinct title and details (e2e only before the db tier)"
   },
   {
    "id": "insert_stamps_swapped",
@@ -394,11 +394,11 @@
     "test_alembic_head_matches_the_orm_metadata",
     "test_the_title_bound_is_the_number_the_migration_wrote"
    ],
-   "mechanism": "e2e only (alembic head vs ORM metadata); test_the_title_bound_is_the_number_the_migration_wrote pins the constant, not the migration"
+   "mechanism": "direct, db tier: `alembic check` on a database migrated from nothing (e2e only before the db tier); test_the_title_bound_is_the_number_the_migration_wrote pins the constant, not the migration"
   }
  ],
  "baseline": {
-  "commit": "9dc446d",
+  "commit": "a936d06",
   "results": {
    "create_blank_title_allowed": {
     "verdict": "caught:fast",
@@ -490,6 +490,7 @@
       "test_update_changes_only_the_supplied_fields"
      ],
      "e2e": [
+      "test_concurrent_patches_never_lose_a_write_that_reported_success",
       "test_patch_changes_one_field_and_leaves_the_rest"
      ]
     }
@@ -535,11 +536,11 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_list_binds_status_and_limit_instead_of_formatting_them"
+      "test_list_binds_status_and_limit_instead_of_formatting_them",
+      "test_list_by_status_filters_and_orders_newest_first",
+      "test_list_by_status_respects_limit"
      ],
      "e2e": [
-      "test_list_by_status_filters_and_orders_newest_first",
-      "test_list_by_status_respects_limit",
       "test_list_filters_by_status_and_orders_newest_first"
      ]
     }
@@ -548,9 +549,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_list_binds_status_and_limit_instead_of_formatting_them"
-     ],
-     "e2e": [
+      "test_list_binds_status_and_limit_instead_of_formatting_them",
       "test_list_by_status_filters_and_orders_newest_first"
      ]
     }
@@ -559,9 +558,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_list_binds_status_and_limit_instead_of_formatting_them"
-     ],
-     "e2e": [
+      "test_list_binds_status_and_limit_instead_of_formatting_them",
       "test_list_by_status_filters_and_orders_newest_first"
      ]
     }
@@ -570,9 +567,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_list_binds_status_and_limit_instead_of_formatting_them"
-     ],
-     "e2e": [
+      "test_list_binds_status_and_limit_instead_of_formatting_them",
       "test_list_by_status_respects_limit"
      ]
     }
@@ -581,11 +576,11 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_update_binds_the_new_state_and_the_expected_timestamp"
+      "test_update_binds_the_new_state_and_the_expected_timestamp",
+      "test_update_refuses_a_row_another_writer_moved"
      ],
      "e2e": [
-      "test_concurrent_patches_never_lose_a_write_that_reported_success",
-      "test_update_refuses_a_row_another_writer_moved"
+      "test_concurrent_patches_never_lose_a_write_that_reported_success"
      ]
     }
    },
@@ -593,33 +588,31 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_update_binds_the_new_state_and_the_expected_timestamp"
+      "test_update_binds_the_new_state_and_the_expected_timestamp",
+      "test_update_refuses_a_row_another_writer_moved",
+      "test_update_writes_the_new_state_and_returns_it"
      ],
      "e2e": [
       "test_concurrent_patches_never_lose_a_write_that_reported_success",
       "test_patch_changes_one_field_and_leaves_the_rest",
       "test_patch_with_an_explicit_null_empties_the_column",
-      "test_two_sequential_patches_of_different_fields_both_survive",
-      "test_update_refuses_a_row_another_writer_moved",
-      "test_update_writes_the_new_state_and_returns_it"
+      "test_two_sequential_patches_of_different_fields_both_survive"
      ]
     }
    },
    "insert_title_details_swapped": {
-    "verdict": "caught:e2e",
+    "verdict": "caught:fast",
     "caught_by": {
+     "fast": [
+      "test_get_returns_domain_types_not_driver_types"
+     ],
      "e2e": [
       "test_concurrent_patches_never_lose_a_write_that_reported_success",
       "test_create_then_read_round_trip",
       "test_created_task_is_persisted_in_the_database",
-      "test_get_returns_domain_types_not_driver_types",
-      "test_list_by_status_filters_and_orders_newest_first",
-      "test_list_by_status_respects_limit",
       "test_list_filters_by_status_and_orders_newest_first",
       "test_patch_changes_one_field_and_leaves_the_rest",
-      "test_two_sequential_patches_of_different_fields_both_survive",
-      "test_update_refuses_a_row_another_writer_moved",
-      "test_update_writes_the_new_state_and_returns_it"
+      "test_two_sequential_patches_of_different_fields_both_survive"
      ]
     }
    },
@@ -631,18 +624,18 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
+      "test_get_returns_domain_types_not_driver_types",
       "test_optional_details_survive_as_none",
-      "test_row_maps_to_the_expected_domain_object"
+      "test_row_maps_to_the_expected_domain_object",
+      "test_update_refuses_a_row_another_writer_moved",
+      "test_update_writes_the_new_state_and_returns_it"
      ],
      "e2e": [
       "test_concurrent_patches_never_lose_a_write_that_reported_success",
       "test_create_then_read_round_trip",
-      "test_get_returns_domain_types_not_driver_types",
       "test_list_filters_by_status_and_orders_newest_first",
       "test_patch_with_an_explicit_null_empties_the_column",
-      "test_two_sequential_patches_of_different_fields_both_survive",
-      "test_update_refuses_a_row_another_writer_moved",
-      "test_update_writes_the_new_state_and_returns_it"
+      "test_two_sequential_patches_of_different_fields_both_survive"
      ]
     }
    },
@@ -651,14 +644,14 @@
     "caught_by": {
      "fast": [
       "test_get_maps_a_returned_row_through_the_domain_converter",
+      "test_get_returns_domain_types_not_driver_types",
+      "test_list_by_status_filters_and_orders_newest_first",
       "test_list_maps_every_row",
       "test_row_maps_to_the_expected_domain_object"
      ],
      "e2e": [
       "test_concurrent_patches_never_lose_a_write_that_reported_success",
       "test_create_then_read_round_trip",
-      "test_get_returns_domain_types_not_driver_types",
-      "test_list_by_status_filters_and_orders_newest_first",
       "test_list_filters_by_status_and_orders_newest_first",
       "test_patch_changes_one_field_and_leaves_the_rest",
       "test_patch_with_an_explicit_null_empties_the_column",
@@ -719,6 +712,9 @@
       "test_a_domain_error_answered_4xx_is_a_client_error",
       "test_conflict_error_maps_to_409",
       "test_patch_of_a_task_that_moved_returns_409"
+     ],
+     "e2e": [
+      "test_concurrent_patches_never_lose_a_write_that_reported_success"
      ]
     }
    },
@@ -753,9 +749,9 @@
     }
    },
    "migration_title_shorter": {
-    "verdict": "caught:e2e",
+    "verdict": "caught:fast",
     "caught_by": {
-     "e2e": [
+     "fast": [
       "test_alembic_head_matches_the_orm_metadata"
      ]
     }

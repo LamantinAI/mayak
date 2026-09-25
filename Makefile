@@ -17,7 +17,7 @@ PYTHON_SOURCES = project tests ai_context ai_query scripts
 # Running a test does not check an annotation. `adapter: SomePort = _Fake()` is an assertion no
 # interpreter evaluates and no Protocol enforces at runtime, so a fake whose signature had drifted
 # from LLMPort kept a green test that proved nothing.
-MYPY_TARGETS = project scripts ai_context ai_query alembic tests/functional tests/application tests/infrastructure tests/integration tests/support tests/conftest.py
+MYPY_TARGETS = project scripts ai_context ai_query alembic tests/functional tests/application tests/infrastructure tests/integration tests/db tests/support tests/conftest.py
 
 # Does this project use a relational store? Asked through the same reader the migration gate
 # uses (scripts/validate_migrations.py::postgres_is_enabled), so there is one implementation of
@@ -346,11 +346,16 @@ doctor:
 doctor-json:
 	@MAYAK_DOCTOR_SUBPROCESS= $(UV) run python scripts/doctor_ai_context.py --json
 
-test: ## Testing | Unit + integration (skip functional)
+test: ## Testing | Unit, integration and the db tier (starts its own PostgreSQL; skips functional)
 	$(UV) run python scripts/run_all_tests.py --skip-functional
 
 test-all: ## Testing | All tests including functional
 	$(UV) run python scripts/run_all_tests.py
+
+# The db tier's PostgreSQL stays up between runs, so the next `make test` skips its start; this is
+# how to take it down. Its data lives in tmpfs, so nothing is lost that a test needs.
+test-db-down: ## Testing | Stop this checkout's db-tier PostgreSQL
+	@$(UV) run python tests/db/stack.py down
 
 test-e2e: ## Testing | Functional tests only (Docker)
 	$(UV) run python scripts/run_all_tests.py --functional-only
@@ -382,7 +387,7 @@ diff-coverage:
 		echo "$$untracked" | sed 's/^/    /'; \
 		echo "    Run 'git add' on them and re-run; a commit is not needed."; \
 	fi
-	$(UV) run python -m pytest tests/application tests/infrastructure tests/integration \
+	$(UV) run python -m pytest tests/application tests/infrastructure tests/integration tests/db \
 		--cov=project --cov-report=xml --cov-report=term-missing -q
 	$(UV) run --with diff-cover diff-cover coverage.xml \
 		--compare-branch=$(DIFF_COMPARE_BRANCH) --fail-under=80
