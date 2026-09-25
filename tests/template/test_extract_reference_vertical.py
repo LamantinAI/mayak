@@ -154,6 +154,12 @@ class TestTheExtractionMatchesTheTemplate:
 
         assert shipped == extraction.SAMPLE_SHA256
 
+    # The same for what each cut takes from a shared file: stale, every project refuses with "lines
+    # the template did not ship" for an edit the template made itself.
+    @pytest.mark.unit
+    def test_the_cut_manifest_is_the_shared_files_as_they_ship(self) -> None:
+        assert extraction.cut_digests(_REPO_ROOT) == extraction.CUT_SHA256
+
     # A kernel file the list does not know reads as a vertical of the project's own, and the
     # extraction refuses in every project made from the template.
     @pytest.mark.unit
@@ -230,6 +236,29 @@ def _add_a_vertical_of_its_own(root: Path) -> None:
     )
 
 
+# In a package of its own: the independent check of 2026-09-25 found the search looked only at the
+# top of each directory, so this one went unseen and the extraction went ahead.
+def _add_a_nested_vertical_of_its_own(root: Path) -> None:
+    replace_identity(root)
+    package = root / "project/domain/booking"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "model.py").write_text(
+        "# FILE: project/domain/booking/model.py\n# SUMMARY: A booking.\n", encoding="utf-8"
+    )
+
+
+# A line of the project's own below the vertical's in a shared file. The cut ran from the
+# vertical's first line to the end of the file, and took this line with it — silently, the same
+# check found: the diff was staged, nothing said so.
+def _add_a_line_of_its_own_to_a_shared_file(root: Path) -> None:
+    replace_identity(root)
+    registration = root / "project/core/service_registration.py"
+    registration.write_text(
+        registration.read_text(encoding="utf-8") + "\n\nOWN_SETTING = 1\n", encoding="utf-8"
+    )
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(
     ("prepare", "reason"),
@@ -237,8 +266,16 @@ def _add_a_vertical_of_its_own(root: Path) -> None:
         (_keep_the_template_name, "still names the template"),
         (_edit_the_sample, "differ from the template's"),
         (_add_a_vertical_of_its_own, "files of its own vertical"),
+        (_add_a_nested_vertical_of_its_own, "project/domain/booking/model.py"),
+        (_add_a_line_of_its_own_to_a_shared_file, "project/core/service_registration.py"),
     ],
-    ids=["identity-not-replaced", "sample-edited", "own-vertical"],
+    ids=[
+        "identity-not-replaced",
+        "sample-edited",
+        "own-vertical",
+        "own-vertical-in-a-package",
+        "own-line-in-a-shared-file",
+    ],
 )
 def test_it_refuses_and_changes_nothing_when_it_would_take_a_projects_work(
     checkout: Path,
