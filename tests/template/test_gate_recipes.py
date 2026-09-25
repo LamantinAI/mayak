@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shlex
+import sys
 from pathlib import Path
 from uuid import uuid4
 from subprocess import CompletedProcess, run
@@ -470,6 +471,9 @@ class TestGeneratedArtifactsAreRefreshedNotReported:
         assert all("STRICT_GENERATED=1" in line for line in gate_lanes), (
             f"every ci-local gate lane must be strict about generated artifacts: {gate_lanes}"
         )
+        assert all("STRICT_RUFF=1" in line for line in gate_lanes), (
+            f"every ci-local gate lane must be strict about Python it could fix: {gate_lanes}"
+        )
 
     @pytest.mark.unit
     def test_the_hook_reads_the_generated_paths_from_the_makefile(self) -> None:
@@ -816,3 +820,140 @@ class TestLogTargetsReadThisWorktreesComposeProject:
         # nothing, which is what "scoped" has to mean for someone who never sets it.
         makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
         assert "LOGS_PROJECT ?= $(WORKTREE_PROJECT)" in makefile
+
+
+# The local gate formats and safe-fixes the Python a checkout changed before it checks, and names
+# what it rewrote; STRICT_RUFF=1 turns that into a failure — ADR-012. bench2: ruff or mypy turned
+# 79–86% of full gates red, and every format or lint failure had one fix.
+class TestTheGateFixesLocallyAndFailsStrictly:
+    @pytest.mark.unit
+    def test_the_fast_gate_is_the_four_checks_after_the_fix(self) -> None:
+        assert _recipe("gate-fast") == [
+            "$(MAKE) --no-print-directory ruff-fix-unless-strict",
+            "$(MAKE) --no-print-directory gate-format",
+            "$(MAKE) --no-print-directory gate-lint",
+            "$(MAKE) --no-print-directory gate-types",
+            "$(UV) run python scripts/validate_architecture.py",
+        ]
+
+    @pytest.mark.unit
+    def test_the_full_gate_fixes_before_it_checks(self) -> None:
+        recipe = _recipe("quality-gates")
+        fix_at = next(i for i, line in enumerate(recipe) if "ruff-fix-unless-strict" in line)
+        steps_at = next(i for i, line in enumerate(recipe) if "quality-gates-steps" in line)
+
+        assert fix_at < steps_at
+
+    @pytest.mark.unit
+    def test_the_pipeline_and_the_hook_are_strict(self) -> None:
+        workflow = (_REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        hook = (_REPO_ROOT / ".githooks" / "pre-commit").read_text(encoding="utf-8")
+
+        assert workflow.count('STRICT_RUFF: "1"') == 1
+        assert "STRICT_RUFF=1 make quality-gates" in hook
+
+    @staticmethod
+    def _repository(root: Path) -> Path:
+        (root / "src").mkdir(parents=True)
+        (root / "src" / "untouched.py").write_text("x  =  1\n", encoding="utf-8")
+        (root / "src" / "edited.py").write_text("y = 1\n", encoding="utf-8")
+        for command in (
+            ["git", "init", "-q"],
+            ["git", "add", "-A"],
+            [
+                "git",
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@example.invalid",
+                "commit",
+                "-qm",
+                "0",
+            ],
+        ):
+            run(command, cwd=root, env=hermetic_env(), check=True, capture_output=True)
+        (root / "src" / "edited.py").write_text("import os\ny  =  2\n", encoding="utf-8")
+        (root / "src" / "new.py").write_text("z  =  3\n", encoding="utf-8")
+        return root
+
+    # `uv run <tool>` answered by this environment's own tool, so the recipe runs in a throwaway
+    # repository without uv building an environment for it there.
+    @staticmethod
+    def _fix(repo: Path, shim_dir: Path, **env: str) -> CompletedProcess[str]:
+        shim = shim_dir / "uv"
+        shim.write_text(
+            f'#!/bin/sh\n[ "$1" = run ] && shift\ntool=$1\nshift\n'
+            f'exec "{Path(sys.executable).parent}/$tool" "$@"\n',
+            encoding="utf-8",
+        )
+        shim.chmod(0o755)
+        return run(
+            [
+                "make",
+                "-s",
+                "-f",
+                str(_REPO_ROOT / "Makefile"),
+                "ruff-fix-unless-strict",
+                f"UV={shim}",
+                "PYTHON_SOURCES=src",
+            ],
+            cwd=repo,
+            env={**hermetic_env(), **env},
+            capture_output=True,
+            text=True,
+        )
+
+    @pytest.mark.unit
+    def test_changed_python_is_fixed_and_named_and_untouched_python_is_left(
+        self, tmp_path: Path
+    ) -> None:
+        repo = self._repository(tmp_path / "repo")
+
+        first = self._fix(repo, tmp_path)
+        again = self._fix(repo, tmp_path)
+
+        assert first.returncode == 0, first.stderr
+        assert "src/edited.py" in first.stdout and "src/new.py" in first.stdout
+        assert "untouched" not in first.stdout
+        assert (repo / "src" / "edited.py").read_text(encoding="utf-8") == "y = 2\n"
+        assert (repo / "src" / "new.py").read_text(encoding="utf-8") == "z = 3\n"
+        assert (repo / "src" / "untouched.py").read_text(encoding="utf-8") == "x  =  1\n"
+        assert again.stdout == ""
+
+    @pytest.mark.unit
+    def test_strict_changes_nothing(self, tmp_path: Path) -> None:
+        repo = self._repository(tmp_path / "repo")
+
+        result = self._fix(repo, tmp_path, STRICT_RUFF="1")
+
+        assert result.returncode == 0 and result.stdout == ""
+        assert (repo / "src" / "edited.py").read_text(encoding="utf-8") == "import os\ny  =  2\n"
+        assert (repo / "src" / "new.py").read_text(encoding="utf-8") == "z  =  3\n"
+
+    # The hook checks the working tree and git commits the index; a Python file staged and then
+    # edited again is two files, and the check would pass one while the commit carried the other.
+    @pytest.mark.unit
+    @pytest.mark.parametrize("edited_again", [True, False])
+    def test_the_hook_refuses_python_staged_and_then_edited_again(
+        self, tmp_path: Path, edited_again: bool
+    ) -> None:
+        repo = self._repository(tmp_path / "repo")
+        run(["git", "add", "src/edited.py"], cwd=repo, env=hermetic_env(), check=True)
+        if edited_again:
+            (repo / "src" / "edited.py").write_text("y = 3\n", encoding="utf-8")
+
+        result = run(
+            ["sh", str(_REPO_ROOT / ".githooks" / "pre-commit")],
+            cwd=repo,
+            env=hermetic_env(),
+            capture_output=True,
+            text=True,
+        )
+
+        refused = "stage all of it or none" in result.stdout
+        assert refused is edited_again, result.stdout
+        if edited_again:
+            assert result.returncode == 1 and "src/edited.py" in result.stdout
+        else:
+            # Past the refusal the hook runs the gate, which this throwaway repository has not got.
+            assert "running quality gates" in result.stdout

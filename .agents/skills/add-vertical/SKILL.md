@@ -47,6 +47,9 @@ list of table names used to stand in for, and one it made every project edit on 
 
 ## Order of work
 
+`make gate-fast` after each file — format, lint, types and layers in seconds, and it formats
+what you changed; `make quality-gates` once the steps are done.
+
 1. Domain model and port.
 2. The ORM model in `orm_models.py`. Before the migration, not after — autogeneration compares this
    metadata against a database. Choose `ondelete` on every `ForeignKey(...)` here: autogenerate

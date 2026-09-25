@@ -49,6 +49,9 @@ jobs:
       # rerun the generator, so a green pipeline over a stale map would publish the drift. This is
       # the flag `make ci-local` sets on its own full-gate lane.
       STRICT_GENERATED: "1"
+      # The same for Python: locally the gate formats and applies ruff's safe fixes to the files a
+      # change touched; here a fixable finding is a failure, since nothing commits the fix.
+      STRICT_RUFF: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -171,7 +171,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 1
         if args.gates or args.e2e:
+            # STRICT_RUFF: the extraction's own output has to pass unfixed — a local gate would
+            # quietly format what it left behind and prove nothing about it.
             env = {k: v for k, v in hermetic_env().items() if k != "VIRTUAL_ENV"}
+            env["STRICT_RUFF"] = "1"
             _run(["uv", "sync", "--frozen"], project, env)
             shutil.copy(project / ".env.sample", project / ".env")
             if args.gates:

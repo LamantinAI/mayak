@@ -2,6 +2,8 @@
 # SUMMARY: Unit tests for the canonical all-tests runner script used by AI agents and developers.
 
 import dataclasses
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -221,6 +223,41 @@ class TestCoverageFloorAppliesToTheFullRunOnly:
         # same tautology `test.sql_constant_round_trip` exists to forbid one directory away.
         assert "--cov-fail-under=60" in local.command
         assert COVERAGE_FLOOR_PERCENT == 60
+        assert {"--cov=project", "--cov-report=xml"} <= set(local.command)
+
+    # A narrow run measures nothing and prints no table. With coverage in addopts, every
+    # `uv run pytest tests/one_file.py` printed fifty lines about files the run never meant to
+    # measure, and an agent read all of them.
+    @pytest.mark.unit
+    def test_a_narrow_run_measures_and_prints_no_coverage(self, tmp_path: Path) -> None:
+        (tmp_path / "test_probe.py").write_text(
+            "def test_it() -> None:\n    assert True\n", encoding="utf-8"
+        )
+        env = {key: value for key, value in os.environ.items() if not key.startswith("COV_CORE")}
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-c",
+                str(ROOT_DIR / "pytest.ini"),
+                "--rootdir",
+                str(tmp_path),
+                "-q",
+                "-p",
+                "no:cacheprovider",
+                "test_probe.py",
+            ],
+            cwd=tmp_path,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stdout
+        assert "coverage" not in result.stdout.lower()
+        assert not (tmp_path / "coverage.xml").exists()
 
 
 # functional_compose_project() gives each checkout its own containers, network and volume,
