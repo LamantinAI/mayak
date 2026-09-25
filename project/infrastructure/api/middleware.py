@@ -6,7 +6,9 @@ import uuid
 from typing import Any, Dict
 
 from starlette.datastructures import Headers
+from starlette.exceptions import HTTPException
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from project.common.sampling import should_sample_health_check
@@ -175,6 +177,34 @@ def _observing_send(send: Send, request_id: str, observer: _ResponseObserver) ->
     return _send
 
 
+def _too_large_detail(limit: int) -> str:
+    return f"Request body exceeds {limit} bytes"
+
+
+# Wrap `receive` so the app reads at most `limit` bytes of body: past it, the read raises the 413
+# the app's own HTTPException handler answers. This is the path for a body of unknown length
+# (chunked); one that declares a length over the limit never reaches the app — AILoggingMiddleware.
+# Where the answer is not a 413, found by the independent checks of 2026-09-25: an endpoint that
+# never reads its body answers as usual; a read after its response has started ends the connection
+# instead. Memory stays bounded in both, measured on a live server with a 200 MB chunked body: the
+# first took the process from 104 to 107 MB (uvicorn stops reading what the app does not), the second
+# stopped reading at the limit. A multipart upload's spooled file is left to the garbage collector
+# (the kernel ships no multipart parser, so a project adding python-multipart closes it itself).
+def _limited_receive(receive: Receive, limit: int) -> Receive:
+    received = 0
+
+    async def _receive() -> Message:
+        nonlocal received
+        message = await receive()
+        if message["type"] == "http.request":
+            received += len(message.get("body", b""))
+            if received > limit:
+                raise HTTPException(413, _too_large_detail(limit))
+        return message
+
+    return _receive
+
+
 # Pure-ASGI middleware providing AI-optimized semantic logging with request tracing.
 # Pure ASGI, not starlette.middleware.base.BaseHTTPMiddleware. Starlette's own docs (and
 # https://github.com/encode/starlette/discussions/1737) recommend pure ASGI for hot-path
@@ -186,8 +216,10 @@ def _observing_send(send: Send, request_id: str, observer: _ResponseObserver) ->
 # BaseHTTPMiddleware. Pure ASGI removes both problems at once: no task group, and the messages
 # this middleware wants to inspect all along instead of a rebuilt stand-in for them.
 class AILoggingMiddleware:
-    def __init__(self, app: ASGIApp) -> None:
+    # max_body_bytes: SERVER_MAX_BODY_BYTES — the default serves an app built without settings.
+    def __init__(self, app: ASGIApp, max_body_bytes: int = 1024 * 1024) -> None:
         self.app = app
+        self.max_body_bytes = max_body_bytes
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         # Lifespan and websocket scopes carry none of the request shape below;
@@ -284,7 +316,31 @@ class AILoggingMiddleware:
                         # nothing here buffers a streamed body or blocks a background task the way
                         # BaseHTTPMiddleware's memory stream did.
                         observer = _ResponseObserver()
-                        await self.app(scope, receive, _observing_send(send, request_id, observer))
+                        observed_send = _observing_send(send, request_id, observer)
+                        declared = _parse_content_length(request.headers.get("content-length"))
+                        if declared is not None and declared > self.max_body_bytes:
+                            # Answered here, before the app. Raised instead, the 413 would leave
+                            # this middleware — outside the handler that renders it — as a 500.
+                            logger.log_client_error(
+                                error_type="request_body_too_large",
+                                message="Request body declared over the limit",
+                                declared_bytes=declared,
+                                limit_bytes=self.max_body_bytes,
+                            )
+                            too_large = JSONResponse(
+                                status_code=413,
+                                content={
+                                    "error": {
+                                        "type": "HTTPException",
+                                        "message": _too_large_detail(self.max_body_bytes),
+                                        "status_code": 413,
+                                    }
+                                },
+                            )
+                            await too_large(scope, receive, observed_send)
+                        else:
+                            limited = _limited_receive(receive, self.max_body_bytes)
+                            await self.app(scope, limited, observed_send)
 
                         # Attach response metadata to span output for automatic
                         # logging on span finish. See _ResponseObserver for what response_type and

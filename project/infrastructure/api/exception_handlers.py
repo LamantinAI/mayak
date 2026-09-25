@@ -1,6 +1,8 @@
 # FILE: project/infrastructure/api/exception_handlers.py
 # SUMMARY: FastAPI exception handlers for translating domain exceptions to HTTP responses with semantic logging.
 
+import uuid
+
 from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -150,6 +152,9 @@ class ExceptionHandlerManager:
                     "status_code": exc.status_code,
                 }
             },
+            # WWW-Authenticate on a 401, Retry-After on a 429 or 503, Allow on a 405: dropped
+            # here, a client lost what the status asks it to act on.
+            headers=exc.headers,
         )
 
     async def _handle_starlette_http_exception(
@@ -187,6 +192,9 @@ class ExceptionHandlerManager:
                     "status_code": exc.status_code,
                 }
             },
+            # WWW-Authenticate on a 401, Retry-After on a 429 or 503, Allow on a 405: dropped
+            # here, a client lost what the status asks it to act on.
+            headers=exc.headers,
         )
 
     async def _handle_validation_error(self, request: Request, exc: Exception) -> JSONResponse:
@@ -251,6 +259,10 @@ class ExceptionHandlerManager:
         # naming the real cause — needs its trace_id restored here or every trace-reading tool
         # drops it. Restore it from request.state for the duration of the call.
         stashed_trace_id = getattr(request.state, "trace_id", None)
+        # The 500 leaves through Starlette's ServerErrorMiddleware, outside the logging middleware
+        # that stamps X-Request-ID on every other response, so it is stamped here. A sampled-out
+        # health check never had one assigned; it gets one now, the same in the record and the header.
+        request_id = getattr(request.state, "request_id", None) or str(uuid.uuid4())
         trace_token = (
             set_trace_id(stashed_trace_id)
             if isinstance(stashed_trace_id, str) and not get_trace_id()
@@ -266,7 +278,7 @@ class ExceptionHandlerManager:
                 exc_info=True,
                 path=request.url.path,
                 method=request.method,
-                request_id=getattr(request.state, "request_id", None),
+                request_id=request_id,
             )
         finally:
             if trace_token is not None:
@@ -274,6 +286,7 @@ class ExceptionHandlerManager:
 
         # Return generic error response (don't expose internal details).
         return JSONResponse(
+            headers={"X-Request-ID": request_id},
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "error": {

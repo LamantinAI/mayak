@@ -122,6 +122,14 @@ class ServerSettings(BaseSettings):
 
     cors_origins: list[str] = Field(default=["*"], description="Allowed CORS origins")
 
+    # The largest request body the app will read; a larger one is answered 413 before it is held in
+    # memory. Without it, measured on a live server 2026-09-25, one 200 MB POST was answered 201 and
+    # took the process from 138 to 1655 MB. Headers are not covered: uvicorn parses them before the
+    # app runs and took a 1 MB header whole, so the proxy in front limits those.
+    max_body_bytes: int = Field(
+        default=1024 * 1024, gt=0, description="Largest request body accepted, in bytes"
+    )
+
     # Default true keeps deployments that never set this variable behaving as before it existed.
     # The reason this needs to be a setting at all — a wildcard origin combined with credentials
     # is the actual vulnerability, not the wildcard alone — is explained where the guard that
