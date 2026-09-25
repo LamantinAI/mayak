@@ -7,14 +7,14 @@ from fastapi import Depends, Request
 
 from project.application.reference_task_service import ReferenceTaskService
 from project.core.logging import get_logger
-from project.domain.exceptions import ProjectError
 
 logger = get_logger(__name__)
 
 T = TypeVar("T")
 
 
-# Raises ProjectError when services are missing or of unexpected type.
+# Raises RuntimeError when services are missing or of unexpected type: the app was assembled wrong,
+# which is a 500. A ProjectError here answered 400 and logged a client error, blaming the caller.
 def _get_service(request: Request, key: str, service_type: type[T]) -> T:
     services = getattr(request.app.state, "services", None)
 
@@ -23,7 +23,7 @@ def _get_service(request: Request, key: str, service_type: type[T]) -> T:
             error_type="dependency_injection_failed",
             message="Services not found in app.state - composition root may not have been properly initialized",
         )
-        raise ProjectError(
+        raise RuntimeError(
             "Application services not properly initialized. "
             "Ensure composition root has been executed before accessing dependencies."
         )
@@ -35,7 +35,7 @@ def _get_service(request: Request, key: str, service_type: type[T]) -> T:
             error_type="dependency_injection_failed",
             message=f"{service_type.__name__} not found in app.state.services",
         )
-        raise ProjectError(
+        raise RuntimeError(
             f"{service_type.__name__} not properly configured in application dependencies. "
             "Check composition root configuration."
         )
@@ -45,7 +45,7 @@ def _get_service(request: Request, key: str, service_type: type[T]) -> T:
             error_type="dependency_injection_failed",
             message=f"{key} is not an instance of {service_type.__name__}",
         )
-        raise ProjectError(
+        raise RuntimeError(
             f"{service_type.__name__} has invalid type in application dependencies. "
             "Check composition root configuration."
         )
@@ -54,7 +54,7 @@ def _get_service(request: Request, key: str, service_type: type[T]) -> T:
 
 
 # Returns the service built by service_registration.build_reference_services.
-# Raises ProjectError when the service is absent from the registry.
+# Raises RuntimeError when the service is absent from the registry.
 def get_reference_task_service(request: Request) -> ReferenceTaskService:
     # The three-argument _get_service call is not a style choice.
     # validate_endpoint_wiring.py recognises exactly this shape to link alias -> getter -> service

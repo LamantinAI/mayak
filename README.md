@@ -269,6 +269,7 @@ either removed after measuring that it earned nothing, or never added for the sa
 | `AGENT_LLM_READINESS_CRITICAL` | whether an unhealthy LLM check makes `/health/ready` report unready | `false` |
 | `SERVER_CORS_ORIGINS` | allowed CORS origins; a wildcard is rejected at startup under the conditions below | `["*"]` |
 | `SERVER_CORS_ALLOW_CREDENTIALS` | whether the app sends `Access-Control-Allow-Credentials`; `false` makes a wildcard origin list safe | `true` |
+| `SERVER_MAX_BODY_BYTES` | largest request body the app reads; a larger one is answered 413. Headers are parsed by the server first — limit them at the proxy | `1048576` |
 | `APP_DEBUG` | `DEBUG` log level, single worker, and three startup guards switched off: the wildcard check on `SERVER_CORS_ORIGINS`, the placeholder checks on `POSTGRES_PASSWORD` and `OPENAI_COMPATIBLE_API_KEY`. Not Starlette's traceback page — `FastAPI(debug=False)` is hard-wired | `false` |
 
 Notes worth knowing:

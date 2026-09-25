@@ -283,7 +283,7 @@ CUT_SHA256: dict[str, str] = {
     "project/infrastructure/api/dependencies.py: from typing import Annotated, TypeVar": "202ef05b2e8a534ff3b37bbd9497e170b18f31b6ab5c9a94f85446af54940ee6",
     "project/infrastructure/api/dependencies.py: from fastapi import Depends, Request": "f6cdda0f1cc3add875d477429f2d5a92e4afb84574487822522d93bdb99cd877",
     "project/infrastructure/api/dependencies.py: from project.application.reference_task_service import ReferenceTaskService": "c2d1578871d269e933963d3810fd1d165aaddb0b74c7e990bbceb195e1afb376",
-    "project/infrastructure/api/dependencies.py: # Returns the service built by service_registration.build_reference_services.": "7f371525c6952dd199a98f3bbcef9681d14b0fa0bcf62288e7d66809e2a0bedf",
+    "project/infrastructure/api/dependencies.py: # Returns the service built by service_registration.build_reference_services.": "59c8b1bf2616390fe6f9c20faaa98a3c7b82eb71ed00572f18061a57cf3a8324",
     "project/domain/ports.py: from datetime import datetime": "1c80ee441a56d69acae99266605441b0bb38a078dd24cafe32771d718f2b86a4",
     "project/domain/ports.py: from project.domain.reference_task import ReferenceTask": "187181b41049f2a8f9f9c630c724547e2ddd8ef9821a44e122247f96aa8f7afc",
     "project/domain/ports.py: # Canonical data-access boundary. Verticals define one of these per aggregate.": "0b92a33017edb7b1f0b4c96337e5256015273de609378b3f22ca2b818e3b1858",

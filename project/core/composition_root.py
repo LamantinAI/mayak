@@ -127,7 +127,9 @@ class CompositionRoot:
                 )
 
                 # Set up middleware.
-                app.add_middleware(AILoggingMiddleware)
+                app.add_middleware(
+                    AILoggingMiddleware, max_body_bytes=settings.server.max_body_bytes
+                )
 
                 # Add CORS middleware
                 app.add_middleware(
