@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # FILE: run_all_tests.py
-# SUMMARY: Canonical test runner for AI agents and developers that executes the project's local and functional test suites through one entrypoint.
+# Canonical test runner for AI agents and developers that executes the project's local and functional test suites through one entrypoint.
 
 from __future__ import annotations
 
@@ -13,33 +13,27 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
-# ATTRIBUTE: ROOT_DIR (Path)
-# SUMMARY: Absolute repository root directory derived from the script location.
+# Absolute repository root directory derived from the script location.
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-# ATTRIBUTE: FUNCTIONAL_DIR (Path)
-# SUMMARY: Directory containing the Docker-based functional test suite.
+# Directory containing the Docker-based functional test suite.
 FUNCTIONAL_DIR = ROOT_DIR / "tests" / "functional"
 
-# ATTRIBUTE: FUNCTIONAL_ENV_SAMPLE (Path)
-# SUMMARY: Example environment file copied when the functional test suite has no local env file yet.
+# Example environment file copied when the functional test suite has no local env file yet.
 FUNCTIONAL_ENV_SAMPLE = FUNCTIONAL_DIR / ".env.sample"
 
-# ATTRIBUTE: FUNCTIONAL_ENV_FILE (Path)
-# SUMMARY: Active environment file consumed by the functional Docker Compose suite.
+# Active environment file consumed by the functional Docker Compose suite.
 FUNCTIONAL_ENV_FILE = FUNCTIONAL_DIR / ".env"
 
-# ATTRIBUTE: COVERAGE_FLOOR_PERCENT (int)
-# SUMMARY: Total-coverage floor the full local run is held to, and the only place it is written.
-# NOTE: It lives here rather than in pytest.ini because a floor in `addopts` is applied to every
+# Total-coverage floor the full local run is held to, and the only place it is written.
+# It lives here rather than in pytest.ini because a floor in `addopts` is applied to every
 # pytest invocation, narrow ones included, where a total is meaningless.
 COVERAGE_FLOOR_PERCENT = 60
 
 
-# FUNCTION: functional_compose_project
-# SUMMARY: Name the functional stack's Compose project after this checkout, not its directory.
-# OUTPUT: (str): A Compose-legal project name unique to this worktree.
-# NOTE: Compose defaults to naming a project after the directory it runs in, which for every
+# Name the functional stack's Compose project after this checkout, not its directory.
+# Returns: A Compose-legal project name unique to this worktree.
+# Compose defaults to naming a project after the directory it runs in, which for every
 # checkout of this repository is `functional` — so two worktrees running `make test-e2e` at once
 # share containers, a volume and a database, and the second one's `down -v` removes the first's
 # stack mid-run. Same defect the Makefile's own db-up-worktree exists for, and the same fix: a
@@ -50,26 +44,21 @@ def functional_compose_project() -> str:
     return f"functional-{digest}"
 
 
-# DATACLASS: run_all_tests.TestStep
-# SUMMARY: Immutable command step executed by the canonical test runner.
+# Immutable command step executed by the canonical test runner.
 @dataclass(frozen=True)
 class TestStep:
-    # ATTRIBUTE: name (str)
-    # SUMMARY: Human-readable label shown before executing the step.
+    # Human-readable label shown before executing the step.
     name: str
 
-    # ATTRIBUTE: command (tuple[str, ...])
-    # SUMMARY: Shell-free command argv executed for the step.
+    # Shell-free command argv executed for the step.
     command: tuple[str, ...]
 
-    # ATTRIBUTE: cwd (Path)
-    # SUMMARY: Working directory used when executing the step.
+    # Working directory used when executing the step.
     cwd: Path
 
 
-# FUNCTION: _parse_args
-# SUMMARY: Parse CLI arguments controlling which test suites are executed.
-# INPUT: argv (Sequence[str] | None): Optional CLI argument list used by tests or the default process argv.
+# Parse CLI arguments controlling which test suites are executed.
+# argv: Optional CLI argument list used by tests or the default process argv.
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run Mayak test suites through one canonical entrypoint."
@@ -88,11 +77,10 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
-# FUNCTION: _build_test_steps
-# SUMMARY: Build the ordered list of test runner steps for the requested execution mode.
-# INPUT: skip_functional (bool): Whether the functional Docker-based suite should be skipped.
-# INPUT: functional_only (bool): Whether only the functional Docker-based suite should be executed.
-# OUTPUT: (list[TestStep]): Ordered runnable test steps.
+# Build the ordered list of test runner steps for the requested execution mode.
+# skip_functional: Whether the functional Docker-based suite should be skipped.
+# functional_only: Whether only the functional Docker-based suite should be executed.
+# Returns: Ordered runnable test steps.
 def _build_test_steps(
     skip_functional: bool,
     functional_only: bool,
@@ -110,12 +98,12 @@ def _build_test_steps(
                     "tests/application",
                     "tests/infrastructure",
                     "tests/integration",
-                    # **LOGIC_STEP**: The db tier runs here, in the fast suite, not with the Docker
+                    # The db tier runs here, in the fast suite, not with the Docker
                     # functional stack: it starts its own PostgreSQL (tests/db/stack.py) and is
                     # deselected by its conftest when POSTGRES_ENABLED=false. See tests/db/conftest.py.
                     "tests/db",
                     "-q",
-                    # **LOGIC_STEP**: The floor is asked for here rather than in pytest.ini's
+                    # The floor is asked for here rather than in pytest.ini's
                     # addopts. addopts reach every pytest invocation, so `uv run pytest
                     # tests/one_file.py` would measure the whole of project/ against a suite that
                     # ran three tests and exit red on total coverage while every test it ran
@@ -150,19 +138,17 @@ def _build_test_steps(
     return steps
 
 
-# FUNCTION: _emit
-# SUMMARY: Write a progress line for the current runner stage to standard output.
+# Write a progress line for the current runner stage to standard output.
 def _emit(message: str) -> None:
     sys.stdout.write(f"[run_all_tests] {message}\n")
     sys.stdout.flush()
 
 
-# FUNCTION: env_sample_drift
-# SUMMARY: Report the sample keys a local env file is missing or answers differently.
-# INPUT: sample (Mapping[str, str | None]): Keys and defaults the committed sample declares.
-# INPUT: current (Mapping[str, str | None]): Keys the local, git-ignored env file carries.
-# OUTPUT: (list[str]): Sorted sample keys absent from `current` or holding a different value.
-# NOTE: Asymmetric on purpose. A key the local file ADDS is a deliberate override and is not
+# Report the sample keys a local env file is missing or answers differently.
+# sample: Keys and defaults the committed sample declares.
+# current: Keys the local, git-ignored env file carries.
+# Returns: Sorted sample keys absent from `current` or holding a different value.
+# Asymmetric on purpose. A key the local file ADDS is a deliberate override and is not
 # drift; a key the sample gained, or a default it changed, is — the local file is generated once
 # and then never compared again, so it keeps answering with last month's value.
 def env_sample_drift(
@@ -173,11 +159,10 @@ def env_sample_drift(
     )
 
 
-# FUNCTION: _parse_env_file
-# SUMMARY: Read an env file into a mapping, tolerating comments, blanks, quotes and `export`.
-# INPUT: path (Path): File to read; a missing file reads as empty.
-# OUTPUT: (dict[str, str]): Key to value, with `export ` dropped and surrounding quotes stripped.
-# NOTE: Hand-rolled rather than `dotenv_values` because this runner is the one script that must
+# Read an env file into a mapping, tolerating comments, blanks, quotes and `export`.
+# path: File to read; a missing file reads as empty.
+# Returns: Key to value, with `export ` dropped and surrounding quotes stripped.
+# Hand-rolled rather than `dotenv_values` because this runner is the one script that must
 # work before the project's environment is installed. The syntax it needs to understand is the
 # syntax docker compose reads: KEY=value, `#` comments, optional quotes — plus two conventions
 # that would otherwise be reported as drift on every run: a leading `export ` (so the file can be
@@ -199,16 +184,15 @@ def _parse_env_file(path: Path) -> dict[str, str]:
         if value[:1] in {'"', "'"} and value[-1:] == value[:1] and len(value) > 1:
             value = value[1:-1]
         else:
-            # **LOGIC_STEP**: Only an unquoted value can carry a trailing comment; inside quotes
+            # Only an unquoted value can carry a trailing comment; inside quotes
             # a `#` is part of the value, and a password is exactly where one turns up.
             value = value.split("#", 1)[0].strip()
         values[key] = value
     return values
 
 
-# FUNCTION: _warn_on_functional_env_drift
-# SUMMARY: Name the stale keys of tests/functional/.env before Docker Compose reads it.
-# NOTE: A warning, not a failure: the local file is allowed to differ (a port taken by another
+# Name the stale keys of tests/functional/.env before Docker Compose reads it.
+# A warning, not a failure: the local file is allowed to differ (a port taken by another
 # stack, a password someone changed), and this runner has no way to tell a deliberate override
 # from a forgotten one. What it can do is say which keys differ BEFORE the containers start, so a
 # suite that fails two layers down inside Docker is not the first anyone hears of it.
@@ -224,9 +208,8 @@ def _warn_on_functional_env_drift() -> None:
     )
 
 
-# FUNCTION: _ensure_functional_env
-# SUMMARY: Ensure the functional test suite has a concrete env file before Docker Compose starts.
-# RAISES: FileNotFoundError: When the functional env sample file is missing.
+# Ensure the functional test suite has a concrete env file before Docker Compose starts.
+# FileNotFoundError: When the functional env sample file is missing.
 def _ensure_functional_env() -> None:
     if FUNCTIONAL_ENV_FILE.exists():
         _warn_on_functional_env_drift()
@@ -237,16 +220,14 @@ def _ensure_functional_env() -> None:
     _emit(f"created functional env file at {FUNCTIONAL_ENV_FILE}")
 
 
-# FUNCTION: _run_command
-# SUMMARY: Execute one command step and fail fast when the subprocess returns a non-zero exit status.
-# RAISES: subprocess.CalledProcessError: When the subprocess exits with a non-zero status.
+# Execute one command step and fail fast when the subprocess returns a non-zero exit status.
+# subprocess.CalledProcessError: When the subprocess exits with a non-zero status.
 def _run_command(step: TestStep) -> None:
     _emit(f"running {step.name}: {' '.join(step.command)}")
     subprocess.run(step.command, cwd=step.cwd, check=True)
 
 
-# FUNCTION: _cleanup_functional_stack
-# SUMMARY: Stop and remove the functional Docker Compose stack after the functional suite finishes.
+# Stop and remove the functional Docker Compose stack after the functional suite finishes.
 def _cleanup_functional_stack() -> None:
     subprocess.run(
         ("docker", "compose", "-p", functional_compose_project(), "down", "-v"),
@@ -255,8 +236,7 @@ def _cleanup_functional_stack() -> None:
     )
 
 
-# FUNCTION: _show_functional_logs
-# SUMMARY: Emit functional Docker Compose logs after a functional suite failure to aid agent debugging.
+# Emit functional Docker Compose logs after a functional suite failure to aid agent debugging.
 def _show_functional_logs() -> None:
     subprocess.run(
         ("docker", "compose", "-p", functional_compose_project(), "logs"),
@@ -265,9 +245,8 @@ def _show_functional_logs() -> None:
     )
 
 
-# FUNCTION: _run_functional_step
-# SUMMARY: Execute the functional Docker Compose suite with env bootstrap and guaranteed cleanup.
-# RAISES: subprocess.CalledProcessError: When the functional suite fails.
+# Execute the functional Docker Compose suite with env bootstrap and guaranteed cleanup.
+# subprocess.CalledProcessError: When the functional suite fails.
 def _run_functional_step(step: TestStep) -> None:
     _ensure_functional_env()
     try:
@@ -279,9 +258,8 @@ def _run_functional_step(step: TestStep) -> None:
         _cleanup_functional_stack()
 
 
-# FUNCTION: main
-# SUMMARY: Execute the requested set of Mayak test suites through the canonical runner.
-# INPUT: argv (Sequence[str] | None): Optional CLI argument list used by tests or the default process argv.
+# Execute the requested set of Mayak test suites through the canonical runner.
+# argv: Optional CLI argument list used by tests or the default process argv.
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_args(argv)
     steps = _build_test_steps(
@@ -302,7 +280,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-# FUNCTION: __main__
-# SUMMARY: Module entrypoint that executes the canonical test runner as a CLI script.
+# Module entrypoint that executes the canonical test runner as a CLI script.
 if __name__ == "__main__":
     raise SystemExit(main())

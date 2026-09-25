@@ -8,8 +8,7 @@ from typing import Any
 from ai_query.common import context_bundle
 from ai_query.models import QueryPayload
 
-# ATTRIBUTE: _SOURCE_OF_TRUTH_KEYS (tuple[str, ...])
-# SUMMARY: The precedence order of the source_of_truth sections in the generated contract.
+# The precedence order of the source_of_truth sections in the generated contract.
 _SOURCE_OF_TRUTH_KEYS = (
     "checks_and_validators",
     "machine_contract",
@@ -20,8 +19,7 @@ _SOURCE_OF_TRUTH_KEYS = (
 )
 
 
-# FUNCTION: _source_of_truth_order
-# SUMMARY: Flatten the generated source_of_truth mapping into one ordered, de-duplicated list.
+# Flatten the generated source_of_truth mapping into one ordered, de-duplicated list.
 def _source_of_truth_order(source_of_truth: dict[str, Any]) -> list[str]:
     ordered: list[str] = []
     for key in _SOURCE_OF_TRUTH_KEYS:
@@ -42,7 +40,7 @@ def query_bootstrap() -> QueryPayload:
             "docs/architecture_rules.json",
             "uv run python scripts/query_ai_context.py overview",
         ],
-        # NOTE: Both lists below are projections of the generated contract, the machine source of
+        # Both lists below are projections of the generated contract, the machine source of
         # truth — keep them derived rather than typed out as literals, or a copy drifts silently.
         "source_of_truth_order": _source_of_truth_order(architecture_rules["source_of_truth"]),
         "core_wiring_files": sorted(architecture_rules["wiring_files"].values()),

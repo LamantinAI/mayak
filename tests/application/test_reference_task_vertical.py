@@ -1,6 +1,6 @@
 # FILE: tests/application/test_reference_task_vertical.py
 # SUMMARY: The reference vertical's rules decided before anything is written, and its wiring — no database.
-# NOTE: What needs a write — the stored row, the update token, a conflict, a filter — is proved
+# What needs a write — the stored row, the update token, a conflict, a filter — is proved
 # against PostgreSQL in tests/db/, not here against an imitation of it. What stays here is what the
 # service decides on its own: bounds, closed sets, an empty or null patch.
 
@@ -31,9 +31,8 @@ from tests.conftest import registered_paths
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-# CLASS: tests.application.test_reference_task_vertical._Port
-# SUMMARY: The port for rules decided before a write: one stored task to read, every write recorded.
-# NOTE: Not a repository — it stores nothing and filters nothing, so no test here can pass on
+# The port for rules decided before a write: one stored task to read, every write recorded.
+# Not a repository — it stores nothing and filters nothing, so no test here can pass on
 # storage behaviour the real one does not have. A write it receives is echoed back unchanged.
 class _Port:
     def __init__(self, task: ReferenceTask | None = None) -> None:
@@ -64,8 +63,7 @@ _STORED = ReferenceTask(
 )
 
 
-# FUNCTION: _service
-# SUMMARY: The service over a _Port holding the stored task; the annotation is checked by mypy.
+# The service over a _Port holding the stored task; the annotation is checked by mypy.
 def _service(port: _Port) -> ReferenceTaskService:
     checked: ReferenceTaskRepositoryPort = port
     return ReferenceTaskService(repository=checked)
@@ -126,9 +124,7 @@ async def test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writin
     assert port.writes == []
 
 
-# FUNCTION: test_update_writes_the_patch_conditioned_on_the_timestamp_it_read
-# SUMMARY: Verify null clears, absent keeps, and the timestamp read is the condition of the write.
-# NOTE: The last two lines are the lost-update guard as the service sees it: passing the new
+# The last two lines are the lost-update guard as the service sees it: passing the new
 # timestamp as the condition, or not moving it, still stores the row and returns it. tests/db shows
 # what either does to a second writer; this names the argument that decides it.
 @pytest.mark.unit
@@ -145,7 +141,7 @@ async def test_update_writes_the_patch_conditioned_on_the_timestamp_it_read() ->
 
 @pytest.mark.unit
 def test_the_bounds_the_service_enforces_are_the_ones_the_schema_and_the_dto_carry() -> None:
-    # **LOGIC_STEP**: 200 as a literal, once: every other test builds its string from the constant
+    # 200 as a literal, once: every other test builds its string from the constant
     # and moves with it. The migration's String(200) is compared with the ORM by `alembic check`
     # in tests/db; this holds the constant to that same number.
     assert MAX_TITLE_LENGTH == 200
@@ -154,12 +150,10 @@ def test_the_bounds_the_service_enforces_are_the_ones_the_schema_and_the_dto_car
         ReferenceTaskCreateRequest(title="x" * (MAX_TITLE_LENGTH + 1))
 
 
-# CLASS: tests.application.test_reference_task_vertical.TestWiring
-# SUMMARY: Verify the vertical stays visible to static analysis and honours POSTGRES_ENABLED.
 class TestWiring:
     @pytest.mark.unit
     def test_service_resolves_to_its_class_in_the_static_registry(self) -> None:
-        # **LOGIC_STEP**: ast.walk visits an If node as test -> body -> orelse, so an assignment
+        # ast.walk visits an If node as test -> body -> orelse, so an assignment
         # moved into an `else` makes the extractor record class=null and the context map lie.
         registration = _REPO_ROOT / "project" / "core" / "service_registration.py"
         entries = extract_service_registry_entries(registration, _REPO_ROOT, "vertical")

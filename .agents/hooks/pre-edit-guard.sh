@@ -27,7 +27,7 @@ set -uo pipefail
 
 payload=$(cat)
 
-# **LOGIC_STEP**: jq when it is there, python3 when it is not. Neither is guaranteed on a fresh
+# jq when it is there, python3 when it is not. Neither is guaranteed on a fresh
 # machine, and a hook that dies on a missing parser would block every edit in the repository, so a
 # failure to read the payload falls through to "allow" rather than to "deny".
 read_targets() {
@@ -76,7 +76,7 @@ deny() {
 
 while IFS= read -r target; do
     [ -n "$target" ] || continue
-    # **LOGIC_STEP**: A patch names its files relative to the repository root; Edit and Write send
+    # A patch names its files relative to the repository root; Edit and Write send
     # absolute paths. Resolving the relative form here means one comparison below serves both.
     case "$target" in
         /*) ;;
@@ -84,7 +84,7 @@ while IFS= read -r target; do
     esac
     for relative in $generated; do
     absolute="$repo_root/$relative"
-    # **LOGIC_STEP**: Equality covers the generated files themselves; the prefix test covers a
+    # Equality covers the generated files themselves; the prefix test covers a
     # generated directory, so every file inside one is protected without listing them all.
     if [ "$target" = "$absolute" ] || [ "${target#"$absolute"/}" != "$target" ]; then
         deny "$relative is generated — this edit would be silently overwritten the next time \

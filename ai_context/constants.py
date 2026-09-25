@@ -154,9 +154,8 @@ QUERY_SHORTCUTS = [
     "failure",
 ]
 
-# ATTRIBUTE: QUERY_COMMAND_NAMES (list[str])
-# SUMMARY: Every top-level command scripts/query_ai_context.py accepts, named once.
-# NOTE: This is the single source for the command list. A duplicate copy elsewhere can rot
+# Every top-level command scripts/query_ai_context.py accepts, named once.
+# This is the single source for the command list. A duplicate copy elsewhere can rot
 # silently in the other direction — still naming a command that was removed — and hand an agent
 # meeting a degraded context a menu of things that do not exist.
 QUERY_COMMAND_NAMES = [

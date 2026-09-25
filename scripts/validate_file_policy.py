@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # FILE: validate_file_policy.py
-# SUMMARY: Validate ai_context.file_policy.FILE_POLICY_INDEX entries for required keys, valid zones, and on-disk path correctness.
+# Validate ai_context.file_policy.FILE_POLICY_INDEX entries for required keys, valid zones, and on-disk path correctness.
 
 from __future__ import annotations
 
@@ -17,8 +17,7 @@ from ai_context.validator_contract import build_validator_issue_payload
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-# ATTRIBUTE: REQUIRED_FIELDS (frozenset[str])
-# SUMMARY: Required fields every FILE_POLICY_INDEX entry must declare.
+# Required fields every FILE_POLICY_INDEX entry must declare.
 REQUIRED_FIELDS: frozenset[str] = frozenset(
     {
         "role",
@@ -39,8 +38,7 @@ REQUIRED_FIELDS: frozenset[str] = frozenset(
 )
 
 
-# ATTRIBUTE: _FILE_POLICY_RULE_PLAYBOOKS (dict[str, dict[str, object]])
-# SUMMARY: Stable rule_id → playbook mapping for FILE_POLICY_INDEX schema failures.
+# Stable rule_id → playbook mapping for FILE_POLICY_INDEX schema failures.
 _FILE_POLICY_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
     "file_policy.missing_field": {
         "meaning": (
@@ -144,29 +142,23 @@ _FILE_POLICY_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
 
 @dataclass(slots=True)
 class FilePolicyIssue:
-    # ATTRIBUTE: rule_id (str)
-    # SUMMARY: Stable rule identifier consumable by query_ai_context.py failure rule.
+    # Stable rule identifier consumable by query_ai_context.py failure rule.
     rule_id: str
 
-    # ATTRIBUTE: entry_key (str)
-    # SUMMARY: FILE_POLICY_INDEX key (path) where the issue was found.
+    # FILE_POLICY_INDEX key (path) where the issue was found.
     entry_key: str
 
-    # ATTRIBUTE: field (str)
-    # SUMMARY: Field of the entry that failed (or "<entry>" when the issue is the entry key itself).
+    # Field of the entry that failed (or "<entry>" when the issue is the entry key itself).
     field: str
 
-    # ATTRIBUTE: message (str)
-    # SUMMARY: Human-readable description.
+    # Human-readable description.
     message: str
 
-    # ATTRIBUTE: severity (str)
-    # SUMMARY: 'error' (blocks gate), 'warning' (visible but non-blocking), or 'info' (purely informational).
+    # 'error' (blocks gate), 'warning' (visible but non-blocking), or 'info' (purely informational).
     severity: str = "error"
 
 
-# FUNCTION: get_file_policy_rule_playbook
-# SUMMARY: Return a copy of the playbook for a file_policy rule_id, or None if unknown.
+# Return a copy of the playbook for a file_policy rule_id, or None if unknown.
 def get_file_policy_rule_playbook(rule_id: str) -> dict[str, object] | None:
     playbook = _FILE_POLICY_RULE_PLAYBOOKS.get(rule_id)
     if playbook is None:
@@ -174,9 +166,8 @@ def get_file_policy_rule_playbook(rule_id: str) -> dict[str, object] | None:
     return dict(playbook)
 
 
-# FUNCTION: _extract_script_path
-# SUMMARY: Extract a 'scripts/<file>.py' path from a 'uv run python scripts/<file>.py [...]' command, if present.
-# OUTPUT: (str | None): The relative path to the script, or None when the command does not reference one.
+# Extract a 'scripts/<file>.py' path from a 'uv run python scripts/<file>.py [...]' command, if present.
+# Returns: The relative path to the script, or None when the command does not reference one.
 def _extract_script_path(command: str) -> str | None:
     match = re.search(r"\b(scripts/[^\s]+\.py)\b", command)
     if match:
@@ -184,10 +175,9 @@ def _extract_script_path(command: str) -> str | None:
     return None
 
 
-# FUNCTION: collect_file_policy_issues
-# SUMMARY: Validate the FILE_POLICY_INDEX (or an override) against schema invariants.
-# INPUT: edit_zones_override (dict[str, list[str]] | None): Optional override of EDIT_ZONES used for zone-drift detection (tests only).
-# OUTPUT: (list[FilePolicyIssue]): All issues found. Empty list means the index is clean.
+# Validate the FILE_POLICY_INDEX (or an override) against schema invariants.
+# edit_zones_override: Optional override of EDIT_ZONES used for zone-drift detection (tests only).
+# Returns: All issues found. Empty list means the index is clean.
 def collect_file_policy_issues(
     root_dir: Path,
     index_override: dict[str, dict[str, object]] | None = None,
@@ -204,7 +194,7 @@ def collect_file_policy_issues(
     issues: list[FilePolicyIssue] = []
 
     for entry_key, metadata in index.items():
-        # **LOGIC_STEP**: Required fields present.
+        # Required fields present.
         for field_name in sorted(REQUIRED_FIELDS):
             if field_name not in metadata:
                 issues.append(
@@ -216,7 +206,7 @@ def collect_file_policy_issues(
                     )
                 )
 
-        # **LOGIC_STEP**: edit_zone valid.
+        # edit_zone valid.
         if "edit_zone" in metadata:
             zone = metadata["edit_zone"]
             if not isinstance(zone, str) or zone not in ZONE_RISK:
@@ -232,7 +222,7 @@ def collect_file_policy_issues(
                     )
                 )
             elif isinstance(zone, str) and zone in ZONE_RISK:
-                # **LOGIC_STEP**: edit_zone consistent with EDIT_ZONES pattern membership.
+                # edit_zone consistent with EDIT_ZONES pattern membership.
                 pattern_lookup = zone_via_edit_zones_patterns(entry_key, edit_zones)
                 pattern_zone = pattern_lookup["zone"]
                 if pattern_zone != "unclassified" and pattern_zone != zone:
@@ -249,7 +239,7 @@ def collect_file_policy_issues(
                         )
                     )
 
-        # **LOGIC_STEP**: Entry key path exists on disk.
+        # Entry key path exists on disk.
         if not (root_dir / entry_key).exists():
             issues.append(
                 FilePolicyIssue(
@@ -260,7 +250,7 @@ def collect_file_policy_issues(
                 )
             )
 
-        # **LOGIC_STEP**: generated_artifacts paths exist.
+        # generated_artifacts paths exist.
         artifacts = metadata.get("generated_artifacts")
         if isinstance(artifacts, list):
             for artifact in artifacts:
@@ -279,7 +269,7 @@ def collect_file_policy_issues(
                         )
                     )
 
-        # **LOGIC_STEP**: Script paths inside validators_if_changed exist.
+        # Script paths inside validators_if_changed exist.
         validators = metadata.get("validators_if_changed")
         if isinstance(validators, list):
             for command in validators:
@@ -304,10 +294,9 @@ def collect_file_policy_issues(
     return issues
 
 
-# FUNCTION: _issue_to_payload
-# SUMMARY: Convert a FilePolicyIssue into a JSON-serializable payload with playbook hints.
+# Convert a FilePolicyIssue into a JSON-serializable payload with playbook hints.
 def _issue_to_payload(issue: FilePolicyIssue) -> dict[str, object]:
-    # **LOGIC_STEP**: FilePolicyIssue has no native file/line — entry_key is the closest
+    # FilePolicyIssue has no native file/line — entry_key is the closest
     # identifying location. Map it into the canon's `file` field with a neutral `line=1`
     # while keeping entry_key/field/severity in the payload (asdict) unchanged.
     playbook = get_file_policy_rule_playbook(issue.rule_id)
@@ -323,9 +312,8 @@ def _issue_to_payload(issue: FilePolicyIssue) -> dict[str, object]:
     )
 
 
-# FUNCTION: main
-# SUMMARY: Validate the FILE_POLICY_INDEX and return a process exit code.
-# OUTPUT: (int): Zero when the index is clean, non-zero on detected issues.
+# Validate the FILE_POLICY_INDEX and return a process exit code.
+# Returns: Zero when the index is clean, non-zero on detected issues.
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Validate ai_context.file_policy.FILE_POLICY_INDEX schema invariants."

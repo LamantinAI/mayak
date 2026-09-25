@@ -44,7 +44,7 @@ def _quality_gates_by_concern() -> dict[str, list[str]]:
         "endpoint_wiring": ["uv run python scripts/validate_endpoint_wiring.py"],
         "runtime_ownership": ["uv run python scripts/validate_runtime_ownership.py"],
         "full": ["make quality-gates"],
-        # **LOGIC_STEP**: lint and types name their make target instead of respelling the command.
+        # lint and types name their make target instead of respelling the command.
         # A hand-copied command reaches an agent through docs/ai_context_map.json, so a stale one
         # is a command someone runs and believes — the entries below keep their direct spelling
         # instead: a script with no source list cannot drift.

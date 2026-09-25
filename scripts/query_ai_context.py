@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # FILE: query_ai_context.py
-# SUMMARY: Query the AI context artifacts through stable commands so agents can inspect wiring, impact, and validation guidance without broad repo scans.
+# Query the AI context artifacts through stable commands so agents can inspect wiring, impact, and validation guidance without broad repo scans.
 
 from __future__ import annotations
 

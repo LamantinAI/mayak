@@ -5,11 +5,8 @@ import re
 from typing import Any, Mapping
 
 
-# FUNCTION: summarize_text
-# SUMMARY: Convert raw text into a low-risk structured summary for logs.
-# OUTPUT: (dict[str, Any]): Summary containing only structural properties.
 def summarize_text(value: str) -> dict[str, Any]:
-    # **LOGIC_STEP**: Retain only non-sensitive structural metadata about the text.
+    # Retain only non-sensitive structural metadata about the text.
     return {
         "length": len(value),
         "is_empty": len(value) == 0,
@@ -19,11 +16,8 @@ def summarize_text(value: str) -> dict[str, Any]:
     }
 
 
-# FUNCTION: summarize_mapping
-# SUMMARY: Convert arbitrary mapping input into a safe structural summary for logs.
-# OUTPUT: (dict[str, Any] | None): Summary with size and keys only.
 def summarize_mapping(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
-    # **LOGIC_STEP**: Preserve absence while avoiding logging raw values.
+    # Preserve absence while avoiding logging raw values.
     if value is None:
         return None
 
@@ -34,15 +28,12 @@ def summarize_mapping(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
-# FUNCTION: summarize_payload
-# SUMMARY: Convert arbitrary payloads into a safe structural summary for logs.
-# OUTPUT: (dict[str, Any] | None): Summary preserving only shape, counts, and types.
 def summarize_payload(value: Any) -> dict[str, Any] | None:
-    # **LOGIC_STEP**: Preserve explicit absence while avoiding raw value logging.
+    # Preserve explicit absence while avoiding raw value logging.
     if value is None:
         return None
 
-    # **LOGIC_STEP**: Reuse specialized helpers for common sensitive payload shapes.
+    # Reuse specialized helpers for common sensitive payload shapes.
     if isinstance(value, str):
         return {"value_type": "text", **summarize_text(value)}
 
@@ -60,12 +51,12 @@ def summarize_payload(value: Any) -> dict[str, Any] | None:
             "item_types": item_types,
         }
 
-    # **LOGIC_STEP**: Fall back to type-only summaries for scalars and arbitrary objects.
+    # Fall back to type-only summaries for scalars and arbitrary objects.
     return {"value_type": type(value).__name__}
 
 
 _TRACEBACK_REDACT_PATTERNS = [
-    # NOTE: The optional `+driver` segment is not decoration. SQLAlchemy's async URL carries the
+    # The optional `+driver` segment is not decoration. SQLAlchemy's async URL carries the
     # driver name between the scheme and the separator — this project's own DSN shape — and the
     # earlier pattern required the scheme to touch `://`, so the one connection string most likely
     # to appear in a traceback here was the one form that slipped through untouched.
@@ -78,7 +69,7 @@ _TRACEBACK_REDACT_PATTERNS = [
         r"(api[_-]?key|token|secret|password|authorization)\s*[=:]\s*['\"]?[^\s'\"]+",
         re.IGNORECASE,
     ),
-    # NOTE: Bare credentials carry no `key=` prefix, so the assignment pattern above
+    # Bare credentials carry no `key=` prefix, so the assignment pattern above
     # never sees them. A JWT or a provider-prefixed token pasted into a log line, an exception
     # message, or a request body is the common shape, and it was passing through untouched.
     re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+"),
@@ -92,10 +83,6 @@ _TRACEBACK_REDACT_PATTERNS = [
 _REDACTED = "***REDACTED***"
 
 
-# FUNCTION: redact_secrets
-# SUMMARY: Scrub known secret patterns (connection strings, API keys, tokens) from any log text.
-# INPUT: text (str): Free-form text headed for a log record.
-# OUTPUT: (str): Same text with recognized secret patterns replaced by a redaction marker.
 def redact_secrets(text: str) -> str:
     """Scrub known secret patterns from arbitrary log-bound text."""
     result = text
@@ -104,18 +91,13 @@ def redact_secrets(text: str) -> str:
     return result
 
 
-# FUNCTION: redact_traceback
-# SUMMARY: Scrub known secret patterns from traceback text.
 def redact_traceback(tb_text: str) -> str:
     """Scrub known secret patterns from traceback text."""
     return redact_secrets(tb_text)
 
 
-# FUNCTION: summarize_chat_messages
-# SUMMARY: Build a safe summary for chat message collections without logging full content.
-# INPUT: messages (list[Any]): Sequence of DTO or domain message-like objects.
 def summarize_chat_messages(messages: list[Any]) -> dict[str, Any]:
-    # **LOGIC_STEP**: Extract roles and lengths from compatible message objects or mappings.
+    # Extract roles and lengths from compatible message objects or mappings.
     roles: list[str] = []
     lengths: list[int] = []
     for message in messages:

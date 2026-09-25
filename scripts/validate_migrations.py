@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # FILE: validate_migrations.py
-# SUMMARY: Quality gate that verifies Alembic migrations are up to date with the SQLAlchemy metadata.
+# Quality gate that verifies Alembic migrations are up to date with the SQLAlchemy metadata.
 
 from __future__ import annotations
 
@@ -16,17 +16,14 @@ from ai_context.rendering import render_json
 from ai_context.validator_contract import build_validator_issue_payload
 
 
-# ATTRIBUTE: ROOT_DIR (Path)
-# SUMMARY: Absolute repository root used as the working directory for Alembic commands.
+# Absolute repository root used as the working directory for Alembic commands.
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-# ATTRIBUTE: ALEMBIC_INI_PATH (Path)
-# SUMMARY: Explicit Alembic configuration file path passed to every CLI invocation.
+# Explicit Alembic configuration file path passed to every CLI invocation.
 ALEMBIC_INI_PATH = ROOT_DIR / "alembic.ini"
 
 
-# ATTRIBUTE: _MIGRATIONS_RULE_PLAYBOOKS (dict[str, dict[str, object]])
-# SUMMARY: Stable rule_id → playbook mapping for migration validator failures.
+# Stable rule_id → playbook mapping for migration validator failures.
 _MIGRATIONS_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
     "migrations.head_drift": {
         "meaning": (
@@ -233,13 +230,11 @@ _MIGRATIONS_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
 }
 
 
-# ATTRIBUTE: _SKIP_OPT_OUT_ENV (str)
-# SUMMARY: Environment variable that re-permits the database skip inside CI for deliberate exceptions.
+# Environment variable that re-permits the database skip inside CI for deliberate exceptions.
 _SKIP_OPT_OUT_ENV = "MIGRATIONS_ALLOW_SKIP"
 
-# ATTRIBUTE: _NOT_VERIFIED_BANNER (str)
-# SUMMARY: Opens the unreachable-database skip message so it cannot be mistaken for a passing step.
-# NOTE: This skip is deliberately non-fatal locally (database_skip_is_allowed) — the defect this
+# Opens the unreachable-database skip message so it cannot be mistaken for a passing step.
+# This skip is deliberately non-fatal locally (database_skip_is_allowed) — the defect this
 # banner fixes is not the skip itself but its old wording, "Database is not reachable — migration
 # validation skipped.", which read like every other line among the ~20 steps `make quality-gates`
 # prints. Measured on 2026-09-07, on both projects two agents built from this template: a
@@ -250,11 +245,10 @@ _SKIP_OPT_OUT_ENV = "MIGRATIONS_ALLOW_SKIP"
 _NOT_VERIFIED_BANNER = "MIGRATIONS NOT VERIFIED"
 
 
-# FUNCTION: postgres_is_enabled
-# SUMMARY: Report whether this project uses a relational store at all.
-# OUTPUT: (bool): False when POSTGRES_ENABLED is explicitly disabled in the environment or .env.
+# Report whether this project uses a relational store at all.
+# Returns: False when POSTGRES_ENABLED is explicitly disabled in the environment or .env.
 def postgres_is_enabled() -> bool:
-    # **LOGIC_STEP**: Read the same variable the runtime reads, without importing the settings
+    # Read the same variable the runtime reads, without importing the settings
     # models — this script must stay runnable when application dependencies are unavailable,
     # which is also why _is_database_reachable() loads dotenv by hand a few lines below.
     try:
@@ -270,11 +264,10 @@ def postgres_is_enabled() -> bool:
     }
 
 
-# FUNCTION: database_skip_is_allowed
-# SUMMARY: Report whether an unreachable database may downgrade this gate to an informational skip.
-# OUTPUT: (bool): False inside CI, where a silent skip would hide a broken revision chain.
+# Report whether an unreachable database may downgrade this gate to an informational skip.
+# Returns: False inside CI, where a silent skip would hide a broken revision chain.
 def database_skip_is_allowed() -> bool:
-    # **LOGIC_STEP**: Locally a developer without Postgres should not be blocked. In CI the
+    # Locally a developer without Postgres should not be blocked. In CI the
     # skip is the whole problem: no job provisioned a database, so the gate never ran and a
     # second alembic head or a dangling down_revision would sail through green.
     if os.environ.get(_SKIP_OPT_OUT_ENV, "").strip().lower() in {"1", "true", "yes"}:
@@ -282,50 +275,39 @@ def database_skip_is_allowed() -> bool:
     return os.environ.get("CI", "").strip().lower() not in {"1", "true", "yes"}
 
 
-# DATACLASS: validate_migrations.MigrationCommand
-# SUMMARY: Immutable descriptor for a single Alembic validation step.
+# Immutable descriptor for a single Alembic validation step.
 @dataclass(frozen=True)
 class MigrationCommand:
-    # ATTRIBUTE: name (str)
-    # SUMMARY: Human-readable command label shown in progress output.
+    # Human-readable command label shown in progress output.
     name: str
 
-    # ATTRIBUTE: argv (tuple[str, ...])
-    # SUMMARY: Fully expanded command argv executed without a shell.
+    # Fully expanded command argv executed without a shell.
     argv: tuple[str, ...]
 
 
-# DATACLASS: validate_migrations.MigrationIssue
-# SUMMARY: Structured result of a failed migration validation step, suitable for JSON output and playbook lookup.
+# Structured result of a failed migration validation step, suitable for JSON output and playbook lookup.
 @dataclass(slots=True)
 class MigrationIssue:
-    # ATTRIBUTE: rule_id (str)
-    # SUMMARY: Stable rule identifier consumable by query_ai_context.py failure rule.
+    # Stable rule identifier consumable by query_ai_context.py failure rule.
     rule_id: str
 
-    # ATTRIBUTE: command_name (str)
-    # SUMMARY: Name of the failed Alembic step (upgrade-head, check, ...).
+    # Name of the failed Alembic step (upgrade-head, check, ...).
     command_name: str
 
-    # ATTRIBUTE: message (str)
-    # SUMMARY: Human-readable description of the failure.
+    # Human-readable description of the failure.
     message: str
 
-    # ATTRIBUTE: returncode (int)
-    # SUMMARY: Subprocess exit code. Zero indicates a non-failure status (skip).
+    # Subprocess exit code. Zero indicates a non-failure status (skip).
     returncode: int
 
-    # ATTRIBUTE: severity (str)
-    # SUMMARY: 'error' (blocks gate), 'warning' (visible but non-blocking), or 'info' (purely informational).
+    # 'error' (blocks gate), 'warning' (visible but non-blocking), or 'info' (purely informational).
     severity: str = "error"
 
-    # ATTRIBUTE: stderr (str | None)
-    # SUMMARY: Captured stderr output from the failed Alembic subprocess (truncated). None when not applicable or no stderr was emitted.
+    # Captured stderr output from the failed Alembic subprocess (truncated). None when not applicable or no stderr was emitted.
     stderr: str | None = None
 
 
-# FUNCTION: get_migrations_rule_playbook
-# SUMMARY: Return a copy of the playbook for a migrations rule_id, or None if unknown.
+# Return a copy of the playbook for a migrations rule_id, or None if unknown.
 def get_migrations_rule_playbook(rule_id: str) -> dict[str, object] | None:
     playbook = _MIGRATIONS_RULE_PLAYBOOKS.get(rule_id)
     if playbook is None:
@@ -333,9 +315,8 @@ def get_migrations_rule_playbook(rule_id: str) -> dict[str, object] | None:
     return dict(playbook)
 
 
-# FUNCTION: _is_database_reachable
-# SUMMARY: Check whether the PostgreSQL database is reachable using psycopg.
-# OUTPUT: (bool): True when the database accepts connections, False otherwise.
+# Check whether the PostgreSQL database is reachable using psycopg.
+# Returns: True when the database accepts connections, False otherwise.
 def _is_database_reachable() -> bool:
     # Load .env so that POSTGRES_* variables are available.
     try:
@@ -351,7 +332,7 @@ def _is_database_reachable() -> bool:
     password = os.environ.get("POSTGRES_PASSWORD", "")
     db = os.environ.get("POSTGRES_DB", "")
 
-    # **LOGIC_STEP**: No user at all means there is nothing to try; an unconfigured checkout gets
+    # No user at all means there is nothing to try; an unconfigured checkout gets
     # its answer without waiting for a TCP timeout. The placeholder value itself is NOT a reason
     # to answer no: the functional stack creates its database with exactly the name
     # `your_postgres_user` — compose passes POSTGRES_USER straight to the postgres image — so
@@ -377,24 +358,23 @@ def _is_database_reachable() -> bool:
         return False
 
 
-# FUNCTION: _script_directory_at
-# SUMMARY: Build Alembic's view of a revision directory, or None when there is no such directory.
-# INPUT: script_location (Path): Directory holding the revision files.
-# OUTPUT: (Any): An alembic ScriptDirectory, typed loosely because alembic is imported lazily.
-# NOTE: One construction shared by every offline reader below, so the heads, the revision ids and
+# Build Alembic's view of a revision directory, or None when there is no such directory.
+# script_location: Directory holding the revision files.
+# Returns: An alembic ScriptDirectory, typed loosely because alembic is imported lazily.
+# One construction shared by every offline reader below, so the heads, the revision ids and
 # any future reader cannot end up walking two differently-configured views of the same directory.
 def _script_directory_at(script_location: Path) -> Any:
-    # **LOGIC_STEP**: ScriptDirectory reads alembic/versions/ and nothing else — env.py is not
+    # ScriptDirectory reads alembic/versions/ and nothing else — env.py is not
     # executed, so no connection is attempted and no .env is needed. That is what lets this run
     # ahead of the reachability skip.
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
-    # **LOGIC_STEP**: The repository's alembic.ini is read so a project that adds
+    # The repository's alembic.ini is read so a project that adds
     # `version_locations` there is walked the same way the CLI walks it; only script_location is
     # overridden, because the ini spells it relative to the working directory and this gate does
     # not chdir.
-    # **LOGIC_STEP**: No script directory means no revisions, not a broken graph — a project
+    # No script directory means no revisions, not a broken graph — a project
     # that declared POSTGRES_ENABLED=false and deleted alembic/ has nothing here to check, and
     # the database_disabled skip below is the answer it should get.
     if not script_location.is_dir():
@@ -404,25 +384,23 @@ def _script_directory_at(script_location: Path) -> Any:
     return ScriptDirectory.from_config(config)
 
 
-# FUNCTION: _revision_heads
-# SUMMARY: Read the heads of the revision graph from the migration files alone, without a database.
-# INPUT: script_location (Path): The Alembic script directory; the repository's unless a test
-#        points at a temporary one.
-# OUTPUT: (list[str]): Every head revision id. One is healthy; two is a fork.
-# RAISES: Exception: Whatever Alembic raises when the files do not form a graph it can walk — a
-#         down_revision naming no revision surfaces as KeyError, a revision file that fails to
-#         import as its own error. _revision_graph_issue reports either without narrowing.
+# Read the heads of the revision graph from the migration files alone, without a database.
+# script_location: The Alembic script directory; the repository's unless a test
+# points at a temporary one.
+# Returns: Every head revision id. One is healthy; two is a fork.
+# Exception: Whatever Alembic raises when the files do not form a graph it can walk — a
+# down_revision naming no revision surfaces as KeyError, a revision file that fails to
+# import as its own error. _revision_graph_issue reports either without narrowing.
 def _revision_heads(script_location: Path = ROOT_DIR / "alembic") -> list[str]:
     script = _script_directory_at(script_location)
     return [] if script is None else list(script.get_heads())
 
 
-# FUNCTION: _revision_ids
-# SUMMARY: Every revision id this branch's migration files define, read without a database.
-# INPUT: script_location (Path): The Alembic script directory; the repository's unless a test
-#        points at a temporary one.
-# OUTPUT: (set[str]): Revision ids reachable from any head down to base, empty when there are none.
-# NOTE: Heads answer "does this branch have one chain"; this answers "does this branch know that
+# Every revision id this branch's migration files define, read without a database.
+# script_location: The Alembic script directory; the repository's unless a test
+# points at a temporary one.
+# Returns: Revision ids reachable from any head down to base, empty when there are none.
+# Heads answer "does this branch have one chain"; this answers "does this branch know that
 # revision at all", which is the question a stamped database asks.
 def _revision_ids(script_location: Path = ROOT_DIR / "alembic") -> set[str]:
     script = _script_directory_at(script_location)
@@ -431,11 +409,10 @@ def _revision_ids(script_location: Path = ROOT_DIR / "alembic") -> set[str]:
     return {revision.revision for revision in script.walk_revisions()}
 
 
-# FUNCTION: _stamped_revision_ids
-# SUMMARY: Read what the database says it has been migrated to, or nothing when it cannot say.
-# OUTPUT: (set[str]): Contents of alembic_version.version_num; empty for a database that is
-#         unreachable, never migrated, or answering anything this cannot read.
-# NOTE: Every failure reads as "nothing stamped", which is the quiet direction on purpose: a
+# Read what the database says it has been migrated to, or nothing when it cannot say.
+# Returns: Contents of alembic_version.version_num; empty for a database that is
+# unreachable, never migrated, or answering anything this cannot read.
+# Every failure reads as "nothing stamped", which is the quiet direction on purpose: a
 # connection that dies between the reachability probe and this read must not be reported as a
 # foreign revision. The real failure then surfaces where it always did, in `alembic upgrade`.
 def _stamped_revision_ids() -> set[str]:
@@ -467,9 +444,8 @@ def _stamped_revision_ids() -> set[str]:
         return set()
 
 
-# FUNCTION: _foreign_revision_issue
-# SUMMARY: Report a database stamped with a revision this branch does not have.
-# OUTPUT: (MigrationIssue | None): An error-severity issue, or None when the two agree.
+# Report a database stamped with a revision this branch does not have.
+# Returns: An error-severity issue, or None when the two agree.
 def _foreign_revision_issue() -> MigrationIssue | None:
     stamped = _stamped_revision_ids()
     if not stamped:
@@ -477,11 +453,11 @@ def _foreign_revision_issue() -> MigrationIssue | None:
     try:
         known = _revision_ids()
     except Exception:
-        # **LOGIC_STEP**: An unwalkable graph is already reported as migrations.broken_revision_
+        # An unwalkable graph is already reported as migrations.broken_revision_
         # graph; reporting it a second time under this rule would name the wrong cause.
         return None
     if not known:
-        # **LOGIC_STEP**: No revisions here at all — a checkout whose alembic/versions/ is empty or
+        # No revisions here at all — a checkout whose alembic/versions/ is empty or
         # gone. Every stamped id is then "foreign" by arithmetic and by nothing else, and saying
         # another branch migrated this database would be a guess about the wrong repository. The
         # upgrade that follows reports the real problem, which is local.
@@ -502,9 +478,8 @@ def _foreign_revision_issue() -> MigrationIssue | None:
     )
 
 
-# FUNCTION: _revision_graph_issue
-# SUMMARY: Report a fork or an unwalkable revision graph, or None when the files form one chain.
-# OUTPUT: (MigrationIssue | None): An error-severity issue, or None.
+# Report a fork or an unwalkable revision graph, or None when the files form one chain.
+# Returns: An error-severity issue, or None.
 def _revision_graph_issue() -> MigrationIssue | None:
     try:
         heads = _revision_heads()
@@ -533,9 +508,8 @@ def _revision_graph_issue() -> MigrationIssue | None:
     return None
 
 
-# FUNCTION: _build_commands
-# SUMMARY: Build the ordered Alembic commands required to validate migration completeness.
-# OUTPUT: (list[MigrationCommand]): Upgrade and metadata-check commands executed by the gate.
+# Build the ordered Alembic commands required to validate migration completeness.
+# Returns: Upgrade and metadata-check commands executed by the gate.
 def _build_commands() -> list[MigrationCommand]:
     alembic_prefix = (
         sys.executable,
@@ -556,15 +530,13 @@ def _build_commands() -> list[MigrationCommand]:
     ]
 
 
-# FUNCTION: _emit
-# SUMMARY: Print a stable progress line for the current migration validation step.
+# Print a stable progress line for the current migration validation step.
 def _emit(message: str) -> None:
     sys.stdout.write(f"[validate_migrations] {message}\n")
     sys.stdout.flush()
 
 
-# FUNCTION: _command_to_rule_id
-# SUMMARY: Map an Alembic command name to the corresponding rule_id when it fails.
+# Map an Alembic command name to the corresponding rule_id when it fails.
 def _command_to_rule_id(command_name: str) -> str:
     if command_name == "check":
         return "migrations.head_drift"
@@ -573,9 +545,8 @@ def _command_to_rule_id(command_name: str) -> str:
     return "migrations.upgrade_failure"
 
 
-# FUNCTION: _remediation_messages
-# SUMMARY: Build stable remediation guidance for a failed migration validation step.
-# OUTPUT: (list[str]): Ordered remediation hints to print after the failure.
+# Build stable remediation guidance for a failed migration validation step.
+# Returns: Ordered remediation hints to print after the failure.
 def _remediation_messages(command_name: str) -> list[str]:
     if command_name == "check":
         return [
@@ -604,14 +575,12 @@ def _remediation_messages(command_name: str) -> list[str]:
     ]
 
 
-# ATTRIBUTE: _STDERR_TAIL_LIMIT (int)
-# SUMMARY: Maximum characters of captured Alembic stderr to retain on a MigrationIssue (tail-truncated).
+# Maximum characters of captured Alembic stderr to retain on a MigrationIssue (tail-truncated).
 _STDERR_TAIL_LIMIT = 1000
 
 
-# FUNCTION: _run_command
-# SUMMARY: Execute one Alembic validation step and fail fast on non-zero exit codes.
-# RAISES: subprocess.CalledProcessError: When the Alembic subprocess exits with a non-zero status. exc.stderr carries Alembic's stderr output (text mode).
+# Execute one Alembic validation step and fail fast on non-zero exit codes.
+# subprocess.CalledProcessError: When the Alembic subprocess exits with a non-zero status. exc.stderr carries Alembic's stderr output (text mode).
 def _run_command(command: MigrationCommand) -> None:
     _emit(f"running {command.name}: {' '.join(command.argv)}")
     subprocess.run(
@@ -623,9 +592,8 @@ def _run_command(command: MigrationCommand) -> None:
     )
 
 
-# FUNCTION: collect_migration_issues
-# SUMMARY: Run the full migration check sequence and return a list of structured issues.
-# OUTPUT: (list[MigrationIssue]): Issues found. Empty list means the gate passed.
+# Run the full migration check sequence and return a list of structured issues.
+# Returns: Issues found. Empty list means the gate passed.
 def collect_migration_issues(
     root_dir: Path,
     require_database: bool | None = None,
@@ -633,7 +601,7 @@ def collect_migration_issues(
     del (
         root_dir
     )  # _build_commands uses module-level ROOT_DIR; preserved for symmetry with other validators.
-    # **LOGIC_STEP**: The one part of this gate that needs no database runs first, ahead of both
+    # The one part of this gate that needs no database runs first, ahead of both
     # skips below. A second head and a dangling down_revision are defects of the files in
     # alembic/versions/, readable without connecting — running this after the skips would let a
     # checkout without Postgres pass both green, although the comment on database_skip_is_allowed
@@ -643,7 +611,7 @@ def collect_migration_issues(
     graph_issue = _revision_graph_issue()
     if graph_issue is not None:
         return [graph_issue]
-    # **LOGIC_STEP**: A project that declared it needs no relational store has nothing for this
+    # A project that declared it needs no relational store has nothing for this
     # gate to verify. This is deliberately NOT the MIGRATIONS_ALLOW_SKIP path: that env var is
     # the emergency hatch for "the database is temporarily unreachable", and letting it also
     # cover "the database is not part of this project" would make one switch hide two very
@@ -693,7 +661,7 @@ def collect_migration_issues(
                 severity="info",
             )
         ]
-    # **LOGIC_STEP**: Asked before alembic runs, because alembic's own answer to this is
+    # Asked before alembic runs, because alembic's own answer to this is
     # `Can't locate revision identified by <id>` — true, useless, and the reason the advice
     # people reached for was to recreate the database. Reported instead of the upgrade failure
     # it would otherwise become, since the two want opposite moves.
@@ -709,7 +677,7 @@ def collect_migration_issues(
             None,
         )
         failed_name = failed_command.name if failed_command is not None else "unknown"
-        # **LOGIC_STEP**: Capture Alembic stderr (text mode) so JSON consumers see the
+        # Capture Alembic stderr (text mode) so JSON consumers see the
         # actionable error, not just an opaque exit code. Truncate to the tail to
         # keep MigrationIssue payloads bounded.
         raw_stderr = (exc.stderr or "").strip() if isinstance(exc.stderr, str) else ""
@@ -732,10 +700,9 @@ def collect_migration_issues(
     return []
 
 
-# FUNCTION: _issue_to_payload
-# SUMMARY: Convert a MigrationIssue to a JSON-serializable payload with playbook hints.
+# Convert a MigrationIssue to a JSON-serializable payload with playbook hints.
 def _issue_to_payload(issue: MigrationIssue) -> dict[str, object]:
-    # **LOGIC_STEP**: MigrationIssue has no native file/line — command_name is the closest
+    # MigrationIssue has no native file/line — command_name is the closest
     # identifying location. Map it into the canon's `file` field with a neutral `line=1`
     # while keeping command_name/returncode/stderr/severity in the payload (asdict) unchanged.
     playbook = get_migrations_rule_playbook(issue.rule_id)
@@ -751,9 +718,8 @@ def _issue_to_payload(issue: MigrationIssue) -> dict[str, object]:
     )
 
 
-# FUNCTION: main
-# SUMMARY: Run the migration validation quality gate and return a process exit code.
-# OUTPUT: (int): Zero when migrations are valid or skipped; non-zero on detected drift/failure.
+# Run the migration validation quality gate and return a process exit code.
+# Returns: Zero when migrations are valid or skipped; non-zero on detected drift/failure.
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Validate Alembic migrations against current SQLAlchemy metadata."
@@ -771,13 +737,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"override with {_SKIP_OPT_OUT_ENV}=1."
         ),
     )
-    # **LOGIC_STEP**: Default to an empty argv when called directly from tests so that
+    # Default to an empty argv when called directly from tests so that
     # pytest's own argv does not leak into argparse.
     args = parser.parse_args([] if argv is None else argv)
 
     require_database = args.require_database or not database_skip_is_allowed()
     issues = collect_migration_issues(ROOT_DIR, require_database=require_database)
-    # **LOGIC_STEP**: Treat any all-non-error batch as a skip (info/warning issues do not block).
+    # Treat any all-non-error batch as a skip (info/warning issues do not block).
     # See `docs/agent_rules.md` "Validator authoring conventions" for the severity contract.
     skipped = bool(issues) and all(issue.severity != "error" for issue in issues)
 
@@ -789,7 +755,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if skipped:
-        # **LOGIC_STEP**: Report the reason the issue actually carries. The old code printed
+        # Report the reason the issue actually carries. The old code printed
         # "database is not reachable" for every non-error status, which would have told a
         # project running without a relational store that its database was down.
         reason = issues[0].rule_id.split(".", 1)[-1]
@@ -828,7 +794,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     return max(issue.returncode for issue in issues) or 1
 
 
-# FUNCTION: __main__
-# SUMMARY: Module entrypoint that executes the migration validation gate as a CLI script.
+# Module entrypoint that executes the migration validation gate as a CLI script.
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv[1:]))

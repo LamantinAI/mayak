@@ -1,6 +1,6 @@
 # FILE: tests/db/test_reference_tasks_api.py
 # SUMMARY: The reference vertical over HTTP, in process, on the real repository: status codes, filters, conflicts.
-# NOTE: The application is the assembled one (CompositionRoot through the `fastapi_app` fixture) with
+# The application is the assembled one (CompositionRoot through the `fastapi_app` fixture) with
 # its service pointed at the db tier's pool, and requests go through ASGI on the tier's event loop —
 # a TestClient would run the app on a loop of its own, where the pool cannot be used. What this adds
 # over tests/db/test_reference_task_repository.py is the service and the endpoint on top of real
@@ -22,8 +22,6 @@ from project.domain.reference_task import MAX_TITLE_LENGTH, ReferenceTask
 from project.infrastructure.persistence.reference_task_repository import ReferenceTaskRepository
 
 
-# FUNCTION: _serve
-# SUMMARY: An HTTP client for the assembled application, its reference service over `repository`.
 @asynccontextmanager
 async def _serve(app: FastAPI, repository: ReferenceTaskRepository) -> AsyncIterator[AsyncClient]:
     app.state.services["reference_task_service"] = ReferenceTaskService(repository=repository)
@@ -31,9 +29,7 @@ async def _serve(app: FastAPI, repository: ReferenceTaskRepository) -> AsyncIter
         yield client
 
 
-# CLASS: tests.db.test_reference_tasks_api._SomebodyElseActsAfterTheRead
-# SUMMARY: The real repository, except that another writer acts once, right after the first read.
-# NOTE: The race staged where it happens: the service holds a row the table no longer has. Real SQL
+# The race staged where it happens: the service holds a row the table no longer has. Real SQL
 # on both sides, so the outcome is decided by the WHERE clause, not by an imitation of it.
 class _SomebodyElseActsAfterTheRead(ReferenceTaskRepository):
     def __init__(
@@ -84,7 +80,7 @@ async def test_the_list_answers_the_status_it_was_asked_for(
         done = (await client.post("/reference-tasks", json={"title": "Done"})).json()["id"]
         await client.patch(f"/reference-tasks/{done}", json={"status": "done"})
 
-        # **LOGIC_STEP**: A status other than the default. Asked only for the default, an endpoint
+        # A status other than the default. Asked only for the default, an endpoint
         # that ignored the parameter answered the same page, and only the 422 tests noticed.
         by_status = {
             status: (await client.get("/reference-tasks", params={"status": status})).json()
@@ -101,9 +97,8 @@ async def test_the_list_answers_the_status_it_was_asked_for(
     assert (unknown.status_code, too_long.status_code, blank.status_code) == (422, 422, 422)
 
 
-# FUNCTION: test_each_patch_changes_what_it_sent_and_the_next_one_still_lands
-# SUMMARY: Verify a patch touches only its fields, moves the token, clears on null, and does not block the next.
-# NOTE: Three patches in a row, because the defects that break the token show on the second: a
+# Verify a patch touches only its fields, moves the token, clears on null, and does not block the next.
+# Three patches in a row, because the defects that break the token show on the second: a
 # token that never moves, a write conditioned on the new timestamp, or a mapper that swaps the two
 # stamps each leave the first patch looking fine and answer 409 to the next.
 async def test_each_patch_changes_what_it_sent_and_the_next_one_still_lands(
@@ -153,7 +148,7 @@ async def test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409(
 async def test_a_patch_of_a_task_deleted_since_the_read_answers_404_not_409(
     fastapi_app: FastAPI, db_pool: AsyncConnectionPool
 ) -> None:
-    # **LOGIC_STEP**: From inside the UPDATE a moved row and a deleted one are the same zero rows;
+    # From inside the UPDATE a moved row and a deleted one are the same zero rows;
     # only the service's second read tells them apart, and telling the caller of a deleted task to
     # re-read and retry sends them after a row that will never come back.
     async def delete_first(task: ReferenceTask) -> None:
@@ -168,9 +163,8 @@ async def test_a_patch_of_a_task_deleted_since_the_read_answers_404_not_409(
     assert response.status_code == 404
 
 
-# FUNCTION: test_a_request_that_would_open_a_second_task_with_a_title_answers_409
-# SUMMARY: Verify every path to a second open title — create, rename, reopen by status alone — is refused.
-# NOTE: The status-only PATCH is the one bench2's service-side check never looked at: it validated a
+# Verify every path to a second open title — create, rename, reopen by status alone — is refused.
+# The status-only PATCH is the one bench2's service-side check never looked at: it validated a
 # title when one was sent, and reopening a closed task sends none. The index sees the row, not the
 # request, so every path is covered by the same rule.
 async def test_a_request_that_would_open_a_second_task_with_a_title_answers_409(

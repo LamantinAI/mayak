@@ -25,43 +25,34 @@ from project.infrastructure.agents.llm_service import LLMService
 from tests.conftest import _FixtureSettings as FixtureSettings
 
 
-# CLASS: tests.application.test_mock_agent_multi_tool_loop.NotificationChannel
-# SUMMARY: The enum leg of the structured-argument requirement.
+# The enum leg of the structured-argument requirement.
 class NotificationChannel(str, Enum):
     EMAIL = "email"
     SMS = "sms"
 
 
-# CLASS: tests.application.test_mock_agent_multi_tool_loop.Money
-# SUMMARY: The nested-object-with-a-Decimal-field leg: a tool argument that is itself a model,
+# The nested-object-with-a-Decimal-field leg: a tool argument that is itself a model,
 # holding the Decimal a `{"query": str}` shape can never satisfy.
 class Money(BaseModel):
     amount: Decimal
     currency: str
 
 
-# CLASS: tests.application.test_mock_agent_multi_tool_loop.LookupArgs
-# SUMMARY: Schema for the first tool in the loop: plain scalar arguments.
 class LookupArgs(BaseModel):
     customer_id: str
 
 
-# CLASS: tests.application.test_mock_agent_multi_tool_loop.PriceOrderArgs
-# SUMMARY: Schema for the second tool: a nested object carrying a Decimal.
 class PriceOrderArgs(BaseModel):
     customer_id: str
     total: Money
 
 
-# CLASS: tests.application.test_mock_agent_multi_tool_loop.SendConfirmationArgs
-# SUMMARY: Schema for the third tool: an enum-constrained field.
 class SendConfirmationArgs(BaseModel):
     customer_id: str
     channel: NotificationChannel
 
 
-# FUNCTION: _lookup_customer / _price_order / _send_confirmation
-# SUMMARY: Trivial bodies. What this test exercises is argument validation and loop control, not
+# Trivial bodies. What this test exercises is argument validation and loop control, not
 # business logic — a real vertical's tool bodies belong in its own infrastructure layer.
 def _lookup_customer(customer_id: str) -> str:
     return f"customer {customer_id}: active"
@@ -75,8 +66,7 @@ def _send_confirmation(customer_id: str, channel: NotificationChannel) -> str:
     return f"confirmation sent to {customer_id} via {channel.value}"
 
 
-# ATTRIBUTE: _TOOLS (list[StructuredTool])
-# SUMMARY: Three tools with three different schemas, bound in this order — the order the mock is
+# Three tools with three different schemas, bound in this order — the order the mock is
 # expected to visit them in, since selection is positional (see ADR-003).
 _TOOLS = [
     StructuredTool.from_function(
@@ -99,8 +89,7 @@ _TOOLS = [
     ),
 ]
 
-# ATTRIBUTE: _VALID_ARGS_BY_TOOL (dict[str, dict[str, Any]])
-# SUMMARY: The one thing the mock cannot invent on its own — see the NOTE on `_build_mock_response`
+# The one thing the mock cannot invent on its own — see the NOTE on `_build_mock_response`
 # in llm_service_mock.py. Written down here, the same way a vertical would write it down for its
 # own tools, and handed to the bound service through `_mock_tool_args`.
 _VALID_ARGS_BY_TOOL: dict[str, dict[str, Any]] = {
@@ -110,13 +99,12 @@ _VALID_ARGS_BY_TOOL: dict[str, dict[str, Any]] = {
 }
 
 
-# FUNCTION: _run_agent_loop
-# SUMMARY: The loop shape a vertical's own agent service runs: call the model, execute whatever
+# The loop shape a vertical's own agent service runs: call the model, execute whatever
 # tool it asked for against the REAL tool (so args validate against its REAL schema), feed the
 # result back, repeat until the model answers with no further tool call.
-# INPUT: service (LLMService): Already bound to `_TOOLS`, in mock mode.
-# OUTPUT: (tuple[list[str], str]): Tool names called, in order, and the final text answer.
-# RAISES: AssertionError: If the loop does not terminate within one round per bound tool plus one —
+# service: Already bound to `_TOOLS`, in mock mode.
+# Returns tool names called, in order, and the final text answer.
+# Raises AssertionError if the loop does not terminate within one round per bound tool plus one —
 # a runaway loop should fail the test loudly, not hang it or loop silently past the budget.
 async def _run_agent_loop(service: LLMService, prompt: str) -> tuple[list[str], str]:
     messages: list[BaseMessage] = [HumanMessage(content=prompt)]
@@ -132,7 +120,7 @@ async def _run_agent_loop(service: LLMService, prompt: str) -> tuple[list[str], 
 
         call = response.tool_calls[0]
         called_in_order.append(call["name"])
-        # **LOGIC_STEP**: `ainvoke` runs the tool's own pydantic validation on `call["args"]` —
+        # `ainvoke` runs the tool's own pydantic validation on `call["args"]` —
         # this is what proves the args are schema-valid, not merely well-typed Python.
         result = await tools_by_name[call["name"]].ainvoke(call["args"])
         messages.append(
@@ -142,12 +130,7 @@ async def _run_agent_loop(service: LLMService, prompt: str) -> tuple[list[str], 
     raise AssertionError(f"loop did not finalize within {len(_TOOLS) + 1} rounds")
 
 
-# CLASS: tests.application.test_mock_agent_multi_tool_loop.TestThreeToolAgentLoopOnMock
-# SUMMARY: The sample itself.
 class TestThreeToolAgentLoopOnMock:
-    # FUNCTION: test_the_loop_visits_every_tool_once_with_valid_structured_args_then_answers
-    # SUMMARY: Drive the full loop and check every part of the promise: selection, argument
-    # validity across all three structured shapes, and termination with a real final answer.
     @pytest.mark.unit
     async def test_the_loop_visits_every_tool_once_with_valid_structured_args_then_answers(
         self,
@@ -164,18 +147,17 @@ class TestThreeToolAgentLoopOnMock:
             bound, "place and confirm an order for cust-42"
         )
 
-        # **LOGIC_STEP**: Selection is positional and complete — every bound tool exactly once,
+        # Selection is positional and complete — every bound tool exactly once,
         # in binding order. Without it, a 3-tool loop is unreachable on the shipped mock: this
         # list stops at one entry no matter how many tools are bound.
         assert called_in_order == ["lookup_customer", "price_order", "send_confirmation"]
-        # **LOGIC_STEP**: The final call carried no tool call and produced the summary branch —
+        # The final call carried no tool call and produced the summary branch —
         # the loop actually ended instead of hitting the round budget in `_run_agent_loop`.
         assert "Tool-assisted summary" in final_answer
         for tool_name in called_in_order:
             assert tool_name in final_answer
 
-    # FUNCTION: test_without_the_override_the_default_args_still_only_fit_a_query_shaped_tool
-    # SUMMARY: Pin the boundary from the other side: no `_mock_tool_args` override means the old
+    # Pin the boundary from the other side: no `_mock_tool_args` override means the old
     # `{"query": ...}` default, which is exactly why the override exists.
     @pytest.mark.unit
     async def test_without_the_override_the_default_args_still_only_fit_a_query_shaped_tool(
@@ -192,19 +174,16 @@ class TestThreeToolAgentLoopOnMock:
 
         assert isinstance(response, AIMessage)
         assert response.tool_calls[0]["name"] == "lookup_customer"
-        # **LOGIC_STEP**: The default is stated, not merely observed to fail. Asserting only that
+        # The default is stated, not merely observed to fail. Asserting only that
         # invoking raises leaves the test green when the default becomes `{}` — a different
         # behaviour, the same pydantic complaint about the missing `customer_id`.
         assert response.tool_calls[0]["args"] == {"query": "place an order"}
-        # **LOGIC_STEP**: And that shape is not `LookupArgs`'s (`customer_id`), so it fails this
+        # And that shape is not `LookupArgs`'s (`customer_id`), so it fails this
         # tool's real schema — the exact failure the override in the test above exists to avoid.
         with pytest.raises(ValidationError, match="customer_id"):
             await _TOOLS[0].ainvoke(response.tool_calls[0]["args"])
 
-    # FUNCTION: test_the_loop_advances_when_the_tool_result_carries_no_name
-    # SUMMARY: Drive the same loop with `ToolMessage(content=..., tool_call_id=...)` — no `name` —
-    # and check the cycle still visits every tool once.
-    # NOTE: `ToolMessage.name` is optional, and the shortest hand-written loop omits it. If
+    # `ToolMessage.name` is optional, and the shortest hand-written loop omits it. If
     # selection reads only that field, an unnamed result teaches the mock nothing: it answers with
     # the first bound tool again, and again, until the caller's own round budget stops it. Found
     # by an independent review of this branch, not by the loop above, because the loop above
@@ -231,11 +210,11 @@ class TestThreeToolAgentLoopOnMock:
             call = response.tool_calls[0]
             called_in_order.append(call["name"])
             result = await tools_by_name[call["name"]].ainvoke(call["args"])
-            # **LOGIC_STEP**: The whole point — no `name=`, only the id of the call it answers.
+            # The whole point — no `name=`, only the id of the call it answers.
             messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
 
         assert called_in_order == ["lookup_customer", "price_order", "send_confirmation"]
-        # **LOGIC_STEP**: And the summary names those tools too. Selection learned to resolve an
+        # And the summary names those tools too. Selection learned to resolve an
         # unnamed result through the call it answers; the summary kept reading `.name` and printed
         # `None: <result>` for the same message. Found by a second independent review — one fix,
         # two readers, and only one of them had been updated.
@@ -245,9 +224,7 @@ class TestThreeToolAgentLoopOnMock:
         for tool_name in called_in_order:
             assert tool_name in str(summary.content)
 
-    # FUNCTION: test_a_result_answering_no_known_call_does_not_consume_a_tool
-    # SUMMARY: Verify an unnamed result is matched to the call it answers, not to a position.
-    # NOTE: The loop test above walks a happy path where "first result answers the first call" and
+    # The loop test above walks a happy path where "first result answers the first call" and
     # "the id says so" agree, so it stays green against an implementation that just counts
     # results — a review made exactly that mutation and watched it pass. Here the id matches
     # nothing, so only an implementation that reads it gets the answer right.
@@ -275,9 +252,7 @@ class TestThreeToolAgentLoopOnMock:
         assert second.tool_calls, "a stray result was taken as an answer to the first tool"
         assert second.tool_calls[0]["name"] == "lookup_customer"
 
-    # FUNCTION: test_a_second_question_starts_the_cycle_over
-    # SUMMARY: Verify the tools a previous answer used are available again for the next question.
-    # NOTE: The cycle has to remember within one answer and forget between answers. Scanning the
+    # The cycle has to remember within one answer and forget between answers. Scanning the
     # whole conversation gets the first right and the second wrong: a second question in the same
     # conversation receives no tool call at all, because every tool still counts as answered from
     # the first one. A conversation is the normal case for an assistant, so this is a regression
@@ -302,11 +277,10 @@ class TestThreeToolAgentLoopOnMock:
         assert second_calls == first_calls
 
 
-# FUNCTION: _drive
-# SUMMARY: Run the loop over an existing conversation, appending to it in place.
-# INPUT: service (LLMService): Bound service in mock mode.
-# INPUT: messages (list[BaseMessage]): Conversation so far; the last entry is the question.
-# OUTPUT: (tuple[list[str], str]): Tool names called for this question, and the final answer.
+# Run the loop over an existing conversation, appending to it in place.
+# service: Bound service in mock mode.
+# messages: Conversation so far; the last entry is the question.
+# Returns tool names called for this question, and the final answer.
 async def _drive(service: LLMService, messages: list[BaseMessage]) -> tuple[list[str], str]:
     tools_by_name = {tool.name: tool for tool in _TOOLS}
     called: list[str] = []

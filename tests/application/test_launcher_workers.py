@@ -16,25 +16,18 @@ from project.launcher.main import main
 from tests.conftest import _FixtureSettings as FixtureSettings
 
 
-# CLASS: tests.application.test_launcher_workers._RecordingSupervisor
-# SUMMARY: Stand-in for uvicorn's multi-process supervisor: keeps the config instead of forking workers.
+# Stand-in for uvicorn's multi-process supervisor: keeps the config instead of forking workers.
 class _RecordingSupervisor:
     started: list[Any] = []
 
-    # FUNCTION: __init__
-    # SUMMARY: Accept what uvicorn.run hands its supervisor.
     def __init__(self, config: Any, sockets: list[Any]) -> None:
         self.config = config
 
-    # FUNCTION: run
-    # SUMMARY: Record the config the workers would have been started from.
     def run(self) -> None:
         _RecordingSupervisor.started.append(self.config)
 
 
-# FUNCTION: test_several_workers_start_and_each_can_build_the_application
-# SUMMARY: Verify uvicorn accepts the launcher's application for two workers and a worker can build it.
-# NOTE: SERVER_WORKERS=2 ended the process at once with exit code 3. uvicorn refuses an application
+# SERVER_WORKERS=2 ended the process at once with exit code 3. uvicorn refuses an application
 # object when it has to start several workers — each worker process imports the application itself —
 # and the launcher handed it the object it had just built. Found by the bench2 measurement
 # (2026-09-24): the setting was unusable, and one process hid the fact that an asyncio.Lock guarding
@@ -66,7 +59,7 @@ def test_several_workers_start_and_each_can_build_the_application(
 
             [config] = _RecordingSupervisor.started
             assert config.workers == 2
-            # **LOGIC_STEP**: What a worker process does first: import the application from the
+            # What a worker process does first: import the application from the
             # string it was given, and call it when it is a factory.
             loaded = config.load_app()
             application = loaded() if config.factory else loaded
@@ -75,7 +68,7 @@ def test_several_workers_start_and_each_can_build_the_application(
     finally:
         clear_settings_override()
         signal_module.signal(signal_module.SIGTERM, sigterm_before)
-        # **LOGIC_STEP**: main() reconfigures the root logger through dictConfig; put back exactly
+        # main() reconfigures the root logger through dictConfig; put back exactly
         # what this test inherited, as test_full_trace_is_announced.py does.
         for handler in list(root_logger.handlers):
             root_logger.removeHandler(handler)

@@ -2,7 +2,7 @@
 # SUMMARY: Verify a service that records prompt and completion text says so while it boots, and
 # that the text it records goes through the credential scrubber.
 #
-# NOTE: The flag is a data-retention decision wearing the clothes of a verbosity setting. Nothing
+# The flag is a data-retention decision wearing the clothes of a verbosity setting. Nothing
 # announced it, so a project turned it on to debug an agent and left it on — which is how a
 # customer's email address reached a log file. The warning and the scrubbing shipped with no test
 # of their own; this is that test.
@@ -21,8 +21,6 @@ from project.infrastructure.agents.llm_service_live import _build_full_trace_ext
 from project.launcher.main import main
 
 
-# FUNCTION: _warning_types
-# SUMMARY: The warning_type of every warning record in the capture.
 def _warning_types(log_capture: list[dict]) -> list[str]:
     return [
         event["kwargs"]["data"]["warning_type"]
@@ -33,11 +31,7 @@ def _warning_types(log_capture: list[dict]) -> list[str]:
     ]
 
 
-# CLASS: tests.application.test_full_trace_is_announced.TestTheServiceSaysWhatItIsRecording
-# SUMMARY: Verify the startup warning follows the flag and nothing else.
 class TestTheServiceSaysWhatItIsRecording:
-    # FUNCTION: test_the_warning_follows_the_flag
-    # SUMMARY: Verify the warning is written when full trace is on and never when it is off.
     @pytest.mark.unit
     @pytest.mark.parametrize("full_trace", [True, False])
     def test_the_warning_follows_the_flag(
@@ -48,7 +42,7 @@ class TestTheServiceSaysWhatItIsRecording:
         monkeypatch: pytest.MonkeyPatch,
         full_trace: bool,
     ) -> None:
-        # **LOGIC_STEP**: monkeypatch rather than assignment, because `test_settings` is shared for
+        # monkeypatch rather than assignment, because `test_settings` is shared for
         # the session and `main()` reconfigures the root logger against `log_dir`. Left as they
         # were, both outlive the test: a later test writing a real log record would append into a
         # torn-down tmp directory, and every log call after that prints a logging error to stderr.
@@ -68,7 +62,7 @@ class TestTheServiceSaysWhatItIsRecording:
                 root.return_value.build_application.return_value = MagicMock()
                 main()
         finally:
-            # **LOGIC_STEP**: Put back what was there, rather than only taking away what main()
+            # Put back what was there, rather than only taking away what main()
             # added. setup_logging goes through dictConfig, which drops every existing root
             # handler before installing its own — so by the time this runs the handlers this test
             # inherited are already gone, and pruning alone would leave the process logging
@@ -85,11 +79,7 @@ class TestTheServiceSaysWhatItIsRecording:
         assert announced is full_trace
 
 
-# CLASS: tests.application.test_full_trace_is_announced.TestTheRecordedTextIsScrubbed
-# SUMMARY: Verify a credential pasted into a prompt or returned in a completion is redacted.
 class TestTheRecordedTextIsScrubbed:
-    # FUNCTION: test_a_credential_in_the_recorded_text_is_replaced
-    # SUMMARY: Verify each of the three recorded fields goes through the scrubber.
     @pytest.mark.unit
     def test_a_credential_in_the_recorded_text_is_replaced(self) -> None:
         # allow-secret: an invented literal in the shape the scrubber matches, so that the
@@ -108,8 +98,6 @@ class TestTheRecordedTextIsScrubbed:
         assert secret not in extras["user_message"]
         assert secret not in extras["completion_text"]
 
-    # FUNCTION: test_nothing_is_recorded_while_the_flag_is_off
-    # SUMMARY: Verify the hot path stays empty when full trace is disabled.
     @pytest.mark.unit
     def test_nothing_is_recorded_while_the_flag_is_off(self) -> None:
         extras = _build_full_trace_extras(

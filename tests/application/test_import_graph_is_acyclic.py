@@ -1,7 +1,7 @@
 # FILE: tests/application/test_import_graph_is_acyclic.py
 # SUMMARY: Guard the one defect the whole suite is structurally blind to — an import cycle inside
 # project/ that only breaks when a module is imported first.
-# NOTE: `python -c "import project.core.error_utils"` raised ImportError on a tree whose 1129
+# `python -c "import project.core.error_utils"` raised ImportError on a tree whose 1129
 # tests were green. error_utils imported project.core.logging.redaction; importing any
 # submodule runs that package's __init__, which imports logger, which imported error_utils back —
 # a module still half-built. The suite never saw it because conftest.py imports the logging package
@@ -23,10 +23,8 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PACKAGE_ROOT = _REPO_ROOT / "project"
 
 
-# FUNCTION: _module_files
-# SUMMARY: Map every importable module name under a package root to its file.
-# INPUT: package_root (Path): Directory of the package to walk; the mechanism test passes its own.
-# OUTPUT: (dict[str, Path]): Dotted module name to source file, `__init__.py` named as its package.
+# package_root: Directory of the package to walk; the mechanism test passes its own.
+# Returns dotted module name to source file, `__init__.py` named as its package.
 def _module_files(package_root: Path) -> dict[str, Path]:
     modules: dict[str, Path] = {}
     for path in sorted(package_root.rglob("*.py")):
@@ -39,14 +37,12 @@ def _module_files(package_root: Path) -> dict[str, Path]:
     return modules
 
 
-# FUNCTION: _import_edges
-# SUMMARY: Build the module graph Python actually walks at import time.
-# INPUT: package_root (Path): Package to read.
-# OUTPUT: (dict[str, set[str]]): Module name to the modules importing it runs.
-# **LOGIC_STEP**: Only module-level imports count — an import inside a function runs when the
+# Build the module graph Python actually walks at import time.
+# Returns module name to the modules importing it runs.
+# Only module-level imports count — an import inside a function runs when the
 # function is called, long after every module is built, and is the ordinary way to break a cycle
 # on purpose. Reading nested statements would report cycles that cannot happen.
-# **LOGIC_STEP**: Importing `a.b.c` runs `a`'s and `a.b`'s `__init__` first, so an ancestor package
+# Importing `a.b.c` runs `a`'s and `a.b`'s `__init__` first, so an ancestor package
 # is an edge too — but only for an importer outside that package. Inside it, `__init__` is already
 # running and is not re-entered, which is why sibling modules referring to each other are not a
 # cycle. Getting this wrong in either direction is the difference between a rule that catches the
@@ -68,7 +64,7 @@ def _import_edges(package_root: Path) -> dict[str, set[str]]:
         for target in targets:
             if target != package_name and not target.startswith(f"{package_name}."):
                 continue
-            # **LOGIC_STEP**: `from project.domain.exceptions import ConflictError` names a symbol,
+            # `from project.domain.exceptions import ConflictError` names a symbol,
             # not a module — walk up until the dotted prefix is one this package really has.
             candidate = target
             while candidate and candidate not in modules:
@@ -87,10 +83,7 @@ def _import_edges(package_root: Path) -> dict[str, set[str]]:
     return edges
 
 
-# FUNCTION: _first_cycle
-# SUMMARY: Return one import cycle from the graph, as the path that closes it.
-# INPUT: edges (dict[str, set[str]]): The graph from _import_edges.
-# OUTPUT: (list[str]): Module names, first repeated at the end, or an empty list when acyclic.
+# Returns module names, first repeated at the end, or an empty list when acyclic.
 def _first_cycle(edges: dict[str, set[str]]) -> list[str]:
     state: dict[str, int] = {}
     path: list[str] = []
@@ -117,22 +110,14 @@ def _first_cycle(edges: dict[str, set[str]]) -> list[str]:
     return found
 
 
-# CLASS: tests.application.test_import_graph_is_acyclic.TestNoImportCycleUnderProject
-# SUMMARY: Verify no module under project/ can be the first one imported and fail.
 class TestNoImportCycleUnderProject:
-    # FUNCTION: test_the_shipped_package_has_no_import_cycle
-    # SUMMARY: Verify the real graph is acyclic, naming the cycle when it is not.
-    # OUTPUT: (None): None.
     @pytest.mark.unit
     def test_the_shipped_package_has_no_import_cycle(self) -> None:
         cycle = _first_cycle(_import_edges(_PACKAGE_ROOT))
 
         assert cycle == [], "import cycle: " + " -> ".join(cycle)
 
-    # FUNCTION: test_error_utils_imports_alone_in_a_fresh_interpreter
-    # SUMMARY: Verify the module that broke can still be the first thing a process imports.
-    # OUTPUT: (None): None.
-    # NOTE: One subprocess, not sixty. The graph above covers every module; this proves the graph
+    # One subprocess, not sixty. The graph above covers every module; this proves the graph
     # is asking about something real — a rule nobody can run is a rule nobody believes. error_utils
     # is the module that actually failed, so it is the one worth the third of a second.
     @pytest.mark.unit
@@ -147,17 +132,12 @@ class TestNoImportCycleUnderProject:
         assert result.returncode == 0, result.stderr
 
 
-# CLASS: tests.application.test_import_graph_is_acyclic.TestCycleDetectionMechanism
-# SUMMARY: Verify the detector above finds a cycle and does not invent one, on a package built here.
-# **LOGIC_STEP**: Without this the guard passes vacuously on a clean tree forever, and the day it
+# Without this the guard passes vacuously on a clean tree forever, and the day it
 # matters is the day nobody knows whether it works. The fixture reproduces the exact shape of the
 # error_utils defect above: a module importing a submodule of a package whose `__init__` imports
 # it back.
 class TestCycleDetectionMechanism:
-    # FUNCTION: test_a_package_reimporting_its_importer_is_reported
-    # SUMMARY: Verify the ancestor-package edge is what closes the cycle, as it did in the defect.
-    # INPUT: tmp_path (Path): Throwaway package root.
-    # OUTPUT: (None): None.
+    # Verify the ancestor-package edge is what closes the cycle, as it did in the defect.
     @pytest.mark.unit
     def test_a_package_reimporting_its_importer_is_reported(self, tmp_path: Path) -> None:
         root = tmp_path / "sample"
@@ -180,11 +160,8 @@ class TestCycleDetectionMechanism:
         assert "sample.logging" in cycle
         assert "sample.helper" in cycle
 
-    # FUNCTION: test_siblings_inside_one_package_are_not_a_cycle
-    # SUMMARY: Verify the shape the shipped logging package has is left alone.
-    # INPUT: tmp_path (Path): Throwaway package root.
-    # OUTPUT: (None): None.
-    # NOTE: `project/core/logging/__init__.py` imports `logger`, and `logger` imports its sibling
+    # Verify the shape the shipped logging package has is left alone.
+    # `project/core/logging/__init__.py` imports `logger`, and `logger` imports its sibling
     # `logger_events`. Counting the package as an edge for a module inside it would report that as
     # a cycle and turn a correct, shipped package red — the failure mode this repository treats as
     # worse than a miss.

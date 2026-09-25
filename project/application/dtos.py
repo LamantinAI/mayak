@@ -9,11 +9,7 @@ from pydantic import Field, field_serializer
 from project.application.core_model import CoreModel
 
 
-# CLASS: project.application.dtos.ErrorDetail
-# SUMMARY: Standard error response model for API errors.
 class ErrorDetail(CoreModel):
-    # ATTRIBUTE: type (str)
-    # SUMMARY: Stable machine-readable error classification.
     type: str = Field(
         ...,
         title="Error Type",
@@ -21,8 +17,6 @@ class ErrorDetail(CoreModel):
         examples=["ValidationError"],
     )
 
-    # ATTRIBUTE: message (str)
-    # SUMMARY: Human-readable client-facing error message.
     message: str = Field(
         ...,
         title="Error Message",
@@ -30,8 +24,6 @@ class ErrorDetail(CoreModel):
         examples=["Request validation failed"],
     )
 
-    # ATTRIBUTE: status_code (int)
-    # SUMMARY: HTTP status code associated with the error.
     status_code: int = Field(
         ...,
         title="Status Code",
@@ -39,8 +31,7 @@ class ErrorDetail(CoreModel):
         examples=[422],
     )
 
-    # ATTRIBUTE: details (list[dict[str, Any]] | Dict[str, Any] | None)
-    # SUMMARY: Optional structured detail payload returned for validation-like errors.
+    # Returned for validation-like errors.
     details: list[dict[str, Any]] | Dict[str, Any] | None = Field(
         default=None,
         title="Error Details",
@@ -48,11 +39,7 @@ class ErrorDetail(CoreModel):
     )
 
 
-# CLASS: project.application.dtos.ErrorResponse
-# SUMMARY: Standard error envelope for API errors.
 class ErrorResponse(CoreModel):
-    # ATTRIBUTE: error (ErrorDetail)
-    # SUMMARY: Structured error payload returned to the client.
     error: ErrorDetail = Field(
         ...,
         title="Error",
@@ -60,11 +47,7 @@ class ErrorResponse(CoreModel):
     )
 
 
-# CLASS: project.application.dtos.HealthResponse
-# SUMMARY: Response model for health check endpoint.
 class HealthResponse(CoreModel):
-    # ATTRIBUTE: status (str)
-    # SUMMARY: Aggregated health status of the service.
     status: Literal["healthy", "unhealthy"] = Field(
         ...,
         title="Status",
@@ -72,8 +55,6 @@ class HealthResponse(CoreModel):
         examples=["healthy"],
     )
 
-    # ATTRIBUTE: version (str)
-    # SUMMARY: Application version reported by the health endpoint.
     version: str = Field(
         ...,
         title="Version",
@@ -81,8 +62,7 @@ class HealthResponse(CoreModel):
         examples=["1.0.0"],
     )
 
-    # ATTRIBUTE: timestamp (datetime)
-    # SUMMARY: UTC timestamp when the health payload was generated.
+    # UTC.
     timestamp: datetime = Field(
         ...,
         title="Timestamp",
@@ -90,8 +70,6 @@ class HealthResponse(CoreModel):
         examples=["2024-01-01T12:00:00Z"],
     )
 
-    # ATTRIBUTE: uptime_seconds (float)
-    # SUMMARY: Process uptime in seconds at the moment of the health check.
     uptime_seconds: float = Field(
         ...,
         title="Uptime",
@@ -99,22 +77,12 @@ class HealthResponse(CoreModel):
         examples=[3600.5],
     )
 
-    # FUNCTION: serialize_timestamp
-    # SUMMARY: Serializes datetime to ISO format for JSON response.
     @field_serializer("timestamp")
     def serialize_timestamp(self, value: datetime) -> str:
         return value.isoformat()
 
 
-# CLASS: project.application.dtos.DetailedHealthResponse
-# SUMMARY: Detailed response model for health check with additional system information.
-# EXTENDS: project.application.dtos.HealthResponse
 class DetailedHealthResponse(HealthResponse):
-    # ATTRIBUTE: checks (Dict[str, Dict[str, Any]]): Dictionary of health check results for various components.
-    # ATTRIBUTE: status (Literal["healthy", "unhealthy"]): Aggregated readiness status.
-
-    # ATTRIBUTE: checks (Dict[str, Dict[str, Any]])
-    # SUMMARY: Per-component readiness details for service wiring, the LLM, and the database.
     checks: Dict[str, Dict[str, Any]] = Field(
         ...,
         title="Health Checks",

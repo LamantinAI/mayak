@@ -11,13 +11,10 @@ from project.core.logging.logger_types import LogValue
 from project.core.logging.redaction import redact_secrets
 
 
-# CLASS: project.core.logging.logger_events_errors.SemanticLoggerIssueEventsMixin
-# SUMMARY: Mixin implementing error and critical issue helpers with causal-link metadata support.
+# With causal-link metadata support.
 class SemanticLoggerIssueEventsMixin:
-    # FUNCTION: log_client_error
-    # SUMMARY: Log a rejection the caller caused — a 4xx — at WARNING, under its own event id.
-    # INPUT: error_type (str): Short slug describing the rejection, e.g. "http_exception".
-    # NOTE: Same shape as log_error and deliberately not the same level. A 404 or a 422 is the
+    # error_type: Short slug describing the rejection, e.g. "http_exception".
+    # Same shape as log_error and deliberately not the same level. A 404 or a 422 is the
     # application working: it looked at a request it could not serve and said so. Recorded as
     # `error.*` at ERROR, those lines made a healthy service read as a failing one — `make
     # format-trace` counted them among a trace's errors, and an operator grepping ERROR met a
@@ -56,10 +53,6 @@ class SemanticLoggerIssueEventsMixin:
             data=payload,
         )
 
-    # FUNCTION: log_error
-    # SUMMARY: Log error events with exception details, context information, and causal linking.
-    # INPUT: exception (Optional[Exception]): Actual exception object if available.
-    # INPUT: caused_by (Optional[str]): Explicit error_id that caused this error.
     def log_error(
         self: SemanticLoggerEventContract,
         error_type: str,
@@ -71,12 +64,12 @@ class SemanticLoggerIssueEventsMixin:
         **extra: LogValue,
     ) -> None:
         _caller = self._resolve_caller()
-        # **LOGIC_STEP**: Scrub secrets from caller-supplied text before it reaches any handler.
+        # Scrub secrets from caller-supplied text before it reaches any handler.
         message = redact_secrets(message)
         payload: dict[str, Any] = {"error_type": error_type, "message": message}
         if exception is not None:
             payload["exception_type"] = type(exception).__name__
-            # **LOGIC_STEP**: Exception text is untrusted — clients embed keys and DSNs in it.
+            # Exception text is untrusted — clients embed keys and DSNs in it.
             payload["exception_message"] = redact_secrets(str(exception))
 
         related_id = caused_by or get_current_error_id()
@@ -94,10 +87,6 @@ class SemanticLoggerIssueEventsMixin:
             data=payload,
         )
 
-    # FUNCTION: log_critical
-    # SUMMARY: Log critical failure events with impact assessment and causal linking.
-    # INPUT: exception (Optional[Exception]): Actual exception object if available.
-    # INPUT: caused_by (Optional[str]): Explicit error_id that caused this critical failure.
     def log_critical(
         self: SemanticLoggerEventContract,
         failure_type: str,
@@ -110,7 +99,7 @@ class SemanticLoggerIssueEventsMixin:
         **extra: LogValue,
     ) -> None:
         _caller = self._resolve_caller()
-        # **LOGIC_STEP**: Scrub secrets from caller-supplied text before it reaches any handler.
+        # Scrub secrets from caller-supplied text before it reaches any handler.
         message = redact_secrets(message)
         payload: dict[str, Any] = {
             "failure_type": failure_type,
@@ -119,7 +108,7 @@ class SemanticLoggerIssueEventsMixin:
         }
         if exception is not None:
             payload["exception_type"] = type(exception).__name__
-            # **LOGIC_STEP**: Exception text is untrusted — clients embed keys and DSNs in it.
+            # Exception text is untrusted — clients embed keys and DSNs in it.
             payload["exception_message"] = redact_secrets(str(exception))
 
         related_id = caused_by or get_current_error_id()

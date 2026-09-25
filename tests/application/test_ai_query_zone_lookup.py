@@ -13,19 +13,15 @@ from ai_query.common import annotate_paths, zone_for_path, zone_via_edit_zones_p
 from scripts.generate_ai_context import build_architecture_rules
 
 
-# CLASS: tests.application.test_ai_query_zone_lookup.TestZoneForPathFilePolicyFirst
-# SUMMARY: zone_for_path consults file_policy_index before EDIT_ZONES patterns.
 class TestZoneForPathFilePolicyFirst:
-    # FUNCTION: test_zone_for_path_uses_file_policy_for_validate_architecture
-    # SUMMARY: validate_architecture.py is in FILE_POLICY as 'expert' but not in EDIT_ZONES.expert patterns.
+    # validate_architecture.py is in FILE_POLICY as 'expert' but not in EDIT_ZONES.expert patterns.
     @pytest.mark.unit
     def test_zone_for_path_uses_file_policy_for_validate_architecture(self) -> None:
         rules: dict[str, Any] = build_architecture_rules()
         result = zone_for_path("scripts/validate_architecture.py", rules)
         assert result == {"zone": "expert", "risk": "high"}
 
-    # FUNCTION: test_zone_for_path_uses_file_policy_for_validate_endpoint_wiring
-    # SUMMARY: validate_endpoint_wiring.py is in FILE_POLICY as 'expert' but not in EDIT_ZONES.expert patterns.
+    # validate_endpoint_wiring.py is in FILE_POLICY as 'expert' but not in EDIT_ZONES.expert patterns.
     @pytest.mark.unit
     def test_zone_for_path_uses_file_policy_for_validate_endpoint_wiring(self) -> None:
         rules: dict[str, Any] = build_architecture_rules()
@@ -33,19 +29,16 @@ class TestZoneForPathFilePolicyFirst:
         assert result == {"zone": "expert", "risk": "high"}
 
 
-# CLASS: tests.application.test_ai_query_zone_lookup.TestZoneForPathRegression
-# SUMMARY: Paths that were correctly classified before the FILE_POLICY-first change continue to work.
+# Paths that were correctly classified before the FILE_POLICY-first change continue to work.
 class TestZoneForPathRegression:
-    # FUNCTION: test_zone_for_path_regression_runtime_ownership
-    # SUMMARY: validate_runtime_ownership.py is in both FILE_POLICY and EDIT_ZONES.expert — must remain expert/high.
+    # validate_runtime_ownership.py is in both FILE_POLICY and EDIT_ZONES.expert.
     @pytest.mark.unit
     def test_zone_for_path_regression_runtime_ownership(self) -> None:
         rules: dict[str, Any] = build_architecture_rules()
         result = zone_for_path("scripts/validate_runtime_ownership.py", rules)
         assert result == {"zone": "expert", "risk": "high"}
 
-    # FUNCTION: test_zone_for_path_regression_unrelated_safe_path
-    # SUMMARY: An unindexed path that matches an EDIT_ZONES.safe pattern still resolves via the fallback.
+    # An unindexed path that matches an EDIT_ZONES.safe pattern still resolves via the fallback.
     @pytest.mark.unit
     def test_zone_for_path_regression_unrelated_safe_path(self) -> None:
         rules: dict[str, Any] = build_architecture_rules()
@@ -54,11 +47,7 @@ class TestZoneForPathRegression:
         assert result["risk"] != "unknown"
 
 
-# CLASS: tests.application.test_ai_query_zone_lookup.TestZoneForPathFallback
-# SUMMARY: Paths without a FILE_POLICY entry fall back to EDIT_ZONES pattern matching.
 class TestZoneForPathFallback:
-    # FUNCTION: test_zone_for_path_falls_back_to_edit_zones_when_no_file_policy_entry
-    # SUMMARY: An invented path with no FILE_POLICY entry still matches an EDIT_ZONES pattern.
     @pytest.mark.unit
     def test_zone_for_path_falls_back_to_edit_zones_when_no_file_policy_entry(self) -> None:
         rules: dict[str, Any] = build_architecture_rules()
@@ -71,8 +60,6 @@ class TestZoneForPathFallback:
         assert fallback_result == pattern_only_result
         assert fallback_result["zone"] != "unclassified"
 
-    # FUNCTION: test_zone_for_path_unclassified_when_no_match
-    # SUMMARY: A path matched by neither FILE_POLICY nor EDIT_ZONES returns unclassified/unknown.
     @pytest.mark.unit
     def test_zone_for_path_unclassified_when_no_match(self) -> None:
         rules: dict[str, Any] = build_architecture_rules()
@@ -80,11 +67,9 @@ class TestZoneForPathFallback:
         assert result == {"zone": "unclassified", "risk": "unknown"}
 
 
-# CLASS: tests.application.test_ai_query_zone_lookup.TestAnnotatePathsEndToEnd
-# SUMMARY: annotate_paths consumes the same zone_for_path and reflects FILE_POLICY override.
+# annotate_paths consumes the same zone_for_path.
 class TestAnnotatePathsEndToEnd:
-    # FUNCTION: test_annotate_paths_reflects_file_policy_override
-    # SUMMARY: Both files previously misclassified as unclassified now annotate as expert/high.
+    # Both files previously misclassified as unclassified now annotate as expert/high.
     @pytest.mark.unit
     def test_annotate_paths_reflects_file_policy_override(self) -> None:
         rules: dict[str, Any] = build_architecture_rules()
@@ -98,11 +83,8 @@ class TestAnnotatePathsEndToEnd:
             assert record["risk"] == "high"
 
 
-# CLASS: tests.application.test_ai_query_zone_lookup.TestVerticalPathsAreClassified
-# SUMMARY: The paths a typical vertical touches first must resolve to a zone, not to 'unclassified'.
 class TestVerticalPathsAreClassified:
-    # FUNCTION: test_vertical_paths_resolve_to_a_zone
-    # SUMMARY: before-edit exited 1 on these three paths, so guidance was missing exactly where the change protocol sends the agent.
+    # before-edit exited 1 on these three paths, so guidance was missing exactly where the change protocol sends the agent.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         "path",
@@ -123,12 +105,10 @@ class TestVerticalPathsAreClassified:
         assert result["risk"] != "unknown", path
 
 
-# CLASS: tests.application.test_ai_query_zone_lookup.TestEveryApplicationFileHasAPolicy
-# SUMMARY: No file the agent can be asked to edit may answer 'unclassified'.
+# No file the agent can be asked to edit may answer 'unclassified'.
 class TestEveryApplicationFileHasAPolicy:
-    # FUNCTION: test_no_python_file_in_the_application_package_is_unclassified
-    # SUMMARY: Walk project/ on disk and fail naming every file without a zone.
-    # NOTE: 21 of 59 files here had no policy — every config module, the launcher, the LLM
+    # Walk project/ on disk and fail naming every file without a zone.
+    # 21 of 59 files here had no policy — every config module, the launcher, the LLM
     # adapters — and `before-edit` exited 1 on each with `Unknown or unindexed file policy path`.
     # validate_file_policy.py stayed green throughout: it audits the explicit index, and these
     # files were in neither the index nor a pattern. This test walks the tree instead of a list,
@@ -149,9 +129,8 @@ class TestEveryApplicationFileHasAPolicy:
             f"{unclassified}. Add an EDIT_ZONES prefix or a FILE_POLICY_INDEX entry."
         )
 
-    # FUNCTION: test_no_tracked_file_in_the_repository_is_unclassified
-    # SUMMARY: Walk every file git tracks and fail naming each one before-edit cannot answer for.
-    # NOTE: The walk above covers project/ only, and 29 tracked files sat outside it with no zone
+    # Walk every file git tracks and fail naming each one before-edit cannot answer for.
+    # The walk above covers project/ only, and 29 tracked files sat outside it with no zone
     # at all: README.md, every ADR, docs/agent_rules.md — the hand-written source both agent
     # wrappers are generated from — .env.sample, the hooks, and AGENTS.md, which the pre-edit
     # guard refuses writes to while before-edit could not say why. Asking about any of them
@@ -179,9 +158,8 @@ class TestEveryApplicationFileHasAPolicy:
             f"{unclassified}. Add an EDIT_ZONES prefix or a FILE_POLICY_INDEX entry."
         )
 
-    # FUNCTION: test_a_new_file_at_the_repository_root_is_answered_for
-    # SUMMARY: Verify an ordinary new root-level file gets a zone instead of a refusal.
-    # **LOGIC_STEP**: Every directory has a catch-all and the root had none, so a project adding
+    # Verify an ordinary new root-level file gets a zone instead of a refusal.
+    # Every directory has a catch-all and the root had none, so a project adding
     # its first CHANGELOG.md met a red gate and a message about EDIT_ZONES. A new top-level
     # DIRECTORY is still unclassified on purpose: that is a decision worth making out loud, and
     # the pair is asserted together so neither half can drift into the other.
@@ -203,9 +181,8 @@ class TestEveryApplicationFileHasAPolicy:
 
         assert zone_for_path(path, rules)["zone"] == expected_zone
 
-    # FUNCTION: test_the_most_specific_pattern_wins_over_a_broader_one
-    # SUMMARY: A file under an expert prefix stays expert even though a caution prefix also matches.
-    # NOTE: This is the regression the `project/` catch-all above would otherwise have caused. If
+    # A file under an expert prefix stays expert even though a caution prefix also matches.
+    # This is the regression the `project/` catch-all above would otherwise have caused. If
     # zone_via_edit_zones_patterns returned the FIRST matching zone while iterating zones in dict
     # order, and `caution` is declared before `expert`, the catch-all would silently demote the
     # whole logging kernel from expert/high to caution/medium. Seventeen files, no gate red.

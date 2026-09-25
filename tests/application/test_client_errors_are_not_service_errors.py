@@ -31,8 +31,6 @@ from project.core.logging import get_logger
 from project.infrastructure.api.exception_handlers import _project_error_status
 
 
-# FUNCTION: _wire_raising_route
-# SUMMARY: Register a route on the assembled app that raises the given exception.
 def _wire_raising_route(app: FastAPI, path: str, exc: Exception) -> None:
     async def _raise() -> dict[str, str]:
         raise exc
@@ -40,9 +38,7 @@ def _wire_raising_route(app: FastAPI, path: str, exc: Exception) -> None:
     app.add_api_route(path, _raise, methods=["GET"])
 
 
-# FUNCTION: _events_from
-# SUMMARY: Pull the event ids and levels of every issue record out of the capture.
-# OUTPUT: (list[tuple[str, int]]): (event_id, level) for each record carrying an event id.
+# Returns (event_id, level) for each record carrying an event id.
 def _events_from(log_capture: list[dict]) -> list[tuple[str, Any]]:
     return [
         (event["kwargs"]["event_id"], event["kwargs"].get("level"))
@@ -51,11 +47,8 @@ def _events_from(log_capture: list[dict]) -> list[tuple[str, Any]]:
     ]
 
 
-# CLASS: tests.application.test_client_errors_are_not_service_errors.TestAClientErrorReadsAsOne
-# SUMMARY: Verify the level and the event id follow the status the request is answered with.
+# Verify the level and the event id follow the status the request is answered with.
 class TestAClientErrorReadsAsOne:
-    # FUNCTION: test_a_domain_error_answered_4xx_is_a_client_error
-    # SUMMARY: Verify a 404 and a 422 are recorded at WARNING under client_error.
     @pytest.mark.integration
     @pytest.mark.parametrize(
         ("exception", "expected_status"),
@@ -82,13 +75,12 @@ class TestAClientErrorReadsAsOne:
         assert response.status_code == expected_status
         issues = [event for event in _events_from(log_capture) if "error" in event[0]]
         assert issues, "the rejection was not recorded at all"
-        # **LOGIC_STEP**: The prefix is what `make format-trace` counts on, and the level is what
+        # The prefix is what `make format-trace` counts on, and the level is what
         # an operator greps. Both have to move together, so both are asserted.
         assert all(event_id.startswith("client_error.") for event_id, _ in issues), issues
         assert all(level == logging.WARNING for _, level in issues), issues
 
-    # FUNCTION: test_a_domain_error_answered_5xx_is_still_an_error
-    # SUMMARY: Verify the change did not quieten the failures that are the service's own.
+    # Verify the change did not quieten the failures that are the service's own.
     @pytest.mark.integration
     async def test_a_domain_error_answered_5xx_is_still_an_error(
         self, fastapi_app: FastAPI, async_client: AsyncClient, log_capture: list[dict]
@@ -106,8 +98,6 @@ class TestAClientErrorReadsAsOne:
             event_id.startswith("error.") and level == logging.ERROR for event_id, level in issues
         ), issues
 
-    # FUNCTION: test_a_malformed_request_body_is_a_client_error
-    # SUMMARY: Verify request validation — the most common 4xx of all — is recorded as one.
     @pytest.mark.integration
     async def test_a_malformed_request_body_is_a_client_error(
         self, fastapi_app: FastAPI, async_client: AsyncClient, log_capture: list[dict]
@@ -122,8 +112,7 @@ class TestAClientErrorReadsAsOne:
         assert all(event_id.startswith("client_error.") for event_id, _ in issues), issues
 
 
-# CLASS: tests.application.test_client_errors_are_not_service_errors.TestARejectionInsideANestedSpanIsNotAFailure
-# SUMMARY: The hole the class above did not cover: exception_handlers.py judges 4xx-vs-5xx
+# The hole the class above did not cover: exception_handlers.py judges 4xx-vs-5xx
 # correctly, but a ConflictError raised INSIDE a nested span — a repository call, an
 # application-layer span; see project/infrastructure/persistence/reference_task_repository.py for
 # the copyable pattern every vertical's own db.* span follows — never reaches that handler first.
@@ -135,8 +124,6 @@ class TestAClientErrorReadsAsOne:
 # span yet, so this test wires the shape by hand, the same way it appears in a project that
 # copied the pattern.
 class TestARejectionInsideANestedSpanIsNotAFailure:
-    # FUNCTION: test_a_conflict_raised_inside_a_span_carries_no_error_level_and_no_traceback
-    # SUMMARY: A request that ends 409 must show no ERROR-level record and no captured traceback.
     @pytest.mark.integration
     async def test_a_conflict_raised_inside_a_span_carries_no_error_level_and_no_traceback(
         self,
@@ -148,7 +135,7 @@ class TestARejectionInsideANestedSpanIsNotAFailure:
             "tests.application.test_client_errors_are_not_service_errors.probe"
         )
 
-        # **LOGIC_STEP**: Mirrors db.reference_task.add: a span around one unit of work that turns
+        # Mirrors db.reference_task.add: a span around one unit of work that turns
         # out to conflict with what is already stored, and raises from inside the `with` block —
         # not after it, which is the shape that put the exception in front of span()'s own except
         # clause before exception_handlers.py ever saw it.
@@ -170,23 +157,23 @@ class TestARejectionInsideANestedSpanIsNotAFailure:
             if event["kwargs"].get("event_id") == "span.error"
         ]
         assert span_error_events, "the nested span's rejection was not recorded at all"
-        # **LOGIC_STEP**: The two facts a reader actually greps for — ERROR level and a captured
+        # The two facts a reader actually greps for — ERROR level and a captured
         # traceback (exc_info) — asserted directly, not inferred from a mark elsewhere.
         assert all(kwargs.get("level") != logging.ERROR for kwargs in span_error_events), (
             span_error_events
         )
         assert all(not kwargs.get("exc_info") for kwargs in span_error_events), span_error_events
-        # **LOGIC_STEP**: The field trace_formatter.py reads to render this WARNING as a rejection
+        # The field trace_formatter.py reads to render this WARNING as a rejection
         # rather than as a cancelled/interrupted span — see SpanNode.client_rejection there.
         assert all(kwargs.get("client_rejection") is True for kwargs in span_error_events), (
             span_error_events
         )
-        # **LOGIC_STEP**: No event of ANY kind for this request carries ERROR — not the span, not
+        # No event of ANY kind for this request carries ERROR — not the span, not
         # whatever exception_handlers.py writes once the exception reaches it a moment later.
         assert all(event["kwargs"].get("level") != logging.ERROR for event in log_capture), (
             log_capture
         )
-        # **LOGIC_STEP**: And the request's own summary counts no error. Levels were fixed first
+        # And the request's own summary counts no error. Levels were fixed first
         # and this counter was left behind, so `request.summary` still said error_count=1 and
         # `make format-trace` still printed `errors=1` over a request the same trace calls a
         # client_error. Found by an independent review of this branch.
@@ -199,18 +186,14 @@ class TestARejectionInsideANestedSpanIsNotAFailure:
         assert summaries[-1]["error_count"] == 0, summaries[-1]
 
 
-# CLASS: tests.application.test_client_errors_are_not_service_errors.TestBothCallSitesJudgeAlike
-# SUMMARY: Verify the span and the exception handler cannot disagree about what counts as routine.
-# NOTE: The span and the handler must not compute this independently — two separate expressions
+# Verify the span and the exception handler cannot disagree about what counts as routine.
+# The span and the handler must not compute this independently — two separate expressions
 # that happen to agree are exactly the situation where a drift goes unnoticed: a domain error
 # mapped to 503 could make one call it a failure while the other still calls it routine, and the
 # log would carry both verdicts for one exception. The handler asks `is_client_rejection`, the
 # same function the span uses; this pins the equivalence that makes sharing it safe, so a future
 # status mapping cannot quietly break it.
 class TestBothCallSitesJudgeAlike:
-    # FUNCTION: test_every_domain_error_gets_one_verdict
-    # SUMMARY: Verify rejection and sub-500 status agree for every shipped ProjectError subclass.
-    # OUTPUT: (None): None.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         "error",

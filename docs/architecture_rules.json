@@ -13,23 +13,10 @@
     "typed_dependency_aliases": "project/infrastructure/api/dependencies.py"
   },
   "cbm_policy": {
-    "logic_step_when_to_use": [
-      "branching logic",
-      "side effects",
-      "security nuances",
-      "lifecycle nuances",
-      "wiring nuances",
-      "non-obvious invariants"
-    ],
-    "optional_detail": [
-      "attributes",
-      "private helpers"
-    ],
-    "strict_core": [
-      "file headers",
-      "classes",
-      "public functions",
-      "__init__"
+    "adr": "docs/adr/ADR-001-pragmatic-cbm.md",
+    "below_the_header": "no markup; a comment says why, never what a name or signature already says",
+    "required": [
+      "file header in every project/*.py: '# FILE:' then '# SUMMARY:'"
     ]
   },
   "cold_paths": [

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # FILE: validate_runtime_ownership.py
-# SUMMARY: Repository utility that enforces ownership boundaries for shared runtime resources, env access, and app.state service wiring.
+# Repository utility that enforces ownership boundaries for shared runtime resources, env access, and app.state service wiring.
 
 from __future__ import annotations
 
@@ -185,9 +185,8 @@ def get_runtime_ownership_rule_playbook(rule_id: str) -> dict[str, object] | Non
     }
 
 
-# FUNCTION: _issue_to_payload
-# SUMMARY: Convert a RuntimeOwnershipIssue into a stable JSON-serializable payload, routing suggested_fix/read_first/next_commands/stop_widening_condition through the shared rule playbook instead of the previous inline main() dict literal that dropped read_first, next_commands, and stop_widening_condition entirely.
-# INPUT: repo_root (Path): Repository root used for relative-path rendering.
+# Convert a RuntimeOwnershipIssue into a stable JSON-serializable payload, routing suggested_fix/read_first/next_commands/stop_widening_condition through the shared rule playbook instead of the previous inline main() dict literal that dropped read_first, next_commands, and stop_widening_condition entirely.
+# repo_root: Repository root used for relative-path rendering.
 def _issue_to_payload(issue: RuntimeOwnershipIssue, repo_root: Path) -> dict[str, object]:
     playbook = get_runtime_ownership_rule_playbook(issue.rule_id)
     return build_validator_issue_payload(
@@ -235,12 +234,11 @@ def _iter_assignment_targets(node: ast.AST) -> list[ast.AST]:
     return []
 
 
-# FUNCTION: _import_bindings
-# SUMMARY: Map each local name a module binds to the dotted path it was imported from.
-# INPUT: tree (ast.AST): Parsed module.
-# OUTPUT: (dict[str, str]): Local name to dotted origin, e.g. {"_env": "os.environ"}.
+# Map each local name a module binds to the dotted path it was imported from.
+# tree: Parsed module.
+# Returns: Local name to dotted origin, e.g. {"_env": "os.environ"}.
 def _import_bindings(tree: ast.AST) -> dict[str, str]:
-    # **LOGIC_STEP**: Without this map the rules matched the literal spellings `os.getenv` and
+    # Without this map the rules matched the literal spellings `os.getenv` and
     # `os.environ` and nothing else, so `from os import getenv` — ordinary style, not an evasion —
     # silently disabled env-access enforcement for the whole file. The other two validators
     # (architecture, endpoint wiring) already build such a map; this one did not.
@@ -248,7 +246,7 @@ def _import_bindings(tree: ast.AST) -> dict[str, str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                # **LOGIC_STEP**: `import os.path` binds the top package `os`, while
+                # `import os.path` binds the top package `os`, while
                 # `import os.path as p` binds `p` to the full dotted path.
                 if alias.asname:
                     bindings[alias.asname] = alias.name
@@ -261,11 +259,10 @@ def _import_bindings(tree: ast.AST) -> dict[str, str]:
     return bindings
 
 
-# FUNCTION: _dotted_path
-# SUMMARY: Resolve an expression back to the dotted path of the module member it reads.
-# INPUT: node (ast.AST): Expression to resolve.
-# INPUT: bindings (dict[str, str]): Import map from _import_bindings.
-# OUTPUT: (str | None): Dotted path, or None when the expression is not an imported reference.
+# Resolve an expression back to the dotted path of the module member it reads.
+# node: Expression to resolve.
+# bindings: Import map from _import_bindings.
+# Returns: Dotted path, or None when the expression is not an imported reference.
 def _dotted_path(node: ast.AST, bindings: dict[str, str]) -> str | None:
     if isinstance(node, ast.Name):
         return bindings.get(node.id)
@@ -275,9 +272,8 @@ def _dotted_path(node: ast.AST, bindings: dict[str, str]) -> str | None:
     return None
 
 
-# FUNCTION: _resource_name_from_call
-# SUMMARY: Report which guarded shared resource a call constructs, following import aliases.
-# OUTPUT: (str | None): Resource name from the allowlist, or None.
+# Report which guarded shared resource a call constructs, following import aliases.
+# Returns: Resource name from the allowlist, or None.
 def _resource_name_from_call(node: ast.Call, bindings: dict[str, str]) -> str | None:
     dotted = _dotted_path(node.func, bindings)
     if dotted is not None:
@@ -290,9 +286,8 @@ def _resource_name_from_call(node: ast.Call, bindings: dict[str, str]) -> str | 
     return None
 
 
-# FUNCTION: _env_access_kind
-# SUMMARY: Classify an expression that reads process environment, whatever it was imported as.
-# OUTPUT: (str | None): "os.getenv" or "os.environ" for the message, or None.
+# Classify an expression that reads process environment, whatever it was imported as.
+# Returns: "os.getenv" or "os.environ" for the message, or None.
 def _env_access_kind(node: ast.AST, bindings: dict[str, str]) -> str | None:
     target = node.func if isinstance(node, ast.Call) else node
     if isinstance(target, ast.Subscript):
@@ -317,7 +312,7 @@ def collect_runtime_ownership_issues(repo_root: Path) -> list[RuntimeOwnershipIs
             if not _is_python_source(path):
                 continue
             repo_path = _repo_path(repo_root, path)
-            # **LOGIC_STEP**: Read & parse under guarded exceptions so a broken file
+            # Read & parse under guarded exceptions so a broken file
             # surfaces as a structured RuntimeOwnershipIssue rather than a raw traceback.
             try:
                 source = path.read_text(encoding="utf-8")

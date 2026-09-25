@@ -16,15 +16,12 @@ from project.core.logging.trace_formatter import format_trace_for_llm, trace_inv
 _TRACE_ID = "eeeeeeee5555"
 
 
-# FUNCTION: _line
-# SUMMARY: Render one NDJSON log line.
 def _line(**event: Any) -> str:
     return json.dumps(event)
 
 
-# FUNCTION: _http_root
-# SUMMARY: The span.start/span.finish pair for a plain, successful http_request root span.
-# OUTPUT: (list[str]): Two NDJSON lines bracketing whatever child lines are inserted between them.
+# The span.start line of a plain, successful http_request root span; _http_root_finish is its
+# pair, and a test puts the child lines between the two.
 def _http_root_start(span_id: str = "root1") -> str:
     return _line(
         seq=1,
@@ -50,12 +47,10 @@ def _http_root_finish(span_id: str = "root1", seq: int = 9) -> str:
     )
 
 
-# CLASS: tests.application.test_trace_formatter_span_semantics.TestToolSpanArgumentsAreVisible
-# SUMMARY: agent.tool.<name> spans render both the tool's name and the arguments it was called
+# agent.tool.<name> spans render both the tool's name and the arguments it was called
 # with — the gap two independent projects built on this template each worked around by hand.
 class TestToolSpanArgumentsAreVisible:
-    # FUNCTION: test_a_successful_tool_call_shows_name_and_arguments
-    # SUMMARY: Verify the compact tree shows the tool name and its scalar input arguments inline.
+    # Verify the compact tree shows the tool name and its scalar input arguments inline.
     @pytest.mark.unit
     def test_a_successful_tool_call_shows_name_and_arguments(self) -> None:
         lines = [
@@ -85,17 +80,16 @@ class TestToolSpanArgumentsAreVisible:
         rendered = format_trace_for_llm(lines)
 
         assert "agent.tool.search_docs" in rendered
-        # **LOGIC_STEP**: The two facts a reader could not previously get without opening the raw
+        # The two facts a reader could not previously get without opening the raw
         # NDJSON and finding span.start by hand: which tool ran, and what it was asked.
         assert 'query="revenue"' in rendered
         assert "limit=5" in rendered
-        # **LOGIC_STEP**: The span's own outcome must survive alongside the arguments, not be
+        # The span's own outcome must survive alongside the arguments, not be
         # replaced by them.
         assert "result_count=3" in rendered
 
-    # FUNCTION: test_a_tool_call_that_never_finished_stays_under_its_request
-    # SUMMARY: Verify an unfinished tool span keeps its parent instead of becoming a second root.
-    # NOTE: `parent_span_id` was read only from span.finish/span.error, so a tool call that never
+    # Verify an unfinished tool span keeps its parent instead of becoming a second root.
+    # `parent_span_id` was read only from span.finish/span.error, so a tool call that never
     # returned — a hung provider, a killed process, exactly the run someone opens a trace to
     # understand — was assembled as a root of its own and then took the real root's successful
     # outcome.
@@ -119,14 +113,13 @@ class TestToolSpanArgumentsAreVisible:
 
         tool_lines = [line for line in rendered.splitlines() if "agent.tool.search_docs" in line]
         assert len(tool_lines) == 1
-        # **LOGIC_STEP**: Indented under the request rather than flush with it — a child, not a
+        # Indented under the request rather than flush with it — a child, not a
         # second root — and carrying no outcome of its own, because it never reported one.
         assert tool_lines[0].startswith(" ") or "└" in tool_lines[0] or "├" in tool_lines[0]
         assert "✓" not in tool_lines[0]
 
-    # FUNCTION: test_a_newline_in_an_argument_cannot_forge_a_tree_node
-    # SUMMARY: Verify a line break inside a tool argument is escaped rather than drawn.
-    # NOTE: A tool argument is whatever reached the agent — a prompt, a pasted page, a search query.
+    # Verify a line break inside a tool argument is escaped rather than drawn.
+    # A tool argument is whatever reached the agent — a prompt, a pasted page, a search query.
     # Printed raw into a tree drawn one node per line, a value carrying box-drawing characters after
     # a newline reads as a span that never happened; a trace that can be forged is worth no more
     # than one that lies.
@@ -162,14 +155,13 @@ class TestToolSpanArgumentsAreVisible:
         assert "db.secrets.read" in rendered, "the argument should still be shown, only flattened"
         forged_lines = [line for line in rendered.splitlines() if "db.secrets.read" in line]
         assert len(forged_lines) == 1
-        # **LOGIC_STEP**: On the same physical line as the span that really carried it, with the
+        # On the same physical line as the span that really carried it, with the
         # break shown as an escape rather than taken as one.
         assert "agent.tool.search_docs" in forged_lines[0]
         assert "\\n" in forged_lines[0]
 
-    # FUNCTION: test_a_long_string_argument_is_cut_rather_than_printed_whole
-    # SUMMARY: Verify one oversized argument cannot turn the compact tree into a wall of text.
-    # NOTE: A tool argument is routinely a document, a prompt or a pasted page. Rendering it whole
+    # Verify one oversized argument cannot turn the compact tree into a wall of text.
+    # A tool argument is routinely a document, a prompt or a pasted page. Rendering it whole
     # defeats the word "compact" in this renderer's own description, and the failure only shows up
     # with real data — the fixtures here all carry short arguments.
     @pytest.mark.unit
@@ -203,13 +195,11 @@ class TestToolSpanArgumentsAreVisible:
 
         assert document not in rendered
         assert "agent.tool.summarise" in rendered
-        # **LOGIC_STEP**: Cut, not dropped — the reader still sees the argument was there and how
+        # Cut, not dropped — the reader still sees the argument was there and how
         # much of it is missing, so a truncated line is never mistaken for an empty argument.
         assert "(+4920 chars)" in rendered
         assert max(len(line) for line in rendered.splitlines()) < 200
 
-    # FUNCTION: test_a_failing_tool_call_still_shows_its_arguments
-    # SUMMARY: Verify the arguments render next to the failure mark too, not only on success.
     @pytest.mark.unit
     def test_a_failing_tool_call_still_shows_its_arguments(self) -> None:
         lines = [
@@ -244,11 +234,9 @@ class TestToolSpanArgumentsAreVisible:
         assert "✗" in tool_line
         assert "TimeoutError" in tool_line
 
-    # FUNCTION: test_a_non_tool_span_does_not_render_its_input_params
-    # SUMMARY: Verify the scoping to agent.tool.* — a db.* span's arguments stay out of the tree.
     @pytest.mark.unit
     def test_a_non_tool_span_does_not_render_its_input_params(self) -> None:
-        # **LOGIC_STEP**: Without the prefix scope, this would print `sql="SELECT ..."` on every
+        # Without the prefix scope, this would print `sql="SELECT ..."` on every
         # database span in every trace — the noise _TOOL_SPAN_PREFIX exists to avoid.
         lines = [
             _http_root_start(),
@@ -280,11 +268,7 @@ class TestToolSpanArgumentsAreVisible:
         assert "row_found=True" in rendered
 
 
-# CLASS: tests.application.test_trace_formatter_span_semantics.TestARejectedSpanIsMarkedApart
-# SUMMARY: A span.error carrying client_rejection is neither an interruption (⊘) nor a failure (✗).
 class TestARejectedSpanIsMarkedApart:
-    # FUNCTION: test_the_child_line_carries_its_own_mark_not_the_interruption_one
-    # SUMMARY: Verify a rejected nested span renders ⚠, and that the trace as a whole is not failed.
     @pytest.mark.unit
     def test_the_child_line_carries_its_own_mark_not_the_interruption_one(self) -> None:
         lines = [
@@ -310,13 +294,11 @@ class TestARejectedSpanIsMarkedApart:
         assert "⚠ ConflictError" in child_line
         assert "⊘" not in child_line
         assert "✗" not in child_line
-        # **LOGIC_STEP**: The root answered 200 in this fixture (the real-world case: the
+        # The root answered 200 in this fixture (the real-world case: the
         # exception never reaches http_request's own span — see classify_request_outcome's NOTE
         # in logger.py), so it must read as a plain success.
         assert "✓" in root_line
 
-    # FUNCTION: test_the_inventory_does_not_count_a_rejected_span_as_cancelled_or_failed
-    # SUMMARY: Verify trace_inventory's WARNING branch tells a rejection apart from a cancellation.
     @pytest.mark.unit
     def test_the_inventory_does_not_count_a_rejected_span_as_cancelled_or_failed(self) -> None:
         lines = [
@@ -352,8 +334,6 @@ class TestARejectedSpanIsMarkedApart:
         assert failed == set()
         assert cancelled == set()
 
-    # FUNCTION: test_an_actual_interruption_is_unaffected_by_the_new_field
-    # SUMMARY: Verify the pre-existing WARNING-means-cancelled path still works with no field at all.
     @pytest.mark.unit
     def test_an_actual_interruption_is_unaffected_by_the_new_field(self) -> None:
         lines = [
@@ -378,11 +358,8 @@ class TestARejectedSpanIsMarkedApart:
         assert "⚠" not in root_line
 
 
-# CLASS: tests.application.test_trace_formatter_span_semantics.TestATruncatedLLMCallIsVisibleInline
-# SUMMARY: The compact-trace half of the finish_reason fix — see log_llm_call for the NDJSON half.
+# The compact-trace half of the finish_reason fix — see log_llm_call for the NDJSON half.
 class TestATruncatedLLMCallIsVisibleInline:
-    # FUNCTION: test_a_truncated_call_is_marked_apart_from_an_ordinary_success
-    # SUMMARY: Verify finish_reason=length prints its own mark and the reason, not a bare ✓.
     @pytest.mark.unit
     def test_a_truncated_call_is_marked_apart_from_an_ordinary_success(self) -> None:
         lines = [
@@ -409,8 +386,6 @@ class TestATruncatedLLMCallIsVisibleInline:
         assert "finish_reason=length" in llm_line
         assert "✓" not in llm_line
 
-    # FUNCTION: test_an_ordinary_completion_keeps_the_plain_success_mark
-    # SUMMARY: Verify a normal finish_reason does not grow the new annotation.
     @pytest.mark.unit
     def test_an_ordinary_completion_keeps_the_plain_success_mark(self) -> None:
         lines = [

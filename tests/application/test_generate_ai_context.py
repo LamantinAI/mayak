@@ -21,11 +21,7 @@ from scripts.generate_ai_context import (
 from scripts.validate_architecture import get_layer_rules
 
 
-# CLASS: tests.application.test_generate_ai_context.TestGenerateAIContext
-# SUMMARY: Verify the AI context map exposes the expected sections and deterministic serialization.
 class TestGenerateAIContext:
-    # FUNCTION: test_build_context_map_contains_required_sections
-    # SUMMARY: Verify the generated context map exposes all fixed top-level sections used by onboarding.
     @pytest.mark.unit
     def test_build_context_map_contains_required_sections(self) -> None:
         payload: dict[str, Any] = build_context_map()
@@ -77,7 +73,7 @@ class TestGenerateAIContext:
         assert payload["quality_gates_by_concern"]["runtime_ownership"] == [
             "uv run python scripts/validate_runtime_ownership.py"
         ]
-        # **LOGIC_STEP**: There is one validation command, so there is one entry naming it. The
+        # There is one validation command, so there is one entry naming it. The
         # "fast" and "workset_fast" groups pointed at a middle rung measured slower than the full
         # gate and at a narrow loop that never ran mypy; both targets are gone.
         assert payload["quality_gates_by_concern"]["full"] == ["make quality-gates"]
@@ -118,8 +114,6 @@ class TestGenerateAIContext:
         assert "project/core/" in payload["template_kernel_paths"]
         assert "memory" not in payload["service_registry"]
 
-    # FUNCTION: test_extract_services_from_regular_assignment
-    # SUMMARY: Verify service extraction supports plain dict assignments used by the composition root.
     @pytest.mark.unit
     def test_extract_services_from_regular_assignment(self, tmp_path: Path) -> None:
         source_path = tmp_path / "services_assign.py"
@@ -135,15 +129,13 @@ class TestGenerateAIContext:
             encoding="utf-8",
         )
 
-        # **LOGIC_STEP**: Asserted against extract_service_registry_entries, the function the
+        # Asserted against extract_service_registry_entries, the function the
         # generator actually runs — not a second, parallel extractor that no production path
         # calls, which would keep the tests green while the real walker stayed untested.
         result = extract_service_registry_entries(source_path, tmp_path, "core")
 
         assert sorted(result) == ["alpha", "beta"]
 
-    # FUNCTION: test_extract_services_from_annotated_assignment
-    # SUMMARY: Verify service extraction supports typed dict assignments used by vertical registries.
     @pytest.mark.unit
     def test_extract_services_from_annotated_assignment(self, tmp_path: Path) -> None:
         source_path = tmp_path / "services_annassign.py"
@@ -168,8 +160,6 @@ class TestGenerateAIContext:
             "reference_task_service",
         ]
 
-    # FUNCTION: test_extract_services_ignores_other_assignments
-    # SUMMARY: Verify typed assignments to other variables do not leak into the requested service registry.
     @pytest.mark.unit
     def test_extract_services_ignores_other_assignments(self, tmp_path: Path) -> None:
         source_path = tmp_path / "services_other.py"
@@ -190,9 +180,7 @@ class TestGenerateAIContext:
 
         assert result == {}
 
-    # FUNCTION: test_extract_services_from_a_returned_dict_literal
-    # SUMMARY: Verify a registry returned inline, with no local variable at all, is still read.
-    # NOTE: `services = {...}` is the reference vertical's spelling, not a rule the language
+    # `services = {...}` is the reference vertical's spelling, not a rule the language
     # enforces. An extractor recognizing only that shape misses a builder that returns the literal
     # instead: it extracts to an empty registry, which docs/ai_context_map.json then reports as a
     # project with no services — with no gate going red, because that map is generated and agrees
@@ -219,8 +207,6 @@ class TestGenerateAIContext:
 
         assert sorted(result) == ["reference_task_service"]
 
-    # FUNCTION: test_extract_services_follows_a_returned_variable_of_any_name
-    # SUMMARY: Verify a registry built under another name and then returned is read from the return.
     @pytest.mark.unit
     def test_extract_services_follows_a_returned_variable_of_any_name(self, tmp_path: Path) -> None:
         source_path = tmp_path / "services_returned_variable.py"
@@ -243,9 +229,7 @@ class TestGenerateAIContext:
 
         assert sorted(result) == ["reference_task_service"]
 
-    # FUNCTION: test_extract_services_ignores_a_returned_mapping_that_is_not_a_registry
-    # SUMMARY: Verify an unrelated dict-returning helper contributes no phantom services.
-    # NOTE: Reading returns rather than one variable name is what lets a differently-spelled
+    # Reading returns rather than one variable name is what lets a differently-spelled
     # builder be found; done naively it also turns every mapping in the file — request headers,
     # an error body — into service entries. Nothing would go red: the map is generated, so it
     # agrees with itself either way. A registry is a mapping of string keys onto names, calls or
@@ -280,9 +264,7 @@ class TestGenerateAIContext:
 
         assert sorted(result) == ["reference_task_service"]
 
-    # FUNCTION: test_extract_services_keeps_two_builders_that_share_a_variable_name_apart
-    # SUMMARY: Verify a name bound in one builder cannot answer for the return of another.
-    # NOTE: service_registration.py is where every vertical's builder lands, so a file with
+    # service_registration.py is where every vertical's builder lands, so a file with
     # several of them is the normal case, and each is free to call its local mapping the same
     # thing. Resolved file-wide, the last binding wins and the earlier vertical vanishes.
     @pytest.mark.unit
@@ -315,16 +297,12 @@ class TestGenerateAIContext:
 
         assert sorted(result) == ["first_service", "second_service"]
 
-    # FUNCTION: test_render_json_is_deterministic
-    # SUMMARY: Verify JSON rendering is stable and newline-terminated for drift checks.
     @pytest.mark.unit
     def test_render_json_is_deterministic(self) -> None:
         rendered = render_json({"b": 1, "a": ["x"]})
 
         assert rendered == '{\n  "a": [\n    "x"\n  ],\n  "b": 1\n}\n'
 
-    # FUNCTION: test_build_change_map_contains_common_agent_tasks
-    # SUMMARY: Verify the generated task index exposes common edit flows and the shared golden path.
     @pytest.mark.unit
     def test_build_change_map_contains_common_agent_tasks(self) -> None:
         payload: dict[str, Any] = build_change_map()
@@ -356,8 +334,6 @@ class TestGenerateAIContext:
             in payload["tasks"]["add_endpoint"]["common_mistakes"]
         )
 
-    # FUNCTION: test_build_architecture_rules_contains_runtime_policy
-    # SUMMARY: Verify machine-readable architecture rules expose layer constraints and Python version policy.
     @pytest.mark.unit
     def test_build_architecture_rules_contains_runtime_policy(self) -> None:
         payload: dict[str, Any] = build_architecture_rules()
@@ -399,11 +375,7 @@ class TestGenerateAIContext:
         )
         assert "project/core/logging/" in payload["cold_paths"]
         assert "AGENTS.md" in payload["read_last_paths"]
-        assert payload["cbm_policy"]["optional_detail"] == [
-            "attributes",
-            "private helpers",
-        ]
-        assert "branching logic" in payload["cbm_policy"]["logic_step_when_to_use"]
+        assert payload["cbm_policy"]["adr"] == "docs/adr/ADR-001-pragmatic-cbm.md"
         assert payload["query_cli"]["path"] == "scripts/query_ai_context.py"
         assert payload["query_cli"]["recommended_first_step"] == (
             "uv run python scripts/query_ai_context.py bootstrap"
@@ -451,7 +423,7 @@ class TestGenerateAIContext:
                 "scope": "forbidden_import_prefixes",
             },
         ]
-        # **LOGIC_STEP**: Index 0 is the domain, and its declared dependencies are not mere
+        # Index 0 is the domain, and its declared dependencies are not mere
         # guidance — they are the allowlist the validator enforces. Application, at index 1, still
         # declares intent nothing checks, which is what this flag exists to say.
         guidance_rules = payload["enforcement_model"]["guidance_only_rules"]
@@ -496,7 +468,7 @@ class TestGenerateAIContext:
             "ai_context/",
             "ai_query/",
             "scripts/validate_runtime_ownership.py",
-            # **LOGIC_STEP**: The catch-all must stay last. Zone lookup takes the first matching
+            # The catch-all must stay last. Zone lookup takes the first matching
             # pattern, so a prefix placed above the explicit entries would swallow them; and
             # without it at all, before-edit answers `Unknown or unindexed file policy path` for
             # every script not named above.
@@ -510,8 +482,6 @@ class TestGenerateAIContext:
             "scripts/validate_runtime_ownership.py"
         )
 
-    # FUNCTION: test_integrity_report_rejects_missing_dependency_getter
-    # SUMMARY: Verify integrity checks fail when an alias points to a getter that does not exist.
     @pytest.mark.unit
     def test_integrity_report_rejects_missing_dependency_getter(self) -> None:
         report: dict[str, Any] = _build_integrity_report(
@@ -538,8 +508,6 @@ class TestGenerateAIContext:
         assert any("missing getter" in error for error in report["errors"])
         assert report["issues"][0]["issue_type"] == "dependency_getter_missing"
 
-    # FUNCTION: test_integrity_report_rejects_missing_service_key_references
-    # SUMMARY: Verify integrity checks fail when getters or route dependencies point at absent services.
     @pytest.mark.unit
     def test_integrity_report_rejects_missing_service_key_references(self) -> None:
         report: dict[str, Any] = _build_integrity_report(
@@ -579,8 +547,6 @@ class TestGenerateAIContext:
         assert report["status"] == "error"
         assert any("missing service key" in error for error in report["errors"])
 
-    # FUNCTION: test_integrity_report_rejects_missing_router_inventory
-    # SUMMARY: Verify integrity checks fail when an imported router module is absent from the extracted route inventory.
     @pytest.mark.unit
     def test_integrity_report_rejects_missing_router_inventory(self) -> None:
         report: dict[str, Any] = _build_integrity_report(
@@ -593,8 +559,6 @@ class TestGenerateAIContext:
         assert report["status"] == "error"
         assert any("missing from route_inventory" in error for error in report["errors"])
 
-    # FUNCTION: test_main_check_mode_fails_when_output_file_is_missing
-    # SUMMARY: Verify check mode reports drift when one of the generated output files does not exist.
     @pytest.mark.unit
     def test_main_check_mode_fails_when_output_file_is_missing(
         self,
@@ -617,8 +581,6 @@ class TestGenerateAIContext:
 
         assert exit_code == 1
 
-    # FUNCTION: test_main_check_mode_json_reports_structured_drift_issue
-    # SUMMARY: Verify JSON check mode emits stable remediation metadata for generated-artifact drift.
     @pytest.mark.unit
     def test_main_check_mode_json_reports_structured_drift_issue(
         self,
@@ -649,8 +611,6 @@ class TestGenerateAIContext:
         assert '"rule_id": "drift.generated.missing"' in captured.out
         assert '"suggested_fix"' in captured.out
 
-    # FUNCTION: test_main_json_reports_structured_syntax_error
-    # SUMMARY: Verify syntax failures in AST extraction degrade into a machine-readable error instead of a traceback.
     @pytest.mark.unit
     def test_main_json_reports_structured_syntax_error(
         self,
@@ -684,8 +644,6 @@ class TestGenerateAIContext:
         assert '"degraded_status": "syntax_error"' in captured.out
         assert '"issue_type": "syntax_error"' in captured.out
 
-    # FUNCTION: test_text_check_mode_prints_a_resolvable_failure_rule_id
-    # SUMMARY: Verify the text output names a rule_id that `failure rule` can actually resolve.
     @pytest.mark.unit
     def test_text_check_mode_prints_a_resolvable_failure_rule_id(
         self,
@@ -693,7 +651,7 @@ class TestGenerateAIContext:
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        # **LOGIC_STEP**: the validator-recovery rule in docs/agent_rules.md tells the agent to run `failure rule <rule_id>` with
+        # the validator-recovery rule in docs/agent_rules.md tells the agent to run `failure rule <rule_id>` with
         # what it just read. The only identifier the text output carried was degraded_status —
         # "generated_outdated", a layer name — and the registered rule is
         # "drift.generated.outdated", so the prescribed next command answered "Unknown failure
@@ -722,15 +680,13 @@ class TestGenerateAIContext:
         for rule_id in printed_rules:
             assert failure_playbook(rule_id)["rule_id"] == rule_id
 
-    # FUNCTION: test_text_mode_syntax_error_survives_a_payload_without_a_rule_id
-    # SUMMARY: Verify the rule line is skipped, not crashed on, for issues that carry issue_type only.
     @pytest.mark.unit
     def test_text_mode_syntax_error_survives_a_payload_without_a_rule_id(
         self,
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        # **LOGIC_STEP**: ContextIssue.to_payload has no rule_id — only the validator-contract
+        # ContextIssue.to_payload has no rule_id — only the validator-contract
         # payloads do. Printing it unconditionally would turn a reported syntax error into a
         # KeyError traceback, which is the failure mode the degraded payload exists to avoid.
         monkeypatch.setattr(

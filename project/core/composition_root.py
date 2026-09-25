@@ -17,23 +17,16 @@ from project.infrastructure.api.middleware import AILoggingMiddleware
 from project.infrastructure.api.router_registration import include_application_routers
 
 
-# CLASS: project.core.composition_root.CompositionRoot
-# SUMMARY: Assembles all application dependencies, encapsulating the component creation process for FastAPI.
 class CompositionRoot:
-    # FUNCTION: __init__
-    # SUMMARY: Initializes the Composition Root.
     def __init__(self) -> None:
-        # **LOGIC_STEP**: Initialize logger for dependency injection tracking.
+        # Initialize logger for dependency injection tracking.
         self._logger = get_logger(__name__)
         self._settings: Settings | None = None
 
-    # FUNCTION: build_dependencies
-    # SUMMARY: Assembles all application dependencies.
-    # RAISES: ProjectError: If errors occur during dependency creation.
     def build_dependencies(self) -> Dict[str, Any]:
         with self._logger.span("build_dependencies") as span_ctx:
             try:
-                # **LOGIC_STEP**: Load and validate configuration.
+                # Load and validate configuration.
                 settings = get_settings()
                 settings.validate_runtime()
                 self._settings = settings
@@ -51,7 +44,7 @@ class CompositionRoot:
                     capture_reason="dependency_building",
                 )
 
-                # **LOGIC_STEP**: Initialize PostgreSQL connection pool (singleton), unless this
+                # Initialize PostgreSQL connection pool (singleton), unless this
                 # project declared it needs no relational store (POSTGRES_ENABLED=false).
                 # The declaration order matters and is not stylistic: ai_context/extraction.py
                 # resolves the service registry statically, and ast.walk visits an If node's
@@ -67,7 +60,7 @@ class CompositionRoot:
                         open=False,
                         max_size=settings.postgres.pool_size,
                         kwargs={
-                            # **LOGIC_STEP**: autocommit=True is deliberate, not a default left in
+                            # autocommit=True is deliberate, not a default left in
                             # place — a method with one execute() needs nothing further; a method
                             # that must land two or more statements together (aggregate + outbox
                             # row, order + line items) wraps them in
@@ -82,10 +75,10 @@ class CompositionRoot:
                         },
                     )
 
-                # **LOGIC_STEP**: Initialize the shared LLMService used by application verticals.
+                # Initialize the shared LLMService used by application verticals.
                 llm_service = LLMService()
 
-                # **LOGIC_STEP**: Assemble the service registry.
+                # Assemble the service registry.
                 services: Dict[str, Any] = {
                     "db_pool": db_pool,
                     "llm_service": llm_service,
@@ -98,7 +91,7 @@ class CompositionRoot:
                 return services
 
             except Exception as e:
-                # **LOGIC_STEP**: Handle and log any errors during dependency building.
+                # Handle and log any errors during dependency building.
                 error_message = f"Failed to build dependencies: {e}"
                 self._logger.log_error(
                     error_type="dependency_building_failed",
@@ -108,21 +101,17 @@ class CompositionRoot:
                 )
                 raise ProjectError(error_message) from e
 
-    # FUNCTION: build_application
-    # SUMMARY: Builds and configures the FastAPI application with all dependencies.
-    # INPUT: lifespan (Any): Lifespan context manager for FastAPI.
-    # RAISES: ProjectError: If errors occur during application building.
     def build_application(self, lifespan: Any = None) -> FastAPI:
 
         with self._logger.span("build_application") as span_ctx:
             try:
-                # **LOGIC_STEP**: Build dependencies first.
+                # Build dependencies first.
                 dependencies = self.build_dependencies()
                 settings = self._settings
                 if settings is None:
                     raise ProjectError("Settings not initialized before app creation")
 
-                # **LOGIC_STEP**: Initialize FastAPI application. The title comes from APP_NAME
+                # Initialize FastAPI application. The title comes from APP_NAME
                 # rather than a literal: the name was declared as a setting, documented in
                 # .env.sample and never read, so every project built from the template shipped
                 # OpenAPI titled after the template instead of after itself.
@@ -130,7 +119,7 @@ class CompositionRoot:
                     title=f"{settings.project.name} API",
                     description="FastAPI application with semantic logging and hexagonal architecture",
                     version=APP_VERSION,
-                    # **LOGIC_STEP**: Never settings.project.debug. Starlette handles unhandled
+                    # Never settings.project.debug. Starlette handles unhandled
                     # exceptions in ServerErrorMiddleware, which checks its own debug flag FIRST
                     # and, when set, renders the full traceback to the client — file paths, local
                     # variables, and whatever secret was in scope — while the application's
@@ -144,14 +133,14 @@ class CompositionRoot:
                     lifespan=lifespan,
                 )
 
-                # **LOGIC_STEP**: Set up middleware.
+                # Set up middleware.
                 app.add_middleware(AILoggingMiddleware)
 
                 # Add CORS middleware
                 app.add_middleware(
                     CORSMiddleware,
                     allow_origins=settings.server.cors_origins,
-                    # **LOGIC_STEP**: Read from settings rather than hardcoding True. Used to be a
+                    # Read from settings rather than hardcoding True. Used to be a
                     # literal with no supported way to turn it off; project/core/config_runtime.py
                     # (Settings.validate_runtime) owns why this combined with a wildcard origin is
                     # the actual vulnerability and refuses that combination outside debug mode.
@@ -160,13 +149,13 @@ class CompositionRoot:
                     allow_headers=["*"],
                 )
 
-                # **LOGIC_STEP**: Set up exception handlers.
+                # Set up exception handlers.
                 setup_exception_handlers(app)
 
-                # **LOGIC_STEP**: Include routers.
+                # Include routers.
                 include_application_routers(app, dependencies)
 
-                # **LOGIC_STEP**: Store services in app.state for FastAPI dependency injection.
+                # Store services in app.state for FastAPI dependency injection.
                 self._logger.log_state_change(
                     entity="app.state",
                     changes={
@@ -189,18 +178,18 @@ class CompositionRoot:
                     capture_reason="dependency_injection_verification",
                 )
 
-                # **LOGIC_STEP**: Log application startup event.
+                # Log application startup event.
                 self._logger.log_system_event(
                     event_name="fastapi_application_built",
                     category="application_lifecycle",
                     new_value={
-                        # **LOGIC_STEP**: app.title, never a literal. The literal was the
+                        # app.title, never a literal. The literal was the
                         # template's own name, so every project built from it logged a title it
                         # had already stopped using at the FastAPI() call above.
                         "title": app.title,
                         "version": APP_VERSION,
                         "debug": settings.project.debug,
-                        # **LOGIC_STEP**: Which startup checks this build skipped, by the
+                        # Which startup checks this build skipped, by the
                         # variable each protects, so a debug flag left on in a deployed
                         # container shows in the first lines of its log rather than in a README
                         # row nobody reads at 3 a.m. Empty whenever the guards ran.
@@ -220,7 +209,7 @@ class CompositionRoot:
                 return app
 
             except Exception as e:
-                # **LOGIC_STEP**: Handle and log any errors during application building.
+                # Handle and log any errors during application building.
                 error_message = f"Failed to build FastAPI application: {e}"
                 self._logger.log_error(
                     error_type="application_building_failed",
@@ -231,8 +220,6 @@ class CompositionRoot:
                 raise ProjectError(error_message) from e
 
 
-# FUNCTION: cleanup_services
-# SUMMARY: Clean up all services and their resources.
 async def cleanup_services(services: Dict[str, Any]) -> None:
     logger = get_logger(__name__)
 
@@ -242,7 +229,7 @@ async def cleanup_services(services: Dict[str, Any]) -> None:
     ) as span_ctx:
         errors: list[tuple[str, Exception]] = []
 
-        # **LOGIC_STEP**: Close the shared database pool last.
+        # Close the shared database pool last.
         if "db_pool" in services and services["db_pool"]:
             try:
                 await services["db_pool"].close()

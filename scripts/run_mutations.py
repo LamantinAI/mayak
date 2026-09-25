@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # FILE: run_mutations.py
-# SUMMARY: Break the reference vertical one defect at a time and record which test suite, and which test, notices.
-# NOTE: This is the template's measuring stick for its own tests, not a gate. A catalogue in
+# Break the reference vertical one defect at a time and record which test suite, and which test, notices.
+# This is the template's measuring stick for its own tests, not a gate. A catalogue in
 # docs/mutations/ names each defect as an exact text replacement in the code plus the test expected
 # to catch it; this script applies one, runs every tier, restores the file, and moves on. The
 # numbers that matter are per defect — caught by the fast tier, caught only by the Docker tier, or
@@ -31,62 +31,49 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Sequence
 
-# ATTRIBUTE: ROOT_DIR (Path)
-# SUMMARY: Repository root, derived from this file's location in scripts/.
+# Repository root, derived from this file's location in scripts/.
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-# ATTRIBUTE: DEFAULT_CATALOGUE (Path)
-# SUMMARY: The reference vertical's defect catalogue.
+# The reference vertical's defect catalogue.
 DEFAULT_CATALOGUE = ROOT_DIR / "docs" / "mutations" / "reference_task.json"
 
-# ATTRIBUTE: REPORT_DIR (Path)
-# SUMMARY: Where each run's full report is written; logs/ is ignored by git.
+# Where each run's full report is written; logs/ is ignored by git.
 REPORT_DIR = ROOT_DIR / "logs" / "mutations"
 
-# ATTRIBUTE: BACKUP_SUFFIX (str)
-# SUMMARY: Suffix of the copy a mutated file is restored from if the run dies before its `finally`.
+# Suffix of the copy a mutated file is restored from if the run dies before its `finally`.
 BACKUP_SUFFIX = ".mutation-backup"
 
-# ATTRIBUTE: TIER_TIMEOUT_SECONDS (int)
-# SUMMARY: Ceiling for one tier on one defect; a hang is recorded as a timeout, never as a catch.
+# Ceiling for one tier on one defect; a hang is recorded as a timeout, never as a catch.
 TIER_TIMEOUT_SECONDS = 900
 
-# ATTRIBUTE: _FAILED_LINE (re.Pattern[str])
-# SUMMARY: A pytest summary line naming a failed or errored test.
-# NOTE: The Docker tier prints through Compose, which prefixes each line with `tests-1  | ` and
+# A pytest summary line naming a failed or errored test.
+# The Docker tier prints through Compose, which prefixes each line with `tests-1  | ` and
 # colours it, so the prefix and the escape codes are both allowed before FAILED/ERROR.
 _FAILED_LINE = re.compile(r"^(?:\S+\s+\|\s+)?(FAILED|ERROR) (\S+?)(?: - (.*))?$", re.M)
 
-# ATTRIBUTE: _ANSI (re.Pattern[str])
-# SUMMARY: Terminal colour sequences Compose adds to its output.
+# Terminal colour sequences Compose adds to its output.
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 
-# DATACLASS: run_mutations.TierResult
-# SUMMARY: What one tier did with one version of the code.
+# What one tier did with one version of the code.
 @dataclass
 class TierResult:
-    # ATTRIBUTE: state (str)
-    # SUMMARY: "green", "red" or "timeout".
+    # "green", "red" or "timeout".
     state: str
 
-    # ATTRIBUTE: seconds (int)
-    # SUMMARY: Wall-clock duration of the tier.
+    # Wall-clock duration of the tier.
     seconds: int
 
-    # ATTRIBUTE: failed (list[str])
-    # SUMMARY: Test ids pytest reported as FAILED or ERROR, in report order.
+    # Test ids pytest reported as FAILED or ERROR, in report order.
     failed: list[str] = field(default_factory=list)
 
-    # ATTRIBUTE: first_error (str)
-    # SUMMARY: The reason printed next to the first failed test, or the output tail when none was named.
+    # The reason printed next to the first failed test, or the output tail when none was named.
     first_error: str = ""
 
 
-# FUNCTION: parse_failed_tests
-# SUMMARY: Pull the failed test ids and the first failure reason out of a tier's output.
-# INPUT: output (str): Combined stdout and stderr of the tier.
-# OUTPUT: (tuple[list[str], str]): Unique test ids in report order, and the first reason given.
+# Pull the failed test ids and the first failure reason out of a tier's output.
+# output: Combined stdout and stderr of the tier.
+# Returns: Unique test ids in report order, and the first reason given.
 def parse_failed_tests(output: str) -> tuple[list[str], str]:
     clean = _ANSI.sub("", output)
     failed: list[str] = []
@@ -100,17 +87,16 @@ def parse_failed_tests(output: str) -> tuple[list[str], str]:
     return failed, first_error
 
 
-# FUNCTION: run_tier
-# SUMMARY: Run one tier's command from the repository root and classify the outcome.
-# INPUT: command (Sequence[str]): The tier's argv, e.g. ["make", "test"].
-# OUTPUT: (TierResult): Its state, duration and the tests it named.
-# NOTE: A red tier that names no test is kept red with the output tail as the reason. That is how
+# Run one tier's command from the repository root and classify the outcome.
+# command: The tier's argv, e.g. ["make", "test"].
+# Returns: Its state, duration and the tests it named.
+# A red tier that names no test is kept red with the output tail as the reason. That is how
 # a coverage floor, a collection error or an application that never started shows up, and the
 # baseline has to say so rather than credit a test that did not run.
 def run_tier(command: Sequence[str]) -> TierResult:
     started = time.monotonic()
     try:
-        # **LOGIC_STEP**: A wide terminal, because pytest drops the failure reason from a summary
+        # A wide terminal, because pytest drops the failure reason from a summary
         # line that does not fit its width, and a test id alone cannot tell a catch for the
         # right reason from a crash elsewhere.
         done = subprocess.run(
@@ -133,9 +119,8 @@ def run_tier(command: Sequence[str]) -> TierResult:
     return TierResult("red", seconds, failed, first_error)
 
 
-# FUNCTION: restore_leftover_backups
-# SUMMARY: Put back any file a previous run left mutated because it was killed mid-defect.
-# INPUT: files (set[Path]): Every file the catalogue mutates.
+# Put back any file a previous run left mutated because it was killed mid-defect.
+# files: Every file the catalogue mutates.
 def restore_leftover_backups(files: set[Path]) -> None:
     for target in sorted(files):
         backup = target.with_name(target.name + BACKUP_SUFFIX)
@@ -144,10 +129,9 @@ def restore_leftover_backups(files: set[Path]) -> None:
             print(f"restored {target.relative_to(ROOT_DIR)} from a previous interrupted run")
 
 
-# FUNCTION: check_catalogue
-# SUMMARY: Refuse to measure when any target file has local edits or any anchor no longer matches once.
-# INPUT: mutations (list[dict[str, Any]]): Catalogue entries selected for this run.
-# OUTPUT: (list[str]): Problems found; empty when the run may start.
+# Refuse to measure when any target file has local edits or any anchor no longer matches once.
+# mutations: Catalogue entries selected for this run.
+# Returns: Problems found; empty when the run may start.
 def check_catalogue(mutations: list[dict[str, Any]]) -> list[str]:
     problems: list[str] = []
     for relative in sorted({entry["file"] for entry in mutations}):
@@ -166,11 +150,10 @@ def check_catalogue(mutations: list[dict[str, Any]]) -> list[str]:
     return problems
 
 
-# FUNCTION: measure_one
-# SUMMARY: Apply one defect, run every tier against it, and restore the file whatever happens.
-# INPUT: entry (dict[str, Any]): Catalogue entry with file, find and replace.
-# INPUT: tiers (dict[str, list[str]]): Tier name to command.
-# OUTPUT: (dict[str, TierResult]): Result per tier.
+# Apply one defect, run every tier against it, and restore the file whatever happens.
+# entry: Catalogue entry with file, find and replace.
+# tiers: Tier name to command.
+# Returns: Result per tier.
 def measure_one(entry: dict[str, Any], tiers: dict[str, list[str]]) -> dict[str, TierResult]:
     target = ROOT_DIR / entry["file"]
     original = target.read_text(encoding="utf-8")
@@ -184,10 +167,9 @@ def measure_one(entry: dict[str, Any], tiers: dict[str, list[str]]) -> dict[str,
         backup.unlink()
 
 
-# FUNCTION: verdict
-# SUMMARY: Name the cheapest tier that caught the defect.
-# INPUT: results (dict[str, TierResult]): Result per tier, in tier order.
-# OUTPUT: (str): "caught:<tier>", "missed" or "timeout".
+# Name the cheapest tier that caught the defect.
+# results: Result per tier, in tier order.
+# Returns: "caught:<tier>", "missed" or "timeout".
 def verdict(results: dict[str, TierResult]) -> str:
     for name, result in results.items():
         if result.state == "red":
@@ -197,13 +179,12 @@ def verdict(results: dict[str, TierResult]) -> str:
     return "missed"
 
 
-# FUNCTION: regressions
-# SUMMARY: Name the defects this run catches later, or not at all, compared with the baseline.
-# INPUT: baseline (dict[str, Any]): Recorded results by defect id.
-# INPUT: observed (dict[str, dict[str, Any]]): This run's results by defect id.
-# INPUT: tiers (list[str]): Tier names, cheapest first.
-# OUTPUT: (dict[str, tuple[str, str]]): Defect id to (baseline verdict, this run's verdict).
-# NOTE: Ranked by the cheapest tier that catches: a defect that moves from the fast tier to e2e is
+# Name the defects this run catches later, or not at all, compared with the baseline.
+# baseline: Recorded results by defect id.
+# observed: This run's results by defect id.
+# tiers: Tier names, cheapest first.
+# Returns: Defect id to (baseline verdict, this run's verdict).
+# Ranked by the cheapest tier that catches: a defect that moves from the fast tier to e2e is
 # a loss even though it is still caught. A timeout ranks with a miss — it proves nothing. A
 # defect without a baseline (newly added to the catalogue) cannot regress.
 def regressions(
@@ -222,24 +203,21 @@ def regressions(
     return worse
 
 
-# FUNCTION: _short
-# SUMMARY: Reduce a pytest id to its test function name for the printed table.
-# INPUT: test_id (str): Full pytest id.
-# OUTPUT: (str): The last `::` component without parametrisation.
+# Reduce a pytest id to its test function name for the printed table.
+# test_id: Full pytest id.
+# Returns: The last `::` component without parametrisation.
 def _short(test_id: str) -> str:
     return test_id.split("::")[-1].split("[")[0]
 
 
-# FUNCTION: _raise_interrupt
-# SUMMARY: Turn SIGTERM into KeyboardInterrupt so the `finally` that restores the file runs.
+# Turn SIGTERM into KeyboardInterrupt so the `finally` that restores the file runs.
 def _raise_interrupt(signum: int, frame: object) -> None:
     raise KeyboardInterrupt
 
 
-# FUNCTION: main
-# SUMMARY: Measure the selected defects and report each against the catalogue's baseline.
-# INPUT: argv (Sequence[str] | None): CLI arguments; None means none.
-# OUTPUT: (int): 0 when measured with no lost catch, 1 when a defect is caught later or not at
+# Measure the selected defects and report each against the catalogue's baseline.
+# argv: CLI arguments; None means none.
+# Returns: 0 when measured with no lost catch, 1 when a defect is caught later or not at
 # all compared with the baseline, 2 when the catalogue or the clean code is not fit to measure.
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -267,7 +245,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("not measuring:\n  " + "\n  ".join(problems))
         return 2
 
-    # **LOGIC_STEP**: Every tier green on the clean code first. A tier that is already red would
+    # Every tier green on the clean code first. A tier that is already red would
     # credit every defect with a catch it did not make.
     control = {name: run_tier(command) for name, command in tiers.items()}
     for name, result in control.items():
@@ -297,7 +275,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         names = [_short(test) for result in results.values() for test in result.failed]
         print(f"{entry['id']:38s} {outcome:15s} {', '.join(dict.fromkeys(names))[:110]}{change}")
 
-    # **LOGIC_STEP**: The clean code once more after the last restore — proof that the run left
+    # The clean code once more after the last restore — proof that the run left
     # the tree as it found it and that no tier went red for a reason of its own midway.
     after = {name: run_tier(command) for name, command in tiers.items()}
     for name, result in after.items():
@@ -319,7 +297,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print("total: " + ", ".join(f"{key} {value}" for key, value in counts.items()))
     print(f"report: {report.relative_to(ROOT_DIR)}")
 
-    # **LOGIC_STEP**: A change to the tests is judged defect by defect, so a run that loses a catch
+    # A change to the tests is judged defect by defect, so a run that loses a catch
     # must say so in its exit code — a total that stays the same can hide one defect moving from
     # the fast tier to e2e while another moves the other way. It also refuses to record: writing a
     # worse result as the new baseline would erase the evidence of the loss.
@@ -327,7 +305,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     for defect, (before, now) in worse.items():
         print(f"REGRESSION {defect}: {before} -> {now}")
     if args.record and not worse:
-        # **LOGIC_STEP**: The baseline keeps what a later run is compared on — the verdict and the
+        # The baseline keeps what a later run is compared on — the verdict and the
         # tests each tier named. Durations and error text stay in the report file: they change
         # from run to run and would turn every re-record into noise in the diff.
         compact = {

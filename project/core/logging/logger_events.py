@@ -8,8 +8,6 @@ from project.core.logging.logger_events_operational import (
 from project.core.logging.logger_events_state import SemanticLoggerStateEventsMixin
 
 
-# CLASS: project.core.logging.logger_events.SemanticLoggerEventsMixin
-# SUMMARY: Facade mixin composing state, operational, and issue-specific semantic logging helpers.
 class SemanticLoggerEventsMixin(
     SemanticLoggerStateEventsMixin,
     SemanticLoggerOperationalEventsMixin,

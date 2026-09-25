@@ -1,6 +1,6 @@
 # FILE: tests/functional/src/test_reference_tasks_api.py
 # SUMMARY: Smoke test of the reference vertical in the built image: HTTP into the container, rows in its database.
-# NOTE: Everything a query or a status code can get wrong is tested in tests/db, in `make test`. What
+# Everything a query or a status code can get wrong is tested in tests/db, in `make test`. What
 # only this suite sees is the application as it ships — the image, the entrypoint's `alembic
 # upgrade head`, the served routes — so one path through each is enough here.
 
@@ -24,7 +24,7 @@ async def test_a_task_created_over_http_is_stored_read_back_and_updated(
     )
     task_id = created["body"]["id"]
     loaded = await make_get_request(f"/reference-tasks/{task_id}")
-    # **LOGIC_STEP**: A PATCH, because it writes updated_at — the column the second migration adds.
+    # A PATCH, because it writes updated_at — the column the second migration adds.
     # An image whose entrypoint stopped at the first migration answers this one with a 500.
     patched = await make_patch_request(f"/reference-tasks/{task_id}", {"status": "done"})
 

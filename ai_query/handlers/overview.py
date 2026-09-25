@@ -8,27 +8,23 @@ from typing import Any
 from ai_query.common import context_bundle
 from ai_query.models import QueryPayload
 
-# ATTRIBUTE: _REPO_ROOT (Path)
-# SUMMARY: Repository root used to read the hand-maintained project context.
+# Repository root used to read the hand-maintained project context.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# ATTRIBUTE: _PROJECT_CONTEXT_PATH (Path)
-# SUMMARY: Hand-maintained file declaring which external systems this project uses.
+# Hand-maintained file declaring which external systems this project uses.
 _PROJECT_CONTEXT_PATH = _REPO_ROOT / "docs" / "project_context.json"
 
-# ATTRIBUTE: _RUNTIME_TOGGLES (dict[str, tuple[str, bool]])
-# SUMMARY: Integration name mapped to the environment variable that switches it on, plus the
+# Integration name mapped to the environment variable that switches it on, plus the
 # default that applies when the variable is unset.
 _RUNTIME_TOGGLES: dict[str, tuple[str, bool]] = {
     "postgres": ("POSTGRES_ENABLED", True),
 }
 
 
-# FUNCTION: _env_flag
-# SUMMARY: Read a boolean environment variable, falling back to the project's .env file.
-# INPUT: name (str): Variable name.
-# INPUT: default (bool): Value used when the variable is absent everywhere.
-# OUTPUT: (bool): Effective value.
+# Read a boolean environment variable, falling back to the project's .env file.
+# name: Variable name.
+# default: Value used when the variable is absent everywhere.
+# Returns: Effective value.
 def _env_flag(name: str, default: bool) -> bool:
     raw = os.environ.get(name)
     if raw is None:
@@ -44,11 +40,10 @@ def _env_flag(name: str, default: bool) -> bool:
     return raw.lower() not in {"0", "false", "no"}
 
 
-# FUNCTION: integrations_overview
-# SUMMARY: Report which external systems this project declares, and which are switched on now.
-# OUTPUT: (dict[str, dict[str, Any]]): Integration name mapped to its declared and live state.
+# Report which external systems this project declares, and which are switched on now.
+# Returns: Integration name mapped to its declared and live state.
 def integrations_overview() -> dict[str, dict[str, Any]]:
-    # **LOGIC_STEP**: docs/project_context.json is the one place a project says which external
+    # docs/project_context.json is the one place a project says which external
     # systems it uses. Reporting the declaration next to the live toggle here means an agent does
     # not have to open .env by hand to learn whether the database is even part of this project —
     # and the two cannot silently diverge.

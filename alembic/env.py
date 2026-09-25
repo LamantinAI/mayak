@@ -41,13 +41,10 @@ postgres_settings = PostgresSettings()
 # Set the database URL on the main config object.
 config.set_main_option("sqlalchemy.url", str(postgres_settings.sqlalchemy_database_url))
 
-# ATTRIBUTE: _migration_logger (logging.Logger)
-# SUMMARY: Standard library logger for Alembic migration timing and lifecycle events.
 _migration_logger = logging.getLogger("alembic.migration")
 
-# ATTRIBUTE: _MIGRATION_LOCK_KEY (int)
-# SUMMARY: The advisory-lock key every process that migrates this database agrees on.
-# NOTE: entrypoint.sh runs `alembic upgrade head` in EVERY container, so two replicas started
+# The advisory-lock key every process that migrates this database agrees on.
+# entrypoint.sh runs `alembic upgrade head` in EVERY container, so two replicas started
 # together against a database that has never been migrated both try to create `alembic_version` at
 # once. Measured on 2026-09-02, twice: two parallel `docker compose run --rm app` against a fresh
 # volume left one container at exit 0 and the other dead with
@@ -65,8 +62,6 @@ _migration_logger = logging.getLogger("alembic.migration")
 _MIGRATION_LOCK_KEY = zlib.crc32(b"mayak.alembic.migrations")
 
 
-# FUNCTION: run_migrations_offline
-# SUMMARY: Run migrations in 'offline' mode using URL without Engine creation.
 def run_migrations_offline() -> None:
     _migration_logger.info("Starting offline migrations")
     _start = time.perf_counter()
@@ -87,8 +82,6 @@ def run_migrations_offline() -> None:
     _migration_logger.info("Offline migrations complete in %.1f ms", _elapsed_ms)
 
 
-# FUNCTION: run_migrations_online
-# SUMMARY: Run migrations in 'online' mode using Engine and connection.
 def run_migrations_online() -> None:
     _migration_logger.info("Starting online migrations")
     _start = time.perf_counter()
@@ -107,7 +100,7 @@ def run_migrations_online() -> None:
         )
 
         with context.begin_transaction():
-            # **LOGIC_STEP**: Serialise every migrating process on one advisory lock before any
+            # Serialise every migrating process on one advisory lock before any
             # DDL runs. `pg_advisory_xact_lock` blocks until the lock is free and releases it when
             # this transaction commits or rolls back — nothing to unlock by hand, and a container
             # killed mid-migration cannot leave the lock held, because the session dies with it.
@@ -123,7 +116,7 @@ def run_migrations_online() -> None:
             connection.execute(
                 text("SELECT pg_advisory_xact_lock(:key)"), {"key": _MIGRATION_LOCK_KEY}
             )
-            # **LOGIC_STEP**: The wait is logged on its own line rather than folded into the total
+            # The wait is logged on its own line rather than folded into the total
             # below. It is included in that total — the total is wall clock, and pretending
             # otherwise would be its own lie — but a run that reports "complete in 10142 ms"
             # because it queued behind another replica for ten seconds, with no line saying so,

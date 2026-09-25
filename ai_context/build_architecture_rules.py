@@ -19,16 +19,14 @@ from ai_context.file_policy import build_file_policy_index
 from scripts.validate_architecture import get_layer_rules
 
 
-# ATTRIBUTE: _REPO_ROOT (Path)
-# SUMMARY: Repository root used to read the two files that own the Python version numbers.
+# Repository root used to read the two files that own the Python version numbers.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-# FUNCTION: _python_runtime_policy
-# SUMMARY: Derive the Python version policy from pyproject.toml and .python-version.
-# OUTPUT: (dict[str, str]): Minimum, local toolchain, mypy target and CI versions.
+# Derive the Python version policy from pyproject.toml and .python-version.
+# Returns: Minimum, local toolchain, mypy target and CI versions.
 def _python_runtime_policy() -> dict[str, str]:
-    # **LOGIC_STEP**: These five values are derived rather than typed out by hand, because nothing
+    # These five values are derived rather than typed out by hand, because nothing
     # would check a hand-typed copy against pyproject.toml — a version bump would leave the
     # generated rules quietly wrong while every gate stayed green.
     pyproject = (_REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
@@ -52,7 +50,7 @@ def _build_enforcement_model(
     strictly_validated_rules: list[dict[str, object]] = []
     guidance_only_rules: list[dict[str, object]] = []
     for layer, rules in layer_rules.items():
-        # **LOGIC_STEP**: A layer is strictly validated by whichever mechanism it declares — the
+        # A layer is strictly validated by whichever mechanism it declares — the
         # domain by an allowlist, other layers by a blacklist — and a reader of this payload has
         # to see which one, since the two answer different questions. Emitting only the blacklist
         # entry would have dropped the domain out of `strictly_validated_rules` entirely, making
@@ -196,15 +194,9 @@ def build_architecture_rules() -> dict[str, object]:
             ],
         },
         "cbm_policy": {
-            "strict_core": ["file headers", "classes", "public functions", "__init__"],
-            "optional_detail": ["attributes", "private helpers"],
-            "logic_step_when_to_use": [
-                "branching logic",
-                "side effects",
-                "security nuances",
-                "lifecycle nuances",
-                "wiring nuances",
-                "non-obvious invariants",
-            ],
+            "required": ["file header in every project/*.py: '# FILE:' then '# SUMMARY:'"],
+            "below_the_header": "no markup; a comment says why, never what a name or "
+            "signature already says",
+            "adr": "docs/adr/ADR-001-pragmatic-cbm.md",
         },
     }

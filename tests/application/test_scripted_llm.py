@@ -22,17 +22,12 @@ from tests.support.scripted_llm import (
     ScriptedToolCall,
 )
 
-# ATTRIBUTE: _ALLOWED_PRIORITIES (frozenset[str])
-# SUMMARY: The closed set a made-up vertical's verdicts are checked against.
 _ALLOWED_PRIORITIES = frozenset({"low", "normal", "high"})
 
 
-# FUNCTION: _parse_verdict
-# SUMMARY: Stand in for a vertical's own parser of a model answer, in miniature.
-# INPUT: raw (str): Whatever text the model produced.
-# OUTPUT: (str): The priority the model chose, once it is known to be one.
-# RAISES: ExternalServiceError: For every shape of answer that is not a known priority.
-# NOTE: Written here, in the test, because the kernel ships no vertical that reads a model's
+# Stand in for a vertical's own parser of a model answer, in miniature.
+# Raises ExternalServiceError for every shape of answer that is not a known priority.
+# Written here, in the test, because the kernel ships no vertical that reads a model's
 # answer — the point is the shape, and a vertical copies it into its own adapter. Two details are
 # load-bearing and both come from a field build: `isinstance` runs BEFORE the membership test,
 # because `["high"] in <frozenset>` raises TypeError rather than answering False, and every
@@ -50,11 +45,7 @@ def _parse_verdict(raw: str) -> str:
     return priority
 
 
-# CLASS: tests.application.test_scripted_llm.TestTheDouble
-# SUMMARY: What the double promises: replies in order, a loud end, tool calls, a record of asks.
 class TestTheDouble:
-    # FUNCTION: test_replies_arrive_in_the_order_they_were_written
-    # SUMMARY: Verify each call consumes the next scripted reply rather than repeating one.
     @pytest.mark.unit
     async def test_replies_arrive_in_the_order_they_were_written(self) -> None:
         model = ScriptedLLMService(["first", "second"])
@@ -65,20 +56,16 @@ class TestTheDouble:
         assert (first.content, second.content) == ("first", "second")
         assert model.call_count == 2
 
-    # FUNCTION: test_a_call_past_the_end_of_the_script_is_an_error
-    # SUMMARY: Verify an unscripted extra call fails the test instead of getting a default answer.
     @pytest.mark.unit
     async def test_a_call_past_the_end_of_the_script_is_an_error(self) -> None:
         model = ScriptedLLMService(["only one"])
         await model.call([HumanMessage(content="hi")])
 
-        # **LOGIC_STEP**: This is what makes the double usable for a turn budget: a loop that
+        # This is what makes the double usable for a turn budget: a loop that
         # calls the model once more than its script allows says so, loudly, at the extra call.
         with pytest.raises(ScriptedLLMExhausted, match="call #2"):
             await model.call([HumanMessage(content="again")])
 
-    # FUNCTION: test_a_scripted_tool_call_arrives_as_a_tool_call
-    # SUMMARY: Verify a scripted tool call reaches the caller as a message carrying tool_calls.
     @pytest.mark.unit
     async def test_a_scripted_tool_call_arrives_as_a_tool_call(self) -> None:
         model = ScriptedLLMService(
@@ -94,8 +81,6 @@ class TestTheDouble:
         assert first.tool_calls[0]["id"] == "scripted-tool-1"
         assert second.content == '{"priority": "high"}'
 
-    # FUNCTION: test_binding_tools_changes_nothing_about_the_script
-    # SUMMARY: Verify `model.bind_tools(...).call(...)` runs and still answers from the script.
     @pytest.mark.unit
     async def test_binding_tools_changes_nothing_about_the_script(self) -> None:
         model = ScriptedLLMService(["answer"])
@@ -104,9 +89,8 @@ class TestTheDouble:
 
         assert reply.content == "answer"
 
-    # FUNCTION: test_what_each_binding_offered_is_recorded
-    # SUMMARY: Verify a loop that stops offering tools on its last turn can be tested for it.
-    # **LOGIC_STEP**: A bounded loop usually guarantees termination by binding tools for the
+    # Verify a loop that stops offering tools on its last turn can be tested for it.
+    # A bounded loop usually guarantees termination by binding tools for the
     # working turns and none for the forced final one. The script alone cannot see that — the
     # final reply is text either way, whether or not the code actually withheld the tools.
     @pytest.mark.unit
@@ -119,8 +103,6 @@ class TestTheDouble:
 
         assert model.bound_tools == [[tool], []]
 
-    # FUNCTION: test_the_conversation_each_call_saw_is_kept
-    # SUMMARY: Verify a test can read back what the code under test actually sent.
     @pytest.mark.unit
     async def test_the_conversation_each_call_saw_is_kept(self) -> None:
         model = ScriptedLLMService(["a", "b"])
@@ -132,15 +114,13 @@ class TestTheDouble:
         assert model.received[1][1].content == "two"
 
 
-# CLASS: tests.application.test_scripted_llm.TestAWrongAnswerIsRejected
-# SUMMARY: The reason the double exists: answers the mock service cannot produce.
-# NOTE: Each case below is a real failure a language model produces and a deterministic mock
+# The reason the double exists: answers the mock service cannot produce.
+# Each case below is a real failure a language model produces and a deterministic mock
 # cannot: the mock's reply is derived from the conversation, so it is always well-formed. A field
 # build shipped a parser whose only test ran against that mock, which meant exactly one of these
 # cases was covered — the one where the answer is not JSON at all.
 class TestAWrongAnswerIsRejected:
-    # FUNCTION: test_a_good_answer_is_accepted
-    # SUMMARY: Verify the parser under test is not simply rejecting everything.
+    # Verify the parser under test is not simply rejecting everything.
     @pytest.mark.unit
     async def test_a_good_answer_is_accepted(self) -> None:
         model = ScriptedLLMService(['{"priority": "high"}'])
@@ -148,8 +128,6 @@ class TestAWrongAnswerIsRejected:
 
         assert _parse_verdict(await adapter.call("triage this")) == "high"
 
-    # FUNCTION: test_text_that_is_not_json_is_rejected
-    # SUMMARY: Verify prose where JSON was asked for becomes a domain error.
     @pytest.mark.unit
     async def test_text_that_is_not_json_is_rejected(self) -> None:
         model = ScriptedLLMService(["Sure! Here is the triage you asked for."])
@@ -158,8 +136,6 @@ class TestAWrongAnswerIsRejected:
         with pytest.raises(ExternalServiceError, match="not JSON"):
             _parse_verdict(await adapter.call("triage this"))
 
-    # FUNCTION: test_valid_json_with_a_value_outside_the_set_is_rejected
-    # SUMMARY: Verify a well-formed answer with an invented value is still refused.
     @pytest.mark.unit
     async def test_valid_json_with_a_value_outside_the_set_is_rejected(self) -> None:
         model = ScriptedLLMService(['{"priority": "critical"}'])
@@ -168,9 +144,8 @@ class TestAWrongAnswerIsRejected:
         with pytest.raises(ExternalServiceError, match="unusable priority"):
             _parse_verdict(await adapter.call("triage this"))
 
-    # FUNCTION: test_a_list_where_a_string_was_expected_is_rejected
-    # SUMMARY: Verify an unhashable value fails as a domain error, not as a TypeError.
-    # NOTE: This is the case that separates `isinstance(value, str) and value in <frozenset>` from
+    # Verify an unhashable value fails as a domain error, not as a TypeError.
+    # This is the case that separates `isinstance(value, str) and value in <frozenset>` from
     # the bare membership test. `["high"] in frozenset()` raises `TypeError: unhashable type`,
     # which is not a ProjectError, so it reaches the client as a 500 — from the one line written
     # to make sure it could not. Measured in a field build, where a triage endpoint answered 500

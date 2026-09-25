@@ -9,10 +9,9 @@ from project.core.logging.enums import EventType
 from project.core.logging.logger_events_base import SemanticLoggerEventContract
 from project.core.logging.logger_types import LogPayload, LogValue
 
-# ATTRIBUTE: _TRUNCATED_FINISH_REASONS (frozenset[str])
-# SUMMARY: finish_reason values meaning the provider stopped because it hit a limit, not because
+# finish_reason values meaning the provider stopped because it hit a limit, not because
 # it was done — a completion cut off mid-JSON by the output-token or tool-schema cap.
-# NOTE: Without this, a response truncated this way reads as an ordinary successful `llm.call`:
+# Without this, a response truncated this way reads as an ordinary successful `llm.call`:
 # `success=True`, INFO level, nothing distinguishing it from a normal reply — the
 # response_metadata langchain hands back on every call already carries `finish_reason`, and
 # nothing reads it. An agent in a live-run experiment on this template spent the whole stage of
@@ -23,11 +22,7 @@ from project.core.logging.logger_types import LogPayload, LogValue
 _TRUNCATED_FINISH_REASONS = frozenset({"length"})
 
 
-# CLASS: project.core.logging.logger_events_operational.SemanticLoggerOperationalEventsMixin
-# SUMMARY: Mixin implementing operational logging helpers for API, database, system, and LLM telemetry.
 class SemanticLoggerOperationalEventsMixin:
-    # FUNCTION: log_api_call
-    # SUMMARY: Log external API interactions with performance metadata.
     def log_api_call(
         self: SemanticLoggerEventContract,
         endpoint: str,
@@ -52,8 +47,6 @@ class SemanticLoggerOperationalEventsMixin:
             data=payload,
         )
 
-    # FUNCTION: log_database_operation
-    # SUMMARY: Log database operations with impact metadata.
     def log_database_operation(
         self: SemanticLoggerEventContract,
         operation: str,
@@ -79,8 +72,7 @@ class SemanticLoggerOperationalEventsMixin:
             data=payload,
         )
 
-    # FUNCTION: log_user_input
-    # SUMMARY: Log user interaction events using only safe structural summaries.
+    # Log user interaction events using only safe structural summaries.
     def log_user_input(
         self: SemanticLoggerEventContract,
         user_id: str,
@@ -103,8 +95,6 @@ class SemanticLoggerOperationalEventsMixin:
             data=payload,
         )
 
-    # FUNCTION: log_system_event
-    # SUMMARY: Log system-level events for monitoring and auditing.
     def log_system_event(
         self: SemanticLoggerEventContract,
         event_name: str,
@@ -130,8 +120,6 @@ class SemanticLoggerOperationalEventsMixin:
             data=payload,
         )
 
-    # FUNCTION: log_metric
-    # SUMMARY: Log a numeric metric value with optional unit and tags.
     def log_metric(
         self: SemanticLoggerEventContract,
         metric_name: str,
@@ -157,9 +145,6 @@ class SemanticLoggerOperationalEventsMixin:
             data=payload,
         )
 
-    # FUNCTION: log_llm_call
-    # SUMMARY: Log an individual LLM invocation with timing, token usage, and success status.
-    # INPUT: error (Optional[str]): Error message if the call failed.
     def log_llm_call(
         self: SemanticLoggerEventContract,
         model: str,
@@ -194,13 +179,13 @@ class SemanticLoggerOperationalEventsMixin:
             payload["error"] = error
         payload.update(extra)
 
-        # **LOGIC_STEP**: `finish_reason` travels in through `**extra` (llm_service_live.py reads
+        # `finish_reason` travels in through `**extra` (llm_service_live.py reads
         # it off the response's `response_metadata`) rather than as its own keyword, because a mock
         # response and any provider that answers without one must not be forced to pass None
         # through a required argument. Reading it back out of `payload` — after `extra` has been
         # folded in — is what lets this one check cover a truncated call whatever else the caller
         # sent alongside it.
-        # **LOGIC_STEP**: `extra` is typed LogValue, which admits a list and a dict, and a
+        # `extra` is typed LogValue, which admits a list and a dict, and a
         # membership test against a frozenset raises TypeError on an unhashable one — a provider
         # returning a malformed `finish_reason` would then crash the logging call rather than the
         # request it was describing. Only a string can name a stop reason, so anything else is
@@ -215,7 +200,7 @@ class SemanticLoggerOperationalEventsMixin:
         level = logging.WARNING if (not success or truncated) else logging.INFO
         msg = f"LLM call to {model}: {'ok' if success else 'failed'} in {round(duration_ms, 1)}ms"
         if truncated:
-            # **LOGIC_STEP**: Visible in the message itself, not only in a field a reader has to
+            # Visible in the message itself, not only in a field a reader has to
             # know to look for — the whole point is that this stopped reading as an ordinary
             # success.
             msg = f"{msg} (truncated: finish_reason={finish_reason})"
@@ -228,8 +213,6 @@ class SemanticLoggerOperationalEventsMixin:
             data=payload,
         )
 
-    # FUNCTION: log_warning
-    # SUMMARY: Log warning events for non-critical issues that need attention.
     def log_warning(
         self: SemanticLoggerEventContract,
         warning_type: str,

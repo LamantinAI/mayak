@@ -33,12 +33,8 @@ from project.core.logging.redaction import redact_secrets
 from project.domain.exceptions import ExternalServiceError, UpstreamAuthenticationError
 
 
-# FUNCTION: _build_full_trace_extras
-# SUMMARY: Build body-inclusive extras for llm.call events when full-trace observability is on.
-#          Returns empty dict when disabled so the hot-path cost stays zero.
-# INPUT: full_trace (bool): Whether full-trace is enabled at call time.
-# INPUT: completion_text (str | None): Raw completion text when available.
-# OUTPUT: (dict[str, Any]): Extra kwargs ready to merge into log_llm_call **extra.
+# So the hot-path cost stays zero when full trace is disabled.
+# Returns extra kwargs ready to merge into log_llm_call **extra.
 def _build_full_trace_extras(
     full_trace: bool,
     messages: list[BaseMessage],
@@ -49,7 +45,7 @@ def _build_full_trace_extras(
 
     system_prompt = "\n\n".join(str(m.content) for m in messages if isinstance(m, SystemMessage))
     user_message = "\n\n".join(str(m.content) for m in messages if not isinstance(m, SystemMessage))
-    # **LOGIC_STEP**: The same scrubber every other free-text log path in this repository already
+    # The same scrubber every other free-text log path in this repository already
     # runs, which this one skipped: a key or a token pasted into a prompt reached the file in
     # full. It catches credential shapes and nothing else — a customer's email in a prompt is
     # still recorded verbatim, which is what the startup warning is for. Redaction here is
@@ -63,40 +59,27 @@ def _build_full_trace_extras(
     return extras
 
 
-# CLASS: project.infrastructure.agents.llm_service_live._LLMServiceLiveContract
-# SUMMARY: Structural contract describing the shared LLMService state used by the live-provider mixin.
 class _LLMServiceLiveContract(Protocol):
-    # ATTRIBUTE: _settings (Settings)
-    # SUMMARY: Validated application settings used to configure provider clients and retries.
+    # Validated application settings used to configure provider clients and retries.
     _settings: Settings
 
-    # ATTRIBUTE: _logger (SemanticLogger)
-    # SUMMARY: Semantic logger used for lifecycle, call, and error events.
     _logger: SemanticLogger
 
-    # ATTRIBUTE: _llm (BaseChatModel | None)
-    # SUMMARY: Underlying live provider client or None when mock mode is active.
+    # Underlying live provider client or None when mock mode is active.
     _llm: BaseChatModel | None
 
-    # ATTRIBUTE: _bound_llm (Any)
-    # SUMMARY: Provider runnable optionally enhanced with bound tools.
+    # Provider runnable optionally enhanced with bound tools.
     _bound_llm: Any
 
 
-# CLASS: project.infrastructure.agents.llm_service_live.LLMServiceLiveMixin
-# SUMMARY: Mixin implementing live-provider setup and retryable LLM calls.
 class LLMServiceLiveMixin:
-    # ATTRIBUTE: _llm (BaseChatModel | None)
-    # SUMMARY: Underlying live provider client or None when mock mode is active.
+    # Underlying live provider client or None when mock mode is active.
     _llm: BaseChatModel | None
 
-    # ATTRIBUTE: _bound_llm (Any)
-    # SUMMARY: Provider runnable optionally enhanced with bound tools.
+    # Provider runnable optionally enhanced with bound tools.
     _bound_llm: Any
 
-    # FUNCTION: _initialize_llm
-    # SUMMARY: Initialize the live provider client, or leave mock placeholders, from global settings.
-    # NOTE: Kept to a single resolution tier — global settings — deliberately: a per-agent
+    # Kept to a single resolution tier — global settings — deliberately: a per-agent
     # override mechanism would be machinery the kernel cannot demonstrate using, since nothing in
     # the template ever constructs one. A vertical that needs a second LLM endpoint builds its
     # own service rather than inheriting an unused mechanism.
@@ -110,7 +93,7 @@ class LLMServiceLiveMixin:
             str(self._settings.llm.base_url) if self._settings.llm.base_url else None
         )
 
-        # **LOGIC_STEP**: Skip provider client construction in deterministic mock mode.
+        # Skip provider client construction in deterministic mock mode.
         if effective_mode == "mock":
             self._llm = None
             self._bound_llm = None
@@ -125,7 +108,7 @@ class LLMServiceLiveMixin:
             )
             return
 
-        # **LOGIC_STEP**: Create ChatOpenAI instance with resolved settings.
+        # Create ChatOpenAI instance with resolved settings.
         llm_kwargs: dict[str, Any] = {
             "model": effective_model,
             "api_key": effective_api_key,
@@ -139,7 +122,7 @@ class LLMServiceLiveMixin:
         self._llm = llm
         self._bound_llm = llm
 
-        # **LOGIC_STEP**: Log initialization event for the live provider client.
+        # Log initialization event for the live provider client.
         self._logger.log_system_event(
             event_name="llm_service_initialized",
             category="initialization",
@@ -150,25 +133,23 @@ class LLMServiceLiveMixin:
             },
         )
 
-    # FUNCTION: _call_llm_with_retry
-    # SUMMARY: Call the LLM with automatic retry logic using configured max retries.
-    # RAISES: UpstreamAuthenticationError: If the provider rejects this service's credentials.
-    # RAISES: ExternalServiceError: If the provider is uninitialised, or fails for any other
-    #         reason — including a retryable failure that used up every attempt.
-    # RAISES: BadRequestError: Untranslated on purpose; see the handler at the end of this method.
+    # Raises UpstreamAuthenticationError if the provider rejects this service's credentials.
+    # Raises ExternalServiceError if the provider is uninitialised, or fails for any other
+    # reason — including a retryable failure that used up every attempt.
+    # Raises BadRequestError untranslated on purpose; see the handler at the end of this method.
     async def _call_llm_with_retry(
         self: _LLMServiceLiveContract,
         messages: list[BaseMessage],
     ) -> BaseMessage:
-        # **LOGIC_STEP**: Check if the live provider is initialized.
+        # Check if the live provider is initialized.
         runnable = self._bound_llm
         if runnable is None:
             raise ExternalServiceError("LLM provider is not initialized")
 
         effective_retries = self._settings.agent.max_llm_call_retries
 
-        # **LOGIC_STEP**: Invoke the provider with configurable retry logic.
-        # NOTE: This AsyncRetrying is the **single source of retry truth** for LLM calls.
+        # Invoke the provider with configurable retry logic.
+        # This AsyncRetrying is the **single source of retry truth** for LLM calls.
         # Callers must not wrap it in their own @retry: the two layers multiply rather than
         # combine, so three attempts around three attempts is a nine-attempt worst case that
         # outlives whatever asyncio.wait_for budget the caller set. Add attempts here, never
@@ -220,7 +201,7 @@ class LLMServiceLiveMixin:
                         response_content = getattr(response, "content", "")
                         response_chars = len(str(response_content))
 
-                        # **LOGIC_STEP**: langchain-openai puts `finish_reason` in
+                        # langchain-openai puts `finish_reason` in
                         # `response_metadata` on every reply, success or not — it is how the
                         # provider says WHY it stopped, and "it hit the output-token or
                         # tool-schema limit" (`finish_reason == "length"`) looks identical to a
@@ -317,7 +298,7 @@ class LLMServiceLiveMixin:
                         )
                         raise
         except (OpenAIAuthenticationError, PermissionDeniedError) as error:
-            # **LOGIC_STEP**: Whose credentials failed decides who can fix it. The provider
+            # Whose credentials failed decides who can fix it. The provider
             # rejecting OUR key is an operator's configuration problem — a dead key, a revoked
             # project — and it is answered 502 like any other upstream failure, because the
             # caller's own credentials are fine and a 401 would send them to re-authenticate
@@ -332,7 +313,7 @@ class LLMServiceLiveMixin:
             OpenAIConflictError,
             UnprocessableEntityError,
         ):
-            # **LOGIC_STEP**: Deliberately not translated. Every status here says the provider
+            # Deliberately not translated. Every status here says the provider
             # understood us and refused what we asked for: a malformed tool schema, a prompt past
             # the context window, a model name that does not exist. Each is this service's own
             # defect, and the identical retry fails identically forever. Reported as 500, because
@@ -341,7 +322,7 @@ class LLMServiceLiveMixin:
             # declining to serve us right now, and it is retried before it becomes a 502.
             raise
         except OpenAIError as error:
-            # **LOGIC_STEP**: Everything else the provider can fail with, including the retryable
+            # Everything else the provider can fail with, including the retryable
             # kinds that exhausted their attempts above. The cause survives on __cause__ for the
             # log; the client is told only that an upstream service failed.
             raise ExternalServiceError("LLM provider call failed") from error

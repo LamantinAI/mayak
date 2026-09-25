@@ -29,14 +29,11 @@ _FAKE_DSN = (
 _FAKE_KEY = "sk-abcdefghijklmnopqrstuvwxyz012345"  # allow-secret: fixture for the scrubber
 
 
-# CLASS: tests.application.test_secret_leak_guards.TestEnvSampleDebugFlag
-# SUMMARY: Guard the shipped .env.sample against re-enabling Starlette's traceback response.
+# Guard the shipped .env.sample against re-enabling Starlette's traceback response.
 class TestEnvSampleDebugFlag:
-    # FUNCTION: test_env_sample_does_not_enable_debug
-    # SUMMARY: Verify .env.sample ships APP_DEBUG disabled so fresh projects never expose tracebacks.
     @pytest.mark.unit
     def test_env_sample_does_not_enable_debug(self) -> None:
-        # **LOGIC_STEP**: dev_setup.sh copies this file verbatim into .env for every new project,
+        # dev_setup.sh copies this file verbatim into .env for every new project,
         # and APP_DEBUG=true switches off every guard in GUARDS_RELAXED_BY_DEBUG at once. (It no
         # longer hands out Starlette's traceback page — the class below pins that — but the
         # guards alone are reason enough for the sample to ship it off.)
@@ -49,11 +46,8 @@ class TestEnvSampleDebugFlag:
         assert assignments == ["false"]
 
 
-# CLASS: tests.application.test_secret_leak_guards.TestExceptionTextRedaction
-# SUMMARY: Verify exception text reaches logs scrubbed, matching the treatment of tracebacks.
+# Verify exception text reaches logs scrubbed, matching the treatment of tracebacks.
 class TestExceptionTextRedaction:
-    # FUNCTION: test_log_error_redacts_exception_message
-    # SUMMARY: Verify log_error scrubs secrets embedded in the exception's own text.
     @pytest.mark.unit
     def test_log_error_redacts_exception_message(self, log_capture: list[dict]) -> None:
         logger = get_logger("tests.application.test_secret_leak_guards")
@@ -68,8 +62,7 @@ class TestExceptionTextRedaction:
         assert _FAKE_KEY not in payload["exception_message"]
         assert "***REDACTED***" in payload["exception_message"]
 
-    # FUNCTION: test_log_critical_redacts_exception_message
-    # SUMMARY: Verify log_critical applies the same scrubbing as log_error.
+    # Verify log_critical applies the same scrubbing as log_error.
     @pytest.mark.unit
     def test_log_critical_redacts_exception_message(self, log_capture: list[dict]) -> None:
         logger = get_logger("tests.application.test_secret_leak_guards")
@@ -84,11 +77,9 @@ class TestExceptionTextRedaction:
         payload = log_capture[0]["kwargs"]["data"]
         assert "hunter2" not in payload["exception_message"]
 
-    # FUNCTION: test_log_error_redacts_message_argument
-    # SUMMARY: Verify the free-form message is scrubbed too, since callers pass str(exception) into it.
     @pytest.mark.unit
     def test_log_error_redacts_message_argument(self, log_capture: list[dict]) -> None:
-        # **LOGIC_STEP**: project/launcher/main.py logs message=str(e) with no exception object,
+        # project/launcher/main.py logs message=str(e) with no exception object,
         # so the message field is a leak path in its own right.
         logger = get_logger("tests.application.test_secret_leak_guards")
 
@@ -97,11 +88,8 @@ class TestExceptionTextRedaction:
         assert "hunter2" not in log_capture[0]["kwargs"]["data"]["message"]
 
 
-# CLASS: tests.application.test_secret_leak_guards.TestFormatterRedactionNet
-# SUMMARY: Verify the formatter scrubs text fields assembled outside the semantic logger.
+# Verify the formatter scrubs text fields assembled outside the semantic logger.
 class TestFormatterRedactionNet:
-    # FUNCTION: test_formatter_redacts_exception_message_from_raw_payload
-    # SUMMARY: Verify a hand-built payload bypassing the semantic logger is still scrubbed.
     @pytest.mark.unit
     def test_formatter_redacts_exception_message_from_raw_payload(self) -> None:
         record = logging.LogRecord(
@@ -123,14 +111,10 @@ class TestFormatterRedactionNet:
         assert _FAKE_KEY not in entry["data"]["exception_message"]
 
 
-# CLASS: tests.application.test_secret_leak_guards.TestDebugFlagCannotPublishTracebacks
-# SUMMARY: Verify APP_DEBUG=true no longer turns the HTTP surface into a traceback page.
 class TestDebugFlagCannotPublishTracebacks:
-    # FUNCTION: test_application_never_runs_with_starlette_debug
-    # SUMMARY: Verify the assembled app keeps Starlette's debug off even when APP_DEBUG is on.
     @pytest.mark.unit
     def test_application_never_runs_with_starlette_debug(self) -> None:
-        # **LOGIC_STEP**: Starlette answers unhandled exceptions in ServerErrorMiddleware, which
+        # Starlette answers unhandled exceptions in ServerErrorMiddleware, which
         # checks its own debug flag first and renders the full traceback — file paths, locals, and
         # whatever secret was in scope — without ever reaching the application's registered
         # Exception handler. APP_DEBUG is documented as verbose logging and a single worker, so
@@ -146,13 +130,11 @@ class TestDebugFlagCannotPublishTracebacks:
 
         assert app.debug is False
 
-    # FUNCTION: test_the_startup_event_names_the_guards_debug_relaxed
-    # SUMMARY: Verify a debug build says in its first log lines which startup checks it did not run.
     @pytest.mark.unit
     def test_the_startup_event_names_the_guards_debug_relaxed(
         self, log_capture: list[dict]
     ) -> None:
-        # **LOGIC_STEP**: README described the flag wrongly for months and nothing noticed; a
+        # README described the flag wrongly for months and nothing noticed; a
         # container started with APP_DEBUG=true now names the three guards itself, in the same
         # event that already reported `debug: true`, so the operator reading the log at the
         # moment it matters does not depend on the README having been right.
@@ -174,8 +156,6 @@ class TestDebugFlagCannotPublishTracebacks:
             GUARDS_RELAXED_BY_DEBUG
         )
 
-    # FUNCTION: test_a_production_build_reports_no_relaxed_guard
-    # SUMMARY: Verify the same field is an empty list whenever the guards actually ran.
     @pytest.mark.unit
     def test_a_production_build_reports_no_relaxed_guard(self, log_capture: list[dict]) -> None:
         settings = FixtureSettings()
@@ -193,8 +173,6 @@ class TestDebugFlagCannotPublishTracebacks:
         )
         assert built["kwargs"]["data"]["new_value"]["guards_relaxed_by_debug"] == []
 
-    # FUNCTION: test_unhandled_exception_answers_with_the_safe_message
-    # SUMMARY: Verify a raising route returns the fixed envelope, not the exception text.
     @pytest.mark.unit
     def test_unhandled_exception_answers_with_the_safe_message(self) -> None:
         settings = FixtureSettings()
@@ -218,14 +196,10 @@ class TestDebugFlagCannotPublishTracebacks:
         assert "Traceback" not in response.text
 
 
-# CLASS: tests.application.test_secret_leak_guards.TestRedactionCoversRealCredentialShapes
-# SUMMARY: Verify the scrubber matches the credential shapes this project actually handles.
 class TestRedactionCoversRealCredentialShapes:
-    # FUNCTION: test_driver_qualified_dsn_is_redacted
-    # SUMMARY: Verify the SQLAlchemy async DSN form is scrubbed, not only the bare scheme.
     @pytest.mark.unit
     def test_driver_qualified_dsn_is_redacted(self) -> None:
-        # **LOGIC_STEP**: The pattern required the scheme name to touch `://`, so a driver-qualified
+        # The pattern required the scheme name to touch `://`, so a driver-qualified
         # scheme like `postgresql+psycopg://` was the single DSN form that passed through
         # untouched. This is the shape config_builders.py produces, and the one most likely to
         # surface in a traceback here.
@@ -233,8 +207,6 @@ class TestRedactionCoversRealCredentialShapes:
 
         assert "hunter2" not in redact_secrets(text)
 
-    # FUNCTION: test_bare_credentials_without_an_assignment_are_redacted
-    # SUMMARY: Verify tokens carrying no `key=` prefix are still scrubbed.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         "secret",
@@ -244,7 +216,7 @@ class TestRedactionCoversRealCredentialShapes:
             "glpat-abcdefghijklmnopqrst",  # allow-secret: fixture for the scrubber
             "xoxb-1234567890-abcdefghij",  # allow-secret: fixture for the scrubber
             "AKIAIOSFODNN7EXAMPLE",  # allow-secret: fixture for the scrubber
-            # **LOGIC_STEP**: to verify this fixture catches a regression, delete the one line it
+            # to verify this fixture catches a regression, delete the one line it
             # exists to prove in redaction.py, `re.compile(r"sk-[A-Za-z0-9]{20,}")`, and rerun the
             # two dedicated secret-guard files with `--no-cov`:
             # `uv run python -m pytest tests/application/test_secret_leak_guards.py
@@ -262,12 +234,12 @@ class TestRedactionCoversRealCredentialShapes:
             # is OpenAI-compatible. Thirty-two characters after the prefix, not GitHub push
             # protection's forty-eight (see BLOCKED_SHAPES below): still clears the `{20,}` in
             # `redaction.py` while staying pushable.
-            # NOTE: an absolute test count for "the rest of the suite" drifts as unrelated
+            # an absolute test count for "the rest of the suite" drifts as unrelated
             # concurrent work adds tests elsewhere under tests/application, and no gate rereads
             # a comment to catch a stale one — so the claim above needs only the shape of the
             # result, which stays true at any suite size.
             "sk-" + "a" * 32,  # allow-secret: fixture for the scrubber
-            # **LOGIC_STEP**: `sk_test_` with sixteen characters, not `sk_live_` with twenty-four.
+            # `sk_test_` with sixteen characters, not `sk_live_` with twenty-four.
             # The longer live shape is what GitHub push protection matches, and it refused the
             # first push of this repository over this very line — a template whose first push is
             # blocked is broken for everyone who clones it. Sixteen still clears the `{16,}` in
@@ -279,17 +251,14 @@ class TestRedactionCoversRealCredentialShapes:
         assert secret not in redact_secrets(f"provider rejected {secret} at 12:00")
 
 
-# CLASS: tests.application.test_secret_leak_guards.TestNothingTrippedByGithubPushProtection
-# SUMMARY: Verify no tracked file carries a credential shape that GitHub refuses to accept on push.
-# NOTE: The first push of this repository was rejected: GH013, "Push cannot contain secrets",
+# The first push of this repository was rejected: GH013, "Push cannot contain secrets",
 # pointing at a synthetic `sk_live_` fixture in this file. It was never a real key — GitHub matches
 # the shape, not the account — but the shape is enough to block the push, and a template that
 # cannot be pushed is broken for everyone who clones it. The provider patterns below are the ones
 # with a fixed, publicly documented prefix and length; a scanner-shaped fixture must sit outside
 # them, which for a test costs one character of length or one letter of prefix.
 class TestNothingTrippedByGithubPushProtection:
-    # ATTRIBUTE: BLOCKED_SHAPES (tuple[tuple[str, str], ...])
-    # SUMMARY: Provider name paired with the pattern GitHub's push protection matches.
+    # Provider name paired with the pattern GitHub's push protection matches.
     BLOCKED_SHAPES = (
         ("Stripe live key", r"sk_live_[0-9a-zA-Z]{24,}"),
         ("Stripe restricted key", r"rk_live_[0-9a-zA-Z]{24,}"),
@@ -297,8 +266,6 @@ class TestNothingTrippedByGithubPushProtection:
         ("OpenAI key", r"sk-[a-zA-Z0-9]{48}"),
     )
 
-    # FUNCTION: test_no_tracked_file_carries_a_blocked_credential_shape
-    # SUMMARY: Verify a fresh clone of this template can be pushed to GitHub without an unblock click.
     @pytest.mark.unit
     @pytest.mark.parametrize("provider,shape", BLOCKED_SHAPES)
     def test_no_tracked_file_carries_a_blocked_credential_shape(
@@ -319,7 +286,7 @@ class TestNothingTrippedByGithubPushProtection:
                 body = path.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError):
                 continue
-            # **LOGIC_STEP**: This file names the shapes it forbids, so it is the one exemption —
+            # This file names the shapes it forbids, so it is the one exemption —
             # the same carve-out the sweep guard above makes for itself.
             if name == "tests/application/test_secret_leak_guards.py":
                 continue

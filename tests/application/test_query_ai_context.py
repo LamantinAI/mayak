@@ -24,24 +24,18 @@ from scripts.query_ai_context import (
 )
 
 
-# FUNCTION: tests.application.test_query_ai_context._architecture_rules
-# SUMMARY: The rules bundle tests_for_file needs to decide whether a path is finished by e2e.
+# The rules bundle tests_for_file needs to decide whether a path is finished by e2e.
 def _architecture_rules() -> dict[str, Any]:
     _context_map, _change_map, architecture_rules = query_common.context_bundle()
     return architecture_rules
 
 
-# FUNCTION: tests.application.test_query_ai_context._tests_for
-# SUMMARY: Narrow the tests_for_file payload to Any so assertions can index its heterogeneous values.
+# Narrow the tests_for_file payload to Any so assertions can index its heterogeneous values.
 def _tests_for(context_map: dict[str, Any], path: str) -> dict[str, Any]:
     return query_common.tests_for_file(context_map, path, _architecture_rules())
 
 
-# CLASS: tests.application.test_query_ai_context.TestQueryAIContext
-# SUMMARY: Verify the AI context query helpers expose the expected repository navigation metadata.
 class TestQueryAIContext:
-    # FUNCTION: test_query_bootstrap_returns_compact_startup_payload
-    # SUMMARY: Verify bootstrap queries expose the startup path, shortcuts, and kernel/sample segmentation.
     @pytest.mark.unit
     def test_query_bootstrap_returns_compact_startup_payload(self) -> None:
         result = _query_bootstrap()
@@ -68,8 +62,6 @@ class TestQueryAIContext:
             for move in payload["forbidden_moves"]
         )
 
-    # FUNCTION: test_query_overview_contains_query_cli_examples
-    # SUMMARY: Verify the overview query exposes the CLI examples and task list used by agents.
     @pytest.mark.unit
     def test_query_overview_contains_query_cli_examples(self) -> None:
         result = _query_overview()
@@ -97,7 +89,7 @@ class TestQueryAIContext:
         )
         assert "add_endpoint" in payload["task_names"]
         assert "runtime_enforced" in payload["layers"]["domain"]
-        # **LOGIC_STEP**: The domain's declared dependencies are a real gate, so this layer
+        # The domain's declared dependencies are a real gate, so this layer
         # reports runtime_enforced where every other layer still reports guidance. The
         # application layer is asserted alongside it to keep the contrast visible.
         assert (
@@ -113,8 +105,6 @@ class TestQueryAIContext:
             == "arch.domain.import_not_allowed"
         )
 
-    # FUNCTION: test_query_before_edit_returns_pre_edit_guardrails
-    # SUMMARY: Verify before-edit queries expose likely failure bundles and smallest-diff guidance for high-signal files.
     @pytest.mark.unit
     def test_query_before_edit_returns_pre_edit_guardrails(self) -> None:
         result = _query_before_edit("project/infrastructure/api/dependencies.py")
@@ -134,9 +124,8 @@ class TestQueryAIContext:
         assert "likely_unit_tests" in related
         assert "likely_integration_tests" in related
 
-    # FUNCTION: test_every_registered_service_has_a_test_the_workset_check_can_find
-    # SUMMARY: Verify no application service resolves to an empty likely_unit_tests list.
-    # NOTE: This is the gate the finding needed. Its neighbours asserted the KEY existed and were
+    # Verify no application service resolves to an empty likely_unit_tests list.
+    # This is the gate the finding needed. Its neighbours asserted the KEY existed and were
     # green while the LIST was empty for every vertical in the repository. The narrow loop that
     # consumed this mapping is gone, but the `workset` query still answers "what should I look at
     # when this file changes" — an empty answer is a silent zero, and worse than a red gate.
@@ -150,7 +139,7 @@ class TestQueryAIContext:
         for service_key, metadata in registry.items():
             assert isinstance(metadata, dict)
             service_path = query_common.service_file_path(metadata)
-            # **LOGIC_STEP**: Skip what has no file of its own — a service the registry knows only
+            # Skip what has no file of its own — a service the registry knows only
             # by key cannot have a test named after it, and that is not this gate's business.
             if not service_path or not (Path(__file__).parents[2] / service_path).is_file():
                 continue
@@ -164,8 +153,6 @@ class TestQueryAIContext:
             ".agents/skills/add-vertical prescribes, or add the spelling to service_test_candidates()."
         )
 
-    # FUNCTION: test_query_before_edit_shows_related_tests_for_service_file
-    # SUMMARY: Verify before-edit for a service file returns guardrails and related test structure.
     @pytest.mark.unit
     def test_query_before_edit_shows_related_tests_for_service_file(self) -> None:
         result = _query_before_edit("project/core/composition_root.py")
@@ -178,11 +165,9 @@ class TestQueryAIContext:
         assert "likely_unit_tests" in related
         assert "likely_integration_tests" in related
 
-    # FUNCTION: test_query_before_edit_returns_derived_payload_for_zoned_file
-    # SUMMARY: Verify before-edit synthesizes a derived FILE_POLICY payload for files that belong to EDIT_ZONES but lack an explicit FILE_POLICY entry.
     @pytest.mark.unit
     def test_query_before_edit_returns_derived_payload_for_zoned_file(self) -> None:
-        # **LOGIC_STEP**: project/core/logging/ is the expert-zone prefix; individual files
+        # project/core/logging/ is the expert-zone prefix; individual files
         # under it (e.g. config.py) intentionally have no FILE_POLICY entry and exercise the
         # derived-fallback branch.
         result = _query_before_edit("project/core/logging/config.py")
@@ -198,19 +183,15 @@ class TestQueryAIContext:
         # kernel_or_reference is heuristic — files under project/core/ are template_kernel.
         assert payload["kernel_or_reference"] == "template_kernel"
 
-    # FUNCTION: test_query_before_edit_raises_unknown_for_path_outside_project
-    # SUMMARY: Verify before-edit preserves the KeyError for paths that are not in any EDIT_ZONES classification (truly outside project tree).
     @pytest.mark.unit
     def test_query_before_edit_raises_unknown_for_path_outside_project(self) -> None:
-        # **LOGIC_STEP**: A path with no zone classification must still surface the original "Unknown" KeyError.
+        # A path with no zone classification must still surface the original "Unknown" KeyError.
         with pytest.raises(KeyError, match="Unknown or unindexed file policy path"):
             _query_before_edit("/tmp/does-not-exist.py")
 
-    # FUNCTION: test_query_before_edit_unknown_path_message_lists_next_actions
-    # SUMMARY: Verify the unknown-path KeyError carries actionable next-action guidance for the agent.
     @pytest.mark.unit
     def test_query_before_edit_unknown_path_message_lists_next_actions(self) -> None:
-        # **LOGIC_STEP**: The error message must name both remediation surfaces (FILE_POLICY_INDEX and EDIT_ZONES) and signpost a Next actions section so the agent does not need to read source to decide what to do.
+        # The error message must name both remediation surfaces (FILE_POLICY_INDEX and EDIT_ZONES) and signpost a Next actions section so the agent does not need to read source to decide what to do.
         with pytest.raises(KeyError) as exc_info:
             _query_before_edit("/tmp/does-not-exist.py")
         message = str(exc_info.value)
@@ -219,11 +200,9 @@ class TestQueryAIContext:
         assert "FILE_POLICY_INDEX" in message
         assert "EDIT_ZONES" in message
 
-    # FUNCTION: test_query_before_edit_returns_full_entry_for_health_endpoint
-    # SUMMARY: Verify health.py has an explicit (non-derived) FILE_POLICY entry suitable as the canonical add_endpoint reference.
     @pytest.mark.unit
     def test_query_before_edit_returns_full_entry_for_health_endpoint(self) -> None:
-        # **LOGIC_STEP**: health.py is the kernel's canonical thin-endpoint reference and must have an explicit FILE_POLICY entry.
+        # health.py is the kernel's canonical thin-endpoint reference and must have an explicit FILE_POLICY entry.
         result = _query_before_edit("project/infrastructure/api/endpoints/health.py")
         payload: dict[str, Any] = result.payload
 
@@ -236,8 +215,6 @@ class TestQueryAIContext:
         assert any("validate_endpoint_wiring.py" in cmd for cmd in validators)
         assert any("validate_runtime_ownership.py" in cmd for cmd in validators)
 
-    # FUNCTION: test_query_workset_diff_aggregates_zones_tasks_validators_and_regeneration
-    # SUMMARY: Verify a workset payload carries the aggregation an agent acts on, not only the file list.
     @pytest.mark.unit
     def test_query_workset_diff_aggregates_zones_tasks_validators_and_regeneration(
         self,
@@ -279,9 +256,8 @@ class TestQueryAIContext:
         assert payload["recommended_diff_style"] == "minimal-diff"
         assert payload["read_first"][0] == "AGENTS.md"
 
-    # FUNCTION: test_query_workset_diff_recommends_e2e_for_a_persistence_change
-    # SUMMARY: Verify final_gate adds `make test-e2e` when the diff touches persistence.
-    # NOTE: docs/agent_rules.md states this rule in prose — "Finish with `make quality-gates`,
+    # Verify final_gate adds `make test-e2e` when the diff touches persistence.
+    # docs/agent_rules.md states this rule in prose — "Finish with `make quality-gates`,
     # and with `make test-e2e` as well when the diff touched persistence, endpoints, or wiring" —
     # but final_gate was hardcoded to ["make quality-gates"] regardless of what changed_files
     # named, so `workset diff` on a persistence-only change never surfaced the one gate that runs
@@ -316,9 +292,8 @@ class TestQueryAIContext:
 
         assert payload["final_gate"] == ["make quality-gates", "make test-e2e"]
 
-    # FUNCTION: test_before_edit_on_a_persistence_file_recommends_e2e_too
-    # SUMMARY: Verify the per-file answer names the same final gate `workset diff` does.
-    # NOTE: `before-edit file`'s payload kept a hardcoded ["make quality-gates"], out of sync with
+    # Verify the per-file answer names the same final gate `workset diff` does.
+    # `before-edit file`'s payload kept a hardcoded ["make quality-gates"], out of sync with
     # `workset diff` — the more misleading gap of the two: it is asked about one file, usually
     # immediately before that file is edited.
     @pytest.mark.unit
@@ -333,9 +308,8 @@ class TestQueryAIContext:
         assert payload["final_gate"] == ["make quality-gates", "make test-e2e"]
         assert docs_only["final_gate"] == ["make quality-gates"]
 
-    # FUNCTION: test_query_workset_diff_recommends_e2e_for_a_migration
-    # SUMMARY: Verify a revision under alembic/versions/ also asks for the gate that runs it.
-    # NOTE: A migration is the one change `make quality-gates` cannot check at all without a
+    # Verify a revision under alembic/versions/ also asks for the gate that runs it.
+    # A migration is the one change `make quality-gates` cannot check at all without a
     # database: with none reachable `scripts/validate_migrations.py` announces the skip and stays
     # green, and `make test-e2e` is the only local gate that executes the revision.
     @pytest.mark.unit
@@ -368,8 +342,6 @@ class TestQueryAIContext:
 
         assert payload["final_gate"] == ["make quality-gates", "make test-e2e"]
 
-    # FUNCTION: test_query_workset_diff_does_not_recommend_e2e_for_a_docs_only_change
-    # SUMMARY: Verify final_gate stays quality-gates-only when nothing touched needs a live database.
     @pytest.mark.unit
     def test_query_workset_diff_does_not_recommend_e2e_for_a_docs_only_change(
         self,
@@ -398,8 +370,6 @@ class TestQueryAIContext:
 
         assert payload["final_gate"] == ["make quality-gates"]
 
-    # FUNCTION: test_query_workset_diff_resolves_git_worktree_changes
-    # SUMMARY: Verify workset diff queries merge staged, unstaged, and untracked git paths into one aggregated payload.
     @pytest.mark.unit
     def test_query_workset_diff_resolves_git_worktree_changes(
         self,
@@ -447,8 +417,6 @@ class TestQueryAIContext:
         ]
         assert payload["regeneration"]["decision"] == "refresh-ai-context"
 
-    # FUNCTION: test_query_workset_diff_reports_empty_status
-    # SUMMARY: Verify workset diff queries return an empty status instead of failing when the git diff is empty.
     @pytest.mark.unit
     def test_query_workset_diff_reports_empty_status(
         self,
@@ -474,8 +442,6 @@ class TestQueryAIContext:
         assert payload["deleted_files"] == []
         assert payload["read_first"] == ["AGENTS.md"]
 
-    # FUNCTION: test_query_workset_diff_reports_git_repository_errors
-    # SUMMARY: Verify workset diff queries surface a high-signal fallback message when git diff resolution is unavailable.
     @pytest.mark.unit
     def test_query_workset_diff_reports_git_repository_errors(
         self,
@@ -502,8 +468,6 @@ class TestQueryAIContext:
 
         assert "before-edit file <path>" in str(exc_info.value)
 
-    # FUNCTION: test_query_failure_returns_endpoint_playbook
-    # SUMMARY: Verify failure queries expose the shared endpoint-validator remediation protocol.
     @pytest.mark.unit
     def test_query_failure_returns_endpoint_playbook(self) -> None:
         result = _query_failure("endpoint.no_depends_without_alias")
@@ -517,8 +481,7 @@ class TestQueryAIContext:
         assert "project/infrastructure/api/dependencies.py" in payload["smallest_files_to_read"]
         assert "make quality-gates" in payload["next_checks"]
 
-    # FUNCTION: test_query_failure_returns_drift_playbook
-    # SUMMARY: Verify failure queries cover drift rules without forcing markdown spelunking.
+    # Verify failure queries cover drift rules without forcing markdown spelunking.
     @pytest.mark.unit
     def test_query_failure_returns_drift_playbook(self) -> None:
         result = _query_failure("drift.agent_docs.outdated")
@@ -531,8 +494,6 @@ class TestQueryAIContext:
         )
         assert "uv run python scripts/sync_agent_docs.py" in payload["next_checks"]
 
-    # FUNCTION: test_query_failure_returns_runtime_ownership_playbook
-    # SUMMARY: Verify failure queries expose runtime ownership remediation hints for the new validator.
     @pytest.mark.unit
     def test_query_failure_returns_runtime_ownership_playbook(self) -> None:
         result = _query_failure("runtime_ownership.env_access_restricted")
@@ -544,9 +505,8 @@ class TestQueryAIContext:
             "uv run python scripts/validate_runtime_ownership.py"
         )
 
-    # FUNCTION: test_query_symbol_finds_a_class_by_exact_name
-    # SUMMARY: Verify symbol queries locate a class definition without a repo-wide grep.
-    # NOTE: Mapping a name to its file and line otherwise means falling back to grep, which
+    # Verify symbol queries locate a class definition without a repo-wide grep.
+    # Mapping a name to its file and line otherwise means falling back to grep, which
     # `before-edit file <path>` and `workset diff` cannot help with since both key off a file
     # path, not a name. This command is deliberately narrow: an exact `ast` name match over
     # first-party sources, not a fuzzy or substring search.
@@ -554,17 +514,23 @@ class TestQueryAIContext:
     def test_query_symbol_finds_a_class_by_exact_name(self) -> None:
         result = _query_symbol("AgentSettings")
         payload: dict[str, Any] = result.payload
+        # The line is read off the file, not written down: a comment added above the class moves it.
+        source = Path("project/core/config_settings_agent.py").read_text(encoding="utf-8")
+        line = next(
+            number
+            for number, text in enumerate(source.splitlines(), start=1)
+            if text.startswith("class AgentSettings")
+        )
 
         assert payload["name"] == "AgentSettings"
         assert payload["truncated"] is False
         assert {
             "file": "project/core/config_settings_agent.py",
             "kind": "class",
-            "line": 17,
+            "line": line,
         } in payload["matches"]
 
-    # FUNCTION: test_query_symbol_finds_a_field_by_exact_name
-    # SUMMARY: Verify symbol queries locate a class-body field ("field" in the item's own wording),
+    # Verify symbol queries locate a class-body field ("field" in the item's own wording),
     # not only a def/class — llm_mode is a pydantic Field on AgentSettings, not a function.
     @pytest.mark.unit
     def test_query_symbol_finds_a_field_by_exact_name(self) -> None:
@@ -574,9 +540,8 @@ class TestQueryAIContext:
         matches = [match for match in payload["matches"] if match["kind"] == "attribute"]
         assert any(match["file"] == "project/core/config_settings_agent.py" for match in matches)
 
-    # FUNCTION: test_query_symbol_ignores_a_local_variable
-    # SUMMARY: Verify a name bound inside a function body is not reported as a field.
-    # NOTE: The walk reached every scope, so `symbol result` answered with 75 matches, 24 of them
+    # Verify a name bound inside a function body is not reported as a field.
+    # The walk reached every scope, so `symbol result` answered with 75 matches, 24 of them
     # ordinary locals labelled `attribute` — noise, and a different claim than "function, class or
     # field". A definition is still found wherever it sits, nested helpers included; only bindings
     # are scoped.
@@ -586,8 +551,6 @@ class TestQueryAIContext:
 
         assert payload["matches"] == []
 
-    # FUNCTION: test_query_symbol_reports_no_matches_for_an_unknown_name
-    # SUMMARY: Verify an unmatched name returns an empty list rather than raising.
     @pytest.mark.unit
     def test_query_symbol_reports_no_matches_for_an_unknown_name(self) -> None:
         result = _query_symbol("NoSuchSymbolAnywhereInTheKernel")
@@ -596,8 +559,6 @@ class TestQueryAIContext:
         assert payload["matches"] == []
         assert payload["truncated"] is False
 
-    # FUNCTION: test_main_reports_unknown_query_targets
-    # SUMMARY: Verify the CLI exits with a non-zero code when the requested target does not exist.
     @pytest.mark.unit
     def test_main_reports_unknown_query_targets(
         self,
@@ -616,8 +577,6 @@ class TestQueryAIContext:
         assert exit_code == 1
         assert "Unknown failure rule ID" in captured.out
 
-    # FUNCTION: test_main_renders_bootstrap_text_output
-    # SUMMARY: Verify the CLI can render bootstrap output in text mode for terminal startup flows.
     @pytest.mark.unit
     def test_main_renders_bootstrap_text_output(
         self,
@@ -637,8 +596,6 @@ class TestQueryAIContext:
         assert "query: bootstrap" in captured.out
         assert ("task_shortcuts: workset, before-edit, failure") in captured.out
 
-    # FUNCTION: test_main_supports_workset_diff_command
-    # SUMMARY: Verify the CLI parser and router accept the new workset diff command and render JSON output.
     @pytest.mark.unit
     def test_main_supports_workset_diff_command(
         self,
@@ -677,8 +634,6 @@ class TestQueryAIContext:
         assert exit_code == 0
         assert '"subject_kind": "diff"' in captured.out
 
-    # FUNCTION: test_main_supports_symbol_command
-    # SUMMARY: Verify the CLI parser and router accept the new symbol command and render JSON output.
     @pytest.mark.unit
     def test_main_supports_symbol_command(
         self,
@@ -698,8 +653,6 @@ class TestQueryAIContext:
         assert '"name": "AgentSettings"' in captured.out
         assert '"kind": "class"' in captured.out
 
-    # FUNCTION: test_main_renders_failure_text_output
-    # SUMMARY: Verify new failure queries keep the high-signal remediation summary in text mode.
     @pytest.mark.unit
     def test_main_renders_failure_text_output(
         self,
@@ -726,8 +679,6 @@ class TestQueryAIContext:
         assert "query: failure" in captured.out
         assert "rerun: uv run python scripts/validate_endpoint_wiring.py" in captured.out
 
-    # FUNCTION: test_main_reports_structured_syntax_error_without_traceback
-    # SUMMARY: Verify query CLI degrades into a structured syntax error payload when AST extraction fails.
     @pytest.mark.unit
     def test_main_reports_structured_syntax_error_without_traceback(
         self,
@@ -760,8 +711,6 @@ class TestQueryAIContext:
         assert exit_code == 1
         assert '"degraded_status": "syntax_error"' in captured.out
 
-    # FUNCTION: test_main_includes_generated_outdated_context_status
-    # SUMMARY: Verify successful queries surface generated-artifact drift as context_status metadata.
     @pytest.mark.unit
     def test_main_includes_generated_outdated_context_status(
         self,
@@ -797,15 +746,12 @@ class TestQueryAIContext:
         assert '"status": "generated_outdated"' in captured.out
 
 
-# CLASS: tests.application.test_query_ai_context.TestWorksetFindsTestsNamedAfterTheFile
-# SUMMARY: Verify the narrow loop maps a changed file to the tests this repository names after it.
-# NOTE: Mapping went only through the service registry and the route inventory. A changed
+# Verify the narrow loop maps a changed file to the tests this repository names after it.
+# Mapping went only through the service registry and the route inventory. A changed
 # repository, ORM module or middleware therefore returned `likely_tests: []` while a test named
 # after it sat in tests/ — measured on a diff of eight files, one of them a repository test, which
 # ran zero tests and reported "workset checks passed".
 class TestWorksetFindsTestsNamedAfterTheFile:
-    # FUNCTION: test_every_module_with_a_matching_test_resolves_to_it
-    # SUMMARY: Verify no module in project/ has a same-named test the narrow loop would miss.
     @pytest.mark.unit
     def test_every_module_with_a_matching_test_resolves_to_it(self) -> None:
         repo_root = Path(__file__).resolve().parents[2]
@@ -830,11 +776,10 @@ class TestWorksetFindsTestsNamedAfterTheFile:
             f"{missed}"
         )
 
-    # FUNCTION: test_the_wiring_hotspot_resolves_to_the_suite_that_checks_wiring
-    # SUMMARY: Verify service_registration.py maps to the vertical test holding TestWiring.
+    # Verify service_registration.py maps to the vertical test holding TestWiring.
     @pytest.mark.unit
     def test_the_wiring_hotspot_resolves_to_the_suite_that_checks_wiring(self) -> None:
-        # **LOGIC_STEP**: service_file_path() derives the module that defines the constructor, so
+        # service_file_path() derives the module that defines the constructor, so
         # the registration file could never match it — the one file most likely to break wiring
         # was invisible to the narrow loop by construction. `source_file` is the other half.
         context_map, _, _ = query_common.context_bundle()
@@ -843,8 +788,6 @@ class TestWorksetFindsTestsNamedAfterTheFile:
 
         assert related["likely_unit_tests"], "the wiring hotspot still resolves to zero tests"
 
-    # FUNCTION: test_a_changed_migration_pulls_its_validator_and_its_ledger
-    # SUMMARY: Verify an edited revision no longer returns an empty required_validators list.
     @pytest.mark.unit
     def test_a_changed_migration_pulls_its_validator_and_its_ledger(self) -> None:
         context_map, _, _ = query_common.context_bundle()
@@ -861,8 +804,6 @@ class TestWorksetFindsTestsNamedAfterTheFile:
             "validate_migrations.py" in command for command in related["required_validators"]
         )
 
-    # FUNCTION: test_a_changed_test_runs_itself
-    # SUMMARY: Verify a diff that touches only a test still runs something.
     @pytest.mark.unit
     def test_a_changed_test_runs_itself(self) -> None:
         context_map, _, _ = query_common.context_bundle()
@@ -872,11 +813,9 @@ class TestWorksetFindsTestsNamedAfterTheFile:
 
         assert changed in related["likely_unit_tests"]
 
-    # FUNCTION: test_functional_tests_are_never_pulled_into_the_narrow_loop
-    # SUMMARY: Verify no mapping can name a Docker-and-database suite as a likely unit test.
     @pytest.mark.unit
     def test_functional_tests_are_never_pulled_into_the_narrow_loop(self) -> None:
-        # **LOGIC_STEP**: pytest.ini ignores tests/functional, and naming a file there by path
+        # pytest.ini ignores tests/functional, and naming a file there by path
         # overrides that ignore — anything acting on this mapping would try to run a suite that
         # needs Docker and a live database. Those belong to `make test-e2e`.
         repo_root = Path(__file__).resolve().parents[2]
@@ -901,17 +840,14 @@ class TestWorksetFindsTestsNamedAfterTheFile:
         assert leaked == [], f"functional tests reached the narrow loop: {leaked}"
 
 
-# CLASS: tests.application.test_query_ai_context.TestEveryFileOfAVerticalFindsThatVerticalsTests
-# SUMMARY: Verify a vertical's files map to the tests named after the vertical, not after the file.
-# NOTE: Mapping was by exact stem, so it worked only where a test happened to be spelled like the
+# Verify a vertical's files map to the tests named after the vertical, not after the file.
+# Mapping was by exact stem, so it worked only where a test happened to be spelled like the
 # module. On the one vertical this template ships, `before-edit` on the domain model and on the
 # endpoint module each answered with no tests at all, while four files named after that vertical
 # sat in tests/ — and every vertical copied from the example would have inherited the same hole.
 # The vertical names are read from docs/project_context.json rather than hard-coded, so a project
 # that replaces the example is covered by this test without editing it.
 class TestEveryFileOfAVerticalFindsThatVerticalsTests:
-    # FUNCTION: test_a_verticals_modules_resolve_to_the_tests_named_after_it
-    # SUMMARY: Verify each module of a vertical returns every runnable test bearing its name.
     @pytest.mark.unit
     def test_a_verticals_modules_resolve_to_the_tests_named_after_it(self) -> None:
         repo_root = Path(__file__).resolve().parents[2]
@@ -942,9 +878,8 @@ class TestEveryFileOfAVerticalFindsThatVerticalsTests:
             f"{missed}"
         )
 
-    # FUNCTION: test_a_file_named_after_no_vertical_pulls_in_no_verticals_tests
-    # SUMMARY: Verify the name match cannot reach a test belonging to something else.
-    # **LOGIC_STEP**: The test above can only prove recall, because it computes what it expects
+    # Verify the name match cannot reach a test belonging to something else.
+    # The test above can only prove recall, because it computes what it expects
     # the same way the code does. This one states the answer by hand for three kernel files whose
     # stems are ordinary English words. Before the derived name was required to be a registered
     # vertical, `context.py` — ContextVars for the logger — answered with four tests for the
@@ -975,9 +910,8 @@ class TestEveryFileOfAVerticalFindsThatVerticalsTests:
             "something else entirely — must not be suggested for it"
         )
 
-    # FUNCTION: test_agentic_file_shapes_strip_to_the_vertical_name
-    # SUMMARY: Verify an agentic vertical's _agent/_mock/_tools/_verdict files resolve to its name.
-    # NOTE: The kernel ships no agentic vertical, so the recall test above — which globs the
+    # Verify an agentic vertical's _agent/_mock/_tools/_verdict files resolve to its name.
+    # The kernel ships no agentic vertical, so the recall test above — which globs the
     # project/ tree for files already present — never exercised these four shapes. Reproduced on
     # an agentic vertical built from this template in the 2026-09 audit: `triage_agent.py` kept
     # its suffix through vertical_names_for_path, "triage_agent" was never a registered vertical
@@ -997,16 +931,13 @@ class TestEveryFileOfAVerticalFindsThatVerticalsTests:
         )
 
 
-# CLASS: tests.application.test_query_ai_context.TestEditingTheContractSourceNamesBothWrappers
-# SUMMARY: Verify an edit to the shared rules source is told about both generated wrappers, not one.
-# NOTE: One command rewrites CLAUDE.md and AGENTS.md together, but both answers named only
+# Verify an edit to the shared rules source is told about both generated wrappers, not one.
+# One command rewrites CLAUDE.md and AGENTS.md together, but both answers named only
 # CLAUDE.md. An agent that edited docs/agent_rules.md was therefore told its edit regenerated one
 # file, and a stale AGENTS.md — the file Codex reads and the one Claude Code now imports — was
 # invisible to `workset`. Nothing was red, because nothing compared the answer to the Makefile's
 # list. This states the pair by hand.
 class TestEditingTheContractSourceNamesBothWrappers:
-    # FUNCTION: test_editing_the_shared_source_regenerates_both_wrappers
-    # SUMMARY: Verify generated_artifacts_for_paths names AGENTS.md and CLAUDE.md for a source edit.
     @pytest.mark.unit
     @pytest.mark.parametrize("edited", ["docs/agent_rules.md", "scripts/sync_agent_docs.py"])
     def test_editing_the_shared_source_regenerates_both_wrappers(self, edited: str) -> None:
@@ -1015,8 +946,6 @@ class TestEditingTheContractSourceNamesBothWrappers:
         assert "AGENTS.md" in artifacts
         assert "CLAUDE.md" in artifacts
 
-    # FUNCTION: test_a_stale_wrapper_of_either_name_asks_for_the_same_command
-    # SUMMARY: Verify either wrapper, named as changed, routes to `make refresh-agent-docs`.
     @pytest.mark.unit
     @pytest.mark.parametrize("edited", ["AGENTS.md", "CLAUDE.md"])
     def test_a_stale_wrapper_of_either_name_asks_for_the_same_command(self, edited: str) -> None:

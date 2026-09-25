@@ -16,21 +16,17 @@ from project.infrastructure.agents.llm_service import LLMService
 from tests.conftest import _FixtureSettings as FixtureSettings
 
 
-# CLASS: tests.application.test_tool_argument_schema._SessionsOnDtoBase
-# SUMMARY: Tool arguments declared the way a vertical declares its DTOs — on CoreModel.
+# Tool arguments declared the way a vertical declares its DTOs — on CoreModel.
 class _SessionsOnDtoBase(CoreModel):
     hall_id: int
 
 
-# FUNCTION: _find_sessions
-# SUMMARY: The tool body; only its argument schema matters here.
+# The tool body; only its argument schema matters here.
 def _find_sessions(hall_id: int, coach_id: str | None = None) -> str:
     """Find the training sessions booked in a hall."""
     return f"hall={hall_id} coach={coach_id}"
 
 
-# FUNCTION: _create_service
-# SUMMARY: Build the shared LLMService in mock mode from the test settings.
 def _create_service(test_settings: FixtureSettings) -> LLMService:
     with patch(
         "project.infrastructure.agents.llm_service.get_settings",
@@ -39,9 +35,8 @@ def _create_service(test_settings: FixtureSettings) -> LLMService:
         return LLMService()
 
 
-# FUNCTION: test_a_tool_whose_arguments_carry_aliases_is_refused_at_binding
-# SUMMARY: Verify binding refuses a tool whose argument fields would vanish from the provider's schema.
-# NOTE: langchain leaves every field that has a validation alias out of the schema it sends to the
+# Verify binding refuses a tool whose argument fields would vanish from the provider's schema.
+# langchain leaves every field that has a validation alias out of the schema it sends to the
 # provider, and CoreModel gives every field one (camelCase). A tool whose arguments inherit
 # CoreModel therefore exported `"properties": {}` — measured with langchain-core 1.5.3 — and a live
 # model calls it with no arguments at all. Mock mode never reads that schema, so nothing failed
@@ -60,16 +55,12 @@ def test_a_tool_whose_arguments_carry_aliases_is_refused_at_binding(
         service.bind_tools([tool])
 
 
-# FUNCTION: test_tool_args_export_every_field_under_its_own_name
-# SUMMARY: Verify the base meant for tool arguments keeps each field, by name, in the provider's schema.
 @pytest.mark.unit
 def test_tool_args_export_every_field_under_its_own_name(
     test_settings: FixtureSettings,
 ) -> None:
     from project.application.core_model import ToolArgs
 
-    # CLASS: _SessionsOnToolArgs
-    # SUMMARY: The same arguments declared on the base meant for tools.
     class _SessionsOnToolArgs(ToolArgs):
         hall_id: int
         coach_id: str | None = None
@@ -84,15 +75,13 @@ def test_tool_args_export_every_field_under_its_own_name(
     _create_service(test_settings).bind_tools([tool])
 
 
-# FUNCTION: test_aliases_that_lose_nothing_are_bound
-# SUMMARY: Verify the refusal is about fields the provider loses, not about aliases as such.
-# NOTE: The independent review of this change caught two false refusals in earlier versions: a
+# Verify the refusal is about fields the provider loses, not about aliases as such.
+# The independent review of this change caught two false refusals in earlier versions: a
 # plain `Field(alias=...)`, which langchain exports under the field's own name, and an injected
 # argument carrying a validation alias, which is left out of the schema on purpose.
 @pytest.mark.unit
 def test_aliases_that_lose_nothing_are_bound(test_settings: FixtureSettings) -> None:
-    # CLASS: _SessionsWithHarmlessAliases
-    # SUMMARY: An explicitly aliased field the schema keeps, and an injected one it omits by design.
+    # An explicitly aliased field the schema keeps, and an injected one it omits by design.
     class _SessionsWithHarmlessAliases(BaseModel):
         hall_id: int = Field(alias="hallId")
         caller: Annotated[str, InjectedToolArg, Field(validation_alias="callerId")] = ""

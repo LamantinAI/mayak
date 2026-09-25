@@ -2,7 +2,7 @@
 # SUMMARY: Decide whether one liveness-probe request should be logged, so an orchestrator polling
 # /health every few seconds does not bury the log in identical lines.
 #
-# NOTE: Kept deliberately minimal: a runtime-adjustable config object, a locked singleton
+# Kept deliberately minimal: a runtime-adjustable config object, a locked singleton
 # sampler, and several convenience functions would all be machinery for a configurability
 # nobody uses, since exactly one call site ever needs one rate. What this module offers is
 # that actual need: one rate, one function.
@@ -15,12 +15,9 @@ import random
 from project.core.config import get_settings
 
 
-# FUNCTION: should_sample_health_check
-# SUMMARY: Report whether this health-check request should be logged.
-# INPUT: custom_rate (float | None): Explicit rate for one call; None reads APP_SAMPLING_HEALTH_CHECK_RATE.
-# OUTPUT: (bool): True when the request should be logged.
+# custom_rate: Explicit rate for one call; None reads APP_SAMPLING_HEALTH_CHECK_RATE.
 def should_sample_health_check(custom_rate: float | None = None) -> bool:
-    # **LOGIC_STEP**: The rate is read per call rather than cached in a singleton. A health probe
+    # The rate is read per call rather than cached in a singleton. A health probe
     # arrives a few times a minute, so one settings lookup costs nothing measurable, and reading it
     # live means a test can change the setting without resetting global state — which is what the
     # old singleton forced.
@@ -31,7 +28,7 @@ def should_sample_health_check(custom_rate: float | None = None) -> bool:
     )
     rate = max(0.0, min(1.0, rate))
 
-    # **LOGIC_STEP**: Short-circuit the two ends so 0.0 never logs and 1.0 always does, without
+    # Short-circuit the two ends so 0.0 never logs and 1.0 always does, without
     # depending on how the RNG treats its boundaries.
     if rate <= 0.0:
         return False

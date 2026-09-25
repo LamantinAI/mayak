@@ -13,18 +13,16 @@ from project.infrastructure.api import exception_handlers
 _REQUEST_ID = "9f3ab2e4-e271-4f37-851f-e07a992ae3a7"
 
 
-# CLASS: tests.application.test_critical_event_trace_id.TestCriticalEventTraceId
-# SUMMARY: Verify trace correlation survives the unwind from the span to the exception handler.
+# Verify trace correlation survives the unwind from the span to the exception handler.
 class TestCriticalEventTraceId:
-    # FUNCTION: test_critical_record_is_written_with_trace_id
-    # SUMMARY: Verify the handler restores the trace context the middleware already reset.
+    # Verify the handler restores the trace context the middleware already reset.
     @pytest.mark.unit
     def test_critical_record_is_written_with_trace_id(
         self,
         fastapi_app: FastAPI,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        # **LOGIC_STEP**: The middleware's `finally` resets the trace ContextVar while the
+        # The middleware's `finally` resets the trace ContextVar while the
         # exception is still propagating outward, so by the time this handler runs, without
         # restoring it the record would carry no trace_id — and every trace reader drops such
         # records, which is why a 500 would render as a tree with no cause in it.
