@@ -1,4 +1,4 @@
-.PHONY: check-product print-generated-paths refresh-generated-unless-strict checksum-generated gate-lockfile gate-lint gate-format gate-types gate-tests help logs logs-raw init-project refresh-agent-docs ai-autofix quality-gates quality-gates-steps doctor doctor-json test test-all test-e2e diff-coverage smoke run-local migrate autogenerate-migration format-trace update-deps audit-deps security-scan ci-local db-up-worktree db-down-worktree
+.PHONY: check-product print-generated-paths refresh-generated-unless-strict ruff-fix-unless-strict gate-fast checksum-generated gate-lockfile gate-lint gate-format gate-types gate-tests help logs logs-raw init-project refresh-agent-docs ai-autofix quality-gates quality-gates-steps doctor doctor-json test test-all test-e2e diff-coverage smoke run-local migrate autogenerate-migration format-trace update-deps audit-deps security-scan ci-local db-up-worktree db-down-worktree
 
 # Auto-discover uv; override with UV=/path/to/uv if needed.
 UV := $(shell command -v uv 2>/dev/null || echo /opt/homebrew/bin/uv)
@@ -121,9 +121,11 @@ check-product: ## Validation | Make a project from this template and run its gat
 		echo "check-product belongs to the template; this project was made from it already."; \
 	fi
 
+# Fix, then format — a removed import can leave a line the formatter still has to close. The
+# formatter runs even when lint leaves something only a person can fix; that exit status is kept.
 ai-autofix: ## Validation | Auto-format + fix lint
-	$(UV) run ruff format $(PYTHON_SOURCES)
-	$(UV) run ruff check --fix $(PYTHON_SOURCES)
+	@$(UV) run ruff check --fix $(PYTHON_SOURCES); status=$$?; \
+	$(UV) run ruff format $(PYTHON_SOURCES) && exit $$status
 
 # The five steps that run a tool rather than one of this repository's validators, each as its own
 # target. scripts/doctor_ai_context.py runs these same targets when diagnosing a failed gate, so
@@ -146,15 +148,52 @@ gate-types:
 gate-tests:
 	@$(UV) run python scripts/run_all_tests.py --skip-functional
 
-# The one validation command. A leaner two-step ladder — a fast diff-only check and a slower full
-# one — existed before this and was removed: the fast rung ran no mypy and resolved no tests at
-# all for roughly half the files under project/, so a green fast check could sit next to this
-# target failing with real type errors and broken tests.
-#
-# If the suite ever grows past ~30 s, the answer is test selection from coverage data, not a
-# hand-maintained file→test map that goes stale silently.
+# Before a local check: apply ruff's safe fixes to the changed Python and then format it — in that
+# order, since a removed import can leave a line the formatter still has to close — and name
+# every file that rewrote — before the checks, so the list is shown even when one fails. Changed
+# files only — tracked ones that differ from HEAD, staged or not, and new ones git does not ignore:
+# an untouched file rewritten here would land in a diff about something else, and `make ai-autofix`
+# is the command for the whole tree. The list travels NUL-separated, never through $(shell), which
+# joins lines with spaces: a path with a space in it was split into words and never fixed.
+# STRICT_RUFF=1 — the pre-commit hook, ci-local and CI — skips it, and there a fixable finding is
+# red. ADR-012.
+ruff-fix-unless-strict:
+	@if [ "$(STRICT_RUFF)" = "1" ]; then \
+		exit 0; \
+	fi; \
+	list=$$(mktemp); before=$$(mktemp); after=$$(mktemp); \
+	trap 'rm -f "$$list" "$$before" "$$after"' EXIT; \
+	{ git diff -z --name-only HEAD -- $(PYTHON_SOURCES) 2>/dev/null; \
+		git ls-files -z --others --exclude-standard -- $(PYTHON_SOURCES); } \
+		| tr '\0' '\n' | grep '\.py$$' | sort -u \
+		| while IFS= read -r file; do [ -f "$$file" ] && printf '%s\0' "$$file"; done > "$$list"; \
+	if [ ! -s "$$list" ]; then \
+		exit 0; \
+	fi; \
+	xargs -0 shasum < "$$list" > "$$before"; \
+	xargs -0 $(UV) run ruff check --fix --no-unsafe-fixes --quiet < "$$list" >/dev/null 2>&1; \
+	xargs -0 $(UV) run ruff format --quiet < "$$list"; \
+	xargs -0 shasum < "$$list" > "$$after"; \
+	changed=$$(diff "$$before" "$$after" | sed -n 's/^> [0-9a-f]*  //p'); \
+	if [ -n "$$changed" ]; then \
+		echo "--- ruff rewrote these files; read the change before committing ---"; \
+		echo "$$changed" | sed 's/^/  /'; \
+	fi
+
+# While editing. The four checks that turned most full gates red, in seconds and without Docker;
+# a green run finishes nothing — quality-gates, with the tests and the other validators, does.
+gate-fast: ## Validation | Format, lint, types (tests included) and layers in seconds — run it while editing
+	@$(MAKE) --no-print-directory ruff-fix-unless-strict
+	@$(MAKE) --no-print-directory gate-format
+	@$(MAKE) --no-print-directory gate-lint
+	@$(MAKE) --no-print-directory gate-types
+	$(UV) run python scripts/validate_architecture.py
+
+# The one command that says a change is done. If the suite ever grows past ~30 s, the answer is
+# test selection from coverage data, not a hand-maintained file→test map that goes stale silently.
 quality-gates: ## Validation | The validation suite — run it before committing
 	@$(MAKE) --no-print-directory refresh-generated-unless-strict
+	@$(MAKE) --no-print-directory ruff-fix-unless-strict
 	@$(MAKE) --no-print-directory quality-gates-steps \
 		|| ($(MAKE) --no-print-directory doctor; exit 1)
 
@@ -169,19 +208,10 @@ GENERATED_PATHS = CLAUDE.md AGENTS.md
 print-generated-paths:
 	@echo "$(GENERATED_PATHS)"
 
-# Regenerate before checking, unless something asked for the strict behaviour.
-#
-# Measured: the ONLY failure both arms of an A/B measurement hit was
-# `drift.generated.outdated` — a generated file left behind by an edit, fixed by the same command
-# every time. Twice out of two, plus three more times in one session. A step whose fix is
-# always the identical command is a ritual, not a check: it costs a full red gate and a rerun to
-# tell you something the machine could have done.
-#
-# So locally the wrappers are refreshed and what changed is printed; the `--check` step in
+# Regenerate the wrappers before checking and print what changed, unless STRICT_GENERATED=1 —
+# ci-local and CI set it, and there a stale wrapper is a failure. The `--check` step in
 # quality-gates-steps then passes, and the doctor still models it for the case where the
-# generator genuinely breaks. `STRICT_GENERATED=1` restores check-only behaviour, and `ci-local`
-# and the pipeline both set it: stale artifacts must never reach a commit, and there the answer
-# has to be a failure rather than a fix.
+# generator genuinely breaks. Why a check whose fix is always one command became a fix: ADR-012.
 refresh-generated-unless-strict:
 	@if [ "$(STRICT_GENERATED)" = "1" ]; then \
 		exit 0; \
@@ -317,7 +347,7 @@ security-scan: ## Validation | bandit security scan over project/
 # nothing of the sort: `gate-tests` never touches a generated artifact, so there is nothing to guard.
 ci-local: ## Validation | Everything CI runs, locally: the full gate, the no-Postgres path, audit, e2e, a project from the template
 	@echo "===> 1/6 quality-gates"
-	@STRICT_GENERATED=1 $(MAKE) --no-print-directory quality-gates
+	@STRICT_GENERATED=1 STRICT_RUFF=1 $(MAKE) --no-print-directory quality-gates
 	@echo "===> 2/6 tests and migrations without PostgreSQL"
 	@POSTGRES_ENABLED=false $(MAKE) --no-print-directory gate-tests && POSTGRES_ENABLED=false $(UV) run python scripts/validate_migrations.py
 	@echo "===> 3/6 dependency audit"
@@ -382,7 +412,7 @@ diff-coverage:
 		echo "    Run 'git add' on them and re-run; a commit is not needed."; \
 	fi
 	$(UV) run python -m pytest tests/application tests/infrastructure tests/integration tests/db $(wildcard tests/template) \
-		--cov=project --cov-report=xml --cov-report=term-missing -q
+		--cov=project --cov-report=xml -q
 	$(UV) run --with diff-cover diff-cover coverage.xml \
 		--compare-branch=$(DIFF_COMPARE_BRANCH) --fail-under=80
 

@@ -120,13 +120,15 @@ def _build_test_steps(
                     # it along with the reference vertical.
                     *(["tests/template"] if (ROOT_DIR / "tests" / "template").is_dir() else []),
                     "-q",
-                    # The floor is asked for here rather than in pytest.ini's
-                    # addopts. addopts reach every pytest invocation, so `uv run pytest
-                    # tests/one_file.py` would measure the whole of project/ against a suite that
-                    # ran three tests and exit red on total coverage while every test it ran
-                    # passed. An agent that meets that twice learns to read red as noise, which is
-                    # the opposite of what a floor is for. Only the full run can honestly be held
-                    # to a total, and this is the full run.
+                    # Coverage is asked for here rather than in pytest.ini's addopts, which reach
+                    # every pytest invocation: `uv run pytest tests/one_file.py` measured the
+                    # whole of project/ against a suite that ran three tests, printed a
+                    # fifty-line table on every run, and — with the floor there too — exited red
+                    # while every test passed. Only the full run can be held to a total, and it
+                    # prints the total and the floor in one line; the per-file table is
+                    # `uv run coverage report -m` after it. The XML is for diff-cover.
+                    "--cov=project",
+                    "--cov-report=xml",
                     f"--cov-fail-under={COVERAGE_FLOOR_PERCENT}",
                 ),
                 cwd=ROOT_DIR,

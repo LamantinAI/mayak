@@ -171,9 +171,10 @@ the example afterwards.
 
 ## Checking your work
 
-Three commands, in order of cost:
+Four commands, in order of cost:
 
 ```bash
+make gate-fast        # ~1 s  — format, lint, types (tests included) and layers; no Docker
 make quality-gates    # ~25 s — lint, format, types, validators, unit tests and the db tier
 make test-e2e         # ~25 s — the built image over HTTP against a real Postgres in Docker
 make ci-local         # ~75 s — everything the pipeline runs, both database modes included
@@ -183,10 +184,12 @@ In the template, `make ci-local` also runs `make check-product` (~3 min): it mak
 project from the checkout, takes the reference vertical out as `make init-project` would, and
 runs that project's gates and e2e — the one check of what a new service starts from.
 
-`make quality-gates` is the loop to run while working. It regenerates the derived maps before
-checking them, so a stale artifact prints a notice instead of a red gate, and it runs `make doctor`
-itself when something fails — the doctor names the blocking layer and prints the shape of the fix
-rather than a wall of output.
+`make gate-fast` is the loop to run while editing, `make quality-gates` the one that says a change
+is done. Both first fix what a machine can — they regenerate the agent wrappers, and format and
+safe-fix the Python you changed — and name every file they rewrote, so a stale wrapper or a
+misplaced space prints a notice instead of a red gate; the pre-commit hook, `ci-local` and CI fail
+on those instead (ADR-012). `make quality-gates` runs `make doctor` itself when something fails —
+the doctor names the blocking layer and prints the shape of the fix rather than a wall of output.
 
 Its test run includes the **db tier** (`tests/db`): repository tests that run their SQL against a
 PostgreSQL the tier starts for this checkout in Docker, in a database created for the session and

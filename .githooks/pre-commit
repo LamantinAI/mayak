@@ -12,12 +12,25 @@ if ! command -v uv >/dev/null 2>&1; then
   exit 1
 fi
 
+# The gate checks the working tree; git commits the index. A Python file staged and then edited
+# again is two files — the gate would pass one and the commit carry the other — so it is refused.
+partial=""
+for file in $(git diff --cached --name-only --diff-filter=ACMR -- '*.py'); do
+  git diff --quiet -- "$file" || partial="$partial $file"
+done
+if [ -n "$partial" ]; then
+  echo "ERROR: staged Python changed again after staging — stage all of it or none:"
+  for file in $partial; do echo "  $file"; done
+  exit 1
+fi
+
 # Run the shared golden-path verification. `make quality-gates` refreshes the generated artifacts
 # itself (`refresh-generated-unless-strict`, since this hook does not set STRICT_GENERATED) before
 # running the `--check` steps, so a separate `make refresh-agent-docs` call here would
-# regenerate the same artifacts a second time for nothing.
+# regenerate the same artifacts a second time for nothing. Python it does not fix: STRICT_RUFF=1,
+# because a file the gate rewrote here would be checked and then left out of the commit.
 echo "--- Pre-commit: running quality gates ---"
-make quality-gates
+STRICT_RUFF=1 make quality-gates
 
 # Auto-stage refreshed generated files.
 # A hand-kept copy of the list here would be exactly what drifts silently: missing even one output

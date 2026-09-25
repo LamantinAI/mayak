@@ -14,6 +14,7 @@ Current ADRs:
 - `ADR-009-provider-errors-at-the-llm-boundary.md`
 - `ADR-010-what-the-gates-do-not-see.md`
 - `ADR-011-one-rendered-wrapper.md`
+- `ADR-012-fix-locally-fail-strictly.md`
 
 Guidelines:
 - Add a short ADR when a durable architectural or workflow decision changes.
