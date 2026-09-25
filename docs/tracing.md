@@ -36,10 +36,10 @@ An agent loop calls its tools through `run_tool(tool, arguments, shown=(...))` f
 `project/infrastructure/agents/tool_runner.py`, which opens that span at INFO and records how many
 characters came back. An argument named in `shown` — an id, an enum — is recorded as it is; every
 other one as its type and size, since a tool argument is routinely what a user typed. Arguments that
-miss the tool's schema raise `ToolArgumentsError`, naming each field and the problem without
-pydantic's quoted input values — the text a loop hands back to the model. A check of the tool's own
-in that schema (a `field_validator` raising `ValueError`) is named by field and type only, since its
-message can quote the value. That is the one error it rewrites, and it checks the schema before the
+miss the tool's schema raise `ToolArgumentsError`, naming each field and the problem — the text a
+loop hands back to the model. Pydantic's message is kept only when it names no value
+(`project/core/pydantic_errors.py`); any other error, a check of the tool's own included, is named by
+field and type (ADR-013). That is the one error it rewrites, and it checks the schema before the
 call to know it is one: an exception the tool's own body raises — a `ValidationError` on its own
 data included — reaches the span as it is, message and traceback, so a tool must not put what the
 user typed into one.
@@ -66,7 +66,9 @@ A `ProjectError` caught inside a `logger.span(...)` is judged the way `exception
 it a moment later: `project.domain.exceptions.is_client_rejection` separates ERROR with a traceback
 from WARNING without one. A routine 409 raised inside a `db.*` span used to read exactly like a
 crash, and in both projects of a duel the real errors drowned in those tracebacks. The compact
-renderer marks it `⚠`, distinct from `⊘` (cancelled) and `✗` (a genuine error).
+renderer marks it `⚠`, distinct from `⊘` (cancelled) and `✗` (a genuine error). It shows the
+rejection's type and the field it names — never its text, which is the client's (ADR-013); a 422
+shows each failed field with pydantic's error type.
 
 ## A truncated LLM reply still reports success
 

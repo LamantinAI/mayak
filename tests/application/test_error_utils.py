@@ -53,3 +53,13 @@ class TestErrorUtils:
         assert summary["detail_safe_for_client"] is False
         assert summary["message_summary"]["length"] > 0
         assert "token=secret" not in str(summary)
+
+    # A client-safe error's text goes back to the client whole — and names what it sent, a title
+    # in a 409. The summary written to the log keeps its length, never the text (ADR-013).
+    @pytest.mark.unit
+    def test_summarize_exception_for_logging_keeps_a_client_safe_text_out(self) -> None:
+        summary = summarize_exception_for_logging(ConflictError("a task titled 'Q3 plan' is open"))
+
+        assert summary["detail_safe_for_client"] is True
+        assert summary["client_message"] is None
+        assert "Q3 plan" not in str(summary)

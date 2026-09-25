@@ -11,7 +11,7 @@ from typing import Any
 import orjson
 
 from project.core.logging.context import get_trace_id
-from project.core.logging.redaction import redact_traceback
+from project.core.logging.redaction import redact_secrets, redact_traceback
 from project.core.serialization import safe_serialize
 
 # Used to compute compact relative file paths in log payloads.
@@ -22,6 +22,16 @@ _PROJECT_ROOT = os.path.dirname(
 
 # For guaranteed log ordering within a process.
 _seq_counter = itertools.count(1)
+
+
+# A record's text, with credential shapes removed from WARNING and above. The semantic logger
+# redacts its own `message` field, but `msg` was written as it came: `log_warning` with a DSN in its
+# message, or a library's own logging.warning(...), put the password there (independent check,
+# 2026-09-25). INFO is left as it is on purpose — redact_secrets costs 8.8 µs a call against about
+# 22 µs for a whole written span (docs/tracing.md), and INFO is most of the volume; a warning is rare.
+def _message(record: logging.LogRecord) -> str:
+    message = record.getMessage()
+    return redact_secrets(message) if record.levelno >= logging.WARNING else message
 
 
 # ==================== NDJSON FORMATTER ====================
@@ -37,7 +47,7 @@ class NDJSONFormatter(logging.Formatter):
             "ts": ts,
             "level": record.levelname,
             "logger": record.name,
-            "msg": record.getMessage(),
+            "msg": _message(record),
         }
 
         # Add trace_id from ContextVar if present.

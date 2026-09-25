@@ -15,6 +15,7 @@ Current ADRs:
 - `ADR-010-what-the-gates-do-not-see.md`
 - `ADR-011-one-rendered-wrapper.md`
 - `ADR-012-fix-locally-fail-strictly.md`
+- `ADR-013-what-a-client-sent-stays-out-of-the-log.md`
 
 Guidelines:
 - Add a short ADR when a durable architectural or workflow decision changes.

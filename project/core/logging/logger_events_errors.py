@@ -9,6 +9,7 @@ from project.core.logging.enums import EventType
 from project.core.logging.logger_events_base import SemanticLoggerEventContract
 from project.core.logging.logger_types import LogValue
 from project.core.logging.redaction import redact_secrets
+from project.domain.exceptions import describe_rejection
 
 
 # With causal-link metadata support.
@@ -34,9 +35,12 @@ class SemanticLoggerIssueEventsMixin:
         _caller = self._resolve_caller()
         message = redact_secrets(message)
         payload: dict[str, Any] = {"error_type": error_type, "message": message}
+        # Type and field, not the exception's text: a 4xx's text is written for the client and
+        # can quote what it sent — a title in a 409, a value in a 422, a detail an endpoint wrote
+        # (ADR-013). Here rather than at each call site, so a 4xx added later is covered too.
         if exception is not None:
             payload["exception_type"] = type(exception).__name__
-            payload["exception_message"] = redact_secrets(str(exception))
+            payload["rejection"] = describe_rejection(exception)
 
         related_id = caused_by or get_current_error_id()
         if related_id:

@@ -1,6 +1,7 @@
 # FILE: tests/application/test_secret_leak_guards.py
 # SUMMARY: Regression guards for the two paths that leaked secrets to clients and to logs.
 
+import io
 import logging
 import re
 import subprocess
@@ -109,6 +110,59 @@ class TestFormatterRedactionNet:
         entry = orjson.loads(NDJSONFormatter().format(record))
 
         assert _FAKE_KEY not in entry["data"]["exception_message"]
+
+    # The record's own text: a library's logging.warning(...) never passes the semantic logger.
+    @pytest.mark.unit
+    @pytest.mark.parametrize("level", [logging.WARNING, logging.ERROR])
+    def test_formatter_redacts_the_text_of_a_warning_or_worse(self, level: int) -> None:
+        record = logging.LogRecord(
+            name="psycopg.pool",
+            level=level,
+            pathname=__file__,
+            lineno=1,
+            msg="error connecting: %s",
+            args=(_FAKE_DSN,),
+            exc_info=None,
+        )
+
+        entry = orjson.loads(NDJSONFormatter().format(record))
+
+        assert "hunter2" not in entry["msg"]
+
+    # INFO is most of the volume and left as it is — the cost is in the formatter's comment.
+    @pytest.mark.unit
+    def test_formatter_leaves_info_text_as_it_is(self) -> None:
+        record = logging.LogRecord(
+            name="tests.raw",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg="opened %s",
+            args=(_FAKE_DSN,),
+            exc_info=None,
+        )
+
+        entry = orjson.loads(NDJSONFormatter().format(record))
+
+        assert entry["msg"] == f"opened {_FAKE_DSN}"
+
+    @pytest.mark.unit
+    def test_log_warning_keeps_a_dsn_out_of_the_record_text(self) -> None:
+        stream = io.StringIO()
+        handler = logging.StreamHandler(stream)
+        handler.setFormatter(NDJSONFormatter())
+        target = logging.getLogger("project.tests.warning_probe")
+        target.addHandler(handler)
+        try:
+            get_logger("project.tests.warning_probe").log_warning(
+                warning_type="database_health_check_failed",
+                message=f"Database health check failed: {_FAKE_DSN}",
+                affected_component="database",
+            )
+        finally:
+            target.removeHandler(handler)
+
+        assert "hunter2" not in stream.getvalue()
 
 
 class TestDebugFlagCannotPublishTracebacks:

@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Collection, Mapping
-from typing import Any, get_args
+from typing import Any
 
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ValidationError
 from pydantic_core import ErrorDetails
-from pydantic_core.core_schema import ErrorType
 
 from project.core.logging import get_logger
+from project.core.pydantic_errors import value_free_message
 
 logger = get_logger(__name__)
 
@@ -29,18 +29,14 @@ class ToolArgumentsError(ValueError):
     pass
 
 
-# The error types whose message is pydantic's own wording ("Field required", "Input should be a
-# valid integer"), which names no value. value_error, assertion_error and a custom type carry the
-# message a check of the tool's own wrote, and that can quote the value: `no customer called
-# {value}` put a user's name into the ERROR record, the independent check of 2026-09-25 found.
-_PYDANTIC_WORDING = frozenset(get_args(ErrorType)) - {"value_error", "assertion_error"}
-
-
+# Pydantic's message when it names no value ("Field required", "Input should be a valid integer");
+# otherwise the field and the error's type. A check of the tool's own can quote the value — `no
+# customer called {value}` put a user's name into the ERROR record (independent check, 2026-09-25)
+# — and so can some of pydantic's own messages, so the list of safe ones is explicit (ADR-013).
 def _problem(item: ErrorDetails) -> str:
     field = ".".join(map(str, item["loc"])) or "arguments"
-    if item["type"] in _PYDANTIC_WORDING:
-        return f"{field}: {item['msg']}"
-    return f"{field}: rejected by the tool's own check ({item['type']})"
+    message = value_free_message(item)
+    return f"{field}: {message}" if message else f"{field}: rejected ({item['type']})"
 
 
 # An argument's type and size, never its value. Tool arguments are what a user typed or a model

@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from types import FrameType
 from typing import Any, Optional, cast
 
-from project.domain.exceptions import is_client_rejection
+from project.domain.exceptions import describe_rejection, is_client_rejection
 from project.core.logging.context import (
     get_current_context,
     get_current_span,
@@ -296,7 +296,8 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                 error_id=error_id,
                 duration_ms=round(duration_ms, 3),
                 name=name,
-                error_message=str(error),
+                # A rejection's text is the client's to read, not the log's — ADR-013.
+                error_message=describe_rejection(error) if rejection else str(error),
                 exception_type=type(error).__name__,
                 # An explicit field rather than leaving trace_formatter.py to infer
                 # this from the level alone — WARNING already means "an interruption" there

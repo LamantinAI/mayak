@@ -16,6 +16,7 @@ from project.core.error_utils import (
 from project.core.logging import get_logger
 from project.core.logging.context import get_trace_id, reset_trace_id, set_trace_id
 from project.core.logging.redaction import summarize_text
+from project.core.pydantic_errors import value_free_message
 from project.domain.exceptions import (
     is_client_rejection,
     ProjectError,
@@ -205,13 +206,19 @@ class ExceptionHandlerManager:
     async def _render_validation_error(
         self, request: Request, exc: RequestValidationError
     ) -> JSONResponse:
-        # Extract validation error details with input for logs.
+        # The response gets pydantic's message whole — it is about what this caller sent, and the
+        # caller already has it. The log gets it only when the message names no value
+        # (project/core/pydantic_errors.py): a validator raising ValueError(f"... {value}") put
+        # the value into the record through this message — ADR-013.
+        response_errors = []
         log_errors = []
         for error in exc.errors():
+            field = ".".join(str(loc) for loc in error["loc"])
+            response_errors.append({"field": field, "message": error["msg"], "type": error["type"]})
             log_errors.append(
                 {
-                    "field": ".".join(str(loc) for loc in error["loc"]),
-                    "message": error["msg"],
+                    "field": field,
+                    "message": value_free_message(error),
                     "type": error["type"],
                     "input_summary": _safe_validation_input(error.get("input")),
                 }
@@ -229,16 +236,6 @@ class ExceptionHandlerManager:
             method=request.method,
             request_id=getattr(request.state, "request_id", None),
         )
-
-        # Build response errors without user input to prevent data leakage.
-        response_errors = [
-            {
-                "field": e["field"],
-                "message": e["message"],
-                "type": e["type"],
-            }
-            for e in log_errors
-        ]
 
         # Return structured validation error response.
         return JSONResponse(

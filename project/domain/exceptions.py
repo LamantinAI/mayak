@@ -69,3 +69,13 @@ class UpstreamAuthenticationError(ExternalServiceError):
 # cannot start that cycle again — see tests/application/test_module_imports_standalone.py.
 def is_client_rejection(error: Exception) -> bool:
     return isinstance(error, ProjectError) and not isinstance(error, ExternalServiceError)
+
+
+# What a log may say about a rejection: its type, and the field it names when it names one. Never
+# its text — that is written for the client, and a ConflictError naming the title or a
+# ValidationError quoting a status carries the very value the client sent into the record
+# (ADR-013). Beside is_client_rejection for the same reason that function is here: the logger and
+# the handlers both import it, and the domain imports nothing that could close a cycle.
+def describe_rejection(error: Exception) -> str:
+    field = getattr(error, "field", None) if isinstance(error, ValidationError) else None
+    return f"{type(error).__name__} on {field}" if field else type(error).__name__
