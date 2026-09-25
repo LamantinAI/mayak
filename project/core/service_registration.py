@@ -19,12 +19,7 @@ def build_reference_services(
     llm_service: LLMService,
     db_pool: AsyncConnectionPool | None,
 ) -> dict[str, Any]:
-    # Declare the binding as None first and fill it inside the branch. Never write
-    # this with an else branch. ai_context/extraction.py resolves the registry statically and ast.walk
-    # visits an If node as test -> body -> orelse, so an assignment in an `else` is processed last
-    # and overwrites the class metadata with None. Measured on db_pool in composition_root.py;
-    # the same rule applies to every conditional service. Guarded by
-    # tests/application/test_reference_task_vertical.py::TestWiring.
+    # None when the project runs without the relational store: there is no pool to give it.
     reference_task_service: ReferenceTaskService | None = None
     if db_pool is not None:
         # The service receives the Protocol-conforming repository, and the
@@ -35,8 +30,8 @@ def build_reference_services(
         )
 
     # The key stays in the dict even when the value is None. Two consumers depend
-    # on that: extraction reads this dict literal to learn the service exists at all, and
-    # router_registration.py reads the value to decide whether the routes are reachable. Dropping
+    # on that: validate_endpoint_wiring.py reads this dict literal to learn the service exists at
+    # all, and router_registration.py reads the value to decide whether the routes are reachable. Dropping
     # the key when the database is off makes the alias chain unresolvable and
     # validate_endpoint_wiring.py reports endpoint.alias_chain_invalid.
     #

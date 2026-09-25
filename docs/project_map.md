@@ -176,7 +176,7 @@ Project Map: Mayak
 │   ├── validate_architecture.py  ---  Repository utility that enforces the hexagonal architecture import boundaries for production modules.
 │   ├── validate_cbm.py  ---  Check that every Python file under project/ opens with its header — `# FILE:` and `# SUMMARY:`.
 │   ├── validate_dependencies.py
-│   ├── validate_endpoint_wiring.py
+│   ├── validate_endpoint_wiring.py  ---  Checks the chain from an endpoint to its service: typed alias, getter, registered service key, included router.
 │   ├── validate_file_policy.py
 │   ├── validate_migrations.py
 │   ├── validate_module_sizes.py

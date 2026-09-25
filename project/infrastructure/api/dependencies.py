@@ -57,9 +57,9 @@ def _get_service(request: Request, key: str, service_type: type[T]) -> T:
 # Raises ProjectError when the service is absent from the registry.
 def get_reference_task_service(request: Request) -> ReferenceTaskService:
     # The three-argument _get_service call is not a style choice.
-    # ai_context/extraction.py::extract_dependency_registry recognises exactly this shape to link
-    # alias -> getter -> service key, and validate_endpoint_wiring.py refuses any endpoint whose
-    # alias chain does not resolve. Inlining the registry lookup here breaks both.
+    # validate_endpoint_wiring.py recognises exactly this shape to link alias -> getter -> service
+    # key, and refuses any endpoint whose alias chain does not resolve. Inlining the registry
+    # lookup here breaks the chain it reads.
     return _get_service(request, "reference_task_service", ReferenceTaskService)
 
 
@@ -72,5 +72,5 @@ def get_reference_task_service(request: Request) -> ReferenceTaskService:
 # deliberate: router_registration.py leaves the routes unregistered in that mode, so a request can
 # never reach a handler holding a missing service, and the handler bodies stay free of None
 # checks. A vertical that would rather keep its routes visible and answer 503 declares the getter
-# as `-> MyService | None` instead; extraction supports that shape too.
+# as `-> MyService | None` instead; validate_endpoint_wiring.py reads that shape too.
 ReferenceTaskServiceDep = Annotated[ReferenceTaskService, Depends(get_reference_task_service)]

@@ -46,13 +46,6 @@ class CompositionRoot:
 
                 # Initialize PostgreSQL connection pool (singleton), unless this
                 # project declared it needs no relational store (POSTGRES_ENABLED=false).
-                # The declaration order matters and is not stylistic: ai_context/extraction.py
-                # resolves the service registry statically, and ast.walk visits an If node's
-                # children as test -> body -> orelse. An assignment in an `else` branch is
-                # therefore processed last and overwrites the binding metadata, degrading
-                # db_pool in docs/ai_context_map.json from class=AsyncConnectionPool /
-                # confidence=high to class=null / confidence=low. Measured, not assumed. Keep
-                # the None on its own line above the branch and never add an `else` here.
                 db_pool: AsyncConnectionPool | None = None
                 if settings.postgres.enabled:
                     db_pool = AsyncConnectionPool(

@@ -6,24 +6,19 @@
 
 from __future__ import annotations
 
-import ast
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, cast
 
 import pytest
 from fastapi import FastAPI
 from sqlalchemy import String, Table
 
-from ai_context.extraction import extract_service_registry_entries
 from project.application.reference_task_service import MAX_LIST_LIMIT, ReferenceTaskService
 from project.domain.exceptions import ValidationError
 from project.domain.ports import ReferenceTaskRepositoryPort
 from project.domain.reference_task import DEFAULT_STATUS, MAX_TITLE_LENGTH, ReferenceTask
 from project.infrastructure.persistence.orm_models import ReferenceTaskORM
 from tests.conftest import registered_paths
-
-_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 # The port for rules decided before a write: one stored task to read, every write recorded.
@@ -146,18 +141,6 @@ def test_the_title_bound_is_the_width_of_the_column() -> None:
 
 
 class TestWiring:
-    @pytest.mark.unit
-    def test_service_resolves_to_its_class_in_the_static_registry(self) -> None:
-        # ast.walk visits an If node as test -> body -> orelse, so an assignment
-        # moved into an `else` makes the extractor record class=null and the context map lie.
-        registration = _REPO_ROOT / "project" / "core" / "service_registration.py"
-        entries = extract_service_registry_entries(registration, _REPO_ROOT, "vertical")
-
-        assert entries["reference_task_service"]["class"] == "ReferenceTaskService"
-        assert entries["reference_task_service"]["resolution_status"] == "resolved"
-        tree = ast.parse(registration.read_text(encoding="utf-8"))
-        assert not [node for node in ast.walk(tree) if isinstance(node, ast.If) and node.orelse]
-
     @pytest.mark.unit
     def test_routes_exist_only_when_the_store_is_enabled(
         self, fastapi_app: FastAPI, app_without_postgres: FastAPI

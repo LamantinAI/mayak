@@ -111,25 +111,22 @@ class TestValidatorErrorContract:
                 ]
             ),
         )
-        context_map: dict[str, object] = {
-            "service_registry": {
-                "business_service": {
-                    "class": "BusinessService",
-                    "module": "project.application.business_service.BusinessService",
-                }
-            },
-            "dependency_registry": {
-                "aliases": {
-                    "BusinessServiceDep": {
-                        "getter": "get_business_service",
-                        "service_key": "business_service",
-                        "service_module": "project.application.business_service.BusinessService",
-                        "service_type": "BusinessService",
-                    }
-                }
-            },
-        }
-        issues = collect_endpoint_wiring_issues(tmp_path, context_map=context_map)
+        # A registered service the endpoint imports, and a getter returning a key nothing
+        # registers, so the chain rules' payloads are checked too.
+        _write_fixture(
+            tmp_path / "project" / "core" / "service_registration.py",
+            "from project.application.business_service import BusinessService\n\n\n"
+            "def build() -> dict[str, object]:\n"
+            "    services = {'business_service': BusinessService()}\n"
+            "    return services\n",
+        )
+        _write_fixture(
+            tmp_path / "project" / "infrastructure" / "api" / "dependencies.py",
+            "def get_other_service(request: object) -> object:\n"
+            "    return _get_service(request, 'other_service', object)\n",
+        )
+        issues = collect_endpoint_wiring_issues(tmp_path)
+        assert "endpoint.wiring_chain_broken" in {issue.rule_id for issue in issues}
         assert issues, "expected at least one forced endpoint-wiring violation"
         for issue in issues:
             _assert_contract(_endpoint_issue_to_payload(issue, tmp_path))

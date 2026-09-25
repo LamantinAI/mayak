@@ -51,7 +51,7 @@ SAMPLE_SHA256: dict[str, str] = {
     "project/application/reference_task_dtos.py": "31f2578ce6404a3f9a8c6b3438adb9ba1da301a18ec616faec961fad9938c5bc",
     "project/infrastructure/persistence/reference_task_repository.py": "59eb61963d35dce2de4a23037216ab7d3ccde306749e4c5bbfaa8da6a5f71256",
     "project/infrastructure/api/endpoints/reference_tasks.py": "cf4be1ec16fa1035a351a915600ae627c0e20fa2b8e1ede45a5c851d67845ba9",
-    "tests/application/test_reference_task_vertical.py": "f3a91404aced9bef03e28b4071519799cc4ae7c317b9eb5ae981a7b15920c21c",
+    "tests/application/test_reference_task_vertical.py": "666aa0a16bffd70617290b7bc6caf30f69c8d26b613e910089b0537141b0d781",
     "tests/db/test_reference_task_repository.py": "a94504ec248f2559951345e964507868d3b10817c80e954bad9b8e5adc7b1d3f",
     "tests/db/test_reference_tasks_api.py": "e5e287cd5bcfafd13df26e071617f5bf7ac98b2450060e4351f8e12a22275daa",
     "tests/functional/src/test_reference_tasks_api.py": "6d4ed6eb1f8583483b2737762f0046e5a3fbb807149c59c7689d20f9b63f896b",
@@ -123,14 +123,11 @@ CUTS: tuple[Cut, ...] = (
     ),
     Cut(
         "project/core/service_registration.py",
-        "    # Declare the binding as None first and fill it inside the branch. Never write",
+        "    # None when the project runs without the relational store: there is no pool to give it.",
         None,
         "    # A vertical builds its service here and registers it under its own key; the reference\n"
-        f"    # vertical's builder is in {_POINTER}. Declare a conditional service as None\n"
-        "    # first and fill it inside the branch, never in an `else`: ai_context/extraction.py reads\n"
-        "    # this function statically, visiting an If node as test -> body -> orelse, so an\n"
-        "    # assignment in an `else` overwrites the class it recorded. Keep the key in the dict when\n"
-        "    # the value is None: extraction learns the service exists from the literal, and\n"
+        f"    # vertical's builder is in {_POINTER}. Keep the key in the dict when the value is\n"
+        "    # None: validate_endpoint_wiring.py learns the service exists from the literal, and\n"
         "    # router_registration.py reads the value to decide whether the routes are reachable.\n"
         "    _ = settings, llm_service, db_pool\n"
         "    services: dict[str, Any] = {}\n"

@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 # FILE: validate_endpoint_wiring.py
-# Repository utility that validates endpoint-facing dependency wiring contracts for FastAPI endpoint modules.
+# SUMMARY: Checks the chain from an endpoint to its service: typed alias, getter, registered service key, included router.
+# The facts come from the wiring files' own source, read from the repository being checked. A
+# generated map used to supply them, and it was only as fresh as its last refresh — and a copy of
+# the template, validated through the template's editable install, read the template's services.
 
 from __future__ import annotations
 
 import argparse
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ai_context.rendering import render_json
 from ai_context.validator_contract import build_validator_issue_payload
-from scripts.generate_ai_context import build_context_map
 
 
 # Absolute repository root used by the validator entrypoint.
@@ -19,6 +21,17 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 
 # Repository-relative module where every application router must be included on the app.
 REGISTRATION_RELATIVE_PATH = Path("project/infrastructure/api/router_registration.py")
+
+# Where services are registered: the kernel's shared ones, then each vertical's.
+SERVICE_REGISTRY_PATHS = (
+    Path("project/core/composition_root.py"),
+    Path("project/core/service_registration.py"),
+)
+
+# Where each typed alias names its getter and each getter the service key it returns.
+DEPENDENCIES_RELATIVE_PATH = Path("project/infrastructure/api/dependencies.py")
+
+_ENDPOINTS_PACKAGE = "project.infrastructure.api.endpoints."
 
 _ENDPOINT_RULE_PLAYBOOKS = {
     "endpoint.no_direct_service_import": {
@@ -33,7 +46,6 @@ _ENDPOINT_RULE_PLAYBOOKS = {
         "read_first": [
             "AGENTS.md",
             "project/infrastructure/api/dependencies.py",
-            "docs/architecture_rules.json",
         ],
         "smallest_command_to_rerun": "uv run python scripts/validate_endpoint_wiring.py",
         "likely_fix_shape": (
@@ -60,7 +72,6 @@ _ENDPOINT_RULE_PLAYBOOKS = {
         "read_first": [
             "AGENTS.md",
             "project/infrastructure/api/dependencies.py",
-            "docs/architecture_rules.json",
         ],
         "smallest_command_to_rerun": "uv run python scripts/validate_endpoint_wiring.py",
         "likely_fix_shape": (
@@ -88,7 +99,6 @@ _ENDPOINT_RULE_PLAYBOOKS = {
         "read_first": [
             "AGENTS.md",
             "project/infrastructure/api/dependencies.py",
-            "docs/architecture_rules.json",
         ],
         "smallest_command_to_rerun": "uv run python scripts/validate_endpoint_wiring.py",
         "likely_fix_shape": (
@@ -116,7 +126,6 @@ _ENDPOINT_RULE_PLAYBOOKS = {
         "read_first": [
             "AGENTS.md",
             "project/infrastructure/api/dependencies.py",
-            "docs/architecture_rules.json",
         ],
         "smallest_command_to_rerun": "uv run python scripts/validate_endpoint_wiring.py",
         "likely_fix_shape": (
@@ -125,12 +134,11 @@ _ENDPOINT_RULE_PLAYBOOKS = {
         ),
         "next_checks": [
             "uv run python scripts/validate_endpoint_wiring.py",
-            "uv run python scripts/generate_ai_context.py --check",
             "make quality-gates",
         ],
         "stop_widening_condition": (
-            "Stop widening once validate_endpoint_wiring.py passes and generate_ai_context.py "
-            "--check confirms the alias chain resolves cleanly."
+            "Stop widening once validate_endpoint_wiring.py passes and the alias resolves to a "
+            "registered service key."
         ),
     },
     "endpoint.no_direct_service_construction": {
@@ -145,7 +153,6 @@ _ENDPOINT_RULE_PLAYBOOKS = {
         "read_first": [
             "AGENTS.md",
             "project/infrastructure/api/dependencies.py",
-            "docs/architecture_rules.json",
         ],
         "smallest_command_to_rerun": "uv run python scripts/validate_endpoint_wiring.py",
         "likely_fix_shape": (
@@ -189,9 +196,59 @@ _ENDPOINT_RULE_PLAYBOOKS = {
             "through the assembled FastAPI application."
         ),
     },
+    "endpoint.wiring_chain_broken": {
+        "meaning": (
+            "dependencies.py declares an alias whose getter it does not define, or a getter "
+            "returning a service key that neither composition_root.py nor service_registration.py "
+            "registers. Reported even when no route uses the alias yet: the first one to use it "
+            "would fail at request time."
+        ),
+        "suggested_fix": (
+            "Make each link resolve: the alias's Depends(...) names a getter defined in "
+            "dependencies.py, and the getter's key is one a registry dict carries."
+        ),
+        "read_first": [
+            "project/infrastructure/api/dependencies.py",
+            "project/core/service_registration.py",
+        ],
+        "smallest_command_to_rerun": "uv run python scripts/validate_endpoint_wiring.py",
+        "likely_fix_shape": (
+            "Fix the key string in the getter's _get_service(request, key, Type) call, or add "
+            "the service under that key in the registry dict."
+        ),
+        "next_checks": [
+            "uv run python scripts/validate_endpoint_wiring.py",
+            "make quality-gates",
+        ],
+        "stop_widening_condition": (
+            "Stop widening once every alias in dependencies.py resolves to a registered key."
+        ),
+    },
+    "endpoint.router_module_missing": {
+        "meaning": (
+            "router_registration.py imports an endpoint module that does not exist, so the "
+            "application fails to import at startup."
+        ),
+        "suggested_fix": (
+            "Restore the endpoint module or remove its import and include_router call from "
+            "project/infrastructure/api/router_registration.py."
+        ),
+        "read_first": [
+            "project/infrastructure/api/router_registration.py",
+        ],
+        "smallest_command_to_rerun": "uv run python scripts/validate_endpoint_wiring.py",
+        "likely_fix_shape": "Point the import at the module's real name, or delete both lines.",
+        "next_checks": [
+            "uv run python scripts/validate_endpoint_wiring.py",
+            "make quality-gates",
+        ],
+        "stop_widening_condition": (
+            "Stop widening once every endpoint module router_registration.py imports exists."
+        ),
+    },
     "endpoint.syntax_error": {
         "meaning": (
-            "An endpoint module could not be parsed because it contains a SyntaxError. "
+            "An endpoint or wiring module could not be parsed because it contains a SyntaxError. "
             "Surfaced as a structured issue so the agent loop sees a normal rule_id payload."
         ),
         "suggested_fix": (
@@ -272,23 +329,248 @@ def _build_import_map(tree: ast.AST) -> dict[str, str]:
     return imports
 
 
-# Extract the application-service modules, service types, and dependency alias registry from the context map.
-# Returns: Service module paths, service type names, and alias registry.
-def _service_contracts(
-    context_map: dict[str, object],
-) -> tuple[set[str], set[str], dict[str, dict[str, str]]]:
-    service_modules: set[str] = set()
-    service_types: set[str] = set()
-    for service in context_map["service_registry"].values():
-        module_name = service.get("module")
-        class_name = service.get("class")
-        if not isinstance(module_name, str) or not module_name.startswith("project.application."):
+# Parse a Python file, turning an unreadable one into an issue. A missing file parses as nothing.
+def _parse(path: Path) -> tuple[ast.Module | None, EndpointWiringIssue | None]:
+    try:
+        source = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None, None
+    except UnicodeDecodeError as error:
+        message = f"UnicodeDecodeError while reading source: {error.reason}"
+        return None, EndpointWiringIssue(path, 1, "endpoint.read_error", message)
+    try:
+        return ast.parse(source, filename=str(path)), None
+    except SyntaxError as error:
+        message = f"SyntaxError while parsing source: {error.msg}"
+        return None, EndpointWiringIssue(path, error.lineno or 1, "endpoint.syntax_error", message)
+
+
+def _assignments(tree: ast.AST) -> list[tuple[str, ast.expr]]:
+    pairs: list[tuple[str, ast.expr]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target: ast.expr = node.targets[0]
+            value: ast.expr | None = node.value
+        elif isinstance(node, ast.AnnAssign):
+            target, value = node.target, node.value
+        else:
             continue
-        if not isinstance(class_name, str) or not class_name:
+        if isinstance(target, ast.Name) and value is not None:
+            pairs.append((target.id, value))
+    return pairs
+
+
+# "module.Class" a constructor call builds, through the file's imports; None when opaque.
+def _call_target(call: ast.Call, import_map: dict[str, str]) -> str | None:
+    if isinstance(call.func, ast.Name):
+        return import_map.get(call.func.id)
+    if isinstance(call.func, ast.Attribute) and isinstance(call.func.value, ast.Name):
+        return f"{import_map.get(call.func.value.id, call.func.value.id)}.{call.func.attr}"
+    return None
+
+
+# Every key a string and every value something that can BE a service: a name bound elsewhere, a
+# constructor call, or None for a service the project turned off. Without this any function
+# returning any mapping — request headers, an error body — would register services.
+def _looks_like_a_service_registry(node: ast.Dict) -> bool:
+    return bool(node.keys) and all(
+        isinstance(key, ast.Constant)
+        and isinstance(key.value, str)
+        and (
+            isinstance(value, (ast.Name, ast.Call))
+            or (isinstance(value, ast.Constant) and value.value is None)
+        )
+        for key, value in zip(node.keys, node.values)
+    )
+
+
+# The dicts a file registers services with: any literal bound to `services` — the kernel's own
+# spelling — and whatever a function returns that looks like a registry, for projects that spell
+# it differently. Returned names are looked up per function: two builders may both call theirs
+# `registry`.
+def _registry_dicts(tree: ast.Module) -> list[ast.Dict]:
+    found = [value for name, value in _assignments(tree) if name == "services"]
+    dicts = [value for value in found if isinstance(value, ast.Dict)]
+    for function in ast.walk(tree):
+        if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        service_modules.add(module_name)
-        service_types.add(class_name)
-    return service_modules, service_types, context_map["dependency_registry"]["aliases"]
+        local = {name: value for name, value in _assignments(function)}
+        for node in ast.walk(function):
+            if not isinstance(node, ast.Return) or node.value is None:
+                continue
+            returned = local.get(node.value.id) if isinstance(node.value, ast.Name) else node.value
+            if isinstance(returned, ast.Dict) and _looks_like_a_service_registry(returned):
+                if all(returned is not known for known in dicts):
+                    dicts.append(returned)
+    return dicts
+
+
+# Service key -> "module.Class" it is built from. A name in the dict resolves through any
+# constructor call bound to it anywhere in the file, so a service declared None and built inside
+# a branch — or an `else` — still resolves.
+def _services(tree: ast.Module) -> dict[str, str | None]:
+    import_map = _build_import_map(tree)
+    built: dict[str, str | None] = {}
+    for name, value in _assignments(tree):
+        if isinstance(value, ast.Call):
+            built.setdefault(name, _call_target(value, import_map))
+    services: dict[str, str | None] = {}
+    for registry in _registry_dicts(tree):
+        for key, value in zip(registry.keys, registry.values):
+            if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+                continue
+            if isinstance(value, ast.Name):
+                services[key.value] = built.get(value.id)
+            else:
+                services[key.value] = (
+                    _call_target(value, import_map) if isinstance(value, ast.Call) else None
+                )
+    return services
+
+
+# The service key a getter returns: `return _get_service(request, "key", Type)`, or a nullable
+# getter (`-> T | None`) that reads `services.get("key")`.
+def _getter_service_key(function: ast.FunctionDef) -> str | None:
+    for statement in function.body:
+        call = statement.value if isinstance(statement, ast.Return) else None
+        if (
+            isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Name)
+            and call.func.id == "_get_service"
+            and len(call.args) >= 2
+            and isinstance(call.args[1], ast.Constant)
+            and isinstance(call.args[1].value, str)
+        ):
+            return call.args[1].value
+    returns = function.returns
+    if not isinstance(returns, ast.BinOp) or not any(
+        isinstance(side, ast.Constant) and side.value is None
+        for side in (returns.left, returns.right)
+    ):
+        return None
+    for node in ast.walk(function):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "services"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            return node.args[0].value
+    return None
+
+
+# The getter an `Alias = Annotated[T, Depends(getter)]` assignment names.
+def _alias_getter(node: ast.stmt) -> tuple[str, str] | None:
+    if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+        return None
+    target, value = node.targets[0], node.value
+    if not isinstance(target, ast.Name) or not isinstance(value, ast.Subscript):
+        return None
+    if not isinstance(value.value, ast.Name) or value.value.id != "Annotated":
+        return None
+    arguments = value.slice.elts if isinstance(value.slice, ast.Tuple) else []
+    depends = arguments[1] if len(arguments) >= 2 else None
+    if (
+        isinstance(depends, ast.Call)
+        and isinstance(depends.func, ast.Name)
+        and depends.func.id == "Depends"
+        and depends.args
+        and isinstance(depends.args[0], ast.Name)
+    ):
+        return target.id, depends.args[0].id
+    return None
+
+
+# What the wiring files declare, read from the repository being checked.
+@dataclass(slots=True)
+class WiringFacts:
+    # Service key -> "module.Class" it is built from, or None when that is not a constructor call.
+    services: dict[str, str | None] = field(default_factory=dict)
+
+    # Getter name -> (service key it returns, line in dependencies.py).
+    getters: dict[str, tuple[str, int]] = field(default_factory=dict)
+
+    # Typed alias -> (getter it names, line in dependencies.py).
+    aliases: dict[str, tuple[str, int]] = field(default_factory=dict)
+
+    # Wiring files that could not be read or parsed.
+    issues: list[EndpointWiringIssue] = field(default_factory=list)
+
+    # The application-service classes, as "module.Class", an endpoint must reach only by alias.
+    def service_classes(self) -> set[str]:
+        return {
+            target
+            for target in self.services.values()
+            if target is not None and target.startswith("project.application.")
+        }
+
+    # The service key an alias resolves to, or None where the chain breaks.
+    def alias_service_key(self, alias: str) -> str | None:
+        getter = self.getters.get(self.aliases[alias][0])
+        return getter[0] if getter is not None and getter[0] in self.services else None
+
+
+def read_wiring_facts(repo_root: Path) -> WiringFacts:
+    facts = WiringFacts()
+    for relative in SERVICE_REGISTRY_PATHS:
+        tree, issue = _parse(repo_root / relative)
+        facts.issues.extend([issue] if issue else [])
+        facts.services.update(_services(tree) if tree else {})
+    tree, issue = _parse(repo_root / DEPENDENCIES_RELATIVE_PATH)
+    facts.issues.extend([issue] if issue else [])
+    for node in tree.body if tree else []:
+        if isinstance(node, ast.FunctionDef) and (key := _getter_service_key(node)) is not None:
+            facts.getters[node.name] = (key, node.lineno)
+        elif (alias := _alias_getter(node)) is not None:
+            facts.aliases[alias[0]] = (alias[1], node.lineno)
+    return facts
+
+
+# Links that break whether or not a route uses them yet: an alias naming an undefined getter, a
+# getter returning an unregistered key, and an imported endpoint module that does not exist.
+def _chain_issues(repo_root: Path, facts: WiringFacts) -> list[EndpointWiringIssue]:
+    dependencies = repo_root / DEPENDENCIES_RELATIVE_PATH
+    issues: list[EndpointWiringIssue] = []
+    for alias, (getter, line) in facts.aliases.items():
+        if getter not in facts.getters:
+            message = (
+                f"Alias '{alias}' depends on '{getter}', which is not a getter dependencies.py "
+                "defines in the _get_service(request, key, Type) shape."
+            )
+            issues.append(
+                EndpointWiringIssue(dependencies, line, "endpoint.wiring_chain_broken", message)
+            )
+    for getter, (key, line) in facts.getters.items():
+        if key not in facts.services:
+            message = (
+                f"Getter '{getter}' returns service key '{key}', which no registry dict in "
+                f"{' or '.join(path.name for path in SERVICE_REGISTRY_PATHS)} carries."
+            )
+            issues.append(
+                EndpointWiringIssue(dependencies, line, "endpoint.wiring_chain_broken", message)
+            )
+    registration = repo_root / REGISTRATION_RELATIVE_PATH
+    tree, _ = _parse(registration)
+    for node in ast.walk(tree) if tree else []:
+        if not isinstance(node, ast.ImportFrom) or not (node.module or "").startswith(
+            _ENDPOINTS_PACKAGE
+        ):
+            continue
+        module_path = repo_root / Path(*str(node.module).split(".")).with_suffix(".py")
+        if not module_path.exists():
+            message = (
+                f"Imports {node.module}, and {module_path.relative_to(repo_root)} does not exist."
+            )
+            issues.append(
+                EndpointWiringIssue(
+                    registration, node.lineno, "endpoint.router_module_missing", message
+                )
+            )
+    return issues
 
 
 # Extract APIRouter variable names declared in an endpoint module with their line numbers.
@@ -419,42 +701,20 @@ def _issue_to_payload(issue: EndpointWiringIssue, repo_root: Path) -> dict[str, 
 
 # Validate a single endpoint module against the endpoint-facing wiring contract.
 # path: Absolute endpoint-module path.
-# context_map: Context map providing service and alias contracts.
 def validate_endpoint_module(
     path: Path,
     repo_root: Path,
-    context_map: dict[str, object],
+    facts: WiringFacts,
     registered_routers: set[str] | None = None,
 ) -> list[EndpointWiringIssue]:
-    # Read & parse source under guarded exceptions so a broken file
-    # surfaces as a structured EndpointWiringIssue rather than a raw Python traceback.
-    try:
-        source = path.read_text(encoding="utf-8")
-    except UnicodeDecodeError as error:
-        return [
-            EndpointWiringIssue(
-                path=path,
-                line=1,
-                rule_id="endpoint.read_error",
-                message=f"UnicodeDecodeError while reading source: {error.reason}",
-            )
-        ]
-    try:
-        tree = ast.parse(source, filename=str(path))
-    except SyntaxError as error:
-        return [
-            EndpointWiringIssue(
-                path=path,
-                line=error.lineno or 1,
-                rule_id="endpoint.syntax_error",
-                message=f"SyntaxError while parsing source: {error.msg}",
-            )
-        ]
+    tree, unreadable = _parse(path)
+    if tree is None:
+        return [unreadable] if unreadable else []
     import_map = _build_import_map(tree)
     router_definitions = _router_definitions(tree)
     routers = set(router_definitions)
-    service_modules, service_types, alias_registry = _service_contracts(context_map)
-    known_service_keys = set(context_map["service_registry"].keys())
+    service_modules = facts.service_classes()
+    service_types = {module.rsplit(".", 1)[-1] for module in service_modules}
     service_module_roots = {module.rsplit(".", 1)[0] for module in service_modules}
     issues: list[EndpointWiringIssue] = []
 
@@ -558,10 +818,8 @@ def validate_endpoint_module(
                 continue
 
             annotation_name = parameter.annotation.id
-            alias_metadata = alias_registry.get(annotation_name)
-            if alias_metadata is not None:
-                service_key = alias_metadata["service_key"]
-                if not alias_metadata["getter"] or service_key not in known_service_keys:
+            if annotation_name in facts.aliases:
+                if facts.alias_service_key(annotation_name) is None:
                     issues.append(
                         EndpointWiringIssue(
                             path=path,
@@ -642,22 +900,16 @@ def validate_endpoint_module(
     return issues
 
 
-# Validate all endpoint modules in the repository against the endpoint-facing wiring contract.
-# context_map: Optional pre-built context map used by tests or callers.
-def collect_endpoint_wiring_issues(
-    repo_root: Path,
-    context_map: dict[str, object] | None = None,
-) -> list[EndpointWiringIssue]:
-    if context_map is None:
-        context_map = build_context_map()
-
+# Validate the wiring files and every endpoint module in the repository.
+def collect_endpoint_wiring_issues(repo_root: Path) -> list[EndpointWiringIssue]:
+    facts = read_wiring_facts(repo_root)
     registered_routers = collect_registered_router_qualnames(repo_root)
-    issues: list[EndpointWiringIssue] = []
+    issues = [*facts.issues, *_chain_issues(repo_root, facts)]
     for path in sorted(repo_root.rglob("*.py")):
         relative_path = path.relative_to(repo_root)
         if not _is_endpoint_module(relative_path):
             continue
-        issues.extend(validate_endpoint_module(path, repo_root, context_map, registered_routers))
+        issues.extend(validate_endpoint_module(path, repo_root, facts, registered_routers))
     return issues
 
 

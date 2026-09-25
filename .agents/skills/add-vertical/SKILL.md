@@ -96,7 +96,7 @@ list of table names used to stand in for, and one it made every project edit on 
    name takes `FOR UPDATE` instead — "Where the single-row token does not reach" in the same ADR.
 7. **The endpoint and all three wiring files in the same step.** The endpoint's last import is the
    typed alias defined in `dependencies.py`. `service_registration.py` and `router_registration.py`
-   belong here too — the next step's `TestWiring` reads both.
+   belong here too — the next step's `TestWiring` builds the application from both.
 8. Unit tests, and `make refresh-generated-docs` again.
 9. `make quality-gates`, then `make test-e2e`.
 
@@ -163,21 +163,18 @@ async def test_create_accepts_a_title_of_exactly_the_maximum_length() -> None:
 A test built from a comfortable middle value — `"a title"` — cannot see `<` silently become `<=`, or
 `>` become `>=`.
 
-## The four constraints that are enforced, not advised
+## The three constraints that are enforced, not advised
 
-1. **Conditional services are declared as `None` above the `if`, never in an `else`.**
-   `ai_context/extraction.py` walks an `If` node as test → body → orelse, so an assignment in an
-   `else` is processed last and overwrites the class metadata: the service degrades to
-   `class=null / confidence=low` and `docs/ai_context_map.json` starts lying.
-2. **The service key stays in the registry dict literal even when its value is `None`.**
-   Extraction reads the literal to learn the service exists; dropping the key makes the dependency
-   alias unresolvable and `validate_endpoint_wiring.py` reports `endpoint.alias_chain_invalid`.
-3. **Endpoints import DTOs, domain constants and typed aliases — nothing else.**
+1. **The service key stays in the registry dict literal even when its value is `None`.**
+   `validate_endpoint_wiring.py` reads the literal to learn the service exists; dropping the key
+   makes the dependency alias unresolvable and it reports `endpoint.wiring_chain_broken`.
+2. **Endpoints import DTOs, domain constants and typed aliases — nothing else.**
    Importing the service, calling `Depends(get_...)` inline, or annotating a parameter with the
    service type each has its own rule ID in `validate_endpoint_wiring.py`. The alias lives in
    `dependencies.py` as a getter returning `_get_service(request, "<key>", <Type>)` plus an
-   `Annotated[...]` assignment; extraction recognises that exact shape and no other.
-4. **Application modules must not import `project.infrastructure`.**
+   `Annotated[...]` assignment; the validator recognises that shape, and a nullable getter
+   reading `services.get("<key>")`, and no other.
+3. **Application modules must not import `project.infrastructure`.**
    `scripts/validate_architecture.py` fails the gate on it. This is what forces the service to take
    the Protocol and what lets its unit tests run without a database.
 
@@ -242,7 +239,7 @@ Nine more files carry the vertical without naming it:
 
 | File | What to remove |
 |------|----------------|
-| `project/core/service_registration.py` | `ReferenceTaskService` and repository imports, registry entry, **and the comment pointing at `test_reference_task_vertical.py::TestWiring`** |
+| `project/core/service_registration.py` | `ReferenceTaskService` and repository imports, the builder's body and its registry entry |
 | `project/infrastructure/api/dependencies.py` | getter and `Annotated` alias |
 | `project/infrastructure/api/router_registration.py` | import and `include_router` call |
 | `project/domain/ports.py` | `ReferenceTaskRepositoryPort` and its `ReferenceTask` import |
@@ -287,6 +284,7 @@ the vertical without appearing below — trust that test, and the table it check
 | `alembic/versions/b5e2c1a9d4f0_one_open_reference_task_per_title.py` | history; the open-title rule's partial unique index |
 | the drop migration you just appended | names what it drops |
 | `docs/project_map.md` | generated tree; shows the migration filenames that still exist |
+| `docs/ai_context_map.json` | generated; `make refresh-generated-docs` rewrites it from the code |
 | `.agents/skills/add-vertical/SKILL.md` | this file has to name what it deletes |
 | `tests/template/test_skill_texts_match_reality.py` | pins the sweep spelling and runs this accounting check |
 | `tests/template/test_generate_ai_context.py` | synthetic `"reference_task_service"` fixture strings |
