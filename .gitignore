@@ -63,6 +63,10 @@ cover/
 # Application logs (local dev)
 logs/
 
+# Left behind only if scripts/run_mutations.py is killed with SIGKILL mid-defect; its next run
+# restores the file from it.
+*.mutation-backup
+
 # Django stuff:
 *.log
 local_settings.py

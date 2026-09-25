@@ -209,10 +209,13 @@ git rm project/domain/reference_task.py \
        tests/application/test_reference_task_vertical.py \
        tests/infrastructure/test_reference_task_repository.py \
        tests/functional/src/test_reference_task_repository.py \
-       tests/functional/src/test_reference_tasks_api.py
+       tests/functional/src/test_reference_tasks_api.py \
+       docs/mutations/reference_task.json \
+       scripts/run_mutations.py
 ```
 
-Those nine are every file whose **name** carries the vertical. Do not use
+The first ten are every file whose **name** carries the vertical; `scripts/run_mutations.py` is
+the template's measuring stick for the reference tests and has nothing to measure once they go. Do not use
 `find . -iname '*reference_task*'` as the completeness check — the references that break the build
 live in files named after something else.
 

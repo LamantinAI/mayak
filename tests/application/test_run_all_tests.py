@@ -254,3 +254,33 @@ class TestCoverageFloorAppliesToTheFullRunOnly:
         # same tautology `test.sql_constant_round_trip` exists to forbid one directory away.
         assert "--cov-fail-under=60" in local.command
         assert COVERAGE_FLOOR_PERCENT == 60
+
+
+# FUNCTION: test_every_image_the_functional_stack_builds_is_named_by_its_compose_project
+# SUMMARY: Verify no built service pins an image tag, so two checkouts cannot test each other's code.
+# NOTE: functional_compose_project() gives each checkout its own containers, network and volume,
+# and the compose file used to undo that for the images: `image: test-app-image` names the build
+# result, one tag for every checkout on the host. Two `make test-e2e` runs at once — two worktrees,
+# or an independent verifier next to a mutation run — then build in turn onto the same tag, and the
+# one whose build finished first starts its containers from the other's code, green or red for
+# reasons that are not its own. Without `image:`, Compose tags a build `<project>-<service>`, and
+# the project is already per checkout. Found by the independent check of the mutation baseline,
+# 2026-09-24.
+@pytest.mark.unit
+def test_every_image_the_functional_stack_builds_is_named_by_its_compose_project() -> None:
+    # **LOGIC_STEP**: Read by indentation rather than a YAML parser — the repository declares none,
+    # and the file's shape is fixed: services at two spaces, their keys at four.
+    lines = (ROOT_DIR / "tests" / "functional" / "docker-compose.yml").read_text(encoding="utf-8")
+    keys: dict[str, set[str]] = {}
+    service = None
+    for line in lines.splitlines():
+        if line.startswith("  ") and not line.startswith("   ") and line.rstrip().endswith(":"):
+            service = line.strip().rstrip(":")
+            keys[service] = set()
+        elif service and line.startswith("    ") and not line.startswith("     "):
+            keys[service].add(line.strip().split(":", 1)[0])
+
+    pinned = sorted(name for name, found in keys.items() if {"build", "image"} <= found)
+
+    assert keys, "no services read — the file's shape changed; update this reader"
+    assert pinned == []

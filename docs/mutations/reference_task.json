@@ -1,0 +1,765 @@
+{
+ "subject": "reference_task",
+ "about": "Defects planted one at a time in the reference vertical to measure what its tests catch. Each entry is an exact text replacement: `breaks` says what a caller would see, `expect` names the tests written to notice, `mechanism` says how the recorded baseline caught it (direct, indirect, only through an SQL-text pin, only in e2e, or equivalent — nothing observable changes). `baseline` is written by `uv run python scripts/run_mutations.py --record`; compare a later run against it before and after changing the tests. The catalogue belongs to the reference vertical and goes when the vertical goes.",
+ "tiers": {
+  "fast": [
+   "make",
+   "test"
+  ],
+  "e2e": [
+   "make",
+   "test-e2e"
+  ]
+ },
+ "mutations": [
+  {
+   "id": "create_blank_title_allowed",
+   "kind": "rule",
+   "file": "project/application/reference_task_service.py",
+   "find": "\n        if not title.strip():",
+   "replace": "\n        if False:",
+   "breaks": "a blank title is stored instead of answering 422",
+   "expect": [
+    "test_create_rejects_a_blank_title"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "create_title_limit_off_by_one",
+   "kind": "rule",
+   "file": "project/application/reference_task_service.py",
+   "find": "\n        if len(title) > MAX_TITLE_LENGTH:",
+   "replace": "\n        if len(title) >= MAX_TITLE_LENGTH:",
+   "breaks": "a title of exactly the maximum length is refused",
+   "expect": [
+    "test_create_accepts_a_title_of_exactly_the_maximum_length"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "list_status_check_removed",
+   "kind": "rule",
+   "file": "project/application/reference_task_service.py",
+   "find": "\n        if status not in ALLOWED_STATUSES:",
+   "replace": "\n        if False:",
+   "breaks": "listing by an unknown status answers 200 with an empty page instead of 422",
+   "expect": [
+    "test_list_rejects_status_outside_the_domain_set",
+    "test_unknown_status_returns_422_from_the_service_rule",
+    "test_unknown_status_returns_422"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "list_limit_check_removed",
+   "kind": "rule",
+   "file": "project/application/reference_task_service.py",
+   "find": "if not 1 <= limit <= MAX_LIST_LIMIT:",
+   "replace": "if False:",
+   "breaks": "a caller that bypasses HTTP can ask for any page size",
+   "expect": [
+    "test_list_rejects_limit_outside_the_allowed_range"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "update_empty_patch_allowed",
+   "kind": "rule",
+   "file": "project/application/reference_task_service.py",
+   "find": "raise ValidationError(\"at least one of title, details or status must be provided\")",
+   "replace": "pass",
+   "breaks": "an empty PATCH bumps updated_at and answers 200 instead of 422",
+   "expect": [
+    "test_update_rejects_a_patch_that_supplies_nothing",
+    "test_patch_with_no_fields_is_rejected_with_422"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "update_null_title_accepted",
+   "kind": "rule",
+   "file": "project/application/reference_task_service.py",
+   "find": "if title is None:",
+   "replace": "if False:",
+   "breaks": "an explicit null title reaches the NOT NULL column and answers 500 instead of 422",
+   "expect": [
+    "test_update_rejects_an_explicit_null_for_a_non_nullable_field"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "update_title_limit_off_by_one",
+   "kind": "rule",
+   "file": "project/application/reference_task_service.py",
+   "find": "\n            if len(title) > MAX_TITLE_LENGTH:",
+   "replace": "\n            if len(title) >= MAX_TITLE_LENGTH:",
+   "breaks": "an update to a title of exactly the maximum length is refused",
+   "expect": [
+    "test_update_accepts_a_title_of_exactly_the_maximum_length"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "update_status_check_removed",
+   "kind": "rule",
+   "file": "project/application/reference_task_service.py",
+   "find": "\n            if status not in ALLOWED_STATUSES:",
+   "replace": "\n            if False:",
+   "breaks": "an update can store a status outside the domain's closed set",
+   "expect": [
+    "test_update_rejects_a_status_outside_the_domain_set"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "update_null_cannot_clear",
+   "kind": "rule",
+   "file": "project/application/reference_task_service.py",
+   "find": "details=current.details if isinstance(details, _Unchanged) else details,",
+   "replace": "details=current.details if isinstance(details, _Unchanged) or details is None else details,",
+   "breaks": "an explicit null no longer clears the nullable field; the request answers 200 and changes nothing",
+   "expect": [
+    "test_update_clears_a_nullable_field_when_the_caller_asks_for_null",
+    "test_patch_with_an_explicit_null_clears_the_field_over_http",
+    "test_patch_with_an_explicit_null_empties_the_column"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "update_timestamp_not_bumped",
+   "kind": "concurrency",
+   "file": "project/application/reference_task_service.py",
+   "find": "updated_at=datetime.now(timezone.utc),",
+   "replace": "updated_at=current.updated_at,",
+   "breaks": "the optimistic token never moves, so a second writer holding the same read overwrites the first (lost update)",
+   "expect": [
+    "test_update_changes_only_the_supplied_fields",
+    "test_the_timestamp_that_was_read_is_the_one_the_repository_matches_on",
+    "test_concurrent_patches_never_lose_a_write_that_reported_success"
+   ],
+   "mechanism": "direct; the e2e concurrency test (asyncio.gather of two PATCHes) did not notice: the two requests did not overlap"
+  },
+  {
+   "id": "update_matches_new_timestamp",
+   "kind": "concurrency",
+   "file": "project/application/reference_task_service.py",
+   "find": "expected_updated_at=current.updated_at)",
+   "replace": "expected_updated_at=changed.updated_at)",
+   "breaks": "the write is conditioned on the new timestamp, which no stored row carries: every PATCH answers 409",
+   "expect": [
+    "test_the_timestamp_that_was_read_is_the_one_the_repository_matches_on"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "update_deleted_answers_conflict",
+   "kind": "rule",
+   "file": "project/application/reference_task_service.py",
+   "find": "if await self._repository.get(task_id) is None:",
+   "replace": "if False:",
+   "breaks": "an update of a task deleted meanwhile answers 409 (retry) instead of 404",
+   "expect": [
+    "test_update_of_a_deleted_task_is_a_404_not_a_conflict"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "normalize_id_passthrough",
+   "kind": "rule",
+   "file": "project/domain/reference_task.py",
+   "find": "return str(uuid.UUID(task_id))",
+   "replace": "return task_id",
+   "breaks": "a malformed or unusually spelled id reaches the uuid column and answers 500 instead of 404",
+   "expect": [
+    "test_a_malformed_id_never_reaches_the_driver",
+    "test_the_driver_receives_the_canonical_spelling"
+   ],
+   "mechanism": "direct, through a mocked driver only; no e2e test sends a malformed id"
+  },
+  {
+   "id": "list_filter_inverted",
+   "kind": "sql",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "WHERE status = %s ORDER BY",
+   "replace": "WHERE status <> %s ORDER BY",
+   "breaks": "the list returns every task except the requested status",
+   "expect": [
+    "test_list_binds_status_and_limit_instead_of_formatting_them",
+    "test_list_by_status_filters_and_orders_newest_first",
+    "test_list_filters_by_status_and_orders_newest_first"
+   ],
+   "mechanism": "fast tier only through the SQL-text pin in tests/infrastructure/test_reference_task_repository.py; behaviour seen only in e2e"
+  },
+  {
+   "id": "list_order_ascending",
+   "kind": "sql",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "ORDER BY created_at DESC",
+   "replace": "ORDER BY created_at ASC",
+   "breaks": "the list comes back oldest first",
+   "expect": [
+    "test_list_binds_status_and_limit_instead_of_formatting_them",
+    "test_list_by_status_filters_and_orders_newest_first",
+    "test_list_filters_by_status_and_orders_newest_first"
+   ],
+   "mechanism": "fast tier only through the SQL-text pin in tests/infrastructure/test_reference_task_repository.py; behaviour seen only in e2e"
+  },
+  {
+   "id": "list_order_dropped",
+   "kind": "sql",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "WHERE status = %s ORDER BY created_at DESC LIMIT %s",
+   "replace": "WHERE status = %s LIMIT %s",
+   "breaks": "the list comes back in whatever order the table scan yields",
+   "expect": [
+    "test_list_binds_status_and_limit_instead_of_formatting_them",
+    "test_list_by_status_filters_and_orders_newest_first",
+    "test_list_filters_by_status_and_orders_newest_first"
+   ],
+   "mechanism": "fast tier only through the SQL-text pin in tests/infrastructure/test_reference_task_repository.py; behaviour seen only in e2e"
+  },
+  {
+   "id": "list_limit_ignored",
+   "kind": "sql",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "LIMIT %s\"",
+   "replace": "LIMIT %s + 1000\"",
+   "breaks": "the page size reaches the query but no longer bounds it",
+   "expect": [
+    "test_list_binds_status_and_limit_instead_of_formatting_them",
+    "test_list_by_status_respects_limit"
+   ],
+   "mechanism": "fast tier only through the SQL-text pin in tests/infrastructure/test_reference_task_repository.py; behaviour seen only in e2e"
+  },
+  {
+   "id": "update_token_loosened",
+   "kind": "concurrency",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "WHERE id = %s AND updated_at = %s RETURNING",
+   "replace": "WHERE id = %s AND updated_at >= %s RETURNING",
+   "breaks": "a write computed from a stale read still matches the moved row and erases the other writer's change",
+   "expect": [
+    "test_update_binds_the_new_state_and_the_expected_timestamp",
+    "test_update_refuses_a_row_another_writer_moved",
+    "test_concurrent_patches_never_lose_a_write_that_reported_success"
+   ],
+   "mechanism": "fast tier only through the SQL-text pin in tests/infrastructure/test_reference_task_repository.py; behaviour seen only in e2e"
+  },
+  {
+   "id": "update_set_title_details_swapped",
+   "kind": "sql",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "SET title = %s, details = %s,",
+   "replace": "SET details = %s, title = %s,",
+   "breaks": "an update writes the title into details and the other way round",
+   "expect": [
+    "test_update_binds_the_new_state_and_the_expected_timestamp",
+    "test_update_writes_the_new_state_and_returns_it"
+   ],
+   "mechanism": "fast tier only through the SQL-text pin in tests/infrastructure/test_reference_task_repository.py; behaviour seen only in e2e"
+  },
+  {
+   "id": "insert_title_details_swapped",
+   "kind": "sql",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "(id, title, details, status, created_at, updated_at) ",
+   "replace": "(id, details, title, status, created_at, updated_at) ",
+   "breaks": "a created task is stored with title and details exchanged",
+   "expect": [
+    "test_create_then_read_round_trip",
+    "test_created_task_is_persisted_in_the_database"
+   ],
+   "mechanism": "e2e only: the INSERT column list is pinned by nothing in the fast tier, only its parameters"
+  },
+  {
+   "id": "insert_stamps_swapped",
+   "kind": "equivalent",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "(id, title, details, status, created_at, updated_at) ",
+   "replace": "(id, title, details, status, updated_at, created_at) ",
+   "breaks": "nothing observable: both stamps are the same instant at insert, so exchanging the columns stores the same row",
+   "expect": [],
+   "mechanism": "equivalent: both stamps are one instant at insert"
+  },
+  {
+   "id": "mapper_title_details_swapped",
+   "kind": "sql",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "title=row[\"title\"],\n        details=row[\"details\"],",
+   "replace": "title=row[\"details\"],\n        details=row[\"title\"],",
+   "breaks": "every read returns title and details exchanged",
+   "expect": [
+    "test_row_maps_to_the_expected_domain_object",
+    "test_create_then_read_round_trip"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "mapper_id_not_stringified",
+   "kind": "sql",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "id=str(row[\"id\"]),",
+   "replace": "id=row[\"id\"],",
+   "breaks": "the driver's uuid.UUID leaks into the domain object",
+   "expect": [
+    "test_get_maps_a_returned_row_through_the_domain_converter",
+    "test_get_returns_domain_types_not_driver_types"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "mapper_stamps_swapped",
+   "kind": "sql",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "created_at=row[\"created_at\"],\n        updated_at=row[\"updated_at\"],",
+   "replace": "created_at=row[\"updated_at\"],\n        updated_at=row[\"created_at\"],",
+   "breaks": "after the first update the stored token reads back as the creation time, so the second update of a task answers 409",
+   "expect": [
+    "test_row_maps_to_the_expected_domain_object",
+    "test_two_sequential_patches_of_different_fields_both_survive"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "create_answers_200",
+   "kind": "http",
+   "file": "project/infrastructure/api/endpoints/reference_tasks.py",
+   "find": "status_code=http_status.HTTP_201_CREATED,",
+   "replace": "status_code=http_status.HTTP_200_OK,",
+   "breaks": "a create answers 200 instead of 201",
+   "expect": [
+    "test_create_returns_201_and_the_stored_task",
+    "test_create_then_read_round_trip"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "patch_null_treated_as_absent",
+   "kind": "http",
+   "file": "project/infrastructure/api/endpoints/reference_tasks.py",
+   "find": "details=payload.details if \"details\" in supplied else UNCHANGED,",
+   "replace": "details=payload.details if payload.details is not None else UNCHANGED,",
+   "breaks": "an explicit null in the request body is read as 'not supplied', so the field can never be cleared over HTTP",
+   "expect": [
+    "test_patch_with_an_explicit_null_clears_the_field_over_http",
+    "test_patch_with_an_explicit_null_empties_the_column"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "list_status_param_ignored",
+   "kind": "http",
+   "file": "project/infrastructure/api/endpoints/reference_tasks.py",
+   "find": "tasks = await service.list_tasks(status=status, limit=limit)",
+   "replace": "tasks = await service.list_tasks(status=DEFAULT_STATUS, limit=limit)",
+   "breaks": "the status query parameter is accepted and ignored",
+   "expect": [
+    "test_list_filters_by_status_and_orders_newest_first",
+    "test_unknown_status_returns_422_from_the_service_rule"
+   ],
+   "mechanism": "indirect: only the unknown-status 422 tests notice; every filter test, HTTP and e2e, asks for the default status, so ignoring the parameter returns the same page"
+  },
+  {
+   "id": "conflict_answers_400",
+   "kind": "http",
+   "file": "project/infrastructure/api/exception_handlers.py",
+   "find": "return int(status.HTTP_409_CONFLICT)",
+   "replace": "return int(status.HTTP_400_BAD_REQUEST)",
+   "breaks": "a lost race answers 400 (do not retry) instead of 409 (re-read and retry)",
+   "expect": [
+    "test_patch_of_a_task_that_moved_returns_409"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "routes_not_registered",
+   "kind": "wiring",
+   "file": "project/infrastructure/api/router_registration.py",
+   "find": "        app.include_router(reference_tasks_router)",
+   "replace": "        pass",
+   "breaks": "the vertical's routes are never mounted; every request answers 404",
+   "expect": [
+    "test_routes_are_registered_when_the_store_is_enabled"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "migration_title_shorter",
+   "kind": "schema",
+   "file": "alembic/versions/001_initial_reference_tasks_schema.py",
+   "find": "sa.Column(\"title\", sa.String(length=200), nullable=False),",
+   "replace": "sa.Column(\"title\", sa.String(length=100), nullable=False),",
+   "breaks": "the column is shorter than the bound the service and the DTO enforce, so a valid long title answers 500",
+   "expect": [
+    "test_alembic_head_matches_the_orm_metadata",
+    "test_the_title_bound_is_the_number_the_migration_wrote"
+   ],
+   "mechanism": "e2e only (alembic head vs ORM metadata); test_the_title_bound_is_the_number_the_migration_wrote pins the constant, not the migration"
+  }
+ ],
+ "baseline": {
+  "commit": "9dc446d",
+  "results": {
+   "create_blank_title_allowed": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_create_rejects_a_blank_title"
+     ]
+    }
+   },
+   "create_title_limit_off_by_one": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_create_accepts_a_title_of_exactly_the_maximum_length"
+     ]
+    }
+   },
+   "list_status_check_removed": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_list_rejects_status_outside_the_domain_set",
+      "test_unknown_status_returns_422_from_the_service_rule"
+     ],
+     "e2e": [
+      "test_unknown_status_returns_422"
+     ]
+    }
+   },
+   "list_limit_check_removed": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_list_rejects_limit_outside_the_allowed_range"
+     ]
+    }
+   },
+   "update_empty_patch_allowed": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_patch_with_no_fields_is_rejected_with_422",
+      "test_update_rejects_a_patch_that_supplies_nothing"
+     ]
+    }
+   },
+   "update_null_title_accepted": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_update_rejects_an_explicit_null_for_a_non_nullable_field"
+     ]
+    }
+   },
+   "update_title_limit_off_by_one": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_update_accepts_a_title_of_exactly_the_maximum_length"
+     ]
+    }
+   },
+   "update_status_check_removed": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_update_rejects_a_status_outside_the_domain_set"
+     ]
+    }
+   },
+   "update_null_cannot_clear": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_patch_with_an_explicit_null_clears_the_field_over_http",
+      "test_update_clears_a_nullable_field_when_the_caller_asks_for_null"
+     ],
+     "e2e": [
+      "test_patch_with_an_explicit_null_empties_the_column"
+     ]
+    }
+   },
+   "update_timestamp_not_bumped": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_patch_returns_200_and_the_changed_task",
+      "test_the_timestamp_that_was_read_is_the_one_the_repository_matches_on",
+      "test_update_changes_only_the_supplied_fields"
+     ],
+     "e2e": [
+      "test_patch_changes_one_field_and_leaves_the_rest"
+     ]
+    }
+   },
+   "update_matches_new_timestamp": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_patch_returns_200_and_the_changed_task",
+      "test_patch_with_an_explicit_null_clears_the_field_over_http",
+      "test_the_timestamp_that_was_read_is_the_one_the_repository_matches_on",
+      "test_update_accepts_a_title_of_exactly_the_maximum_length",
+      "test_update_changes_only_the_supplied_fields",
+      "test_update_clears_a_nullable_field_when_the_caller_asks_for_null",
+      "test_update_leaves_a_field_alone_when_it_is_not_supplied"
+     ],
+     "e2e": [
+      "test_concurrent_patches_never_lose_a_write_that_reported_success",
+      "test_patch_changes_one_field_and_leaves_the_rest",
+      "test_patch_with_an_explicit_null_empties_the_column",
+      "test_two_sequential_patches_of_different_fields_both_survive"
+     ]
+    }
+   },
+   "update_deleted_answers_conflict": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_update_of_a_deleted_task_is_a_404_not_a_conflict"
+     ]
+    }
+   },
+   "normalize_id_passthrough": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_a_malformed_id_never_reaches_the_driver",
+      "test_the_driver_receives_the_canonical_spelling"
+     ]
+    }
+   },
+   "list_filter_inverted": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_list_binds_status_and_limit_instead_of_formatting_them"
+     ],
+     "e2e": [
+      "test_list_by_status_filters_and_orders_newest_first",
+      "test_list_by_status_respects_limit",
+      "test_list_filters_by_status_and_orders_newest_first"
+     ]
+    }
+   },
+   "list_order_ascending": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_list_binds_status_and_limit_instead_of_formatting_them"
+     ],
+     "e2e": [
+      "test_list_by_status_filters_and_orders_newest_first"
+     ]
+    }
+   },
+   "list_order_dropped": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_list_binds_status_and_limit_instead_of_formatting_them"
+     ],
+     "e2e": [
+      "test_list_by_status_filters_and_orders_newest_first"
+     ]
+    }
+   },
+   "list_limit_ignored": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_list_binds_status_and_limit_instead_of_formatting_them"
+     ],
+     "e2e": [
+      "test_list_by_status_respects_limit"
+     ]
+    }
+   },
+   "update_token_loosened": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_update_binds_the_new_state_and_the_expected_timestamp"
+     ],
+     "e2e": [
+      "test_concurrent_patches_never_lose_a_write_that_reported_success",
+      "test_update_refuses_a_row_another_writer_moved"
+     ]
+    }
+   },
+   "update_set_title_details_swapped": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_update_binds_the_new_state_and_the_expected_timestamp"
+     ],
+     "e2e": [
+      "test_concurrent_patches_never_lose_a_write_that_reported_success",
+      "test_patch_changes_one_field_and_leaves_the_rest",
+      "test_patch_with_an_explicit_null_empties_the_column",
+      "test_two_sequential_patches_of_different_fields_both_survive",
+      "test_update_refuses_a_row_another_writer_moved",
+      "test_update_writes_the_new_state_and_returns_it"
+     ]
+    }
+   },
+   "insert_title_details_swapped": {
+    "verdict": "caught:e2e",
+    "caught_by": {
+     "e2e": [
+      "test_concurrent_patches_never_lose_a_write_that_reported_success",
+      "test_create_then_read_round_trip",
+      "test_created_task_is_persisted_in_the_database",
+      "test_get_returns_domain_types_not_driver_types",
+      "test_list_by_status_filters_and_orders_newest_first",
+      "test_list_by_status_respects_limit",
+      "test_list_filters_by_status_and_orders_newest_first",
+      "test_patch_changes_one_field_and_leaves_the_rest",
+      "test_two_sequential_patches_of_different_fields_both_survive",
+      "test_update_refuses_a_row_another_writer_moved",
+      "test_update_writes_the_new_state_and_returns_it"
+     ]
+    }
+   },
+   "insert_stamps_swapped": {
+    "verdict": "missed",
+    "caught_by": {}
+   },
+   "mapper_title_details_swapped": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_optional_details_survive_as_none",
+      "test_row_maps_to_the_expected_domain_object"
+     ],
+     "e2e": [
+      "test_concurrent_patches_never_lose_a_write_that_reported_success",
+      "test_create_then_read_round_trip",
+      "test_get_returns_domain_types_not_driver_types",
+      "test_list_filters_by_status_and_orders_newest_first",
+      "test_patch_with_an_explicit_null_empties_the_column",
+      "test_two_sequential_patches_of_different_fields_both_survive",
+      "test_update_refuses_a_row_another_writer_moved",
+      "test_update_writes_the_new_state_and_returns_it"
+     ]
+    }
+   },
+   "mapper_id_not_stringified": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_get_maps_a_returned_row_through_the_domain_converter",
+      "test_list_maps_every_row",
+      "test_row_maps_to_the_expected_domain_object"
+     ],
+     "e2e": [
+      "test_concurrent_patches_never_lose_a_write_that_reported_success",
+      "test_create_then_read_round_trip",
+      "test_get_returns_domain_types_not_driver_types",
+      "test_list_by_status_filters_and_orders_newest_first",
+      "test_list_filters_by_status_and_orders_newest_first",
+      "test_patch_changes_one_field_and_leaves_the_rest",
+      "test_patch_with_an_explicit_null_empties_the_column",
+      "test_two_sequential_patches_of_different_fields_both_survive"
+     ]
+    }
+   },
+   "mapper_stamps_swapped": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_row_maps_to_the_expected_domain_object"
+     ],
+     "e2e": [
+      "test_patch_changes_one_field_and_leaves_the_rest",
+      "test_two_sequential_patches_of_different_fields_both_survive"
+     ]
+    }
+   },
+   "create_answers_200": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_create_returns_201_and_the_stored_task"
+     ],
+     "e2e": [
+      "test_create_then_read_round_trip"
+     ]
+    }
+   },
+   "patch_null_treated_as_absent": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_patch_with_an_explicit_null_clears_the_field_over_http"
+     ],
+     "e2e": [
+      "test_patch_with_an_explicit_null_empties_the_column"
+     ]
+    }
+   },
+   "list_status_param_ignored": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_unknown_status_returns_422_from_the_service_rule"
+     ],
+     "e2e": [
+      "test_unknown_status_returns_422"
+     ]
+    }
+   },
+   "conflict_answers_400": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_a_conflict_raised_inside_a_span_carries_no_error_level_and_no_traceback",
+      "test_a_domain_error_answered_4xx_is_a_client_error",
+      "test_conflict_error_maps_to_409",
+      "test_patch_of_a_task_that_moved_returns_409"
+     ]
+    }
+   },
+   "routes_not_registered": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_a_malformed_request_body_is_a_client_error",
+      "test_blank_title_is_rejected_before_the_service_runs",
+      "test_create_returns_201_and_the_stored_task",
+      "test_created_task_is_readable_back",
+      "test_limit_above_the_query_bound_is_rejected",
+      "test_list_returns_an_envelope_with_a_count",
+      "test_patch_of_a_task_that_moved_returns_409",
+      "test_patch_returns_200_and_the_changed_task",
+      "test_patch_with_an_explicit_null_clears_the_field_over_http",
+      "test_patch_with_no_fields_is_rejected_with_422",
+      "test_routes_are_registered_when_the_store_is_enabled",
+      "test_unknown_status_returns_422_from_the_service_rule"
+     ],
+     "e2e": [
+      "test_concurrent_patches_never_lose_a_write_that_reported_success",
+      "test_create_then_read_round_trip",
+      "test_created_task_is_persisted_in_the_database",
+      "test_list_filters_by_status_and_orders_newest_first",
+      "test_patch_changes_one_field_and_leaves_the_rest",
+      "test_patch_with_an_explicit_null_empties_the_column",
+      "test_title_longer_than_the_column_is_rejected",
+      "test_two_sequential_patches_of_different_fields_both_survive",
+      "test_unknown_status_returns_422"
+     ]
+    }
+   },
+   "migration_title_shorter": {
+    "verdict": "caught:e2e",
+    "caught_by": {
+     "e2e": [
+      "test_alembic_head_matches_the_orm_metadata"
+     ]
+    }
+   }
+  }
+ }
+}

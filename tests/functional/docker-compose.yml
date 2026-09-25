@@ -21,7 +21,10 @@ services:
     build:
       context: ../../.
       target: app
-    image: test-app-image
+    # No `image:` here or on `tests` below: a fixed tag is one tag for every checkout on the host,
+    # so two `make test-e2e` runs at once built onto it in turn and one of them tested the other's
+    # code. Compose names the build `<project>-test-app`, and the project is per checkout
+    # (scripts/run_all_tests.py::functional_compose_project).
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -52,7 +55,6 @@ services:
     build:
       context: ../../.
       target: functional-tests
-    image: test-runner-image
     working_dir: /app
     entrypoint: >
       sh -c "cd /app/tests/functional/
