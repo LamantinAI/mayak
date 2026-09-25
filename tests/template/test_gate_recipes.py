@@ -874,6 +874,10 @@ class TestTheGateFixesLocallyAndFailsStrictly:
             run(command, cwd=root, env=hermetic_env(), check=True, capture_output=True)
         (root / "src" / "edited.py").write_text("import os\ny  =  2\n", encoding="utf-8")
         (root / "src" / "new.py").write_text("z  =  3\n", encoding="utf-8")
+        # A space and a non-ASCII letter in one new path: split into words, or quoted by git, it
+        # was never fixed — the independent check of step 8 found the first.
+        (root / "src" / "with space").mkdir()
+        (root / "src" / "with space" / "ёж.py").write_text("w  =  4\n", encoding="utf-8")
         return root
 
     # `uv run <tool>` answered by this environment's own tool, so the recipe runs in a throwaway
@@ -913,10 +917,13 @@ class TestTheGateFixesLocallyAndFailsStrictly:
         again = self._fix(repo, tmp_path)
 
         assert first.returncode == 0, first.stderr
+        assert first.stderr == ""
         assert "src/edited.py" in first.stdout and "src/new.py" in first.stdout
+        assert "src/with space/ёж.py" in first.stdout
         assert "untouched" not in first.stdout
         assert (repo / "src" / "edited.py").read_text(encoding="utf-8") == "y = 2\n"
         assert (repo / "src" / "new.py").read_text(encoding="utf-8") == "z = 3\n"
+        assert (repo / "src" / "with space" / "ёж.py").read_text(encoding="utf-8") == "w = 4\n"
         assert (repo / "src" / "untouched.py").read_text(encoding="utf-8") == "x  =  1\n"
         assert again.stdout == ""
 

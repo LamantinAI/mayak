@@ -148,33 +148,33 @@ gate-types:
 gate-tests:
 	@$(UV) run python scripts/run_all_tests.py --skip-functional
 
-# The Python this checkout changed: tracked files that differ from HEAD, staged or not, and new
-# files git does not ignore — under PYTHON_SOURCES, and only those that still exist.
-CHANGED_PYTHON = $(shell { git diff --name-only HEAD -- $(PYTHON_SOURCES); \
-	git ls-files --others --exclude-standard -- $(PYTHON_SOURCES); } 2>/dev/null \
-	| grep '\.py$$' | sort -u | while read -r f; do [ -f "$$f" ] && echo "$$f"; done)
-
 # Before a local check: apply ruff's safe fixes to the changed Python and then format it — in that
 # order, since a removed import can leave a line the formatter still has to close — and name
 # every file that rewrote — before the checks, so the list is shown even when one fails. Changed
-# files only: an untouched file rewritten here would land in a diff about something else, and
-# `make ai-autofix` is the command for the whole tree. STRICT_RUFF=1 — the pre-commit hook,
-# ci-local and CI — skips it, and there a fixable finding is red. ADR-012.
+# files only — tracked ones that differ from HEAD, staged or not, and new ones git does not ignore:
+# an untouched file rewritten here would land in a diff about something else, and `make ai-autofix`
+# is the command for the whole tree. The list travels NUL-separated, never through $(shell), which
+# joins lines with spaces: a path with a space in it was split into words and never fixed.
+# STRICT_RUFF=1 — the pre-commit hook, ci-local and CI — skips it, and there a fixable finding is
+# red. ADR-012.
 ruff-fix-unless-strict:
 	@if [ "$(STRICT_RUFF)" = "1" ]; then \
 		exit 0; \
 	fi; \
-	files="$(CHANGED_PYTHON)"; \
-	if [ -z "$$files" ]; then \
+	list=$$(mktemp); before=$$(mktemp); after=$$(mktemp); \
+	trap 'rm -f "$$list" "$$before" "$$after"' EXIT; \
+	{ git diff -z --name-only HEAD -- $(PYTHON_SOURCES) 2>/dev/null; \
+		git ls-files -z --others --exclude-standard -- $(PYTHON_SOURCES); } \
+		| tr '\0' '\n' | grep '\.py$$' | sort -u \
+		| while IFS= read -r file; do [ -f "$$file" ] && printf '%s\0' "$$file"; done > "$$list"; \
+	if [ ! -s "$$list" ]; then \
 		exit 0; \
 	fi; \
-	before=$$(mktemp); after=$$(mktemp); \
-	shasum $$files > "$$before"; \
-	$(UV) run ruff check --fix --no-unsafe-fixes --quiet $$files >/dev/null 2>&1; \
-	$(UV) run ruff format --quiet $$files; \
-	shasum $$files > "$$after"; \
-	changed=$$(diff "$$before" "$$after" | grep '^>' | awk '{print $$3}'); \
-	rm -f "$$before" "$$after"; \
+	xargs -0 shasum < "$$list" > "$$before"; \
+	xargs -0 $(UV) run ruff check --fix --no-unsafe-fixes --quiet < "$$list" >/dev/null 2>&1; \
+	xargs -0 $(UV) run ruff format --quiet < "$$list"; \
+	xargs -0 shasum < "$$list" > "$$after"; \
+	changed=$$(diff "$$before" "$$after" | sed -n 's/^> [0-9a-f]*  //p'); \
 	if [ -n "$$changed" ]; then \
 		echo "--- ruff rewrote these files; read the change before committing ---"; \
 		echo "$$changed" | sed 's/^/  /'; \
