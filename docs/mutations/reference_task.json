@@ -605,7 +605,7 @@
   }
  ],
  "baseline": {
-  "commit": "6bba303",
+  "commit": "61c7c05",
   "results": {
    "create_blank_title_allowed": {
     "verdict": "caught:fast",
