@@ -41,15 +41,23 @@ _RESOURCE_ALLOWED_PATHS = {
     # nothing flags the direct `httpx.Client().post(...)` chain — measured with a probe file.
     # This entry is what covers the second shape, and it also catches the construction itself
     # rather than the call, which is the part that leaks a connection pool per request.
-    #
-    # Matching is by the last segment of the dotted name, as it is for every entry here: a local
-    # class named Client, or another library's Client, would be flagged too. No such name exists
-    # in project/ or tests/ today; when one appears, the fix is an allowlist path, not a rename.
     "Client": {"project/core/composition_root.py"},
     # Preventive: aiohttp ClientSession would also be a shared long-lived resource.
     "ClientSession": {"project/core/composition_root.py"},
     # Preventive: SQLAlchemy async engines own connection pools and must be created once.
     "create_async_engine": {"project/core/composition_root.py"},
+}
+
+# The library each guarded name must be imported from to count. Matching the last segment of the
+# name alone flagged a project's own domain class `Client` — a customer, in a business that has
+# them — and told the agent to create it in the composition root: a red gate on correct code
+# (2026-09-25). A name defined locally or imported from anywhere else is not these resources.
+_RESOURCE_MODULES = {
+    "AsyncConnectionPool": "psycopg_pool",
+    "AsyncClient": "httpx",
+    "Client": "httpx",
+    "ClientSession": "aiohttp",
+    "create_async_engine": "sqlalchemy",
 }
 
 _RUNTIME_OWNERSHIP_RULE_PLAYBOOKS = {
@@ -77,8 +85,10 @@ _RUNTIME_OWNERSHIP_RULE_PLAYBOOKS = {
         ),
     },
     "runtime_ownership.app_state_services_write_restricted": {
+        # Assignment only: `services["x"] = ...`, setattr() and .update() are not recognised, and
+        # no agent has been seen writing them. A form earns a rule when a real defect uses it.
         "meaning": (
-            "A module outside the canonical runtime wiring path wrote to app.state.services."
+            "A module outside the canonical runtime wiring path assigned app.state.services."
         ),
         "read_first": [
             "AGENTS.md",
@@ -276,13 +286,12 @@ def _dotted_path(node: ast.AST, bindings: dict[str, str]) -> str | None:
 # Returns: Resource name from the allowlist, or None.
 def _resource_name_from_call(node: ast.Call, bindings: dict[str, str]) -> str | None:
     dotted = _dotted_path(node.func, bindings)
-    if dotted is not None:
-        candidate = dotted.rsplit(".", 1)[-1]
-        if candidate in _RESOURCE_ALLOWED_PATHS:
-            return candidate
-    func = node.func
-    if isinstance(func, ast.Name) and func.id in _RESOURCE_ALLOWED_PATHS:
-        return func.id
+    if dotted is None:
+        return None
+    module, _, name = dotted.rpartition(".")
+    owner = _RESOURCE_MODULES.get(name)
+    if owner is not None and (module == owner or module.startswith(owner + ".")):
+        return name
     return None
 
 

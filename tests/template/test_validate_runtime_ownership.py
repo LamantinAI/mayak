@@ -233,6 +233,7 @@ class TestValidateRuntimeOwnership:
         [
             ("import httpx", "httpx.Client()"),
             ("from httpx import Client", "Client()"),
+            ("from httpx import Client as Http", "Http()"),
         ],
     )
     def test_validator_rejects_synchronous_http_client_outside_composition_root(
@@ -263,6 +264,35 @@ class TestValidateRuntimeOwnership:
             issue.rule_id == "runtime_ownership.shared_resource_creation_restricted"
             for issue in issues
         ), f"Expected shared-resource flag for {construction}, got: {[i.message for i in issues]}"
+
+    # A customer is a Client in plenty of businesses. Matched by the last word of its name, the
+    # project's own class was flagged and the agent told to build it in the composition root.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("module", "content"),
+        [
+            (
+                "project/application/customer_service.py",
+                "from project.domain.client import Client\n\n"
+                "def open_account(name: str) -> Client:\n"
+                "    return Client(name=name)\n",
+            ),
+            (
+                "project/domain/client.py",
+                "class Client:\n"
+                "    def __init__(self, name: str) -> None:\n"
+                "        self.name = name\n\n"
+                "def walk_in() -> Client:\n"
+                "    return Client('guest')\n",
+            ),
+        ],
+    )
+    def test_a_class_of_the_projects_own_named_like_a_resource_is_not_one(
+        self, tmp_path: Path, module: str, content: str
+    ) -> None:
+        _write_fixture(tmp_path / module, content)
+
+        assert collect_runtime_ownership_issues(tmp_path) == []
 
     @pytest.mark.unit
     def test_validator_emits_syntax_error_issue_on_broken_file(
