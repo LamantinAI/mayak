@@ -1,7 +1,5 @@
 # FILE: project/application/reference_task_service.py
-# SUMMARY: Reference application service — the worked example of the orchestration layer in this
-# template. It is deliberately small: create, read, list. What it demonstrates is the shape, not
-# the feature.
+# SUMMARY: Reference application service: create, read, list and a read-modify-write update, over a port.
 
 from __future__ import annotations
 
@@ -12,63 +10,39 @@ from uuid import uuid4
 from project.domain.exceptions import ConflictError, NotFoundError, ValidationError
 from project.domain.ports import ReferenceTaskRepositoryPort
 from project.domain.reference_task import (
-    ALLOWED_STATUSES,
     DEFAULT_STATUS,
-    MAX_TITLE_LENGTH,
     ReferenceTask,
+    check_status,
+    check_title,
 )
 
 
-# The type of the UNCHANGED sentinel below; it exists so mypy can name it in signatures.
 class _Unchanged:
     pass
 
 
-# "This field was not part of the patch", as distinct from "this field was set to null".
-# A patch has three possible states per field and `None` can only express two of them. With
-# `details: str | None = None`, a caller who sends `{"details": null}` to clear the description is
-# indistinguishable from one who never mentioned details at all — so the field can never be
-# emptied, the request answers 200, and nothing changed. Every vertical with a nullable column
-# inherits that trap by copying, which is why the exemplar carries the fix rather than a warning.
+# "Not part of the patch", as distinct from "set to null": with `None` meaning both, a nullable
+# field could never be cleared — `{"details": null}` would answer 200 and change nothing.
 UNCHANGED = _Unchanged()
 
-# Hard ceiling on page size, enforced here rather than only in the DTO. A caller that
-# reaches the service directly — a background job, another service, a test — bypasses FastAPI
-# validation entirely, so a limit that lives only in the request model is not a limit.
+# Enforced here, not only over HTTP: a job or a test that calls the service never meets a request model.
 MAX_LIST_LIMIT = 200
 
 
-# The constructor takes the Protocol, never the concrete repository: that is what lets the unit
-# tests run without a database and what keeps psycopg out of this layer.
-# scripts/validate_architecture.py enforces the ban mechanically —
-# _APPLICATION_BANNED_PREFIXES = ("project.infrastructure",) — so an import of the concrete
-# adapter here fails the gate rather than merely violating a convention.
+# Takes the Protocol, never the repository: scripts/validate_architecture.py fails an import of
+# project.infrastructure here, and the unit tests run without a database.
 class ReferenceTaskService:
-    # Store the repository port supplied by service_registration.build_reference_services.
     def __init__(self, repository: ReferenceTaskRepositoryPort) -> None:
         self._repository = repository
 
     async def create_task(self, title: str, details: str | None = None) -> ReferenceTask:
-        # The same bound the DTO declares, enforced again here for the same reason
-        # MAX_LIST_LIMIT is: a non-HTTP caller never meets the DTO. Without this the title reaches
-        # a varchar(200) column and the driver's error becomes a 500 instead of a 422.
-        if not title.strip():
-            raise ValidationError("title must not be empty")
-        if len(title) > MAX_TITLE_LENGTH:
-            raise ValidationError(
-                f"title must be at most {MAX_TITLE_LENGTH} characters, got {len(title)}"
-            )
-
-        # Identity and time are decided here, not in the endpoint and not in the
-        # database. The endpoint would make them client-controllable; a database default would
-        # make them invisible to the unit tests and untestable without a live server.
-        # One instant for both stamps. `updated_at` doubles as the optimistic token
-        # an update matches on, so a row has to carry one from the moment it exists — a NULL or a
-        # database-side default would leave the first update with nothing to compare against.
+        # Identity and time are decided here: the endpoint would let a client choose them, and a
+        # database default would hide them from the unit tests. One instant for both stamps,
+        # because updated_at is the token the first update compares against.
         now = datetime.now(timezone.utc)
         task = ReferenceTask(
             id=str(uuid4()),
-            title=title,
+            title=check_title(title),
             details=details,
             status=DEFAULT_STATUS,
             created_at=now,
@@ -80,30 +54,21 @@ class ReferenceTaskService:
     async def get_task(self, task_id: str) -> ReferenceTask:
         task = await self._repository.get(task_id)
         if task is None:
-            # The service raises a domain exception; it does not know about HTTP.
-            # exception_handlers.py maps NotFoundError to 404 for every endpoint at once, so an
-            # endpoint that catches this to build its own response is duplicating the mapping.
+            # A domain error; exception_handlers.py maps it to 404 for every endpoint at once.
             raise NotFoundError(f"Reference task '{task_id}' does not exist")
         return task
 
-    # Returns tasks ordered by creation time descending.
     async def list_tasks(self, status: str, limit: int = 50) -> list[ReferenceTask]:
-        if status not in ALLOWED_STATUSES:
-            allowed = ", ".join(sorted(ALLOWED_STATUSES))
-            raise ValidationError(f"Unknown status '{status}'. Allowed statuses: {allowed}")
+        check_status(status)
         if not 1 <= limit <= MAX_LIST_LIMIT:
-            raise ValidationError(f"limit must be between 1 and {MAX_LIST_LIMIT}, got {limit}")
+            raise ValidationError(
+                f"limit must be between 1 and {MAX_LIST_LIMIT}, got {limit}", field="limit"
+            )
         return await self._repository.list_by_status(status, limit)
 
-    # Raises ValidationError when no field was supplied or one is out of bounds, NotFoundError when
-    # the task is gone, ConflictError when somebody else wrote it since it was read.
-    # This method is the worked example of read-modify-write, which is the shape every
-    # non-trivial update has and the one the create/read/list trio above cannot show. The three
-    # lines that matter are the read, the fresh timestamp, and passing the OLD timestamp to the
-    # repository as the condition. Copy all three: dropping the last one turns this into a blind
-    # overwrite that loses a concurrent update without a single failing test, because a unit test
-    # against a fake repository has no second writer and cannot see it. See
-    # docs/adr/ADR-007-autocommit-and-explicit-transactions.md, "Read-modify-write across requests".
+    # Read-modify-write, the shape of every non-trivial update: read, stamp a new updated_at, and
+    # write on condition of the OLD one. Drop the condition and a concurrent update is lost with no
+    # failing test — ADR-007, "Read-modify-write across requests".
     async def update_task(
         self,
         task_id: str,
@@ -111,64 +76,22 @@ class ReferenceTaskService:
         details: str | None | _Unchanged = UNCHANGED,
         status: str | None | _Unchanged = UNCHANGED,
     ) -> ReferenceTask:
-        # An empty patch is a caller mistake, not a no-op to absorb quietly: it
-        # would otherwise bump updated_at and answer 200 for a request that asked for nothing.
-        if (
-            isinstance(title, _Unchanged)
-            and isinstance(details, _Unchanged)
-            and isinstance(status, _Unchanged)
-        ):
+        # An empty patch would bump updated_at and answer 200 for a request that asked for nothing.
+        if all(isinstance(field, _Unchanged) for field in (title, details, status)):
             raise ValidationError("at least one of title, details or status must be provided")
-
-        # Reuse the repository read so an unknown id raises NotFoundError here
-        # exactly as it does on a read — the endpoint then needs no branch of its own for it.
-        current = await self._repository.get(task_id)
-        if current is None:
-            raise NotFoundError(f"Reference task '{task_id}' does not exist")
-
-        # `title` and `status` back non-nullable columns, so an explicit null is a
-        # caller mistake rather than a clearing instruction — the asymmetry with `details` above is
-        # the column definitions, not an oversight, and it is answered with 422 rather than a 500
-        # from the driver.
-        if not isinstance(title, _Unchanged):
-            if title is None:
-                raise ValidationError("title must not be null")
-            if not title.strip():
-                raise ValidationError("title must not be empty")
-            if len(title) > MAX_TITLE_LENGTH:
-                raise ValidationError(
-                    f"title must be at most {MAX_TITLE_LENGTH} characters, got {len(title)}"
-                )
-        if not isinstance(status, _Unchanged):
-            if status is None:
-                raise ValidationError("status must not be null")
-            if status not in ALLOWED_STATUSES:
-                allowed = ", ".join(sorted(ALLOWED_STATUSES))
-                raise ValidationError(f"Unknown status '{status}'. Allowed statuses: {allowed}")
-
-        # `isinstance(..., _Unchanged)`, never `is None` — that is the whole point
-        # of the sentinel. `details=None` here means the caller asked for the description to be
-        # cleared, and the row must end up with NULL in that column.
+        current = await self.get_task(task_id)
         changed = replace(
             current,
-            title=current.title if isinstance(title, _Unchanged) else title,
+            title=current.title if isinstance(title, _Unchanged) else check_title(title),
             details=current.details if isinstance(details, _Unchanged) else details,
-            status=current.status if isinstance(status, _Unchanged) else status,
+            status=current.status if isinstance(status, _Unchanged) else check_status(status),
             updated_at=datetime.now(timezone.utc),
         )
-
-        # `current.updated_at` — the value read a moment ago, not the new one — is
-        # what the repository matches the stored row against. None back means the row is no longer
-        # the row this method read.
         stored = await self._repository.update(changed, expected_updated_at=current.updated_at)
         if stored is None:
-            # A miss has two causes and they need different answers. The row was
-            # written by somebody else — retry after re-reading, 409 — or it was deleted, and
-            # telling that caller to retry sends them after a row that will never come back. One
-            # extra read is what separates the two; the repository cannot, because from inside the
-            # UPDATE both look like zero rows.
-            if await self._repository.get(task_id) is None:
-                raise NotFoundError(f"Reference task '{task_id}' does not exist")
+            # Zero rows means the row moved (409: re-read and retry) or is gone (404: retrying
+            # chases a row that will not come back). The UPDATE cannot tell; a second read can.
+            await self.get_task(task_id)
             raise ConflictError(
                 f"Reference task '{task_id}' was modified by another request; re-read and retry"
             )

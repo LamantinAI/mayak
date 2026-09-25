@@ -106,17 +106,18 @@ class ExceptionHandlerManager:
             error_summary=summarize_exception_for_logging(exc),
         )
 
-        # Return structured error response.
-        return JSONResponse(
-            status_code=status_code,
-            content={
-                "error": {
-                    "type": "ProjectError",
-                    "message": get_client_safe_message(exc),
-                    "status_code": status_code,
-                }
-            },
-        )
+        error: dict[str, object] = {
+            "type": "ProjectError",
+            "message": get_client_safe_message(exc),
+            "status_code": status_code,
+        }
+        # A rule that names its field answers in the shape _render_validation_error gives a
+        # request the framework refused, so the client learns which field either way.
+        if isinstance(exc, ValidationError) and exc.field is not None:
+            error["details"] = [
+                {"field": exc.field, "message": error["message"], "type": "value_error"}
+            ]
+        return JSONResponse(status_code=status_code, content={"error": error})
 
     async def _handle_http_exception(self, request: Request, exc: Exception) -> JSONResponse:
         if not isinstance(exc, HTTPException):

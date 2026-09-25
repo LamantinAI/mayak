@@ -92,8 +92,8 @@ Project Map: Mayak
 │   │   ├── __init__.py  ---  Application layer containing orchestration services and DTOs.
 │   │   ├── core_model.py  ---  Shared Pydantic base model for application DTOs with strict default validation settings.
 │   │   ├── dtos.py  ---  Contains Pydantic models for API input/output data transfer objects.
-│   │   ├── reference_task_dtos.py  ---  Wire contract for the reference vertical. Kept out of project/application/dtos.py on
-│   │   └── reference_task_service.py  ---  Reference application service — the worked example of the orchestration layer in this
+│   │   ├── reference_task_dtos.py  ---  Wire contract for the reference vertical — types only; the bounds are the domain's checks.
+│   │   └── reference_task_service.py  ---  Reference application service: create, read, list and a read-modify-write update, over a port.
 │   ├── common/
 │   │   ├── __init__.py  ---  Shared utilities and helpers used across all layers.
 │   │   └── sampling.py  ---  Decide whether one liveness-probe request should be logged, so an orchestrator polling
@@ -131,7 +131,7 @@ Project Map: Mayak
 │   │   ├── __init__.py  ---  Domain layer with pure business logic, exceptions, and port interfaces.
 │   │   ├── exceptions.py  ---  Defines the hierarchy of custom exceptions for the entire application.
 │   │   ├── ports.py  ---  Canonical example of a domain port (dependency inversion boundary). Verticals add their own ports alongside this one.
-│   │   └── reference_task.py  ---  Framework-free domain model backing the kernel's reference persistence example.
+│   │   └── reference_task.py  ---  The reference task: its fields, its statuses, and the checks every writer meets, over HTTP or not.
 │   ├── infrastructure/
 │   │   ├── agents/
 │   │   │   ├── __init__.py  ---  Infrastructure implementations for agents.
@@ -144,7 +144,7 @@ Project Map: Mayak
 │   │   │   ├── endpoints/
 │   │   │   │   ├── __init__.py  ---  Package initialization for API endpoints.
 │   │   │   │   ├── health.py  ---  Health check endpoint for monitoring application status.
-│   │   │   │   └── reference_tasks.py  ---  Reference HTTP surface for the template's worked vertical. Every handler is three lines
+│   │   │   │   └── reference_tasks.py  ---  Reference HTTP surface: each handler parses, delegates to the service, converts the result.
 │   │   │   ├── __init__.py  ---  FastAPI infrastructure including endpoints, middleware, dependencies, and exception handlers.
 │   │   │   ├── dependencies.py  ---  FastAPI dependency injection helpers for accessing application services from app.state.
 │   │   │   ├── exception_handlers.py  ---  FastAPI exception handlers for translating domain exceptions to HTTP responses with semantic logging.

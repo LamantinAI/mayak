@@ -2,7 +2,7 @@
 # SUMMARY: The reference vertical's rules decided before anything is written, and its wiring — no database.
 # What needs a write — the stored row, the update token, a conflict, a filter — is proved
 # against PostgreSQL in tests/db/, not here against an imitation of it. What stays here is what the
-# service decides on its own: bounds, closed sets, an empty or null patch.
+# domain's checks and the service decide on their own: bounds, closed sets, an empty or null patch.
 
 from __future__ import annotations
 
@@ -11,21 +11,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import pydantic
 import pytest
 from fastapi import FastAPI
 
 from ai_context.extraction import extract_service_registry_entries
-from project.application.reference_task_dtos import ReferenceTaskCreateRequest
 from project.application.reference_task_service import MAX_LIST_LIMIT, ReferenceTaskService
 from project.domain.exceptions import ValidationError
 from project.domain.ports import ReferenceTaskRepositoryPort
-from project.domain.reference_task import (
-    ALLOWED_STATUSES,
-    DEFAULT_STATUS,
-    MAX_TITLE_LENGTH,
-    ReferenceTask,
-)
+from project.domain.reference_task import DEFAULT_STATUS, MAX_TITLE_LENGTH, ReferenceTask
 from tests.conftest import registered_paths
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -139,15 +132,12 @@ async def test_update_writes_the_patch_conditioned_on_the_timestamp_it_read() ->
     assert all(written.updated_at > _STORED.updated_at for written, _ in port.writes)
 
 
+# 200 as a literal, once: every other test builds its strings from the constant and moves with it.
+# `alembic check` in tests/db compares the migration's String(200) with the ORM column, which reads
+# the constant; this holds the constant to that same number.
 @pytest.mark.unit
-def test_the_bounds_the_service_enforces_are_the_ones_the_schema_and_the_dto_carry() -> None:
-    # 200 as a literal, once: every other test builds its string from the constant
-    # and moves with it. The migration's String(200) is compared with the ORM by `alembic check`
-    # in tests/db; this holds the constant to that same number.
+def test_the_title_bound_is_the_width_of_the_column() -> None:
     assert MAX_TITLE_LENGTH == 200
-    assert DEFAULT_STATUS in ALLOWED_STATUSES
-    with pytest.raises(pydantic.ValidationError):
-        ReferenceTaskCreateRequest(title="x" * (MAX_TITLE_LENGTH + 1))
 
 
 class TestWiring:

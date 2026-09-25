@@ -33,6 +33,21 @@ repository call, `agent.tool.<tool_name>` for one tool call inside an agent loop
 shows the tool name and, for that `agent.tool.` prefix only, the span's `input_params` inline — so a
 tool call is legible without a wrapper of the project's own.
 
+## A database call is a span an operator can see
+
+Every repository method opens `db.<vertical>.<operation>` with `level=logging.INFO` and puts its
+outcome in `span.output` — a row count, a found/not-found flag, rows written. Both halves were
+measured on a live container:
+
+- Without the spans, a request whose query returned the wrong rows rendered as `OK 200, 0 spans`,
+  the same as a correct one. A span that records only its duration hides the same thing: a query
+  that matched nothing and one that found the row read alike.
+- A child span defaults to DEBUG and production runs at INFO, so a span left at its default exists
+  and shows nothing — the same `0 spans` again.
+
+The price, measured with a handler that writes nothing: 3 639 ns per span filtered against 21 682 ns
+written — three spans per request at 1 000 rps is 1.1% of one core against 6.5%.
+
 ## A routine rejection is not a crash
 
 A `ProjectError` caught inside a `logger.span(...)` is judged the way `exception_handlers.py` judges

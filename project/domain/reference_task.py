@@ -1,77 +1,65 @@
 # FILE: project/domain/reference_task.py
-# SUMMARY: Framework-free domain model backing the kernel's reference persistence example.
+# SUMMARY: The reference task: its fields, its statuses, and the checks every writer meets, over HTTP or not.
 
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
 
-# Mirrors the server-side default in the ORM model.
+from project.domain.exceptions import ValidationError
+
 DEFAULT_STATUS = "pending"
-
-# The status that frees a task's title for reuse.
-# The rule it belongs to — at most one open task per title, case-insensitively — is not
-# enforced here or in the service. It spans rows, so only the database can hold it for two
-# concurrent writers: the partial unique index uq_reference_tasks_open_title (`WHERE status <>
-# 'done'`), turned into ConflictError by the repository. See ADR-007.
+# Closing a task frees its title. "At most one open task per title" spans rows, so it is held by
+# the partial unique index uq_reference_tasks_open_title, not by a check here — ADR-007.
 CLOSED_STATUS = "done"
-
-# The closed set of workflow statuses. Lives in the domain, not in the DTO, because it is
-# a business rule rather than a wire-format detail: the service enforces it for every caller,
-# including callers that never pass through FastAPI validation.
 ALLOWED_STATUSES = frozenset({DEFAULT_STATUS, "in_progress", CLOSED_STATUS})
-
-# Longest title the store can hold. One number, three consumers: the ORM column, the
-# request DTO, and the service. Living only in the DTO and the ORM column would let a caller
-# that reaches the service without passing through FastAPI — a background job, a queue
-# consumer, a test — hand over a longer title and turn its own mistake into a database error
-# surfacing as a 500. A bound the domain owns applies to every caller.
+# Also the width of the ORM column: a longer title would reach the database and come back a 500.
 MAX_TITLE_LENGTH = 200
-
-
-# Returns canonical lowercase hyphenated UUID, or None when the value cannot be one.
-# The store keys tasks by a uuid column, so a value that is not a UUID cannot match any row.
-# Saying that here, in the domain, rather than letting the driver discover it: PostgreSQL answers a
-# malformed literal with InvalidTextRepresentation, which unwinds as an unhandled exception and
-# reaches the client as 500. Measured on a live container — `GET /reference-tasks/does-not-exist`
-# returned "InternalServerError" for what is plainly a request for something that is not there.
-#
-# It returns the canonical form rather than a yes/no, because the two grammars are not the same
-# one. Python's uuid.UUID also accepts `urn:uuid:...`, a bare `uuid:` or `urn:` prefix, braces, and
-# unhyphenated hex; PostgreSQL's uuid input accepts braces, case and hyphen variation but no scheme
-# prefix. A pure predicate therefore waved `urn:uuid:a0ee...` through to the driver, which rejected
-# it — the same 500, for a narrower and much less obvious set of inputs. Canonicalising closes the
-# gap in the direction that cannot fail: whatever spelling Python understands leaves here in the
-# one spelling PostgreSQL is documented to accept.
-def normalize_task_id(task_id: str) -> Optional[str]:
-    try:
-        return str(uuid.UUID(task_id))
-    except (ValueError, AttributeError, TypeError):
-        return None
 
 
 @dataclass(frozen=True, slots=True)
 class ReferenceTask:
-    # Never a uuid.UUID at the domain boundary.
-    id: str
-
+    id: str  # a str at the domain boundary, never uuid.UUID
     title: str
-
     details: str | None
-
     status: str
-
     created_at: datetime
-
-    # Timestamp of the last write, and the token that makes an update detect a lost one.
-    # This field exists for the concurrency check, not for display. An update reads the task,
-    # changes a field and writes it back; between the read and the write another request can do the
-    # same, and a blind `UPDATE ... WHERE id = %s` then overwrites whatever that request stored —
-    # a lost update, silent, with both callers told they succeeded. The repository's update instead
-    # matches on `id AND updated_at`, so a row written by somebody else since the read matches
-    # nothing and the service answers 409 rather than destroying that write. Full reasoning, and
-    # when to prefer an integer version column instead, are in
-    # docs/adr/ADR-007-autocommit-and-explicit-transactions.md.
+    # Also the optimistic token: an update writes only while the row still carries the value it
+    # read, so a concurrent update is refused rather than silently erased — ADR-007.
     updated_at: datetime
+
+
+# The field checks live here, once, so every caller meets them — a request, a job, a test — and the
+# DTO declares types only. The service calls them on every path that writes or filters.
+def check_title(title: str | None) -> str:
+    if title is None:
+        raise ValidationError("title must not be null", field="title")
+    if not title.strip():
+        raise ValidationError("title must not be empty", field="title")
+    if len(title) > MAX_TITLE_LENGTH:
+        raise ValidationError(
+            f"title must be at most {MAX_TITLE_LENGTH} characters, got {len(title)}", field="title"
+        )
+    return title
+
+
+def check_status(status: str | None) -> str:
+    if status is None:
+        raise ValidationError("status must not be null", field="status")
+    if status not in ALLOWED_STATUSES:
+        allowed = ", ".join(sorted(ALLOWED_STATUSES))
+        raise ValidationError(
+            f"Unknown status '{status}'. Allowed statuses: {allowed}", field="status"
+        )
+    return status
+
+
+# The canonical spelling of an id, or None when it cannot be one — a miss, not the 500 PostgreSQL's
+# uuid input makes of a malformed literal. Canonical rather than a yes/no: Python also accepts
+# `urn:uuid:...` and bare hex, which PostgreSQL rejects, so the caller's spelling never reaches it.
+def normalize_task_id(task_id: str) -> str | None:
+    try:
+        return str(uuid.UUID(task_id))
+    except (ValueError, AttributeError, TypeError):
+        return None

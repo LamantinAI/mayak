@@ -15,24 +15,28 @@
   {
    "id": "create_blank_title_allowed",
    "kind": "rule",
-   "file": "project/application/reference_task_service.py",
-   "find": "\n        if not title.strip():",
-   "replace": "\n        if False:",
-   "breaks": "a blank title is stored instead of answering 422",
+   "file": "project/domain/reference_task.py",
+   "find": "\n    if not title.strip():",
+   "replace": "\n    if False:",
+   "breaks": "a blank title is stored, by a create or an update, instead of answering 422",
    "expect": [
-    "test_create_rejects_a_blank_title"
+    "test_a_malformed_request_body_is_a_client_error",
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+    "test_create_refuses_a_blank_or_overlong_title_before_writing"
    ],
    "mechanism": "direct"
   },
   {
    "id": "create_title_limit_off_by_one",
    "kind": "rule",
-   "file": "project/application/reference_task_service.py",
-   "find": "\n        if len(title) > MAX_TITLE_LENGTH:",
-   "replace": "\n        if len(title) >= MAX_TITLE_LENGTH:",
-   "breaks": "a title of exactly the maximum length is refused",
+   "file": "project/domain/reference_task.py",
+   "find": "\n    if len(title) > MAX_TITLE_LENGTH:",
+   "replace": "\n    if len(title) >= MAX_TITLE_LENGTH:",
+   "breaks": "a title of exactly the maximum length is refused, by a create or an update",
    "expect": [
-    "test_create_accepts_a_title_of_exactly_the_maximum_length"
+    "test_create_accepts_a_title_of_exactly_the_maximum_length",
+    "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+    "test_update_writes_the_patch_conditioned_on_the_timestamp_it_read"
    ],
    "mechanism": "direct"
   },
@@ -40,13 +44,12 @@
    "id": "list_status_check_removed",
    "kind": "rule",
    "file": "project/application/reference_task_service.py",
-   "find": "\n        if status not in ALLOWED_STATUSES:",
-   "replace": "\n        if False:",
+   "find": "        check_status(status)\n        if not 1 <= limit",
+   "replace": "        if not 1 <= limit",
    "breaks": "listing by an unknown status answers 200 with an empty page instead of 422",
    "expect": [
-    "test_list_rejects_status_outside_the_domain_set",
-    "test_unknown_status_returns_422_from_the_service_rule",
-    "test_unknown_status_returns_422"
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+    "test_list_refuses_an_unknown_status_or_a_page_out_of_bounds"
    ],
    "mechanism": "direct"
   },
@@ -58,7 +61,8 @@
    "replace": "if False:",
    "breaks": "a caller that bypasses HTTP can ask for any page size",
    "expect": [
-    "test_list_rejects_limit_outside_the_allowed_range"
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+    "test_list_refuses_an_unknown_status_or_a_page_out_of_bounds"
    ],
    "mechanism": "direct"
   },
@@ -70,32 +74,48 @@
    "replace": "pass",
    "breaks": "an empty PATCH bumps updated_at and answers 200 instead of 422",
    "expect": [
-    "test_update_rejects_a_patch_that_supplies_nothing",
-    "test_patch_with_no_fields_is_rejected_with_422"
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+    "test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writing"
    ],
    "mechanism": "direct"
   },
   {
    "id": "update_null_title_accepted",
    "kind": "rule",
-   "file": "project/application/reference_task_service.py",
+   "file": "project/domain/reference_task.py",
    "find": "if title is None:",
    "replace": "if False:",
    "breaks": "an explicit null title reaches the NOT NULL column and answers 500 instead of 422",
    "expect": [
-    "test_update_rejects_an_explicit_null_for_a_non_nullable_field"
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+    "test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writing"
    ],
    "mechanism": "direct"
   },
   {
-   "id": "update_title_limit_off_by_one",
+   "id": "update_title_not_checked",
    "kind": "rule",
    "file": "project/application/reference_task_service.py",
-   "find": "\n            if len(title) > MAX_TITLE_LENGTH:",
-   "replace": "\n            if len(title) >= MAX_TITLE_LENGTH:",
-   "breaks": "an update to a title of exactly the maximum length is refused",
+   "find": "else check_title(title),",
+   "replace": "else title,",
+   "breaks": "an update skips the title checks: a blank title is stored, a null or an overlong one answers 500 instead of 422",
    "expect": [
-    "test_update_accepts_a_title_of_exactly_the_maximum_length"
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+    "test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writing"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "create_title_not_checked",
+   "kind": "rule",
+   "file": "project/application/reference_task_service.py",
+   "find": "title=check_title(title),",
+   "replace": "title=title,",
+   "breaks": "a create skips the title checks: a blank title is stored, an overlong one answers 500 instead of 422",
+   "expect": [
+    "test_a_malformed_request_body_is_a_client_error",
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+    "test_create_refuses_a_blank_or_overlong_title_before_writing"
    ],
    "mechanism": "direct"
   },
@@ -103,11 +123,12 @@
    "id": "update_status_check_removed",
    "kind": "rule",
    "file": "project/application/reference_task_service.py",
-   "find": "\n            if status not in ALLOWED_STATUSES:",
-   "replace": "\n            if False:",
+   "find": "else check_status(status),",
+   "replace": "else status,",
    "breaks": "an update can store a status outside the domain's closed set",
    "expect": [
-    "test_update_rejects_a_status_outside_the_domain_set"
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+    "test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writing"
    ],
    "mechanism": "direct"
   },
@@ -119,9 +140,8 @@
    "replace": "details=current.details if isinstance(details, _Unchanged) or details is None else details,",
    "breaks": "an explicit null no longer clears the nullable field; the request answers 200 and changes nothing",
    "expect": [
-    "test_update_clears_a_nullable_field_when_the_caller_asks_for_null",
-    "test_patch_with_an_explicit_null_clears_the_field_over_http",
-    "test_patch_with_an_explicit_null_empties_the_column"
+    "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+    "test_update_writes_the_patch_conditioned_on_the_timestamp_it_read"
    ],
    "mechanism": "direct"
   },
@@ -133,9 +153,8 @@
    "replace": "updated_at=current.updated_at,",
    "breaks": "the optimistic token never moves, so a second writer holding the same read overwrites the first (lost update)",
    "expect": [
-    "test_update_changes_only_the_supplied_fields",
-    "test_the_timestamp_that_was_read_is_the_one_the_repository_matches_on",
-    "test_concurrent_patches_never_lose_a_write_that_reported_success"
+    "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+    "test_update_writes_the_patch_conditioned_on_the_timestamp_it_read"
    ],
    "mechanism": "direct: unit (the condition is the read timestamp, the new one is later) and db tier (three PATCHes in a row); the old e2e asyncio.gather test that missed it is gone"
   },
@@ -147,7 +166,11 @@
    "replace": "expected_updated_at=changed.updated_at)",
    "breaks": "the write is conditioned on the new timestamp, which no stored row carries: every PATCH answers 409",
    "expect": [
-    "test_the_timestamp_that_was_read_is_the_one_the_repository_matches_on"
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+    "test_a_task_created_over_http_is_stored_read_back_and_updated",
+    "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+    "test_the_list_answers_the_status_it_was_asked_for",
+    "test_update_writes_the_patch_conditioned_on_the_timestamp_it_read"
    ],
    "mechanism": "direct"
   },
@@ -155,11 +178,11 @@
    "id": "update_deleted_answers_conflict",
    "kind": "rule",
    "file": "project/application/reference_task_service.py",
-   "find": "if await self._repository.get(task_id) is None:",
-   "replace": "if False:",
+   "find": "            await self.get_task(task_id)\n            raise ConflictError(",
+   "replace": "            raise ConflictError(",
    "breaks": "an update of a task deleted meanwhile answers 409 (retry) instead of 404",
    "expect": [
-    "test_update_of_a_deleted_task_is_a_404_not_a_conflict"
+    "test_a_patch_whose_row_changed_since_the_read_answers_409_or_404"
    ],
    "mechanism": "direct, db tier: a delete staged between the service's read and write answers 404"
   },
@@ -171,8 +194,8 @@
    "replace": "return task_id",
    "breaks": "a malformed or unusually spelled id reaches the uuid column and answers 500 instead of 404",
    "expect": [
-    "test_a_malformed_id_never_reaches_the_driver",
-    "test_the_driver_receives_the_canonical_spelling"
+    "test_a_stored_task_reads_back_whole_under_any_spelling_of_its_id",
+    "test_an_unknown_or_malformed_id_answers_404_in_the_shared_envelope"
    ],
    "mechanism": "direct, db tier: a malformed id and `urn:uuid:` spellings against the real driver, and 404 over HTTP"
   },
@@ -184,9 +207,11 @@
    "replace": "WHERE status <> %s ORDER BY",
    "breaks": "the list returns every task except the requested status",
    "expect": [
-    "test_list_binds_status_and_limit_instead_of_formatting_them",
-    "test_list_by_status_filters_and_orders_newest_first",
-    "test_list_filters_by_status_and_orders_newest_first"
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+    "test_every_query_leaves_its_outcome_in_a_span_production_can_see",
+    "test_list_filters_by_status_newest_first_within_the_page",
+    "test_the_list_answers_the_status_it_was_asked_for",
+    "test_two_processes_that_both_saw_a_title_free_cannot_both_open_it"
    ],
    "mechanism": "direct, db tier: the list is judged by the rows it returns (the SQL-text pin was removed in step 3)"
   },
@@ -198,9 +223,7 @@
    "replace": "ORDER BY created_at ASC",
    "breaks": "the list comes back oldest first",
    "expect": [
-    "test_list_binds_status_and_limit_instead_of_formatting_them",
-    "test_list_by_status_filters_and_orders_newest_first",
-    "test_list_filters_by_status_and_orders_newest_first"
+    "test_list_filters_by_status_newest_first_within_the_page"
    ],
    "mechanism": "direct, db tier: rows inserted in the reverse of the expected order"
   },
@@ -212,9 +235,7 @@
    "replace": "WHERE status = %s LIMIT %s",
    "breaks": "the list comes back in whatever order the table scan yields",
    "expect": [
-    "test_list_binds_status_and_limit_instead_of_formatting_them",
-    "test_list_by_status_filters_and_orders_newest_first",
-    "test_list_filters_by_status_and_orders_newest_first"
+    "test_list_filters_by_status_newest_first_within_the_page"
    ],
    "mechanism": "direct, db tier: rows inserted in the reverse of the expected order, so heap order is wrong"
   },
@@ -226,8 +247,7 @@
    "replace": "LIMIT %s + 1000\"",
    "breaks": "the page size reaches the query but no longer bounds it",
    "expect": [
-    "test_list_binds_status_and_limit_instead_of_formatting_them",
-    "test_list_by_status_respects_limit"
+    "test_list_filters_by_status_newest_first_within_the_page"
    ],
    "mechanism": "direct, db tier: a page one smaller than the matches"
   },
@@ -239,9 +259,8 @@
    "replace": "WHERE id = %s AND updated_at >= %s RETURNING",
    "breaks": "a write computed from a stale read still matches the moved row and erases the other writer's change",
    "expect": [
-    "test_update_binds_the_new_state_and_the_expected_timestamp",
-    "test_update_refuses_a_row_another_writer_moved",
-    "test_concurrent_patches_never_lose_a_write_that_reported_success"
+    "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
+    "test_every_query_leaves_its_outcome_in_a_span_production_can_see"
    ],
    "mechanism": "direct, db tier: a write from a stale read must match nothing; and a staged race under PATCH answers 409"
   },
@@ -253,8 +272,11 @@
    "replace": "SET details = %s, title = %s,",
    "breaks": "an update writes the title into details and the other way round",
    "expect": [
-    "test_update_binds_the_new_state_and_the_expected_timestamp",
-    "test_update_writes_the_new_state_and_returns_it"
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+    "test_a_task_created_over_http_is_stored_read_back_and_updated",
+    "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
+    "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+    "test_the_list_answers_the_status_it_was_asked_for"
    ],
    "mechanism": "direct, db tier: the updated row read back whole"
   },
@@ -266,8 +288,17 @@
    "replace": "(id, details, title, status, created_at, updated_at) ",
    "breaks": "a created task is stored with title and details exchanged",
    "expect": [
-    "test_create_then_read_round_trip",
-    "test_created_task_is_persisted_in_the_database"
+    "test_a_created_task_answers_201_and_reads_back",
+    "test_a_patch_whose_row_changed_since_the_read_answers_409_or_404",
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+    "test_a_stored_task_reads_back_whole_under_any_spelling_of_its_id",
+    "test_a_task_created_over_http_is_stored_read_back_and_updated",
+    "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+    "test_list_filters_by_status_newest_first_within_the_page",
+    "test_only_one_open_task_may_carry_a_title_whatever_its_case",
+    "test_the_list_answers_the_status_it_was_asked_for",
+    "test_two_processes_that_both_saw_a_title_free_cannot_both_open_it"
    ],
    "mechanism": "direct, db tier: the round trip compares whole objects with distinct title and details (e2e only before the db tier)"
   },
@@ -289,8 +320,16 @@
    "replace": "title=row[\"details\"],\n        details=row[\"title\"],",
    "breaks": "every read returns title and details exchanged",
    "expect": [
-    "test_row_maps_to_the_expected_domain_object",
-    "test_create_then_read_round_trip"
+    "test_a_created_task_answers_201_and_reads_back",
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+    "test_a_stored_task_reads_back_whole_under_any_spelling_of_its_id",
+    "test_a_task_created_over_http_is_stored_read_back_and_updated",
+    "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
+    "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+    "test_list_filters_by_status_newest_first_within_the_page",
+    "test_the_list_answers_the_status_it_was_asked_for",
+    "test_two_processes_that_both_saw_a_title_free_cannot_both_open_it"
    ],
    "mechanism": "direct, db tier: the stored row read back whole"
   },
@@ -302,8 +341,15 @@
    "replace": "id=row[\"id\"],",
    "breaks": "the driver's uuid.UUID leaks into the domain object",
    "expect": [
-    "test_get_maps_a_returned_row_through_the_domain_converter",
-    "test_get_returns_domain_types_not_driver_types"
+    "test_a_created_task_answers_201_and_reads_back",
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+    "test_a_stored_task_reads_back_whole_under_any_spelling_of_its_id",
+    "test_a_task_created_over_http_is_stored_read_back_and_updated",
+    "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
+    "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+    "test_list_filters_by_status_newest_first_within_the_page",
+    "test_the_list_answers_the_status_it_was_asked_for"
    ],
    "mechanism": "direct, db tier: the stored row read back whole"
   },
@@ -315,8 +361,8 @@
    "replace": "created_at=row[\"updated_at\"],\n        updated_at=row[\"created_at\"],",
    "breaks": "after the first update the stored token reads back as the creation time, so the second update of a task answers 409",
    "expect": [
-    "test_row_maps_to_the_expected_domain_object",
-    "test_two_sequential_patches_of_different_fields_both_survive"
+    "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
+    "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands"
    ],
    "mechanism": "direct, db tier: after an update the row read back whole; a second PATCH of the same task"
   },
@@ -324,12 +370,13 @@
    "id": "create_answers_200",
    "kind": "http",
    "file": "project/infrastructure/api/endpoints/reference_tasks.py",
-   "find": "status_code=http_status.HTTP_201_CREATED,",
-   "replace": "status_code=http_status.HTTP_200_OK,",
+   "find": "status_code=http_status.HTTP_201_CREATED)",
+   "replace": "status_code=http_status.HTTP_200_OK)",
    "breaks": "a create answers 200 instead of 201",
    "expect": [
-    "test_create_returns_201_and_the_stored_task",
-    "test_create_then_read_round_trip"
+    "test_a_created_task_answers_201_and_reads_back",
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+    "test_a_task_created_over_http_is_stored_read_back_and_updated"
    ],
    "mechanism": "direct"
   },
@@ -341,8 +388,7 @@
    "replace": "details=payload.details if payload.details is not None else UNCHANGED,",
    "breaks": "an explicit null in the request body is read as 'not supplied', so the field can never be cleared over HTTP",
    "expect": [
-    "test_patch_with_an_explicit_null_clears_the_field_over_http",
-    "test_patch_with_an_explicit_null_empties_the_column"
+    "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands"
    ],
    "mechanism": "direct"
   },
@@ -354,8 +400,8 @@
    "replace": "tasks = await service.list_tasks(status=DEFAULT_STATUS, limit=limit)",
    "breaks": "the status query parameter is accepted and ignored",
    "expect": [
-    "test_list_filters_by_status_and_orders_newest_first",
-    "test_unknown_status_returns_422_from_the_service_rule"
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+    "test_the_list_answers_the_status_it_was_asked_for"
    ],
    "mechanism": "direct, db tier: the list asked for a non-default status (was indirect: only 422 tests noticed)"
   },
@@ -367,7 +413,22 @@
    "replace": "return int(status.HTTP_400_BAD_REQUEST)",
    "breaks": "a lost race answers 400 (do not retry) instead of 409 (re-read and retry)",
    "expect": [
-    "test_patch_of_a_task_that_moved_returns_409"
+    "test_a_conflict_raised_inside_a_span_carries_no_error_level_and_no_traceback",
+    "test_a_domain_error_answered_4xx_is_a_client_error",
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+    "test_conflict_error_maps_to_409"
+   ],
+   "mechanism": "direct"
+  },
+  {
+   "id": "validation_field_not_rendered",
+   "kind": "http",
+   "file": "project/infrastructure/api/exception_handlers.py",
+   "find": "if isinstance(exc, ValidationError) and exc.field is not None:",
+   "replace": "if False:",
+   "breaks": "a 422 from a domain rule no longer says which field it refused, so a client cannot point at it",
+   "expect": [
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing"
    ],
    "mechanism": "direct"
   },
@@ -379,7 +440,15 @@
    "replace": "        pass",
    "breaks": "the vertical's routes are never mounted; every request answers 404",
    "expect": [
-    "test_routes_are_registered_when_the_store_is_enabled"
+    "test_a_created_task_answers_201_and_reads_back",
+    "test_a_malformed_request_body_is_a_client_error",
+    "test_a_patch_whose_row_changed_since_the_read_answers_409_or_404",
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+    "test_a_task_created_over_http_is_stored_read_back_and_updated",
+    "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+    "test_routes_exist_only_when_the_store_is_enabled",
+    "test_the_list_answers_the_status_it_was_asked_for"
    ],
    "mechanism": "direct"
   },
@@ -389,10 +458,10 @@
    "file": "alembic/versions/001_initial_reference_tasks_schema.py",
    "find": "sa.Column(\"title\", sa.String(length=200), nullable=False),",
    "replace": "sa.Column(\"title\", sa.String(length=100), nullable=False),",
-   "breaks": "the column is shorter than the bound the service and the DTO enforce, so a valid long title answers 500",
+   "breaks": "the column is shorter than the bound the domain enforces, so a valid long title answers 500",
    "expect": [
     "test_alembic_head_matches_the_orm_metadata",
-    "test_the_title_bound_is_the_number_the_migration_wrote"
+    "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands"
    ],
    "mechanism": "direct, db tier: `alembic check` on a database migrated from nothing (e2e only before the db tier); test_the_title_bound_is_the_number_the_migration_wrote pins the constant, not the migration"
   },
@@ -404,7 +473,7 @@
    "replace": "pass",
    "breaks": "the list query's span no longer says how many rows came back, so a query that silently matches nothing reads like one that worked",
    "expect": [
-    "test_list_records_how_many_rows_came_back"
+    "test_every_query_leaves_its_outcome_in_a_span_production_can_see"
    ],
    "mechanism": "direct, db tier: every span's outcome on real queries inside a request span"
   },
@@ -416,7 +485,7 @@
    "replace": "with logger.span(\"db.reference_task.get\", task_id=canonical_id) as span:",
    "breaks": "the read's span is written at DEBUG, below what production logs, so a trace shows the request and no database work inside it",
    "expect": [
-    "test_a_query_span_is_written_at_the_level_production_runs_at"
+    "test_every_query_leaves_its_outcome_in_a_span_production_can_see"
    ],
    "mechanism": "direct, db tier: every span's level on real queries inside a request span"
   },
@@ -427,7 +496,12 @@
    "find": "        critical_statuses.add(checks[\"database\"][\"status\"])",
    "replace": "        pass",
    "breaks": "/health/ready answers healthy while the database is down or unmigrated",
-   "expect": [],
+   "expect": [
+    "test_missing_pool_is_still_a_fault_when_database_is_enabled",
+    "test_readiness_database_failure_message_hides_internal_details",
+    "test_readiness_database_unhealthy_still_503_regardless_of_llm_criticality",
+    "test_readiness_returns_503_when_database_is_unavailable"
+   ],
    "mechanism": "direct: tests/application/test_health_endpoints.py (kernel, not the vertical)"
   },
   {
@@ -437,7 +511,9 @@
    "find": "migrated = bool(row[0]) if row else False",
    "replace": "migrated = True",
    "breaks": "/health/ready answers healthy against a reachable database that was never migrated",
-   "expect": [],
+   "expect": [
+    "test_check_database_reports_unmigrated_schema"
+   ],
    "mechanism": "direct: tests/application/test_health_endpoints.py (kernel, not the vertical)"
   },
   {
@@ -470,7 +546,7 @@
    "replace": "            nullable=False,\n        ),\n        sa.Column(\"title\"",
    "breaks": "the id column is not a primary key: two tasks can share one id, and an update by id then writes both",
    "expect": [
-    "test_alembic_head_matches_the_orm_metadata"
+    "test_two_tasks_cannot_share_an_id"
    ],
    "mechanism": "direct, db tier: a second task with the same id must raise UniqueViolation (was a gap: `alembic check` does not compare primary keys)"
   },
@@ -482,9 +558,10 @@
    "replace": "    pass\n",
    "breaks": "nothing holds the rule: two open tasks with one title are stored, from one process or two",
    "expect": [
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+    "test_alembic_head_matches_the_orm_metadata",
     "test_only_one_open_task_may_carry_a_title_whatever_its_case",
-    "test_two_processes_that_both_saw_a_title_free_cannot_both_open_it",
-    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409"
+    "test_two_processes_that_both_saw_a_title_free_cannot_both_open_it"
    ],
    "mechanism": "direct, db tier: repository conflict test, the two-process test and the 409 HTTP test (and `alembic check`)"
   },
@@ -496,8 +573,8 @@
    "replace": "",
    "breaks": "a closed task keeps its title forever: reusing it answers 409",
    "expect": [
-    "test_only_one_open_task_may_carry_a_title_whatever_its_case",
-    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409"
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+    "test_only_one_open_task_may_carry_a_title_whatever_its_case"
    ],
    "mechanism": "direct, db tier: a closed task's title must be reusable; `alembic check` does NOT see the dropped WHERE — only the behaviour tests do"
   },
@@ -509,8 +586,9 @@
    "replace": "[sa.text(\"title\")],",
    "breaks": "'Plan' and 'plan' open side by side",
    "expect": [
-    "test_only_one_open_task_may_carry_a_title_whatever_its_case",
-    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409"
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+    "test_alembic_head_matches_the_orm_metadata",
+    "test_only_one_open_task_may_carry_a_title_whatever_its_case"
    ],
    "mechanism": "direct, db tier: 'plan' and 'PLAN' must conflict with 'Plan' (and `alembic check`)"
   },
@@ -522,19 +600,22 @@
    "replace": "        if True:\n",
    "breaks": "the rule holds but a second open title answers 500 with a driver error instead of 409",
    "expect": [
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
     "test_only_one_open_task_may_carry_a_title_whatever_its_case",
-    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409"
+    "test_two_processes_that_both_saw_a_title_free_cannot_both_open_it"
    ],
    "mechanism": "direct, db tier: ConflictError from the repository and 409 over HTTP, not a driver error"
   }
  ],
  "baseline": {
-  "commit": "f1c4046",
+  "commit": "a03d1f1",
   "results": {
    "create_blank_title_allowed": {
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
+      "test_a_malformed_request_body_is_a_client_error",
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
       "test_create_refuses_a_blank_or_overlong_title_before_writing"
      ]
     }
@@ -543,7 +624,9 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_create_accepts_a_title_of_exactly_the_maximum_length"
+      "test_create_accepts_a_title_of_exactly_the_maximum_length",
+      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+      "test_update_writes_the_patch_conditioned_on_the_timestamp_it_read"
      ]
     }
    },
@@ -551,8 +634,8 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_list_refuses_an_unknown_status_or_a_page_out_of_bounds",
-      "test_the_list_answers_the_status_it_was_asked_for"
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+      "test_list_refuses_an_unknown_status_or_a_page_out_of_bounds"
      ]
     }
    },
@@ -560,6 +643,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
       "test_list_refuses_an_unknown_status_or_a_page_out_of_bounds"
      ]
     }
@@ -568,7 +652,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
       "test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writing"
      ]
     }
@@ -577,16 +661,8 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
       "test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writing"
-     ]
-    }
-   },
-   "update_title_limit_off_by_one": {
-    "verdict": "caught:fast",
-    "caught_by": {
-     "fast": [
-      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
-      "test_update_writes_the_patch_conditioned_on_the_timestamp_it_read"
      ]
     }
    },
@@ -594,6 +670,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
       "test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writing"
      ]
     }
@@ -634,7 +711,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_a_patch_of_a_task_deleted_since_the_read_answers_404_not_409"
+      "test_a_patch_whose_row_changed_since_the_read_answers_409_or_404"
      ]
     }
    },
@@ -642,7 +719,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_an_id_is_found_in_any_spelling_uuid_accepts_and_a_malformed_one_is_a_miss",
+      "test_a_stored_task_reads_back_whole_under_any_spelling_of_its_id",
       "test_an_unknown_or_malformed_id_answers_404_in_the_shared_envelope"
      ]
     }
@@ -651,6 +728,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
       "test_every_query_leaves_its_outcome_in_a_span_production_can_see",
       "test_list_filters_by_status_newest_first_within_the_page",
       "test_the_list_answers_the_status_it_was_asked_for",
@@ -686,7 +764,6 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
       "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
       "test_every_query_leaves_its_outcome_in_a_span_production_can_see"
      ]
@@ -696,7 +773,6 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
       "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
       "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
       "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
@@ -712,11 +788,10 @@
     "caught_by": {
      "fast": [
       "test_a_created_task_answers_201_and_reads_back",
-      "test_a_patch_of_a_task_deleted_since_the_read_answers_404_not_409",
-      "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_a_patch_whose_row_changed_since_the_read_answers_409_or_404",
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
       "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
-      "test_a_stored_task_reads_back_whole_and_in_domain_types",
-      "test_an_id_is_found_in_any_spelling_uuid_accepts_and_a_malformed_one_is_a_miss",
+      "test_a_stored_task_reads_back_whole_under_any_spelling_of_its_id",
       "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
       "test_list_filters_by_status_newest_first_within_the_page",
       "test_only_one_open_task_may_carry_a_title_whatever_its_case",
@@ -737,10 +812,9 @@
     "caught_by": {
      "fast": [
       "test_a_created_task_answers_201_and_reads_back",
-      "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
       "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
-      "test_a_stored_task_reads_back_whole_and_in_domain_types",
-      "test_an_id_is_found_in_any_spelling_uuid_accepts_and_a_malformed_one_is_a_miss",
+      "test_a_stored_task_reads_back_whole_under_any_spelling_of_its_id",
       "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
       "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
       "test_list_filters_by_status_newest_first_within_the_page",
@@ -757,10 +831,9 @@
     "caught_by": {
      "fast": [
       "test_a_created_task_answers_201_and_reads_back",
-      "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
       "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
-      "test_a_stored_task_reads_back_whole_and_in_domain_types",
-      "test_an_id_is_found_in_any_spelling_uuid_accepts_and_a_malformed_one_is_a_miss",
+      "test_a_stored_task_reads_back_whole_under_any_spelling_of_its_id",
       "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
       "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
       "test_list_filters_by_status_newest_first_within_the_page",
@@ -804,6 +877,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
       "test_the_list_answers_the_status_it_was_asked_for"
      ]
     }
@@ -814,7 +888,6 @@
      "fast": [
       "test_a_conflict_raised_inside_a_span_carries_no_error_level_and_no_traceback",
       "test_a_domain_error_answered_4xx_is_a_client_error",
-      "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
       "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
       "test_conflict_error_maps_to_409"
      ]
@@ -826,8 +899,8 @@
      "fast": [
       "test_a_created_task_answers_201_and_reads_back",
       "test_a_malformed_request_body_is_a_client_error",
-      "test_a_patch_of_a_task_deleted_since_the_read_answers_404_not_409",
-      "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_a_patch_whose_row_changed_since_the_read_answers_409_or_404",
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
       "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
       "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
       "test_routes_exist_only_when_the_store_is_enabled",
@@ -939,6 +1012,33 @@
       "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
       "test_only_one_open_task_may_carry_a_title_whatever_its_case",
       "test_two_processes_that_both_saw_a_title_free_cannot_both_open_it"
+     ]
+    }
+   },
+   "update_title_not_checked": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+      "test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writing"
+     ]
+    }
+   },
+   "create_title_not_checked": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_a_malformed_request_body_is_a_client_error",
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+      "test_create_refuses_a_blank_or_overlong_title_before_writing"
+     ]
+    }
+   },
+   "validation_field_not_rendered": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing"
      ]
     }
    }

@@ -1,10 +1,7 @@
 # FILE: tests/db/test_reference_task_repository.py
 # SUMMARY: The reference repository's SQL, run against a real PostgreSQL and judged by what it returns.
-# The suite a mock cannot replace. A mocked pool returns whatever its author imagined; only the
-# real driver shows that a uuid column arrives as uuid.UUID and a timestamptz as an aware datetime,
-# and only a real query shows that its filter, order, page bound and write condition do what the
-# text says. It replaced a mocked-pool suite that pinned each query as literal text (ADR-010): the
-# pin caught an edit to the text, this catches a query that returns the wrong rows.
+# Only the real driver shows that a uuid column arrives as uuid.UUID, and only a real query that its
+# filter, order, page bound and write condition do what the text says — ADR-010.
 
 import asyncio
 import logging
@@ -32,10 +29,9 @@ def repository(db_pool: AsyncConnectionPool) -> ReferenceTaskRepository:
     return ReferenceTaskRepository(db_pool)
 
 
-# A task with a fresh id; title and details differ so an exchanged pair of columns shows.
-# created_at equals updated_at, as at every real insert — so a mapper that swapped the two
-# is invisible to a plain round trip and is caught by the update test, where they differ. The
-# title is unique unless one is given: two open tasks may not share one.
+# A fresh id and a unique title (two open tasks may not share one); title and details differ so an
+# exchanged pair of columns shows. The stamps are equal, as at every real insert, so a mapper that
+# swaps them is caught by the update test, where they differ.
 def _task(status: str = "pending", minutes_ago: int = 0, title: str | None = None) -> ReferenceTask:
     stamp = _NOW - timedelta(minutes=minutes_ago)
     task_id = str(uuid4())
@@ -49,7 +45,11 @@ def _task(status: str = "pending", minutes_ago: int = 0, title: str | None = Non
     )
 
 
-async def test_a_stored_task_reads_back_whole_and_in_domain_types(
+# The whole object, because an INSERT or a mapper that exchanged two columns of one type passes any
+# check that skips one of them; the id as a str, because psycopg hands back uuid.UUID. Then the
+# spellings: PostgreSQL rejects `urn:uuid:...` that Python accepts, and a malformed literal is a
+# driver error — normalize_task_id turns both into what they are, the same task or no task.
+async def test_a_stored_task_reads_back_whole_under_any_spelling_of_its_id(
     repository: ReferenceTaskRepository,
 ) -> None:
     task = _task()
@@ -57,22 +57,7 @@ async def test_a_stored_task_reads_back_whole_and_in_domain_types(
 
     loaded = await repository.get(task.id)
 
-    # The whole object: an INSERT, a mapper or a RETURNING list that exchanged two
-    # columns of one type passes any check that happens to skip one of them. The id is compared as
-    # str because psycopg hands back uuid.UUID, and the mapper is what converts it.
-    assert loaded == task
-    assert isinstance(loaded.id, str)
-
-
-async def test_an_id_is_found_in_any_spelling_uuid_accepts_and_a_malformed_one_is_a_miss(
-    repository: ReferenceTaskRepository,
-) -> None:
-    task = _task()
-    await repository.add(task)
-
-    # PostgreSQL rejects `urn:uuid:...` that Python accepts, and answers a malformed
-    # literal with an exception that reaches the client as 500; normalize_task_id is what turns
-    # both into what they are — the same task, or no task.
+    assert loaded == task and isinstance(loaded.id, str)
     assert await repository.get(f"urn:uuid:{task.id}") == task
     assert await repository.get(UUID(task.id).hex.upper()) == task
     assert await repository.get("does-not-exist") is None
