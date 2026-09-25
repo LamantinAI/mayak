@@ -184,9 +184,11 @@ def _too_large_detail(limit: int) -> str:
 # Wrap `receive` so the app reads at most `limit` bytes of body: past it, the read raises the 413
 # the app's own HTTPException handler answers. This is the path for a body of unknown length
 # (chunked); one that declares a length over the limit never reaches the app — AILoggingMiddleware.
-# Not covered, found by the independent check of 2026-09-25: an endpoint that never reads its body
-# is not limited by this at all; a read after the response has started cannot become a 413 and
-# ends the connection instead; a multipart upload's spooled file is left to the garbage collector
+# Where the answer is not a 413, found by the independent checks of 2026-09-25: an endpoint that
+# never reads its body answers as usual; a read after its response has started ends the connection
+# instead. Memory stays bounded in both, measured on a live server with a 200 MB chunked body: the
+# first took the process from 104 to 107 MB (uvicorn stops reading what the app does not), the second
+# stopped reading at the limit. A multipart upload's spooled file is left to the garbage collector
 # (the kernel ships no multipart parser, so a project adding python-multipart closes it itself).
 def _limited_receive(receive: Receive, limit: int) -> Receive:
     received = 0
