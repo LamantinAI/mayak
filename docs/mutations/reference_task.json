@@ -40,6 +40,20 @@
    "mechanism": "direct"
   },
   {
+   "id": "details_bound_dropped",
+   "kind": "rule",
+   "file": "project/domain/reference_task.py",
+   "find": "\n    if details is not None and len(details) > MAX_DETAILS_LENGTH:",
+   "replace": "\n    if False:",
+   "breaks": "details of any length are stored, by a create or an update, instead of answering 422",
+   "expect": [
+    "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+    "test_create_refuses_overlong_details_before_writing",
+    "test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writing"
+   ],
+   "mechanism": "direct"
+  },
+  {
    "id": "list_status_check_removed",
    "kind": "rule",
    "file": "project/application/reference_task_service.py",
@@ -134,8 +148,8 @@
    "id": "update_null_cannot_clear",
    "kind": "rule",
    "file": "project/application/reference_task_service.py",
-   "find": "details=current.details if isinstance(details, _Unchanged) else details,",
-   "replace": "details=current.details if isinstance(details, _Unchanged) or details is None else details,",
+   "find": "details=current.details if isinstance(details, _Unchanged) else check_details(details),",
+   "replace": "details=current.details if isinstance(details, _Unchanged) or details is None else check_details(details),",
    "breaks": "an explicit null no longer clears the nullable field; the request answers 200 and changes nothing",
    "expect": [
     "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",

@@ -16,7 +16,7 @@ from httpx import ASGITransport, AsyncClient
 from psycopg_pool import AsyncConnectionPool
 
 from project.application.reference_task_service import MAX_LIST_LIMIT, ReferenceTaskService
-from project.domain.reference_task import MAX_TITLE_LENGTH, ReferenceTask
+from project.domain.reference_task import MAX_DETAILS_LENGTH, MAX_TITLE_LENGTH, ReferenceTask
 from project.infrastructure.persistence.reference_task_repository import ReferenceTaskRepository
 
 
@@ -96,15 +96,18 @@ async def test_a_request_outside_the_rules_answers_422_and_writes_nothing(
     fastapi_app: FastAPI, db_pool: AsyncConnectionPool
 ) -> None:
     too_long = "x" * (MAX_TITLE_LENGTH + 1)
+    long_details = "x" * (MAX_DETAILS_LENGTH + 1)
     async with _serve(fastapi_app, ReferenceTaskRepository(db_pool)) as client:
         created = (await client.post("/reference-tasks", json={"title": "Original"})).json()
         path = f"/reference-tasks/{created['id']}"
         refused = [
             await client.post("/reference-tasks", json={"title": " "}),
             await client.post("/reference-tasks", json={"title": too_long}),
+            await client.post("/reference-tasks", json={"title": "t", "details": long_details}),
             await client.patch(path, json={}),
             await client.patch(path, json={"title": None}),
             await client.patch(path, json={"title": too_long}),
+            await client.patch(path, json={"details": long_details}),
             await client.patch(path, json={"status": None}),
             await client.patch(path, json={"status": "archived"}),
             await client.get("/reference-tasks", params={"status": "archived"}),
@@ -120,7 +123,15 @@ async def test_a_request_outside_the_rules_answers_422_and_writes_nothing(
         [detail["field"] for detail in response.json()["error"].get("details", [])]
         for response in refused
     ]
-    assert fields == [["title"]] * 2 + [[]] + [["title"]] * 2 + [["status"]] * 3 + [["limit"]] * 2
+    assert fields == (
+        [["title"]] * 2
+        + [["details"]]
+        + [[]]
+        + [["title"]] * 2
+        + [["details"]]
+        + [["status"]] * 3
+        + [["limit"]] * 2
+    )
 
 
 # Verify a patch touches only its fields, moves the token, clears on null, and does not block the next.

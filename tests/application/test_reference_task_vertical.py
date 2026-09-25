@@ -16,7 +16,12 @@ from sqlalchemy import String, Table
 from project.application.reference_task_service import MAX_LIST_LIMIT, ReferenceTaskService
 from project.domain.exceptions import ValidationError
 from project.domain.ports import ReferenceTaskRepositoryPort
-from project.domain.reference_task import DEFAULT_STATUS, MAX_TITLE_LENGTH, ReferenceTask
+from project.domain.reference_task import (
+    DEFAULT_STATUS,
+    MAX_DETAILS_LENGTH,
+    MAX_TITLE_LENGTH,
+    ReferenceTask,
+)
 from project.infrastructure.persistence.orm_models import ReferenceTaskORM
 from tests.conftest import registered_paths
 
@@ -81,6 +86,17 @@ async def test_create_accepts_a_title_of_exactly_the_maximum_length() -> None:
 
 
 @pytest.mark.unit
+async def test_create_refuses_overlong_details_before_writing() -> None:
+    port = _Port()
+
+    with pytest.raises(ValidationError):
+        await _service(port).create_task(title="t", details="x" * (MAX_DETAILS_LENGTH + 1))
+    task = await _service(port).create_task(title="t", details="x" * MAX_DETAILS_LENGTH)
+
+    assert port.writes == [(task, None)]
+
+
+@pytest.mark.unit
 @pytest.mark.parametrize(
     ("status", "limit"),
     [("archived", 50), (DEFAULT_STATUS, 0), (DEFAULT_STATUS, MAX_LIST_LIMIT + 1)],
@@ -101,6 +117,7 @@ async def test_list_refuses_an_unknown_status_or_a_page_out_of_bounds(
         {"status": None},
         {"status": "archived"},
         {"title": "x" * (MAX_TITLE_LENGTH + 1)},
+        {"details": "x" * (MAX_DETAILS_LENGTH + 1)},
     ],
 )
 async def test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writing(
