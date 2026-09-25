@@ -436,7 +436,7 @@ def failure_playbook(rule_id: str) -> dict[str, object]:
     # These were missing while nothing printed their rule_ids, and became a live
     # defect the moment the doctor grew layers for dependencies, test quality and secrets: it
     # started naming ids on screen that `failure rule` answered "Unknown failure rule ID" for.
-    # Covered by tests/application/test_doctor_ai_context.py, parametrised over every rule_id any
+    # Covered by tests/template/test_doctor_ai_context.py, parametrised over every rule_id any
     # doctor layer can emit rather than over a list written by hand.
     from scripts.validate_architecture import get_architecture_rule_playbook
     from scripts.validate_cbm import get_cbm_rule_playbook
@@ -806,7 +806,7 @@ _LAYER_SUFFIXES = (
 )
 
 # The suites the narrow loop is allowed to run — functional needs Docker and a database.
-_RUNNABLE_TEST_SUITES = ("tests/application", "tests/infrastructure")
+_RUNNABLE_TEST_SUITES = ("tests/application", "tests/infrastructure", "tests/template")
 
 # Below this a name is too generic to match test files by, so nothing is guessed.
 _SHORTEST_VERTICAL_NAME = 4
@@ -882,7 +882,7 @@ def changed_test_is_its_own_candidate(normalized_path: str) -> list[str]:
     # complement to the by-name rule above, never a replacement: on a diff that touches only
     # production code it contributes nothing, which is why it cannot be the whole fix. Restricted
     # to the two suites the narrow loop is allowed to run, for the same reason as above.
-    if not normalized_path.startswith(("tests/application/", "tests/infrastructure/")):
+    if not normalized_path.startswith(_RUNNABLE_TEST_SUITES):
         return []
     if not Path(normalized_path).name.startswith("test_"):
         return []
@@ -1218,7 +1218,7 @@ def tests_for_file(
     unit_tests.extend(changed_test_is_its_own_candidate(normalized_path))
 
     if normalized_path == "project/core/composition_root.py":
-        unit_tests.extend(["tests/application/test_generate_ai_context.py"])
+        unit_tests.extend(["tests/template/test_generate_ai_context.py"])
         # Kernel ships no integration test that exercises composition_root in a
         # full lifespan; verticals add their own integration coverage.
     if normalized_path.startswith("project/core/logging/"):
@@ -1229,10 +1229,10 @@ def tests_for_file(
             ]
         )
     # A changed migration's path is outside project/, so the architecture check
-    # alone would leave it with no validator at all. The ledger test is the one that goes red when
-    # a revision and the ORM metadata disagree, and it is cheap.
+    # alone would leave it with no validator at all. The db tier's `alembic check` is the test that
+    # goes red when a revision and the ORM metadata disagree.
     if normalized_path.startswith("alembic/"):
-        unit_tests.extend(["tests/application/test_validate_migrations.py"])
+        unit_tests.extend(["tests/db/test_migrations_match_models.py"])
 
     return tests_payload(
         unit_tests=normalize_test_candidates(unit_tests),

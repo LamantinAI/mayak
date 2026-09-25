@@ -1,4 +1,4 @@
-# FILE: tests/application/test_gate_recipes.py
+# FILE: tests/template/test_gate_recipes.py
 # SUMMARY: Guard the Makefile recipes whose defect is what they do NOT do — a gate that measures
 # less than it claims, or that keeps a second copy of a definition that already exists elsewhere.
 
@@ -13,6 +13,8 @@ from uuid import uuid4
 from subprocess import CompletedProcess, run
 
 import pytest
+
+from scripts.structure_builder import hermetic_git_env
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -122,7 +124,7 @@ class TestToolStepsHaveOneDefinition:
         listed = run(
             ["git", "ls-files", "-z"], cwd=_REPO_ROOT, capture_output=True, text=True, check=True
         )
-        exempt = {"Makefile", "tests/application/test_gate_recipes.py"}
+        exempt = {"Makefile", "tests/template/test_gate_recipes.py"}
         offenders: list[str] = []
         for name in listed.stdout.split("\0"):
             if not name or name in exempt:
@@ -309,6 +311,7 @@ _CI_JOB_TO_LOCAL_COVER: dict[str, str] = {
     "diff-coverage": "diff-coverage",
     "secret-scan": _INSIDE_THE_GATE_SUITE,
     "type-check": _INSIDE_THE_GATE_SUITE,
+    "product-from-template": "check-product",
 }
 
 
@@ -511,6 +514,7 @@ class TestGeneratedFilesRefuseTheEdit:
             [str(_REPO_ROOT / ".agents" / "hooks" / "pre-edit-guard.sh")],
             input=payload,
             cwd=cwd,
+            env=hermetic_git_env(),
             capture_output=True,
             text=True,
             check=True,
@@ -556,7 +560,9 @@ class TestGeneratedFilesRefuseTheEdit:
     # branch turns this red rather than passing on an empty case.
     @pytest.mark.unit
     def test_a_file_inside_a_generated_directory_is_refused(self, tmp_path: Path) -> None:
-        run(["git", "init", "-q"], cwd=tmp_path, check=True)
+        # Without git's own variables: run from the pre-commit hook, an inherited GIT_DIR made this
+        # re-initialise the repository being committed and set core.bare=true on its main checkout.
+        run(["git", "init", "-q"], cwd=tmp_path, check=True, env=hermetic_git_env())
         (tmp_path / "Makefile").write_text(
             "print-generated-paths:\n\t@echo rendered\n", encoding="utf-8"
         )

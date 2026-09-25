@@ -163,8 +163,10 @@ Project Map: Mayak
 │   └── __init__.py  ---  Root package for the application.
 ├── scripts/
 │   ├── __init__.py
+│   ├── check_product_from_template.py  ---  Build a throwaway project from this checkout the way a new service is made, and check it.
 │   ├── create_env_file.py
 │   ├── doctor_ai_context.py
+│   ├── extract_reference_vertical.py  ---  Take the reference vertical out of a project made from the template — once, all or nothing.
 │   ├── generate_ai_context.py
 │   ├── query_ai_context.py
 │   ├── run_all_tests.py
@@ -184,22 +186,16 @@ Project Map: Mayak
 │   └── validate_test_quality.py
 ├── tests/
 │   ├── application/
-│   │   ├── test_ai_query_router.py  ---  Unit tests for the ai_query router dispatcher.
-│   │   ├── test_ai_query_zone_lookup.py  ---  Unit tests for zone_for_path FILE_POLICY-first resolution and EDIT_ZONES fallback.
 │   │   ├── test_client_errors_are_not_service_errors.py  ---  A 4xx is the application working. This pins that it is recorded that way — at WARNING,
 │   │   ├── test_config.py  ---  Unit tests for configuration management and settings validation.
-│   │   ├── test_create_env_file.py  ---  Tests for the .env creation step — what it generates, what it copies, what it refuses to touch.
 │   │   ├── test_critical_event_trace_id.py  ---  Regression guard: the unhandled-exception record must carry the request's trace_id.
 │   │   ├── test_db_tier_contract.py  ---  Verify the db tier fails loudly without its database, and stands aside only when the project declares none.
-│   │   ├── test_doctor_ai_context.py  ---  Unit tests for the AI-context doctor entrypoint.
 │   │   ├── test_domain_ports.py  ---  Smoke tests for canonical domain Protocol declarations to keep them in coverage.
 │   │   ├── test_env_sample_matches_code.py  ---  Guard against .env.sample drifting from the defaults declared in the settings models.
 │   │   ├── test_error_utils.py  ---  Unit tests for safe client-facing exception messages and sanitized exception summaries.
 │   │   ├── test_exceptions.py  ---  Unit tests for the domain exception hierarchy.
 │   │   ├── test_full_trace_is_announced.py  ---  Verify a service that records prompt and completion text says so while it boots, and
 │   │   ├── test_functional_request_helpers.py  ---  Pin that the five request helpers in tests/functional/conftest.py read an empty 204
-│   │   ├── test_gate_recipes.py  ---  Guard the Makefile recipes whose defect is what they do NOT do — a gate that measures
-│   │   ├── test_generate_ai_context.py  ---  Unit tests for the AI context map generator script.
 │   │   ├── test_health_endpoints.py  ---  Endpoint tests for liveness and readiness health contracts.
 │   │   ├── test_import_graph_is_acyclic.py  ---  Guard the one defect the whole suite is structurally blind to — an import cycle inside
 │   │   ├── test_launcher_shutdown.py  ---  Verify SIGTERM leaves the launcher's post-uvicorn shutdown work enough time to finish.
@@ -211,38 +207,20 @@ Project Map: Mayak
 │   │   ├── test_logging_redaction.py  ---  Unit tests for safe logging summary helpers.
 │   │   ├── test_middleware.py  ---  Tests for the logging middleware — query-parameter masking and inbound request-id resolution.
 │   │   ├── test_mock_agent_multi_tool_loop.py  ---  The sample ADR-003 promises and the kernel did not ship: a real agent loop over three
-│   │   ├── test_optional_postgres.py  ---  Guards for POSTGRES_ENABLED — the kernel must assemble, report ready and stay
+│   │   ├── test_optional_postgres.py  ---  Guards for POSTGRES_ENABLED — the kernel must assemble, report ready and accept its
 │   │   ├── test_prompt_llm_adapter.py  ---  Tests that PromptLLMAdapter really satisfies the domain's LLMPort contract.
-│   │   ├── test_query_ai_context.py  ---  Unit tests for the AI context query CLI helpers.
 │   │   ├── test_reference_task_vertical.py  ---  The reference vertical's rules decided before anything is written, and its wiring — no database.
 │   │   ├── test_request_summary_outcome.py  ---  Regression tests proving request.summary reports the real result of a request.
-│   │   ├── test_run_all_tests.py  ---  Unit tests for the canonical all-tests runner script used by AI agents and developers.
 │   │   ├── test_sampling.py  ---  Cover the health-check log sampler, which had no test of its own before.
 │   │   ├── test_scripted_llm.py  ---  The scripted model double itself, and the one thing it exists for — proving a vertical
 │   │   ├── test_secret_leak_guards.py  ---  Regression guards for the two paths that leaked secrets to clients and to logs.
 │   │   ├── test_serialization.py  ---  Unit tests for low-level structured serialization helpers used by semantic logging.
-│   │   ├── test_skill_texts_match_reality.py  ---  Guard the factual claims the skills make about this repository, so prose cannot drift
-│   │   ├── test_structure_builder.py  ---  Unit tests for project-map generation targeting the dedicated reference document.
-│   │   ├── test_sync_agent_docs.py  ---  Unit tests for the generated agent wrapper sync script.
-│   │   ├── test_template_neutrality.py  ---  Guard every way a stale project name creeps back into a template that must stay neutral.
 │   │   ├── test_tool_argument_schema.py  ---  Verify a language-model tool's parameters reach the provider's schema under their own names.
 │   │   ├── test_trace_file_gate.py  ---  Verify the NDJSON trace file is switched on by its own setting and never by debug mode.
 │   │   ├── test_trace_formatter_against_real_output.py  ---  The renderer must work on the event shape THIS application emits, and on the shape it
 │   │   ├── test_trace_formatter_failure_visibility.py  ---  Regression guards proving a failed request is visible in the rendered trace tree.
 │   │   ├── test_trace_formatter_span_semantics.py  ---  Regression guards for three trace_formatter.py changes made alongside logger.py and
-│   │   ├── test_trace_formatter_summary.py  ---  The trace renderer must tell the truth about logs written before the outcome field existed.
-│   │   ├── test_validate_architecture.py  ---  Unit tests for the repository architecture boundary validator.
-│   │   ├── test_validate_cbm.py  ---  The file-header check: what it refuses, what it lets through, and that it reaches project/.
-│   │   ├── test_validate_dependencies.py  ---  Unit tests for the validator that ties runtime imports to declared dependencies.
-│   │   ├── test_validate_endpoint_wiring.py  ---  Unit tests for the endpoint-facing wiring contract validator.
-│   │   ├── test_validate_file_policy.py  ---  Unit tests for the FILE_POLICY_INDEX schema validator.
-│   │   ├── test_validate_migrations.py  ---  Unit tests for the Alembic migration validation quality gate.
-│   │   ├── test_validate_module_sizes.py  ---  Unit tests for the production module budget validator, including the guarantee that documentation is not charged against the budget.
-│   │   ├── test_validate_repository_metadata.py  ---  Unit tests for the merged repository-metadata validator (skills/commands frontmatter,
-│   │   ├── test_validate_runtime_ownership.py  ---  Unit tests for the runtime ownership validator.
-│   │   ├── test_validate_secrets.py  ---  Tests for the credential scanner: what it must catch, and what it must not shout about.
-│   │   ├── test_validate_test_quality.py  ---  Unit tests for the validator that rejects tests which cannot fail.
-│   │   └── test_validator_error_contract.py  ---  Contract test proving every scripts/validate_*.py JSON converter — plus the generate_ai_context.py drift-issue producer — surfaces rule_id, suggested_fix, read_first, next_commands, and stop_widening_condition on every emitted issue. Measured: stop_widening_condition was 0/10 in actual CLI JSON output despite living in every validator's internal rule-playbook dict.
+│   │   └── test_trace_formatter_summary.py  ---  The trace renderer must tell the truth about logs written before the outcome field existed.
 │   ├── db/
 │   │   ├── __init__.py
 │   │   ├── conftest.py  ---  The db tier: tests that run real SQL against a real PostgreSQL, inside `make test`.
@@ -254,6 +232,7 @@ Project Map: Mayak
 │   ├── functional/
 │   │   ├── src/
 │   │   │   ├── __init__.py
+│   │   │   ├── test_health_api.py  ---  The kernel over HTTP in the built image: it serves, and it finds its migrated database ready.
 │   │   │   ├── test_migration_lock.py  ---  Prove that two processes migrating the same fresh database at once both succeed.
 │   │   │   └── test_reference_tasks_api.py  ---  Smoke test of the reference vertical in the built image: HTTP into the container, rows in its database.
 │   │   ├── utils/
@@ -270,7 +249,7 @@ Project Map: Mayak
 │   │   └── settings.py
 │   ├── infrastructure/
 │   │   ├── __init__.py  ---  Infrastructure layer test package.
-│   │   └── test_persistence_models.py  ---  Verify the kernel placeholder ORM (ReferenceTaskORM) declares the expected schema.
+│   │   └── test_persistence_models.py  ---  Every foreign key in the shipped metadata declares its deletion policy.
 │   ├── integration/
 │   │   ├── __init__.py  ---  Integration test package. Runtime integration coverage without Docker-heavy functional flows.
 │   │   ├── test_composition_root_lifecycle.py  ---  Smoke test that the assembled FastAPI app responds to /health/ inside a real lifespan.
@@ -279,6 +258,34 @@ Project Map: Mayak
 │   ├── support/
 │   │   ├── __init__.py  ---  Test doubles shared by the unit and integration suites.
 │   │   └── scripted_llm.py  ---  A language model that answers from a script, so a vertical's own handling of a bad
+│   ├── template/
+│   │   ├── test_ai_query_router.py  ---  Unit tests for the ai_query router dispatcher.
+│   │   ├── test_ai_query_zone_lookup.py  ---  Unit tests for zone_for_path FILE_POLICY-first resolution and EDIT_ZONES fallback.
+│   │   ├── test_create_env_file.py  ---  Tests for the .env creation step — what it generates, what it copies, what it refuses to touch.
+│   │   ├── test_doctor_ai_context.py  ---  Unit tests for the AI-context doctor entrypoint.
+│   │   ├── test_extract_reference_vertical.py  ---  Taking the reference vertical out of a project: nothing in the template, everything once in
+│   │   ├── test_gate_recipes.py  ---  Guard the Makefile recipes whose defect is what they do NOT do — a gate that measures
+│   │   ├── test_generate_ai_context.py  ---  Unit tests for the AI context map generator script.
+│   │   ├── test_optional_postgres_tooling.py  ---  The template's tools with POSTGRES_ENABLED=false: the migration gate's own rule, the query
+│   │   ├── test_query_ai_context.py  ---  Unit tests for the AI context query CLI helpers.
+│   │   ├── test_run_all_tests.py  ---  Unit tests for the canonical all-tests runner script used by AI agents and developers.
+│   │   ├── test_run_mutations.py  ---  The mutation runner measures the vertical's tests, not the template's checks of its files.
+│   │   ├── test_skill_texts_match_reality.py  ---  Guard the factual claims the skills make about this repository, so prose cannot drift
+│   │   ├── test_structure_builder.py  ---  Unit tests for project-map generation targeting the dedicated reference document.
+│   │   ├── test_sync_agent_docs.py  ---  Unit tests for the generated agent wrapper sync script.
+│   │   ├── test_template_neutrality.py  ---  Guard every way a stale project name creeps back into a template that must stay neutral.
+│   │   ├── test_validate_architecture.py  ---  Unit tests for the repository architecture boundary validator.
+│   │   ├── test_validate_cbm.py  ---  The file-header check: what it refuses, what it lets through, and that it reaches project/.
+│   │   ├── test_validate_dependencies.py  ---  Unit tests for the validator that ties runtime imports to declared dependencies.
+│   │   ├── test_validate_endpoint_wiring.py  ---  Unit tests for the endpoint-facing wiring contract validator.
+│   │   ├── test_validate_file_policy.py  ---  Unit tests for the FILE_POLICY_INDEX schema validator.
+│   │   ├── test_validate_migrations.py  ---  Unit tests for the Alembic migration validation quality gate.
+│   │   ├── test_validate_module_sizes.py  ---  Unit tests for the production module budget validator, including the guarantee that documentation is not charged against the budget.
+│   │   ├── test_validate_repository_metadata.py  ---  Unit tests for the merged repository-metadata validator (skills/commands frontmatter,
+│   │   ├── test_validate_runtime_ownership.py  ---  Unit tests for the runtime ownership validator.
+│   │   ├── test_validate_secrets.py  ---  Tests for the credential scanner: what it must catch, and what it must not shout about.
+│   │   ├── test_validate_test_quality.py  ---  Unit tests for the validator that rejects tests which cannot fail.
+│   │   └── test_validator_error_contract.py  ---  Contract test proving every scripts/validate_*.py JSON converter — plus the generate_ai_context.py drift-issue producer — surfaces rule_id, suggested_fix, read_first, next_commands, and stop_widening_condition on every emitted issue. Measured: stop_widening_condition was 0/10 in actual CLI JSON output despite living in every validator's internal rule-playbook dict.
 │   └── conftest.py  ---  Global test configuration and fixtures for the FastAPI backend test suite.
 ├── .dockerignore
 ├── .env.sample

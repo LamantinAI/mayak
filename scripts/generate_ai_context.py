@@ -26,7 +26,7 @@ from ai_context.validator_contract import build_validator_issue_payload
 # stop_widening_condition text for the two rule_ids this module emits directly.
 # Duplicated (not imported) from ai_query.common._DRIFT_RULE_PLAYBOOKS to avoid a circular
 # import (ai_query.common imports from this module). Keep both copies in sync if the wording
-# changes — covered by tests/application/test_validator_error_contract.py.
+# changes — covered by tests/template/test_validator_error_contract.py.
 _DRIFT_STOP_WIDENING_CONDITIONS: dict[str, str] = {
     "drift.generated.missing": (
         "Stop widening once the generated file exists again and generate_ai_context.py --check passes."
@@ -143,7 +143,7 @@ def _print_degraded_payload(
         # rule in docs/agent_rules.md tells the agent to call `failure rule <rule_id>` with what it
         # just saw; degraded_status is a layer name ("generated_outdated"), not a rule_id
         # ("drift.generated.outdated"), so printing only that leaves the prescribed command failing
-        # with "Unknown failure rule ID". Guarded by tests/application/test_generate_ai_context.py.
+        # with "Unknown failure rule ID". Guarded by tests/template/test_generate_ai_context.py.
         # Guarded with .get: ContextIssue payloads (syntax_error path) carry issue_type only.
         rule_id = issue.get("rule_id")
         if rule_id:

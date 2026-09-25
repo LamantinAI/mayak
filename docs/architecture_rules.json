@@ -507,7 +507,7 @@
       "role": "Diagnostic backbone that pinpoints the first blocking layer when quality-gates fails.",
       "source_of_truth": "docs/architecture_rules.json:file_policy_index",
       "validators_if_changed": [
-        "uv run pytest tests/application/test_doctor_ai_context.py",
+        "uv run pytest tests/template/test_doctor_ai_context.py",
         "uv run python scripts/doctor_ai_context.py",
         "make quality-gates"
       ],
@@ -541,7 +541,7 @@
       "role": "Generator for machine-readable repository context and architecture contracts.",
       "source_of_truth": "docs/architecture_rules.json:file_policy_index",
       "validators_if_changed": [
-        "uv run pytest tests/application/test_generate_ai_context.py -q",
+        "uv run pytest tests/template/test_generate_ai_context.py -q",
         "uv run python scripts/generate_ai_context.py --check"
       ],
       "why_it_exists": "Builds the JSON artifacts that back onboarding, query routing, and drift checks without introducing a separate documentation stack."
@@ -574,7 +574,7 @@
       "role": "Repo operating API for AI agents and narrow navigation workflows.",
       "source_of_truth": "docs/architecture_rules.json:file_policy_index",
       "validators_if_changed": [
-        "uv run pytest tests/application/test_query_ai_context.py -q",
+        "uv run pytest tests/template/test_query_ai_context.py -q",
         "uv run python scripts/generate_ai_context.py --check"
       ],
       "why_it_exists": "Exposes stable query commands so agents can inspect wiring, policy, failure remediation, and minimal context without broad repository scans."
@@ -600,7 +600,7 @@
       "role": "Runtime validator for forbidden layer imports and architecture rule enforcement.",
       "source_of_truth": "docs/architecture_rules.json:file_policy_index",
       "validators_if_changed": [
-        "uv run pytest tests/application/test_validate_architecture.py -q",
+        "uv run pytest tests/template/test_validate_architecture.py -q",
         "uv run python scripts/validate_architecture.py"
       ],
       "why_it_exists": "Turns the most important layer boundaries into executable checks rather than leaving them as narrative guidance only."
@@ -627,7 +627,7 @@
       "role": "Runtime validator for endpoint dependency-alias and wiring contracts.",
       "source_of_truth": "docs/architecture_rules.json:file_policy_index",
       "validators_if_changed": [
-        "uv run pytest tests/application/test_validate_endpoint_wiring.py -q",
+        "uv run pytest tests/template/test_validate_endpoint_wiring.py -q",
         "uv run python scripts/validate_endpoint_wiring.py"
       ],
       "why_it_exists": "Guards the thin-endpoint pattern so routes stay on typed aliases instead of importing or constructing services directly."
@@ -655,7 +655,7 @@
       "role": "Runtime validator for shared-resource, environment access, and app.state ownership.",
       "source_of_truth": "docs/architecture_rules.json:file_policy_index",
       "validators_if_changed": [
-        "uv run pytest tests/application/test_validate_runtime_ownership.py -q",
+        "uv run pytest tests/template/test_validate_runtime_ownership.py -q",
         "uv run python scripts/validate_runtime_ownership.py"
       ],
       "why_it_exists": "Turns resource ownership rules into executable checks so LLM edits cannot drift shared runtime wiring into endpoints or business logic."

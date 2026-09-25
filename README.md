@@ -179,6 +179,10 @@ make test-e2e         # ~25 s — the built image over HTTP against a real Postg
 make ci-local         # ~75 s — everything the pipeline runs, both database modes included
 ```
 
+In the template, `make ci-local` also runs `make check-product` (~3 min): it makes a throwaway
+project from the checkout, takes the reference vertical out as `make init-project` would, and
+runs that project's gates and e2e — the one check of what a new service starts from.
+
 `make quality-gates` is the loop to run while working. It regenerates the derived maps before
 checking them, so a stale artifact prints a notice instead of a red gate, and it runs `make doctor`
 itself when something fails — the doctor names the blocking layer and prints the shape of the fix

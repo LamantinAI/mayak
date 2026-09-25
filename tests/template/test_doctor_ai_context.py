@@ -1,4 +1,4 @@
-# FILE: tests/application/test_doctor_ai_context.py
+# FILE: tests/template/test_doctor_ai_context.py
 # SUMMARY: Unit tests for the AI-context doctor entrypoint.
 
 from __future__ import annotations

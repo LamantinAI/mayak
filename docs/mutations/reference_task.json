@@ -20,7 +20,6 @@
    "replace": "\n    if False:",
    "breaks": "a blank title is stored, by a create or an update, instead of answering 422",
    "expect": [
-    "test_a_malformed_request_body_is_a_client_error",
     "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
     "test_create_refuses_a_blank_or_overlong_title_before_writing"
    ],
@@ -113,7 +112,6 @@
    "replace": "title=title,",
    "breaks": "a create skips the title checks: a blank title is stored, an overlong one answers 500 instead of 422",
    "expect": [
-    "test_a_malformed_request_body_is_a_client_error",
     "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
     "test_create_refuses_a_blank_or_overlong_title_before_writing"
    ],
@@ -441,7 +439,6 @@
    "breaks": "the vertical's routes are never mounted; every request answers 404",
    "expect": [
     "test_a_created_task_answers_201_and_reads_back",
-    "test_a_malformed_request_body_is_a_client_error",
     "test_a_patch_whose_row_changed_since_the_read_answers_409_or_404",
     "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
     "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
@@ -608,13 +605,12 @@
   }
  ],
  "baseline": {
-  "commit": "a03d1f1",
+  "commit": "9176146",
   "results": {
    "create_blank_title_allowed": {
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_a_malformed_request_body_is_a_client_error",
       "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
       "test_create_refuses_a_blank_or_overlong_title_before_writing"
      ]
@@ -898,7 +894,6 @@
     "caught_by": {
      "fast": [
       "test_a_created_task_answers_201_and_reads_back",
-      "test_a_malformed_request_body_is_a_client_error",
       "test_a_patch_whose_row_changed_since_the_read_answers_409_or_404",
       "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
       "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
@@ -1028,7 +1023,6 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_a_malformed_request_body_is_a_client_error",
       "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
       "test_create_refuses_a_blank_or_overlong_title_before_writing"
      ]

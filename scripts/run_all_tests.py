@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import zlib
 import subprocess
@@ -44,6 +45,15 @@ def functional_compose_project() -> str:
     return f"functional-{digest}"
 
 
+# The environment the functional stack's Compose commands run in: this one without POSTGRES_*.
+# The stack takes its credentials from tests/functional/.env alone, but Compose interpolates
+# ${POSTGRES_USER} and the rest from the shell before that file, so a shell exporting them — a CI
+# job whose db tier has a server of its own, a developer's profile — made test-db under one user
+# while the app, reading the file, logged in as another and exited: product-from-template, 2026-09-24.
+def functional_env() -> dict[str, str]:
+    return {key: value for key, value in os.environ.items() if not key.startswith("POSTGRES_")}
+
+
 # Immutable command step executed by the canonical test runner.
 @dataclass(frozen=True)
 class TestStep:
@@ -55,6 +65,9 @@ class TestStep:
 
     # Working directory used when executing the step.
     cwd: Path
+
+    # Environment of the step's process; None inherits this one.
+    env: Mapping[str, str] | None = None
 
 
 # Parse CLI arguments controlling which test suites are executed.
@@ -102,6 +115,10 @@ def _build_test_steps(
                     # functional stack: it starts its own PostgreSQL (tests/db/stack.py) and is
                     # deselected by its conftest when POSTGRES_ENABLED=false. See tests/db/conftest.py.
                     "tests/db",
+                    # The template's own tools are tested only where the template is built: a
+                    # project made from it has no tests/template, and `make init-project` removes
+                    # it along with the reference vertical.
+                    *(["tests/template"] if (ROOT_DIR / "tests" / "template").is_dir() else []),
                     "-q",
                     # The floor is asked for here rather than in pytest.ini's
                     # addopts. addopts reach every pytest invocation, so `uv run pytest
@@ -132,6 +149,7 @@ def _build_test_steps(
                     "tests",
                 ),
                 cwd=FUNCTIONAL_DIR,
+                env=functional_env(),
             )
         )
 
@@ -224,7 +242,7 @@ def _ensure_functional_env() -> None:
 # subprocess.CalledProcessError: When the subprocess exits with a non-zero status.
 def _run_command(step: TestStep) -> None:
     _emit(f"running {step.name}: {' '.join(step.command)}")
-    subprocess.run(step.command, cwd=step.cwd, check=True)
+    subprocess.run(step.command, cwd=step.cwd, env=step.env, check=True)
 
 
 # Stop and remove the functional Docker Compose stack after the functional suite finishes.
@@ -232,6 +250,7 @@ def _cleanup_functional_stack() -> None:
     subprocess.run(
         ("docker", "compose", "-p", functional_compose_project(), "down", "-v"),
         cwd=FUNCTIONAL_DIR,
+        env=functional_env(),
         check=False,
     )
 
@@ -241,6 +260,7 @@ def _show_functional_logs() -> None:
     subprocess.run(
         ("docker", "compose", "-p", functional_compose_project(), "logs"),
         cwd=FUNCTIONAL_DIR,
+        env=functional_env(),
         check=False,
     )
 

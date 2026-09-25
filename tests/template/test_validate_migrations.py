@@ -1,4 +1,4 @@
-# FILE: tests/application/test_validate_migrations.py
+# FILE: tests/template/test_validate_migrations.py
 # SUMMARY: Unit tests for the Alembic migration validation quality gate.
 
 import subprocess
@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-from project.infrastructure.persistence.orm_models import Base
 from scripts.validate_migrations import (
     ALEMBIC_INI_PATH,
     ROOT_DIR,
@@ -22,25 +21,6 @@ from scripts.validate_migrations import (
 
 
 class TestValidateMigrations:
-    # This pair names the shipped reference_tasks table, so deleting the reference vertical
-    # turns both red — by design, and .agents/skills/add-vertical's removal list points here. Update the
-    # ledger below in the same commit as the ORM model; that is the whole job.
-    @pytest.mark.unit
-    def test_metadata_contains_tables_expected_by_migrations(self) -> None:
-        # Exact equality, not issubset. A subset check stays green when a vertical
-        # adds a table and forgets its migration — the one thing this assertion exists to catch.
-        assert set(Base.metadata.tables) == {"reference_tasks"}
-
-    @pytest.mark.unit
-    def test_metadata_contains_reference_task_index(self) -> None:
-        reference_tasks = Base.metadata.tables["reference_tasks"]
-        index_names = {index.name for index in reference_tasks.indexes}
-
-        assert index_names == {
-            "ix_reference_tasks_status_created_at",
-            "uq_reference_tasks_open_title",
-        }
-
     @pytest.mark.unit
     def test_build_commands_returns_upgrade_then_check(self) -> None:
         commands = _build_commands()

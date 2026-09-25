@@ -355,6 +355,12 @@ _ALLOWLIST: frozenset[str] = frozenset(
         # Path prefix used by validate_runtime_ownership._ENV_ALLOWLIST_PREFIXES — not a real
         # file. Covers both project/core/config.py and a future project/core/config/ split.
         "project/core/config",
+        # The template's own tool tests: present in the template, removed from a project by
+        # `make init-project`. scripts/run_all_tests.py runs them only when the directory exists.
+        "tests/template",
+        # Where the reference vertical goes in a project; `make init-project` creates it, so the
+        # template never has it.
+        ".agents/skills/add-vertical/scaffold",
     }
 )
 

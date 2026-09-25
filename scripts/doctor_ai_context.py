@@ -812,7 +812,7 @@ def diagnose() -> dict[str, object]:
 # Every layer `make quality-gates` runs — the tool steps around `diagnose()`'s validators.
 # Returns: Same payload shape as diagnose(), with checked_layers widened.
 # Separate from diagnose() on purpose — diagnose() is exercised directly by many tests in
-# tests/application/test_doctor_ai_context.py, and the tests layer runs that very suite; folding the
+# tests/template/test_doctor_ai_context.py, and the tests layer runs that very suite; folding the
 # two together made the first clean run recurse.
 def diagnose_full() -> dict[str, object]:
     early_failure, early_layers = diagnose_early_layers()

@@ -1,4 +1,4 @@
-# FILE: tests/application/test_validate_cbm.py
+# FILE: tests/template/test_validate_cbm.py
 # SUMMARY: The file-header check: what it refuses, what it lets through, and that it reaches project/.
 
 import json

@@ -1,4 +1,4 @@
-# FILE: tests/application/test_generate_ai_context.py
+# FILE: tests/template/test_generate_ai_context.py
 # SUMMARY: Unit tests for the AI context map generator script.
 
 from pathlib import Path

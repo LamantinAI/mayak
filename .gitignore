@@ -168,5 +168,5 @@ docs/research/
 
 
 # Local list of words this checkout must not contain. Never committed: the list itself
-# would publish exactly what it exists to keep out. See tests/application/test_template_neutrality.py.
+# would publish exactly what it exists to keep out. See tests/template/test_template_neutrality.py.
 .neutrality-terms

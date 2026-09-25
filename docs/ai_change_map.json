@@ -120,7 +120,7 @@
         "make quality-gates"
       ],
       "tests_to_run": [
-        "tests/application/test_validate_migrations.py"
+        "tests/db/test_migrations_match_models.py"
       ],
       "verify": [
         "make quality-gates"
@@ -156,7 +156,7 @@
         ]
       },
       "tests_to_run": [
-        "tests/application/test_validate_migrations.py"
+        "tests/db/test_migrations_match_models.py"
       ],
       "verify": [
         "make quality-gates"
@@ -200,7 +200,7 @@
         ]
       },
       "tests_to_run": [
-        "tests/application/test_generate_ai_context.py"
+        "tests/template/test_generate_ai_context.py"
       ],
       "verify": [
         "make quality-gates"
@@ -318,7 +318,7 @@
         "make quality-gates"
       ],
       "tests_to_run": [
-        "tests/application/test_generate_ai_context.py"
+        "tests/template/test_generate_ai_context.py"
       ],
       "verify": [
         "make quality-gates"
@@ -464,7 +464,7 @@
         ]
       },
       "tests_to_run": [
-        "tests/application/test_generate_ai_context.py"
+        "tests/template/test_generate_ai_context.py"
       ],
       "verify": [
         "make quality-gates"
@@ -493,7 +493,7 @@
         "source_files": []
       },
       "tests_to_run": [
-        "tests/application/test_validate_repository_metadata.py"
+        "tests/template/test_validate_repository_metadata.py"
       ],
       "verify": [
         "make quality-gates"

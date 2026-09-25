@@ -1,4 +1,4 @@
-# FILE: tests/application/test_validate_test_quality.py
+# FILE: tests/template/test_validate_test_quality.py
 # SUMMARY: Unit tests for the validator that rejects tests which cannot fail.
 
 from __future__ import annotations

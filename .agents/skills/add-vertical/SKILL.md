@@ -40,12 +40,10 @@ Plus three wiring edits, all in the `caution` zone: `project/core/service_regist
 `tests/conftest.py` already provides `app_without_postgres` for file 9 — assemble against it for
 ADR-006 (routes absent, service key present and `None`) instead of rebuilding the fixture.
 
-Exactly **one** ledger asserts the exact set of tables in the metadata:
-`tests/application/test_validate_migrations.py`. A new table has to be listed there or the gate
-fails on a file you never opened. `tests/infrastructure/test_persistence_models.py` keeps only a
-membership check — a weaker claim that stays green when you add tables of your own; don't turn it
-back into a second ledger. `test_skill_texts_match_reality.py` fails if a second one appears
-anywhere in the tree.
+No test lists the tables. A table whose migration is missing fails `alembic check`, which the db
+tier runs inside `make test` (`tests/db/test_migrations_match_models.py`) — the claim a hand-kept
+list of table names used to stand in for, and one it made every project edit on its first table.
+`test_skill_texts_match_reality.py` fails if such a list comes back anywhere in the tree.
 
 ## Order of work
 
@@ -99,7 +97,7 @@ anywhere in the tree.
 7. **The endpoint and all three wiring files in the same step.** The endpoint's last import is the
    typed alias defined in `dependencies.py`. `service_registration.py` and `router_registration.py`
    belong here too — the next step's `TestWiring` reads both.
-8. Unit tests, the table ledger, and `make refresh-generated-docs` again.
+8. Unit tests, and `make refresh-generated-docs` again.
 9. `make quality-gates`, then `make test-e2e`.
 
 ## Two branches, one migration history
@@ -208,8 +206,11 @@ too): either **routes absent** — what the reference vertical does — or **rou
 
 ## Deleting the reference vertical
 
-Once your own vertical works, the shipped one is dead weight in your repository. Every file is
-named `reference_task*`, so removal is mechanical:
+In a project, `make init-project` does this once the identity is replaced
+(`.agents/skills/initialize-project`, step 5): it keeps a copy in `scaffold/` next to this file,
+appends the drop migration below and stages the result. What follows is what it does, and the way
+by hand when it refuses — a file of the vertical already edited, or a vertical of your own in place.
+Every file is named `reference_task*`, so removal is mechanical:
 
 ```bash
 git rm project/domain/reference_task.py \
@@ -247,12 +248,8 @@ Nine more files carry the vertical without naming it:
 | `project/domain/ports.py` | `ReferenceTaskRepositoryPort` and its `ReferenceTask` import |
 | `project/infrastructure/persistence/orm_models.py` | `ReferenceTaskORM` and its `MAX_TITLE_LENGTH` import |
 | `project/infrastructure/persistence/__init__.py` | the worked-example sentence in the docstring |
-| `tests/infrastructure/test_persistence_models.py` | `TestReferenceTaskORMSchema`, `TestORMRegistry`, and the `ReferenceTaskORM` (plus `MAX_TITLE_LENGTH`) imports — **not the whole file**: `TestForeignKeysDeclareOnDelete` and its `_foreign_keys_missing_ondelete` helper guard every project's foreign keys, reference vertical or not, and stay |
-| `tests/application/test_validate_migrations.py` | the table ledger and the index assertion — **two red tests otherwise** |
-| `tests/application/test_ai_query_zone_lookup.py` | the vertical's paths in the parametrised control list |
+| `tests/template/test_ai_query_zone_lookup.py` | the vertical's paths in the parametrised control list |
 
-Skip the `test_persistence_models.py` row and `pytest` aborts on `ImportError` before a single test
-runs. Skip the `test_validate_migrations.py` row and two tests go red in an unrelated suite.
 
 Then the prose: `README.md`, `docs/agent_rules.md`, `PROJECT.md`, `docs/project_context.json`, the
 docstring example in `tests/conftest.py::registered_paths`, the span-name example in
@@ -261,7 +258,7 @@ docstring example in `tests/conftest.py::registered_paths`, the span-name exampl
 **Not `CLAUDE.md`/`AGENTS.md`** — the pre-edit hook refuses the write; both are generated from
 `docs/agent_rules.md` by `scripts/sync_agent_docs.py`. Edit the bullet in `docs/agent_rules.md`'s
 `Start here:` list and run `make refresh-agent-docs`. Keep its file count spelled the same way as
-the `## The … files of a vertical` heading above — `tests/application/test_sync_agent_docs.py`
+the `## The … files of a vertical` heading above — `tests/template/test_sync_agent_docs.py`
 compares the two. And update `minimal_read_set` in this file's own front matter — it names
 `project/application/reference_task_service.py`, and once that is gone
 `scripts/validate_repository_metadata.py` reports `skills_frontmatter.broken_path`.
@@ -279,7 +276,7 @@ file-by-file: **ADR documents** (`docs/adr/*.md` — the reasoning stays with th
 **migration history** (`alembic/versions/*` — append-only, see above), and **`CLAUDE.md` /
 `AGENTS.md`** (both clear once `docs/agent_rules.md` is edited and `make refresh-agent-docs` runs).
 
-`TestDeletionAccountsForEveryMatch` in `tests/application/test_skill_texts_match_reality.py` runs
+`TestDeletionAccountsForEveryMatch` in `tests/template/test_skill_texts_match_reality.py` runs
 the same sweep against this checkout and fails the day a file outside those three categories carries
 the vertical without appearing below — trust that test, and the table it checks, over this prose.
 
@@ -291,20 +288,23 @@ the vertical without appearing below — trust that test, and the table it check
 | the drop migration you just appended | names what it drops |
 | `docs/project_map.md` | generated tree; shows the migration filenames that still exist |
 | `.agents/skills/add-vertical/SKILL.md` | this file has to name what it deletes |
-| `tests/application/test_skill_texts_match_reality.py` | pins the sweep spelling and runs this accounting check |
-| `tests/application/test_generate_ai_context.py` | synthetic `"reference_task_service"` fixture strings |
-| `tests/application/test_validate_architecture.py` | a synthetic source line containing `ReferenceTaskORM` |
+| `tests/template/test_skill_texts_match_reality.py` | pins the sweep spelling and runs this accounting check |
+| `tests/template/test_generate_ai_context.py` | synthetic `"reference_task_service"` fixture strings |
+| `tests/template/test_validate_architecture.py` | a synthetic source line containing `ReferenceTaskORM` |
 | `tests/application/test_trace_formatter_against_real_output.py` | mentions inside recorded log fixtures |
 | `tests/application/test_logging_api.py` | the span name `db.reference_task.get` in logging fixtures |
-| `tests/application/test_query_ai_context.py` | functional-test paths inside a fixture list |
+| `tests/template/test_query_ai_context.py` | functional-test paths inside a fixture list |
 | `scripts/validate_test_quality.py` | one query in a comment, illustrating a rule |
-| `tests/application/test_sync_agent_docs.py` | asserts the generated Quick Start does **not** name the vertical |
+| `tests/template/test_sync_agent_docs.py` | asserts the generated Quick Start does **not** name the vertical |
 | `ai_context/dynamic_imports.py` | a comment about `project/domain/reference_task.py`'s line count |
 | `ai_query/common.py` | a comment illustrating the vertical-name-from-path heuristic |
 | `tests/application/test_client_errors_are_not_service_errors.py` | a fixture `POST /reference-tasks` |
 | `tests/application/test_functional_request_helpers.py` | a fixture `GET /reference-tasks/<uuid>` |
-| `tests/application/test_gate_recipes.py` | a synthetic `SELECT ... FROM reference_tasks` string |
+| `tests/template/test_gate_recipes.py` | a synthetic `SELECT ... FROM reference_tasks` string |
 | `tests/application/test_trace_formatter_failure_visibility.py` | a fixture span name and path in recorded NDJSON |
+| `scripts/extract_reference_vertical.py` | the script that takes the vertical out; it removes itself |
+| `scripts/check_product_from_template.py` | the template's check of a project made from it; removed with the vertical |
+| `tests/template/test_extract_reference_vertical.py` | tests the extraction; `tests/template` goes with the vertical |
 
 Every one of those is fixture text about a vertical, or a document that names the thing it removes —
 not a use of the vertical. A file outside the table and the three categories means the prose step

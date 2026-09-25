@@ -1,4 +1,4 @@
-# FILE: tests/application/test_validate_file_policy.py
+# FILE: tests/template/test_validate_file_policy.py
 # SUMMARY: Unit tests for the FILE_POLICY_INDEX schema validator.
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ def _valid_entry(entry_key: str) -> dict[str, object]:
         "common_tasks": [],
         "kernel_or_reference": "template_kernel",
         "classification_reason": "Test fixture.",
-        "source_of_truth": "tests/application/test_validate_file_policy.py",
+        "source_of_truth": "tests/template/test_validate_file_policy.py",
         "edit_zone": "safe",
         "regenerate_if_changed": [],
         "validators_if_changed": [],

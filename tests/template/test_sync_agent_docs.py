@@ -1,4 +1,4 @@
-# FILE: tests/application/test_sync_agent_docs.py
+# FILE: tests/template/test_sync_agent_docs.py
 # SUMMARY: Unit tests for the generated agent wrapper sync script.
 
 from pathlib import Path
