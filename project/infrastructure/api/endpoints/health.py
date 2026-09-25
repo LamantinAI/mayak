@@ -4,8 +4,11 @@
 import asyncio
 import time
 from datetime import datetime, timezone
+from functools import cache
+from pathlib import Path
 from typing import Any, Literal, cast
 
+from alembic.script import ScriptDirectory
 from fastapi import APIRouter, Request, Response, status
 from psycopg_pool import AsyncConnectionPool
 
@@ -20,6 +23,28 @@ from project.core.logging import get_logger
 logger = get_logger(__name__)
 
 _DATABASE_HEALTH_FAILURE_MESSAGE = "Database connection failed"
+_DATABASE_NOT_MIGRATED_MESSAGE = "Database reachable but not migrated — run `make migrate`"
+_DATABASE_BEHIND_MESSAGE = "Database schema is behind this code's migrations — run `make migrate`"
+_DATABASE_TIMEOUT_MESSAGE = "Database check timed out"
+_MIGRATIONS_UNREADABLE_MESSAGE = "This code's migrations could not be read"
+_DATABASE_REVISION_MALFORMED_MESSAGE = "Database records a malformed migration revision"
+
+# The only database messages readiness hands a caller as they are; any other text an unhealthy
+# check carries is replaced with the generic failure, since a probe error's text can hold a DSN.
+# The replacement used to cover every unhealthy result, named causes included: a database nobody
+# had migrated answered "Database connection failed", and whoever read that went to fix the network.
+_SAFE_DATABASE_MESSAGES = frozenset(
+    {
+        _DATABASE_NOT_MIGRATED_MESSAGE,
+        _DATABASE_BEHIND_MESSAGE,
+        _DATABASE_TIMEOUT_MESSAGE,
+        _MIGRATIONS_UNREADABLE_MESSAGE,
+        _DATABASE_REVISION_MALFORMED_MESSAGE,
+    }
+)
+
+# alembic/ beside the package: where a checkout has it and where the image copies it (Dockerfile).
+_MIGRATIONS_DIR = Path(__file__).resolve().parents[4] / "alembic"
 
 # Wall-clock budget for the readiness DB probe; bounds /health/ready latency
 # so a half-open TCP connection cannot stall the probe past k8s timeoutSeconds.
@@ -41,47 +66,103 @@ def _get_uptime_seconds(request: Request) -> float:
     return time.monotonic() - start_time
 
 
-# Inner DB readiness probe that reaches the database and confirms migrations have run. Separated from _check_database so the surrounding asyncio.wait_for can cancel it on timeout.
-# Returns probe latency in milliseconds, and whether the schema is migrated.
-# A bare SELECT 1 answered "healthy" against a database with no tables at all. That is the
-# exact state you land in after `make run-local` on a fresh checkout, so readiness lied at the one
-# moment it mattered. Reading alembic_version costs a second round trip and turns the silent case
-# into a named one.
-async def _run_db_probe(pool: AsyncConnectionPool[Any]) -> tuple[float, bool]:
+# The revisions this code expects the database to be at (the heads), and every revision it knows.
+# Read once per process: alembic imports each revision file to read it, and a probe runs every few
+# seconds.
+@cache
+def _migration_revisions() -> tuple[frozenset[str], frozenset[str]]:
+    script = ScriptDirectory(str(_MIGRATIONS_DIR))
+    known = frozenset(revision.revision for revision in script.walk_revisions())
+    return frozenset(script.get_heads()), known
+
+
+# Inner DB readiness probe that reaches the database and reads which migrations have run. Separated from _check_database so the surrounding asyncio.wait_for can cancel it on timeout.
+# Returns probe latency in milliseconds, and the revisions alembic_version records — None when there
+# is no such table at all.
+# A bare SELECT 1 answered "healthy" against a database with no tables at all, the state a fresh
+# checkout is in before `make migrate`. The table's existence alone was not enough either, measured
+# on a live database 2026-09-25: `alembic downgrade base` empties alembic_version without dropping it
+# (a DELETE, alembic/runtime/migration.py), and a schema one migration behind has the table too —
+# both answered "healthy" while every request failed.
+async def _run_db_probe(pool: AsyncConnectionPool[Any]) -> tuple[float, frozenset[str] | None]:
     start_ns = time.perf_counter_ns()
+    revisions: frozenset[str] | None = None
     async with pool.connection() as conn:
-        await conn.execute("SELECT 1")
         # Unqualified on purpose — to_regclass resolves through search_path, so a
         # project that puts alembic's version table in its own schema is still recognised. Hardcoding
         # `public.` reported "not migrated" forever on a fully migrated database.
         cursor = await conn.execute("SELECT to_regclass('alembic_version') IS NOT NULL")
         row = await cursor.fetchone()
-    migrated = bool(row[0]) if row else False
-    return (time.perf_counter_ns() - start_ns) / 1e6, migrated
+        if row and row[0]:
+            cursor = await conn.execute("SELECT version_num FROM alembic_version")
+            revisions = frozenset(str(found[0]) for found in await cursor.fetchall())
+    return (time.perf_counter_ns() - start_ns) / 1e6, revisions
 
 
 async def _check_database(pool: AsyncConnectionPool[Any]) -> dict[str, Any]:
+    try:
+        expected, known = _migration_revisions()
+    except Exception as e:
+        logger.log_warning(
+            warning_type="database_health_check_failed",
+            message=f"Reading the migrations in {_MIGRATIONS_DIR} failed: {e}",
+            affected_component="database",
+        )
+        return {
+            "status": "unhealthy",
+            "message": _MIGRATIONS_UNREADABLE_MESSAGE,
+            "response_time_ms": None,
+        }
+
     # Execute the probe under an asyncio.wait_for budget to bound probe latency.
     try:
-        response_time_ms, migrated = await asyncio.wait_for(
+        response_time_ms, revisions = await asyncio.wait_for(
             _run_db_probe(pool),
             timeout=READINESS_DB_TIMEOUT_SECONDS,
         )
+        latency = round(response_time_ms, 2)
 
         # A reachable but un-migrated database is not ready — name it instead of
         # reporting healthy and failing later on the first real query.
-        if not migrated:
+        if not revisions:
             return {
                 "status": "unhealthy",
-                "message": "Database reachable but not migrated — run `make migrate`",
-                "response_time_ms": round(response_time_ms, 2),
+                "message": _DATABASE_NOT_MIGRATED_MESSAGE,
+                "response_time_ms": latency,
+            }
+        # alembic writes an id with no surrounding space; a blank or padded one was put there by
+        # hand, and read as an unknown id it would pass for a newer deploy's (independent check,
+        # 2026-09-25).
+        if any(not revision or revision != revision.strip() for revision in revisions):
+            return {
+                "status": "unhealthy",
+                "message": _DATABASE_REVISION_MALFORMED_MESSAGE,
+                "response_time_ms": latency,
+                "schema_revision": sorted(revisions),
+            }
+        if revisions != expected and revisions <= known:
+            return {
+                "status": "unhealthy",
+                "message": _DATABASE_BEHIND_MESSAGE,
+                "response_time_ms": latency,
+                "schema_revision": sorted(revisions),
+                "expected_revision": sorted(expected),
             }
 
-        return {
+        result: dict[str, Any] = {
             "status": "healthy",
             "message": "Database connection successful",
-            "response_time_ms": round(response_time_ms, 2),
+            "response_time_ms": latency,
         }
+        # A revision this code has never seen is a newer deploy's migration: in a rolling deploy
+        # the old replicas keep serving against the new schema. Calling them unready would take
+        # every one of them out of rotation before a new one is up, so this stays healthy and
+        # names the revisions.
+        if not revisions <= known:
+            result["message"] = "Database connection successful; its schema is newer than this code"
+            result["schema_revision"] = sorted(revisions)
+            result["expected_revision"] = sorted(expected)
+        return result
     except asyncio.TimeoutError:
         # Treat timeout as unhealthy with an actionable diagnostic message.
         logger.log_warning(
@@ -91,7 +172,8 @@ async def _check_database(pool: AsyncConnectionPool[Any]) -> dict[str, Any]:
         )
         return {
             "status": "unhealthy",
-            "message": (f"Database check timed out after {READINESS_DB_TIMEOUT_SECONDS}s"),
+            "message": _DATABASE_TIMEOUT_MESSAGE,
+            "timeout_seconds": READINESS_DB_TIMEOUT_SECONDS,
             "response_time_ms": None,
         }
     except Exception as e:
@@ -196,7 +278,10 @@ async def _build_readiness_response(
         }
     else:
         checks["database"] = await _check_database(db_pool)
-        if checks["database"].get("status") == "unhealthy":
+        if (
+            checks["database"].get("status") == "unhealthy"
+            and checks["database"].get("message") not in _SAFE_DATABASE_MESSAGES
+        ):
             checks["database"]["message"] = _DATABASE_HEALTH_FAILURE_MESSAGE
         checks["database"]["critical"] = True
 
