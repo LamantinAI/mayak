@@ -619,7 +619,7 @@
   }
  ],
  "baseline": {
-  "commit": "61c7c05",
+  "commit": "6a5eca6",
   "results": {
    "create_blank_title_allowed": {
     "verdict": "caught:fast",
@@ -1047,6 +1047,16 @@
     "caught_by": {
      "fast": [
       "test_a_request_outside_the_rules_answers_422_and_writes_nothing"
+     ]
+    }
+   },
+   "details_bound_dropped": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
+      "test_create_refuses_overlong_details_before_writing",
+      "test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writing"
      ]
     }
    }
