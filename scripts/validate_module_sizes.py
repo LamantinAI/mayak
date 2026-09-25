@@ -4,7 +4,7 @@
 #
 # The budget deliberately charges for `code_lines` rather than for raw `splitlines()`, which makes
 # writing a CBM comment — or an explanation of why the code looks the way it does — free. The
-# measurement that settled this is written once, in `ai_context/line_metrics.py`, next to the code
+# measurement that settled this is written once, in `validation_support/line_metrics.py`, next to the code
 # that does the classifying; it is not repeated here.
 
 from __future__ import annotations
@@ -16,8 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-from ai_context.line_metrics import ModuleMetrics, measure_path
-from ai_context.validator_contract import build_validator_issue_payload
+from validation_support.line_metrics import ModuleMetrics, measure_path
+from validation_support.validator_contract import build_validator_issue_payload
 
 
 # Absolute repository root scanned by the validator.
@@ -26,7 +26,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 # Maximum executable lines allowed in a production Python module. Comments, docstrings, and blank lines are not counted.
 # The budget has two axes, and this is the first. Counting executable lines rather than raw
 # ones is deliberate — a raw limit taxes the file that explains itself, and the cheapest way under
-# such a limit is to delete the explanation. See ai_context/line_metrics.py for the measurement.
+# such a limit is to delete the explanation. See validation_support/line_metrics.py for the measurement.
 MAX_CODE_LINES = 450
 
 # Backwards-compatible alias for MAX_CODE_LINES, kept so existing importers keep working.
@@ -161,7 +161,7 @@ def collect_module_size_issues(root_dir: Path) -> list[ModuleSizeIssue]:
 
 
 # Measure every production module without applying the budget, for a caller that wants the code-versus-documentation split rather than a pass/fail verdict.
-# query_ai_context.py has no `metrics` command; the only caller today is this module's own
+# The only caller today is this module's own
 # test file. Kept rather than removed because the split it reports is the answer to "why is this
 # module over budget when half of it is comments"; delete it, and the seven tests that pin the
 # measurement, if nothing calls it by 2026-10.
@@ -241,7 +241,7 @@ def _issue_to_json(issue: ModuleSizeIssue) -> dict:
     entry["suggested_fix"] = (
         "Move a group of related functions into a sibling module. The budget counts executable "
         "lines only, so deleting comments buys nothing. "
-        "`query_ai_context.py before-edit file <path>` shows who imports what before you move it."
+        "`git grep -n 'import <module>'` shows who imports what before you move it."
     )
     entry["next_commands"] = [
         "uv run python scripts/validate_module_sizes.py",
@@ -250,7 +250,7 @@ def _issue_to_json(issue: ModuleSizeIssue) -> dict:
     return entry
 
 
-# Return a failure-playbook dict for module-size rule_ids, used by query_ai_context.py. Accepts an optional rule_id to disambiguate between the size-budget rule and the read-error rule.
+# Return a failure-playbook dict for module-size rule_ids, used by the doctor. Accepts an optional rule_id to disambiguate between the size-budget rule and the read-error rule.
 # rule_id: Specific rule_id to look up, or None for the default size budget rule (back-compat).
 # Returns: Playbook dict, or None when rule_id is not a module_size rule.
 def get_module_size_playbook(rule_id: str | None = None) -> dict | None:

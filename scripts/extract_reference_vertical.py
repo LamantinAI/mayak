@@ -51,7 +51,7 @@ SAMPLE_SHA256: dict[str, str] = {
     "project/application/reference_task_dtos.py": "31f2578ce6404a3f9a8c6b3438adb9ba1da301a18ec616faec961fad9938c5bc",
     "project/infrastructure/persistence/reference_task_repository.py": "59eb61963d35dce2de4a23037216ab7d3ccde306749e4c5bbfaa8da6a5f71256",
     "project/infrastructure/api/endpoints/reference_tasks.py": "cf4be1ec16fa1035a351a915600ae627c0e20fa2b8e1ede45a5c851d67845ba9",
-    "tests/application/test_reference_task_vertical.py": "f3a91404aced9bef03e28b4071519799cc4ae7c317b9eb5ae981a7b15920c21c",
+    "tests/application/test_reference_task_vertical.py": "666aa0a16bffd70617290b7bc6caf30f69c8d26b613e910089b0537141b0d781",
     "tests/db/test_reference_task_repository.py": "a94504ec248f2559951345e964507868d3b10817c80e954bad9b8e5adc7b1d3f",
     "tests/db/test_reference_tasks_api.py": "e5e287cd5bcfafd13df26e071617f5bf7ac98b2450060e4351f8e12a22275daa",
     "tests/functional/src/test_reference_tasks_api.py": "6d4ed6eb1f8583483b2737762f0046e5a3fbb807149c59c7689d20f9b63f896b",
@@ -123,14 +123,11 @@ CUTS: tuple[Cut, ...] = (
     ),
     Cut(
         "project/core/service_registration.py",
-        "    # Declare the binding as None first and fill it inside the branch. Never write",
+        "    # None when the project runs without the relational store: there is no pool to give it.",
         None,
         "    # A vertical builds its service here and registers it under its own key; the reference\n"
-        f"    # vertical's builder is in {_POINTER}. Declare a conditional service as None\n"
-        "    # first and fill it inside the branch, never in an `else`: ai_context/extraction.py reads\n"
-        "    # this function statically, visiting an If node as test -> body -> orelse, so an\n"
-        "    # assignment in an `else` overwrites the class it recorded. Keep the key in the dict when\n"
-        "    # the value is None: extraction learns the service exists from the literal, and\n"
+        f"    # vertical's builder is in {_POINTER}. Keep the key in the dict when the value is\n"
+        "    # None: validate_endpoint_wiring.py learns the service exists from the literal, and\n"
         "    # router_registration.py reads the value to decide whether the routes are reachable.\n"
         "    _ = settings, llm_service, db_pool\n"
         "    services: dict[str, Any] = {}\n"
@@ -186,8 +183,8 @@ CUTS: tuple[Cut, ...] = (
         "#\n"
         "#     <Name>ServiceDep = Annotated[<Name>Service, Depends(get_<name>_service)]\n"
         "#\n"
-        "# ai_context/extraction.py recognises exactly that shape to link alias -> getter -> service key,\n"
-        "# and validate_endpoint_wiring.py refuses an endpoint whose alias chain does not resolve.\n",
+        "# validate_endpoint_wiring.py recognises exactly that shape to link alias -> getter -> service\n"
+        "# key, and refuses an endpoint whose alias chain does not resolve.\n",
     ),
     Cut(
         "project/domain/ports.py",
@@ -280,13 +277,13 @@ CUTS: tuple[Cut, ...] = (
 CUT_SHA256: dict[str, str] = {
     "project/core/service_registration.py: from project.application.reference_task_service import ReferenceTaskService": "c2d1578871d269e933963d3810fd1d165aaddb0b74c7e990bbceb195e1afb376",
     "project/core/service_registration.py: from project.infrastructure.persistence.reference_task_repository import (": "77055d131f9e4fc85e52805966d4cc8fc7494116cea3ffca71f4023eebbbd7bc",
-    "project/core/service_registration.py:     # Declare the binding as None first and fill it inside the branch. Never write": "833b6279ae163a15767ff4ba01708c5b2cadae0011f3f4c5dd993c60dd96accb",
+    "project/core/service_registration.py:     # None when the project runs without the relational store: there is no pool to give it.": "2c86a9cf93d841fad6b5aaafc9c8db4b9b7e07e904a59edf79eb6714981d46f3",
     "project/infrastructure/api/router_registration.py: from project.infrastructure.api.endpoints.reference_tasks import reference_tasks_router": "f40804ebc62d1536fe3b0e0fb17d956ac9cc41e372162cdee3c0cf92540fc4e9",
     "project/infrastructure/api/router_registration.py:     # The reference vertical needs the relational store, so its routes exist only": "8ee7e3f10f9372ad080c4f8ff192c371d6455b1ae7029b1465ee3a32255c5ebd",
     "project/infrastructure/api/dependencies.py: from typing import Annotated, TypeVar": "202ef05b2e8a534ff3b37bbd9497e170b18f31b6ab5c9a94f85446af54940ee6",
     "project/infrastructure/api/dependencies.py: from fastapi import Depends, Request": "f6cdda0f1cc3add875d477429f2d5a92e4afb84574487822522d93bdb99cd877",
     "project/infrastructure/api/dependencies.py: from project.application.reference_task_service import ReferenceTaskService": "c2d1578871d269e933963d3810fd1d165aaddb0b74c7e990bbceb195e1afb376",
-    "project/infrastructure/api/dependencies.py: # Returns the service built by service_registration.build_reference_services.": "a1e1ddf0f81048bb6067a2d14f084b7cbdeca4c633609a2095acbceece0f2dcc",
+    "project/infrastructure/api/dependencies.py: # Returns the service built by service_registration.build_reference_services.": "7f371525c6952dd199a98f3bbcef9681d14b0fa0bcf62288e7d66809e2a0bedf",
     "project/domain/ports.py: from datetime import datetime": "1c80ee441a56d69acae99266605441b0bb38a078dd24cafe32771d718f2b86a4",
     "project/domain/ports.py: from project.domain.reference_task import ReferenceTask": "187181b41049f2a8f9f9c630c724547e2ddd8ef9821a44e122247f96aa8f7afc",
     "project/domain/ports.py: # Canonical data-access boundary. Verticals define one of these per aggregate.": "0b92a33017edb7b1f0b4c96337e5256015273de609378b3f22ca2b818e3b1858",
@@ -295,21 +292,12 @@ CUT_SHA256: dict[str, str] = {
     "project/infrastructure/persistence/__init__.py: # writes go through psycopg against the shared pool; reference_task_repository.py is the worked": "65e8404cb3529b13c13657d8c32f2dcf7b38c6de1ac7246f73cf93f25341ba60",
     "docs/agent_rules.md: - Copy the `reference_task` vertical. It is the one worked example and it exists to be copied — eleven files plus three wiring edits; `.agents/skills/add-vertical` carries the order and the removal list for when your own vertical replaces it. A project that has replaced it edits this line and nothing else: the wrapper's Quick Start is generated from these bullets.": "9b7ab18e46dabcc13dfaafab0156bfb41bf50a91b6b422495ec674d218108d48",
     ".agents/skills/add-vertical/SKILL.md: # Add Vertical": "ea123ba5901f1bcc464ff4cb4060688b2793f1870dfead15c1b909435f86c289",
-    ".agents/skills/add-vertical/SKILL.md: ## Deleting the reference vertical": "2df1064e9c85c648c4dbb1ded02be9d30ee3c6c37d7235c0ee43467162909c15",
+    ".agents/skills/add-vertical/SKILL.md: ## Deleting the reference vertical": "62015290e767a42e5baa92a5e8141d7bf687760d484323cb6d545bb3b7dfdbab",
 }
 
 
 def _cut_key(cut: Cut) -> str:
     return f"{cut.path}: {cut.first}"
-
-
-# The list items naming a template tool test as the check to run, in the two files the generated
-# maps are built from: the tests leave with tests/template, and a check naming one fails when an
-# agent runs it. Each item sits on a line of its own there.
-_TEMPLATE_TEST_ITEMS = {
-    "ai_context/file_policy.py": '"uv run pytest tests/template/',
-    "ai_context/build_change_map.py": '"tests/template/',
-}
 
 
 @dataclass
@@ -570,9 +558,6 @@ def build_plan(root: Path) -> Plan | str:
         )
 
     edited["docs/project_context.json"] = _project_context(_read(root, "docs/project_context.json"))
-    for path, item in _TEMPLATE_TEST_ITEMS.items():
-        lines = _read(root, path).splitlines(keepends=True)
-        edited[path] = "".join(line for line in lines if not line.lstrip().startswith(item))
 
     deleted = set(SAMPLE_SHA256)
     for path in TEMPLATE_ONLY:
@@ -621,8 +606,8 @@ def apply_plan(root: Path, plan: Plan) -> list[str]:
                 leftover.rmdir() if leftover.is_dir() else leftover.unlink()
             target.rmdir()
     # The project's own modules first. An editable install puts the checkout the interpreter was
-    # installed from on sys.path, so run against a copy — by the tests, by check-product — the
-    # generators read the template's file policy and rewrote the template's maps, leaving the
+    # installed from on sys.path, so run against a copy — by the tests, by check-product — a
+    # generator imported the template's modules and rewrote the template's files, leaving the
     # copy's stale: measured on 2026-09-24.
     env = hermetic_env()
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(root), env.get("PYTHONPATH")]))
@@ -636,11 +621,8 @@ def apply_plan(root: Path, plan: Plan) -> list[str]:
             "--quiet",
             *sorted(p for p in plan.writes if p.endswith(".py")),
         ],
-        [sys.executable, "scripts/generate_ai_context.py"],
         [sys.executable, "scripts/sync_agent_docs.py"],
-        ["git", "add", "-A", "--", *sorted(set(plan.writes) | set(plan.deletes))],
-        [sys.executable, "scripts/structure_builder.py"],
-        ["git", "add", "-A", "--", "docs"],
+        ["git", "add", "-A", "--", *sorted(set(plan.writes) | set(plan.deletes)), "AGENTS.md"],
     )
     for command in steps:
         result = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True)

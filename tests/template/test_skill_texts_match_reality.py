@@ -22,7 +22,7 @@ _INITIALIZE_PROJECT = _REPO_ROOT / ".agents" / "skills" / "initialize-project" /
 _ADR_007 = _REPO_ROOT / "docs" / "adr" / "ADR-007-autocommit-and-explicit-transactions.md"
 
 # Every directory of kernel Python, used to prove the memory tag has not come back.
-_KERNEL_PYTHON_ROOTS = ("project", "scripts", "ai_context", "ai_query", "tests")
+_KERNEL_PYTHON_ROOTS = ("project", "scripts", "validation_support", "tests")
 
 _VERTICAL_ANY_SPELLING = re.compile(r"reference[-_]?task", re.IGNORECASE)
 
@@ -53,7 +53,7 @@ def _files_matching(pattern: re.Pattern[str]) -> set[str]:
 
 # `tests/functional` is included here even though the narrow validation loop never runs it: this
 # scan is looking for a ledger the skill must name, and one written there would still fail a gate.
-_LEDGER_SCAN_DIRECTORIES = ("tests", "scripts", "ai_context", "ai_query")
+_LEDGER_SCAN_DIRECTORIES = ("tests", "scripts", "validation_support")
 
 _PYTHON_BLOCK = re.compile(r"```python\n(.*?)```", re.DOTALL)
 
@@ -459,7 +459,7 @@ class TestConcurrencyAndForeignKeyGuidanceStays:
         skill_text = _ADD_VERTICAL.read_text(encoding="utf-8")
 
         assert _contains_wrapped(
-            "Where the single-row token does not reach", _numbered_step(skill_text, 6)
+            "Where the single-row token does not reach", _numbered_step(skill_text, 5)
         )
         assert _contains_wrapped(
             "A foreign key's deletion policy is a domain decision", _numbered_step(skill_text, 2)

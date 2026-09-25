@@ -49,7 +49,7 @@ and with the number of agents making them at once.
 
 **A poor fit** for a thin CRUD service you will write once and rarely touch. The template charges its
 tax before the first endpoint: hexagonal layering the build enforces, a comment header on every
-file, class, function and attribute, eleven validators to satisfy, and a pull request per change.
+file, ten validators to satisfy, and a pull request per change.
 On a small MVP that tax is real and there is not enough change ahead of you to repay it. Write it by
 hand.
 
@@ -197,9 +197,8 @@ Without Docker, point it at a database you control with `TEST_DATABASE_URL`; a p
 entrypoint, and HTTP against the running container — a change to endpoints, wiring or a migration
 is finished by `make test-e2e`.
 
-`make ai-autofix` fixes formatting and lint in one pass. Never hand-edit generated
-files — `CLAUDE.md`, `AGENTS.md`, `docs/project_map.md` and `docs/ai_*.json` are rewritten from
-their sources, and a pre-edit hook refuses the write.
+`make ai-autofix` fixes formatting and lint in one pass. Never hand-edit `CLAUDE.md` or
+`AGENTS.md` — both are rewritten from `docs/agent_rules.md`, and a pre-edit hook refuses the write.
 
 The GitHub Actions workflow in `.github/workflows/ci.yml` runs the same ground as `make ci-local`;
 a test keeps the two lists from drifting apart.
@@ -292,7 +291,7 @@ Notes worth knowing:
 | `docs/agent_rules.md` | the operating contract: where a fact goes, how the kernel is shaped, what each gate enforces |
 | `AGENTS.md` | the operating contract as an agent loads it: Codex directly, Claude Code through the `CLAUDE.md` that imports it — do not edit either directly |
 | `docs/adr/` | why the load-bearing decisions were made, one dated document each |
-| `docs/project_map.md` | generated file tree with a one-line summary per module |
+| `git grep -n '^# SUMMARY:'` | a one-line summary per module: every Python file opens with one |
 | `PROJECT.md` | what a given project does — the file you rewrite first |
 
 Comments in the code carry the reasoning: where a decision was hard, the file says what was tried and

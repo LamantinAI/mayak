@@ -7,9 +7,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from ai_context.dynamic_imports import dynamic_import_targets
-from ai_context.rendering import render_json
-from ai_context.validator_contract import build_validator_issue_payload
+from validation_support.dynamic_imports import dynamic_import_targets
+from validation_support.rendering import render_json
+from validation_support.validator_contract import build_validator_issue_payload
 
 
 # The only non-stdlib imports a domain module may make.
@@ -111,7 +111,7 @@ _ARCHITECTURE_RULE_PLAYBOOKS = {
         ),
         "read_first": [
             "AGENTS.md",
-            "docs/architecture_rules.json",
+            "scripts/validate_architecture.py",
             "project/core/composition_root.py",
         ],
         "smallest_command_to_rerun": "uv run python scripts/validate_architecture.py",
@@ -144,7 +144,7 @@ _ARCHITECTURE_RULE_PLAYBOOKS = {
         "read_first": [
             "AGENTS.md",
             "project/domain/ports.py",
-            "docs/architecture_rules.json",
+            "scripts/validate_architecture.py",
         ],
         "smallest_command_to_rerun": "uv run python scripts/validate_architecture.py",
         "likely_fix_shape": (
@@ -174,7 +174,7 @@ _ARCHITECTURE_RULE_PLAYBOOKS = {
             "AGENTS.md",
             "project/core/composition_root.py",
             "project/core/service_registration.py",
-            "docs/architecture_rules.json",
+            "scripts/validate_architecture.py",
         ],
         "smallest_command_to_rerun": "uv run python scripts/validate_architecture.py",
         "likely_fix_shape": (
@@ -473,7 +473,7 @@ def validate_python_source(path: Path, repo_root: Path) -> list[ArchitectureIssu
 
     # Written imports and called ones are checked the same way, so an
     # `importlib.import_module("psycopg")` call in a domain module is caught as surely as a written
-    # import is. Collecting only the written kind left the call free of every gate. See ai_context/dynamic_imports.py for the measurement, for why the call's
+    # import is. Collecting only the written kind left the call free of every gate. See validation_support/dynamic_imports.py for the measurement, for why the call's
     # names are resolved against this file's own imports, and for what still escapes.
     imported: list[tuple[str, int]] = []
     for node in ast.walk(tree):

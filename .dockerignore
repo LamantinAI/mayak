@@ -79,17 +79,16 @@ htmlcov/
 # .dockerignore line, because functional-tests still needs it from the builder. See the Dockerfile
 # comment on that COPY before adding tests/ here.
 #
-# scripts/ and ai_context/ are missing from the list below for the same reason as tests/ and by the
-# same route: the functional suite imports them, so they have to reach the build context, and they
-# are kept out of `app` by the selective COPY instead. Which test imports what, and what breaks the
-# day someone adds them here, is written once beside that COPY in the Dockerfile. ai_query/ has no
-# reader in tests/ and so does stay listed.
+# scripts/ and validation_support/ are missing from the list below for the same reason as tests/
+# and by the same route: the functional suite imports them, so they have to reach the build
+# context, and they are kept out of `app` by the selective COPY instead. Which test imports what,
+# and what breaks the day someone adds them here, is written once beside that COPY in the
+# Dockerfile.
 .agents/
 .claude/
 .codex/
 .github/
 .githooks/
-ai_query/
 docs/
 README.md
 PROJECT.md

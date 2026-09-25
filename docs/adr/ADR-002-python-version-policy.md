@@ -9,8 +9,8 @@ compatibility lane was removed with it.
 
 The supported floor is `requires-python` in `pyproject.toml`. The local toolchain is
 `.python-version`. `mypy` targets the floor, never the local toolchain. None of those numbers is
-repeated in prose anywhere — `AGENTS.md` and `docs/architecture_rules.json` render them from the
-two files, and this document deliberately names neither.
+repeated in prose anywhere — `AGENTS.md` renders them from the two files, and this document
+deliberately names neither.
 
 While the two numbers are equal, the template ships **no** compatibility lane: a job that re-runs
 the suite on the interpreter the main gate already used cannot fail, and a gate that cannot fail is
@@ -48,7 +48,7 @@ consumer of the template runs.
 - The declared floor is a version the whole test suite actually passes on. It was not before.
 - A project that must run on an older interpreter forks the floor and reinstates the lane above.
 - `tomllib` is available unconditionally, which removed a hand-rolled TOML scanner in
-  `scripts/validate_dependencies.py` and an `ImportError` fallback in `scripts/structure_builder.py`
-  that existed only for the old floor.
+  `scripts/validate_dependencies.py` and an `ImportError` fallback in the project-map generator
+  (since removed) that existed only for the old floor.
 - Moving the local toolchain forward is now a dependency question, not a policy one: the pinned set
   has to grow wheels for the newer interpreter first.

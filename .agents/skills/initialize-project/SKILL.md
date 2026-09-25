@@ -24,8 +24,7 @@ nothing to do with what you were changing.
 ## Workflow
 
 1. `make init-project`. It runs `./dev_setup.sh` (dependencies, git hooks, `.env` from
-   `.env.sample` only if absent), then `bootstrap` and `overview`, then `workset diff` when the
-   worktree already has changes. It is idempotent — an existing `.env` is never overwritten.
+   `.env.sample` only if absent). It is idempotent — an existing `.env` is never overwritten.
 2. Decide whether this repository **is** the template or a project built from it. If it is the
    template, stop here. Everything below assumes it is a new service.
 3. Replace the identity in all six places below.
@@ -40,16 +39,13 @@ nothing to do with what you were changing.
    It refuses, and changes nothing, while `project_name` still names the template, while a file of
    the vertical differs from what the template shipped, or once a vertical of your own exists —
    then follow "Deleting the reference vertical" in `.agents/skills/add-vertical` by hand.
-6. `make refresh-generated-docs`. `docs/project_map.md` renders the project name from
-   `docs/project_context.json`, and the agent wrappers are generated too; without this the next gate fails
-   on artifact drift rather than on your work.
-7. Decide whether this project needs a relational store. If it does not — a vector-search-only or
+6. Decide whether this project needs a relational store. If it does not — a vector-search-only or
    stateless service — set `POSTGRES_ENABLED=false` in `.env` and say so in the `postgres` entry of
    `docs/project_context.json`. The kernel then starts without a connection pool, runs no
    migrations, and stops reporting the database as a critical readiness check. Leaving the default
    `true` keeps PostgreSQL required, which is right for most services. See
    `docs/adr/ADR-006-optional-postgres.md`.
-8. `make quality-gates`, then continue with `.agents/skills/add-vertical` for the first feature.
+7. `make quality-gates`, then continue with `.agents/skills/add-vertical` for the first feature.
 
 ## The six places the template's identity lives
 
@@ -76,16 +72,13 @@ something true to say. Three tests read this file, so keep the phrase `Python 3.
 backticks, the `| \`KEY\` | ... | \`value\` |` shape of the environment tables, and every skill name
 in backticks.
 
-Kernel files that mention Mayak in their own docstrings — `ai_query/`, `scripts/`, ADRs — are
+Kernel files that mention Mayak in their own docstrings — `scripts/`, ADRs — are
 naming the template they came from. Leave them alone.
 
 `project/__init__.py`'s SUMMARY and the temporary file `make audit-deps` writes are deliberately
 absent from this list: carrying a name that can go stale was the defect, and both are generic now.
-`tests/template/test_template_neutrality.py` still checks the
-operational contract's heading and the audit-deps temp path. It no longer forbids the project's
-own name elsewhere under `project/` — a project is free to name itself in its own prompt file and
-in code comments; only the fallback default in #4 is pinned, by
-`tests/application/test_config.py::test_default_values`.
+A project is free to name itself in its own prompt file and in code comments; only the fallback
+default in #4 is pinned, by `tests/application/test_config.py::test_default_values`.
 
 ## Expected output
 

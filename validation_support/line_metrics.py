@@ -9,7 +9,7 @@
 # The effect is visible in this repository, but any specific figure quoted here goes stale as soon
 # as the file it describes changes — re-measure instead of trusting a number:
 #
-#   uv run python -c "from pathlib import Path; from ai_context.line_metrics import \
+#   uv run python -c "from pathlib import Path; from validation_support.line_metrics import \
 #     compute_module_metrics as m; print(sorted(((len(f.read_bytes().decode().splitlines()), \
 #     m(f.read_bytes()).code_lines, str(f)) for f in Path('project').rglob('*.py')), \
 #     reverse=True)[:3])"

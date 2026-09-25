@@ -29,9 +29,8 @@ class TestKernelAssemblesWithoutPostgres:
         services = app_without_postgres.state.services
 
         assert services["db_pool"] is None
-        # The key itself must survive: ai_context/extraction.py reads the
-        # services dict literal by key name, and tests/template/test_generate_ai_context.py
-        # asserts db_pool is among the kernel's shared services.
+        # The key itself must survive: scripts/validate_endpoint_wiring.py reads the
+        # services dict literal by key name to learn which services exist.
         assert "db_pool" in services
 
     # Verify the default path is untouched, so existing projects keep working.

@@ -81,14 +81,13 @@ COPY --from=builder --chown=appuser:appuser /app/tests /app/tests
 # 2026-08-24: added after `make test-e2e` failed collection with `ModuleNotFoundError: No module
 # named 'scripts'`. tests/functional/src/test_migrations_match_models.py imports
 # scripts.validate_migrations (the ADR-006 migration gate, run here with a real database because
-# it is the one place that has one), which imports ai_context.rendering and
-# ai_context.validator_contract — both stdlib-only, nothing further to chase. Same reasoning as
+# it is the one place that has one), which imports validation_support.rendering and
+# validation_support.validator_contract — both stdlib-only, nothing further to chase. Same reasoning as
 # the tests/ COPY above: both were in .dockerignore, which cut them from the build context
 # entirely, so there was nothing in `builder` for a selective COPY to pull from until they were
-# removed from that list. ai_query/ has no reader in tests/ (checked, see .dockerignore) and stays
-# excluded — do not copy it "to be safe".
+# removed from that list.
 COPY --from=builder --chown=appuser:appuser /app/scripts /app/scripts
-COPY --from=builder --chown=appuser:appuser /app/ai_context /app/ai_context
+COPY --from=builder --chown=appuser:appuser /app/validation_support /app/validation_support
 
 RUN /app/.venv/bin/python -m ensurepip \
     && /app/.venv/bin/python -m pip install --disable-pip-version-check --no-cache-dir -r /app/tests/functional/requirements.txt

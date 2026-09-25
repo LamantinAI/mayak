@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # FILE: doctor_ai_context.py
-# Diagnose the first blocking layer of `make quality-gates` — every tool step (lockfile,
-# lint, format, types, security, tests), every in-process validator, and the two drift checks —
-# without mutating the repository.
+# SUMMARY: Names the first blocking layer of `make quality-gates`, and answers `--rule <rule_id>` with its playbook.
+# Every tool step (lockfile, lint, format, types, security, tests), every in-process validator and
+# the agent-docs drift check, without mutating the repository.
 # This module names every layer — tool steps and validators alike — in one place, because
 # modelling only some of them lets it answer "doctor status: ok" while quality-gates is red; a
 # doctor that leaves out the test run, mypy or ruff is worse than no doctor. The tool steps still
@@ -21,20 +21,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from ai_context.errors import ContextBuildError
-from ai_context.rendering import render_json
-from ai_query.common import degraded_query_payload, failure_playbook
-from scripts.generate_ai_context import (
-    _build_generated_outputs,
-    build_context_map,
-    generated_output_issues,
-)
+from validation_support.rendering import render_json
 
 # Import error text when a validator module could not be loaded, otherwise None.
 # Every validator this doctor diagnoses is imported here, guarded, so a validator that is
 # missing, renamed or syntactically broken is diagnosed rather than crashing the one tool whose job
 # is to diagnose a broken repository: without this guard, deleting scripts/validate_cbm.py produces
-# a raw ModuleNotFoundError from ai_query/common.py, not a diagnosis. The guard also covers
+# a raw ModuleNotFoundError, not a diagnosis. The guard also covers
 # dependencies, secrets and test_quality — importing any of those three unconditionally would crash
 # this module's own import instead of being diagnosed like everything else here.
 UNAVAILABLE_VALIDATOR: str | None = None
@@ -56,10 +49,6 @@ try:
         collect_endpoint_wiring_issues,
         get_endpoint_rule_playbook,
     )
-    from scripts.validate_file_policy import (
-        collect_file_policy_issues,
-        get_file_policy_rule_playbook,
-    )
     from scripts.validate_migrations import collect_migration_issues, get_migrations_rule_playbook
     from scripts.validate_module_sizes import collect_module_size_issues, get_module_size_playbook
     from scripts.validate_repository_metadata import (
@@ -78,6 +67,7 @@ try:
         collect_test_quality_issues,
         get_test_quality_rule_playbook,
     )
+    from scripts.sync_agent_docs import get_agent_docs_rule_playbook
 except ImportError as error:
     UNAVAILABLE_VALIDATOR = str(error)
 
@@ -203,7 +193,7 @@ def tool_layers_enabled() -> bool:
 
 
 # Remediation playbooks for the tool layers and the doctor's own unavailable-layer rule,
-# keyed by the rule_id this module prints. Reachable through `query_ai_context.py failure rule <id>`.
+# keyed by the rule_id this module prints. Reachable through `doctor_ai_context.py --rule <id>`.
 _GATE_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
     "gate.lockfile.stale": {
         "meaning": "uv.lock no longer matches pyproject.toml, so the environment is not reproducible.",
@@ -252,8 +242,8 @@ _GATE_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
     },
     "gate.types.failed": {
         "meaning": (
-            "mypy reported type errors somewhere in MYPY_TARGETS: project, scripts, ai_context, "
-            "ai_query, alembic, or a test suite — tests/functional, tests/application, "
+            "mypy reported type errors somewhere in MYPY_TARGETS: project, scripts, "
+            "validation_support, alembic, or a test suite — tests/functional, tests/application, "
             "tests/infrastructure, tests/integration and tests/conftest.py are all in scope."
         ),
         "read_first": ["pyproject.toml", "AGENTS.md"],
@@ -299,10 +289,42 @@ _GATE_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
 
 
 # Resolve the remediation playbook for a gate-layer rule_id, or None when unknown.
-# Imported by ai_query/common.py's failure_playbook chain — the whole reason this stayed a
-# named module-level function through the merge rather than becoming a closure.
 def get_doctor_layer_playbook(rule_id: str) -> dict[str, object] | None:
     return _GATE_RULE_PLAYBOOKS.get(rule_id)
+
+
+# The playbook for any rule_id a gate step prints — the answer to "three failures running, what
+# now?". Every validator's getter is asked in turn; tests/template/test_doctor_ai_context.py
+# parametrises over every rule_id a validator declares, so a new rule without a playbook is red.
+# Raises KeyError for a rule_id nothing declares.
+def failure_playbook(rule_id: str) -> dict[str, object]:
+    for getter in (
+        get_doctor_layer_playbook,
+        get_dependencies_rule_playbook,
+        get_secrets_rule_playbook,
+        get_test_quality_rule_playbook,
+        get_architecture_rule_playbook,
+        get_endpoint_rule_playbook,
+        get_runtime_ownership_rule_playbook,
+        get_cbm_rule_playbook,
+        get_module_size_playbook,
+        get_repository_metadata_rule_playbook,
+        get_migrations_rule_playbook,
+        get_agent_docs_rule_playbook,
+    ):
+        playbook = getter(rule_id)
+        if playbook is None:
+            continue
+        return {
+            "rule_id": rule_id,
+            "meaning": playbook["meaning"],
+            "smallest_files_to_read": list(playbook["read_first"]),
+            "smallest_command_to_rerun": playbook["smallest_command_to_rerun"],
+            "likely_fix_shape": playbook["likely_fix_shape"],
+            "next_checks": list(playbook["next_checks"]),
+            "stop_widening_condition": playbook["stop_widening_condition"],
+        }
+    raise KeyError(f"Unknown failure rule ID: {rule_id}")
 
 
 # One gate step the doctor diagnoses by running the make target that owns it.
@@ -570,10 +592,6 @@ def _repository_metadata_locate(issue: Any) -> tuple[str, int, str]:
     return "docs/project_context.json", 1, f"[{issue.field}] {issue.message}"
 
 
-def _file_policy_locate(issue: Any) -> tuple[str, int, str]:
-    return "ai_context/file_policy.py", 1, f"[{issue.entry_key}] [{issue.field}] {issue.message}"
-
-
 # Collect, filter to errors, and report the first blocking issue for one in-process
 # validator. Takes the collector's own result and the playbook getter as plain callables — resolved
 # by the caller as bare names, so a test that monkeypatches "scripts.doctor_ai_context.collect_x"
@@ -609,43 +627,6 @@ def _diagnose_validator_layer(
 def diagnose() -> dict[str, object]:
     if UNAVAILABLE_VALIDATOR is not None:
         return unavailable_validator_payload(UNAVAILABLE_VALIDATOR)
-
-    try:
-        rendered_outputs = _build_generated_outputs()
-    except ContextBuildError as error:
-        return degraded_query_payload(
-            degraded_status=error.issue.issue_type, issues=[error.issue.to_payload(ROOT_DIR)]
-        )
-
-    try:
-        drift_issues = generated_output_issues(rendered_outputs)
-    except ContextBuildError as error:
-        return degraded_query_payload(
-            degraded_status=error.issue.issue_type, issues=[error.issue.to_payload(ROOT_DIR)]
-        )
-    if drift_issues:
-        return {
-            "status": "error",
-            "degraded_status": "generated_outdated",
-            "issues": [
-                {
-                    **issue,
-                    "issue_type": "generated_outdated",
-                    "recommended_next_command": "make refresh-generated-docs",
-                    "likely_fix_shape": (
-                        "Regenerate the artifact instead of editing it: "
-                        "`make refresh-generated-docs`, then commit what it wrote."
-                    ),
-                }
-                for issue in drift_issues
-            ],
-        }
-
-    context_map = build_context_map()
-    if context_map["integrity"]["status"] != "ok":
-        return degraded_query_payload(
-            degraded_status="integrity_error", issues=list(context_map["integrity"]["issues"])
-        )
 
     for layer_name, collect, playbook_for in (
         ("architecture", collect_architecture_issues, get_architecture_rule_playbook),
@@ -753,17 +734,7 @@ def diagnose() -> dict[str, object]:
             ],
         }
 
-    payload = _diagnose_validator_layer(
-        "file_policy",
-        collect_file_policy_issues(ROOT_DIR),
-        _file_policy_locate,
-        get_file_policy_rule_playbook,
-    )
-    if payload is not None:
-        return payload
-
-    # Drift checks — two generators that ship `--check` mode and own surfaces not
-    # covered by `_build_generated_outputs` (the agent wrappers, docs/project_map.md).
+    # The one generator left: the agent wrappers rendered from docs/agent_rules.md.
     drift_check = _diagnose_drift_layer(
         layer="agent_docs_drift",
         blocking_layer="agent_docs_drift",
@@ -774,20 +745,9 @@ def diagnose() -> dict[str, object]:
     if drift_check is not None:
         return drift_check
 
-    drift_check = _diagnose_drift_layer(
-        layer="project_map_drift",
-        blocking_layer="project_map_drift",
-        command=("scripts/structure_builder.py", "--check"),
-        rule_id="drift.generated.outdated",
-        target="docs/project_map.md",
-    )
-    if drift_check is not None:
-        return drift_check
-
     ok_payload: dict[str, object] = {
         "status": "ok",
         "checked_layers": [
-            "context",
             "architecture",
             "endpoint_wiring",
             "runtime_ownership",
@@ -795,9 +755,7 @@ def diagnose() -> dict[str, object]:
             "module_size",
             "repository_metadata",
             "migrations",
-            "file_policy",
             "agent_docs_drift",
-            "project_map_drift",
         ],
         "final_gate": "make quality-gates",
     }
@@ -875,7 +833,7 @@ def _diagnose_drift_layer(
                 "file": target,
                 "line": 1,
                 "message": snippet,
-                "recommended_next_command": "make refresh-generated-docs",
+                "recommended_next_command": "make refresh-agent-docs",
                 "likely_fix_shape": _fix_shape_for(rule_id),
                 "stop_widening_condition": (f"Stop widening once `{' '.join(command)}` exits 0."),
             }
@@ -883,12 +841,33 @@ def _diagnose_drift_layer(
     }
 
 
+# Print the playbook for one rule_id without running any gate. Returns the exit code.
+def _print_rule(rule_id: str, as_json: bool) -> int:
+    try:
+        playbook = failure_playbook(rule_id)
+    except KeyError as error:
+        print(error.args[0], file=sys.stderr)
+        return 2
+    if as_json:
+        print(render_json(playbook), end="")
+        return 0
+    for key, value in playbook.items():
+        shown = ", ".join(map(str, value)) if isinstance(value, list) else value
+        print(f"{key}: {shown}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Diagnose the first blocking AI-context or validation issue without mutating the repository."
+        description="Diagnose the first blocking quality-gates layer without mutating the repository."
     )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON output.")
+    parser.add_argument(
+        "--rule", metavar="RULE_ID", help="Print the playbook for one rule_id; run no gate."
+    )
     args = parser.parse_args()
+    if args.rule:
+        return _print_rule(args.rule, args.json)
 
     payload = diagnose_full()
     if args.json:
@@ -912,10 +891,7 @@ def main() -> int:
         print("final_gate: make quality-gates")
     else:
         print("doctor status: error")
-        if "degraded_status" in payload:
-            print(f"blocking_layer: {payload['degraded_status']}")
-        else:
-            print(f"blocking_layer: {payload['blocking_layer']}")
+        print(f"blocking_layer: {payload['blocking_layer']}")
         issue = payload["issues"][0]
         print(f"message: {issue['message']}")
         # The fix shape is printed above the command on purpose — for every gate

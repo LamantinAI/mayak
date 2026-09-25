@@ -14,7 +14,7 @@ fi
 
 # Run the shared golden-path verification. `make quality-gates` refreshes the generated artifacts
 # itself (`refresh-generated-unless-strict`, since this hook does not set STRICT_GENERATED) before
-# running the `--check` steps, so a separate `make refresh-generated-docs` call here would
+# running the `--check` steps, so a separate `make refresh-agent-docs` call here would
 # regenerate the same artifacts a second time for nothing.
 echo "--- Pre-commit: running quality gates ---"
 make quality-gates

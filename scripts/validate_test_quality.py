@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-from ai_context.rendering import render_json
-from ai_context.validator_contract import build_validator_issue_payload
+from validation_support.rendering import render_json
+from validation_support.validator_contract import build_validator_issue_payload
 
 # Absolute repository root scanned by this validator.
 ROOT_DIR = Path(__file__).resolve().parent.parent

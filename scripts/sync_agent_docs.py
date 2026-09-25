@@ -8,7 +8,7 @@ import argparse
 import re
 from pathlib import Path
 
-from ai_context.rendering import render_json
+from validation_support.rendering import render_json
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 SHARED_RULES_PATH = ROOT_DIR / "docs" / "agent_rules.md"
@@ -197,6 +197,32 @@ def _fail(
 _SHARED_DISPLAY = _display_path(SHARED_RULES_PATH)
 _READ_FIRST = [_SHARED_DISPLAY, "AGENTS.md"]
 _FIX = "Regenerate the agent wrappers from docs/agent_rules.md."
+
+_RULE_MEANINGS = {
+    "drift.agent_docs.missing": "A generated agent wrapper (AGENTS.md or CLAUDE.md) is missing.",
+    "drift.agent_docs.outdated": "A generated agent wrapper no longer matches docs/agent_rules.md.",
+    DROPPED_SECTION_RULE_ID: (
+        "A section heading in docs/agent_rules.md is not a plain `Title:` line, so rendering "
+        "would drop the section."
+    ),
+}
+
+
+# The playbook `doctor_ai_context.py --rule` answers with, or None for a rule this file never prints.
+def get_agent_docs_rule_playbook(rule_id: str) -> dict[str, object] | None:
+    if rule_id not in _RULE_MEANINGS:
+        return None
+    return {
+        "meaning": _RULE_MEANINGS[rule_id],
+        "read_first": _READ_FIRST,
+        "smallest_command_to_rerun": "uv run python scripts/sync_agent_docs.py --check",
+        "likely_fix_shape": (
+            "Put the wording in docs/agent_rules.md and run `make refresh-agent-docs`; a hand "
+            "edit to AGENTS.md or CLAUDE.md is lost on the next refresh."
+        ),
+        "next_checks": _NEXT_COMMANDS,
+        "stop_widening_condition": "Stop widening once sync_agent_docs.py --check passes.",
+    }
 
 
 # Compare one rendered wrapper against disk; report and return 1 when it drifted, else 0.

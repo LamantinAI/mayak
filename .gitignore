@@ -160,9 +160,8 @@ dmypy.json
 # Misc
 .DS_Store
 
-# Author-local caches and notes. These were a recurring source of project_map.md drift: git must
-# exclude them from `git ls-files --others --exclude-standard` so scripts/structure_builder.py's
-# git-index-driven enumeration never sees them.
+# Author-local caches and notes: nothing a commit should carry, and nothing a tool listing the
+# repository's files should see.
 .tiktoken_cache/
 docs/research/
 

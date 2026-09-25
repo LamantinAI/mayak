@@ -14,9 +14,9 @@ from importlib.metadata import PackageNotFoundError, metadata, packages_distribu
 from pathlib import Path
 from typing import Sequence
 
-from ai_context.dynamic_imports import dynamic_import_targets
-from ai_context.rendering import render_json
-from ai_context.validator_contract import build_validator_issue_payload
+from validation_support.dynamic_imports import dynamic_import_targets
+from validation_support.rendering import render_json
+from validation_support.validator_contract import build_validator_issue_payload
 
 # Absolute repository root scanned by this validator.
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -25,7 +25,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 RUNTIME_PACKAGE = "project"
 
 # Top-level modules that live in this repository rather than in a distribution.
-FIRST_PARTY_ROOTS = frozenset({"project", "ai_context", "ai_query", "scripts", "tests", "alembic"})
+FIRST_PARTY_ROOTS = frozenset({"project", "validation_support", "scripts", "tests", "alembic"})
 
 _DEPENDENCIES_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
     "dependencies.undeclared_import": {
@@ -202,7 +202,7 @@ def _top_level_imports(tree: ast.AST) -> list[tuple[str, int]]:
     # A module pulled in by importlib.import_module("x") is as undeclared as one
     # pulled in by `import x`; checking only the written form lets the dynamic spelling import a
     # transitively-installed distribution with this gate green.
-    # ai_context/dynamic_imports.py owns which call shapes count and why.
+    # validation_support/dynamic_imports.py owns which call shapes count and why.
     found.extend((target.split(".")[0], line) for target, line in dynamic_import_targets(tree))
     return found
 

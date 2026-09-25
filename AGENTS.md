@@ -11,7 +11,6 @@ Generated from `docs/agent_rules.md` via `scripts/sync_agent_docs.py`. Do not ed
 - Copy the `reference_task` vertical. It is the one worked example and it exists to be copied — eleven files plus three wiring edits; `.agents/skills/add-vertical` carries the order and the removal list for when your own vertical replaces it. A project that has replaced it edits this line and nothing else: the wrapper's Quick Start is generated from these bullets.
 - If `.env` is missing: `make init-project`. Nothing else creates it, and the app does not start without it. Idempotent — it never overwrites an existing `.env`.
 - `make quality-gates` before committing — its test run includes the db tier, which runs your queries and migrations against a PostgreSQL it starts itself (needs Docker). When the diff touched endpoints, wiring or a migration, `make test-e2e` too: only it runs the built image over HTTP.
-- Reach for `uv run python scripts/query_ai_context.py bootstrap` when you need the wiring map, and `workset diff` when you already have local edits — not as a ritual.
 
 Running the service needs one more decision: the shipped `.env` points at PostgreSQL with
 placeholder credentials, so `make run-local` fails until either a database is up
@@ -22,7 +21,7 @@ Run `make help` for the full grouped command list — it reads the Makefile dire
 
 ## Task Process
 
-- When one command fails three times running, stop editing: write down the assumption you now doubt, ask `query_ai_context.py failure rule <rule_id>` for its playbook, read only the files it names, and change one thing before rerunning.
+- When one command fails three times running, stop editing: write down the assumption you now doubt, ask `uv run python scripts/doctor_ai_context.py --rule <rule_id>` for its playbook, read only the files it names, and change one thing before rerunning.
 - Never claim task completion without fresh `make quality-gates` evidence.
 - Use a fresh subagent for independent verification — do not self-verify.
 - A finished task ends as an open pull request, never a merge: branch `task/<ID>` → commit → push → `gh pr create --base main`. No deploy job ships — "done" means open and green.
@@ -30,21 +29,20 @@ Run `make help` for the full grouped command list — it reads the Makefile dire
 
 ## Working Notes
 
-- Use focused queries before broad scans — `workset`, `before-edit`, `failure`, `symbol` — instead of a repo-wide grep.
+- Every Python file opens with `# SUMMARY:`, so `git grep -n '^# SUMMARY:' -- project` lists what each module is for; `git grep -n <name>` finds a symbol and who uses it.
 - `PROJECT.md` and `docs/project_context.json` carry the business domain; this file covers only the kernel.
 - If `.env` is missing, run `make init-project` (idempotent) — nothing else creates it. `make run-local`/`make migrate` need reachable PostgreSQL unless `POSTGRES_ENABLED=false`; bring one up with `docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d db`.
-- `make quality-gates` runs `make doctor` on failure and refreshes generated artifacts first, so a stale map is fixed, not red; `make ci-local` adds `STRICT_GENERATED=1` and fails on one instead. A narrow `pytest` run does not fail on total coverage — that floor lives in `scripts/run_all_tests.py`'s full run, not `pytest.ini`.
+- `make quality-gates` runs `make doctor` on failure and refreshes the generated wrappers first, so a stale one is fixed, not red; `make ci-local` adds `STRICT_GENERATED=1` and fails on one instead. A narrow `pytest` run does not fail on total coverage — that floor lives in `scripts/run_all_tests.py`'s full run, not `pytest.ini`.
 - A query is verified by a test that runs it: repository tests go in `tests/db`, which `make test` runs against a real PostgreSQL database created for the session and migrated from nothing (`alembic upgrade head`, then `alembic check`), emptying every table before each test. A mocked pool proves only what its author imagined. See ADR-010.
 - A write to a generated path is refused by `.agents/hooks/pre-edit-guard.sh`, naming the file — the list is `make print-generated-paths`, shared with the pre-commit hook and both agents.
 - Finish with `make quality-gates`, and with `make test-e2e` as well when the diff touched endpoints, wiring, or a migration — the image, its entrypoint's migration run and HTTP against the running container are what e2e alone exercises.
 - Read a trace with `make format-trace ARGS="<logfile>"` or `make logs` (a running container); see `docs/tracing.md` for span names, outcome filtering, and two silent-failure traps.
 - Repeatable workflows belong in a versioned skill under `.agents/skills/`, not in this file.
-- `before-edit file <path>` returns the FILE_POLICY entry plus `derived: bool`. An unindexed path needs an explicit entry in `ai_context/file_policy.py`; add one, then `make refresh-ai-context`.
 - `AGENTS.md` and `CLAUDE.md` are generated and must not be edited directly. Edit `docs/agent_rules.md` instead, then run `make refresh-agent-docs`.
 
 ## How the kernel is shaped
 
-- Dependency direction is `domain -> application -> infrastructure`, enforced by `scripts/validate_architecture.py`: the domain is an allowlist (stdlib plus `project.domain`); application and infrastructure are blacklists. `docs/architecture_rules.json` gives each rule one of three levels — `runtime_enforced`, `guidance_only`, `not_enforced_in_validator` (unchecked outside the domain) — check which.
+- Dependency direction is `domain -> application -> infrastructure`, enforced by `scripts/validate_architecture.py`: the domain is an allowlist (stdlib plus `project.domain`); application and infrastructure are blacklists. `get_layer_rules()` there gives each rule one of three levels — `runtime_enforced`, `guidance_only`, `not_enforced_in_validator` (unchecked outside the domain) — check which.
 - Four files carry every wiring edit: `project/core/composition_root.py`, `project/core/service_registration.py`, `project/infrastructure/api/router_registration.py`, `project/infrastructure/api/dependencies.py`.
 - The kernel ships exactly one vertical, `reference_task`, meant to be copied — a second worked example would be a duplicate or a guess about your domain.
 - The kernel ships no business pipeline. LLM access is `project/infrastructure/agents/llm_service.py`; `bind_tools` returns a bound copy — keep the return value. Mock mode replays every bound tool once before the summary — ADR-003. A provider failure becomes a domain error at the adapter boundary — ADR-009. Prompts live in `project/prompts/`; the kernel only checks at startup that the directory and the named file exist — loading them is the vertical's job.
@@ -55,7 +53,7 @@ Run `make help` for the full grouped command list — it reads the Makefile dire
 ## Where a fact goes — one fact, one place
 
 - Ask when the fact will be needed and write it there once — two copies drift and nothing notices.
-- Needed while editing this file → a code comment, in full: what and why — the channel that measurably reaches an agent, more than any generated map.
+- Needed while editing this file → a code comment, in full: what and why — the channel that measurably reaches an agent.
 - Needed while editing several files under one convention → `docs/adr/`, one dated decision per document, not repeated in every file it governs.
 - When a decision rests on dated, bulky evidence, keep the conclusion and the number, and say how to reproduce the measurement rather than pasting the table.
 - Documentation costs nothing against the size budget — `scripts/validate_module_sizes.py` charges only executable lines. A Python file opens with its header, `# FILE:` and `# SUMMARY:`; below it there is no markup, and a comment says why, never what a name or signature already says — ADR-001.
@@ -64,7 +62,7 @@ Run `make help` for the full grouped command list — it reads the Makefile dire
 ## Validator authoring conventions
 
 - A `validate_*.py` shipping `--json` exposes `def main(argv: Sequence[str] | None = None) -> int`, parsed with `args = parser.parse_args([] if argv is None else argv)` so pytest's argv cannot leak in; its test calls `main()` directly. Otherwise, a bare `def main() -> int` with `parser.parse_args()` is footgun-immune too.
-- Each new validator must: define stable `RULE_ID` constants; give its Issue dataclass a `severity` field (`"info"` for non-blocking); provide `get_<X>_rule_playbook(rule_id)`; join `failure_playbook` in `ai_query/common.py`.
+- Each new validator must: define stable `RULE_ID` constants; give its Issue dataclass a `severity` field (`"info"` for non-blocking); provide `get_<X>_rule_playbook(rule_id)`; join `failure_playbook` in `scripts/doctor_ai_context.py`.
 
 ## Tech Stack
 

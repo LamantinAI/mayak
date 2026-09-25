@@ -89,8 +89,7 @@ while IFS= read -r target; do
     if [ "$target" = "$absolute" ] || [ "${target#"$absolute"/}" != "$target" ]; then
         deny "$relative is generated — this edit would be silently overwritten the next time \
 quality-gates runs. Edit its source instead, then regenerate. The file's own header names the \
-source; \`make refresh-generated-docs\` regenerates every surface, and \
-\`uv run python scripts/query_ai_context.py before-edit file $relative\` names the narrow target."
+source; \`make refresh-agent-docs\` regenerates it."
     fi
     done
 done <<EOF

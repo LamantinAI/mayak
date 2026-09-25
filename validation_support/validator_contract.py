@@ -6,16 +6,16 @@ from __future__ import annotations
 from typing import TypedDict
 
 
-# Minimum required shape of a single validator issue in `--json` output. Individual validators may add extra keys (e.g. migrations' `command_name`/`returncode`/`stderr`, file_policy's `entry_key`/`field`) — this TypedDict documents the floor every converter must guarantee, not a closed schema.
+# Minimum required shape of a single validator issue in `--json` output. Individual validators may add extra keys (e.g. migrations' `command_name`/`returncode`/`stderr`) — this TypedDict documents the floor every converter must guarantee, not a closed schema.
 class ValidatorIssuePayload(TypedDict):
-    # Stable rule identifier consumed by query_ai_context.py failure rule and agent tooling.
+    # Stable rule identifier consumed by doctor_ai_context.py --rule and agent tooling.
     rule_id: str
 
     # Top-level issue category (e.g. "architecture", "cbm", "runtime_ownership").
     category: str
 
     # Repo-relative path most closely identifying the issue location. For validators whose
-    # native issue shape has no source file (file_policy's entry_key, migrations' command_name,
+    # native issue shape has no source file (migrations' command_name,
     # project_context's field path), this is a best-effort mapping — the original field is preserved
     # unchanged alongside it.
     file: str
@@ -43,7 +43,7 @@ class ValidatorIssuePayload(TypedDict):
     stop_widening_condition: str
 
 
-# Assemble a validator issue payload guaranteed to satisfy ValidatorIssuePayload's required keys, sourcing suggested_fix/read_first/next_commands/stop_widening_condition from the validator's own rule-playbook dict so every JSON converter surfaces the same remediation guidance already available to query_ai_context.py failure rule.
+# Assemble a validator issue payload guaranteed to satisfy ValidatorIssuePayload's required keys, sourcing suggested_fix/read_first/next_commands/stop_widening_condition from the validator's own rule-playbook dict so every JSON converter surfaces the same remediation guidance already available to doctor_ai_context.py --rule.
 # file: Repo-relative path (or best-effort mapping) identifying the issue location.
 # line: 1-based line number, or 1 when the issue has no line concept.
 # playbook: The validator's own rule-playbook dict for this rule_id (e.g. from get_architecture_rule_playbook), or None when no playbook is registered for the rule_id.

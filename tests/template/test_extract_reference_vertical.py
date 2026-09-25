@@ -59,31 +59,40 @@ def _imports_of_the_vertical(root: Path) -> list[str]:
 _PATH = re.compile(r"(?<![\w<>./-])((?:[\w.-]+/)+[\w.-]+\.(?:py|json|md|sh|toml))")
 
 
-# The paths an agent in the project is told to act on — every one the generated maps name (the
-# checks and tests to run for an edit, what `before-edit` answers from) and every one in the
-# skills' code blocks — that the project does not have. A check naming a removed file fails the
-# moment an agent follows it.
-def _missing_paths_an_agent_is_told_to_use(root: Path) -> list[str]:
-    def strings(node: object) -> list[str]:
-        if isinstance(node, dict):
-            return [s for key, value in node.items() for s in [key, *strings(value)]]
-        if isinstance(node, list):
-            return [s for value in node for s in strings(value)]
-        return [node] if isinstance(node, str) else []
+# What an agent reads for instructions: the contract it loads, the Makefile, the hooks, the README
+# and PROJECT.md, the permission list, and every skill.
+_TOLD_TO_AGENTS = (
+    "AGENTS.md",
+    "Makefile",
+    "README.md",
+    "PROJECT.md",
+    ".githooks/pre-commit",
+    ".agents/hooks/pre-edit-guard.sh",
+    ".claude/settings.json",
+)
 
-    sources: list[tuple[str, str]] = []
-    for generated in ("docs/ai_context_map.json", "docs/ai_change_map.json"):
-        tree = json.loads((root / generated).read_text(encoding="utf-8"))
-        sources.append((generated, "\n".join(strings(tree))))
-    for skill in sorted(root.glob(".agents/skills/*/SKILL.md")):
-        blocks = re.findall(r"```[a-z]*\n(.*?)```", skill.read_text(encoding="utf-8"), re.S)
-        sources.append((str(skill.relative_to(root)), "\n".join(blocks)))
-    return [
-        f"{source}: {path}"
-        for source, text in sources
-        for path in _PATH.findall(text)
-        if not (root / path).exists()
-    ]
+
+# The paths those texts tell an agent to run, open or edit that the checkout does not have. A
+# command naming a removed file fails the moment an agent follows it; the generated maps did this
+# until they went, and a project's copy of the template's own tools can do it again. A path is
+# found from the root or from the text's own directory, and one the text first tests with
+# `[ -f <path> ]` is guarded — the Makefile's template-only steps are.
+def _missing_paths_an_agent_is_told_to_use(root: Path) -> list[str]:
+    skills = sorted(str(path.relative_to(root)) for path in root.glob(".agents/skills/*/SKILL.md"))
+    missing: list[str] = []
+    for source in (*_TOLD_TO_AGENTS, *skills):
+        text = (root / source).read_text(encoding="utf-8")
+        for path in _PATH.findall(text):
+            if f"-f {path}" in text or (root / path).exists():
+                continue
+            if not (root / source).parent.joinpath(path).exists():
+                missing.append(f"{source}: {path}")
+    return missing
+
+
+@pytest.mark.unit
+def test_the_template_names_no_path_it_does_not_have() -> None:
+    assert _missing_paths_an_agent_is_told_to_use(_REPO_ROOT) == []
 
 
 # Inside the pre-commit hook git exports GIT_DIR, and the copy these tests make once ran its

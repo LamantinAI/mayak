@@ -2,10 +2,10 @@
 # SUMMARY: Parses NDJSON trace events into the SpanNode/LeafEvent tree trace_formatter.py renders.
 #
 # Split out of trace_formatter.py, purely to stay under
-# scripts/validate_module_sizes.py's per-module executable-line budget — ai_context/line_metrics.py
+# scripts/validate_module_sizes.py's per-module executable-line budget — validation_support/line_metrics.py
 # used trace_formatter.py as its worked example of a "not genuinely large, mostly comments" file,
 # and that comment now describes a smaller file than the one it names; whoever next edits
-# ai_context/line_metrics.py should re-measure rather than trust the old figure. No behavior moved
+# validation_support/line_metrics.py should re-measure rather than trust the old figure. No behavior moved
 # — trace_formatter.py's public functions call straight through to this module's, and every test
 # that imports from trace_formatter.py still works; SpanNode, LeafEvent, _build_tree and
 # _parse_events are re-exported there unchanged.

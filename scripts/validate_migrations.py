@@ -12,8 +12,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
-from ai_context.rendering import render_json
-from ai_context.validator_contract import build_validator_issue_payload
+from validation_support.rendering import render_json
+from validation_support.validator_contract import build_validator_issue_payload
 
 
 # Absolute repository root used as the working directory for Alembic commands.
@@ -150,7 +150,7 @@ _MIGRATIONS_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
         "smallest_command_to_rerun": "uv run python scripts/validate_migrations.py",
         "likely_fix_shape": "No change expected; flip POSTGRES_ENABLED only if the project really uses a database.",
         "next_checks": [
-            "uv run python scripts/query_ai_context.py overview",
+            "uv run python scripts/validate_migrations.py",
         ],
         "stop_widening_condition": (
             "Stop immediately — this status is informational and blocks nothing."
@@ -288,7 +288,7 @@ class MigrationCommand:
 # Structured result of a failed migration validation step, suitable for JSON output and playbook lookup.
 @dataclass(slots=True)
 class MigrationIssue:
-    # Stable rule identifier consumable by query_ai_context.py failure rule.
+    # Stable rule identifier consumable by doctor_ai_context.py --rule.
     rule_id: str
 
     # Name of the failed Alembic step (upgrade-head, check, ...).
