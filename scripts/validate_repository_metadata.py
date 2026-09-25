@@ -469,7 +469,7 @@ TEMPLATE_PROJECT_NAME = "Mayak"
 TEMPLATE_DOMAIN = (
     "Reusable AI-friendly FastAPI backend template. The kernel ships a CompositionRoot, "
     "semantic NDJSON logging, an LLMService with mock-first ADR-003 default, and the Mayak AI "
-    "tooling (query CLI, validators, doctor, skills). Verticals (RAG / agents / domain-specific "
+    "tooling (validators, doctor, skills). Verticals (RAG / agents / domain-specific "
     "services) are added on top by extending build_reference_services and wiring typed dependency "
     "aliases."
 )

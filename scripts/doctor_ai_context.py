@@ -294,8 +294,9 @@ def get_doctor_layer_playbook(rule_id: str) -> dict[str, object] | None:
 
 
 # The playbook for any rule_id a gate step prints — the answer to "three failures running, what
-# now?". Every validator's getter is asked in turn; tests/template/test_doctor_ai_context.py
-# parametrises over every rule_id a validator declares, so a new rule without a playbook is red.
+# now?". Every validator's getter is asked in turn; in the template,
+# tests/template/test_doctor_ai_context.py parametrises over every rule_id a validator declares, so
+# a new rule without a playbook is red.
 # Raises KeyError for a rule_id nothing declares.
 def failure_playbook(rule_id: str) -> dict[str, object]:
     for getter in (
@@ -769,9 +770,9 @@ def diagnose() -> dict[str, object]:
 
 # Every layer `make quality-gates` runs — the tool steps around `diagnose()`'s validators.
 # Returns: Same payload shape as diagnose(), with checked_layers widened.
-# Separate from diagnose() on purpose — diagnose() is exercised directly by many tests in
-# tests/template/test_doctor_ai_context.py, and the tests layer runs that very suite; folding the
-# two together made the first clean run recurse.
+# Separate from diagnose() on purpose — diagnose() is exercised directly by many tests in the
+# template's tests/template/test_doctor_ai_context.py, and the tests layer runs that suite; folding
+# the two together made the first clean run recurse.
 def diagnose_full() -> dict[str, object]:
     early_failure, early_layers = diagnose_early_layers()
     if early_failure is not None:

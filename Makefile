@@ -97,7 +97,8 @@ init-project:
 		echo "  If this repository IS the template, nothing to do."; \
 		echo "  If it is a project built from it, set project_name and domain to this service's own,"; \
 		echo "  then set \"is_template\": false. The project_context.template_identity_not_replaced"; \
-		echo "  rule enforces the pair from that point on."; \
+		echo "  rule enforces the pair from that point on. The name lives in five more places —"; \
+		echo "  .agents/skills/initialize-project/SKILL.md lists them."; \
 		echo ""; \
 	fi
 	@# In a project, once the identity is replaced, the reference vertical moves out of the

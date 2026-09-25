@@ -17,9 +17,10 @@ because a database kept between runs never re-ran an edited migration that had a
 the mutation baseline caught exactly that. An unreachable database is an error, not a skip; `POSTGRES_ENABLED=false`
 deselects the tier and says so.
 
-What that changed, measured with `uv run python scripts/run_mutations.py` against the reference
-vertical: an INSERT with two columns exchanged and a migration narrower than the ORM column were
-caught only by `make test-e2e` before and are caught by `make test` now; six SQL defects the fast
+What that changed, measured in the template with `uv run python scripts/run_mutations.py` against
+the reference vertical (a project made from it keeps neither the runner nor its catalogue): an
+INSERT with two columns exchanged and a migration narrower than the ORM column were caught only by
+`make test-e2e` before and are caught by `make test` now; six SQL defects the fast
 suite caught only through a literal-text pin are now also caught by a test that runs the query. The
 pins stay until a rewrite of the reference tests shows the db tier alone catches everything they
 did. `make test-e2e` remains the only place the built image, its entrypoint and HTTP against the

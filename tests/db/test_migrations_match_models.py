@@ -6,7 +6,7 @@
 # that always exists: the db tier's own, where the session fixture has already run
 # `alembic upgrade head` and `alembic check` through that script. It lived in the functional suite
 # until 2026-09-24, where a migration that disagreed with the ORM was caught only by `make test-e2e`
-# (the mutation baseline in docs/mutations/, `migration_title_shorter`).
+# (the template's mutation baseline, docs/mutations/, `migration_title_shorter`).
 
 from scripts.validate_migrations import MigrationIssue
 

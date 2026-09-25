@@ -1,7 +1,7 @@
 # FILE: tests/application/test_optional_postgres.py
 # SUMMARY: Guards for POSTGRES_ENABLED — the kernel must assemble, report ready and accept its
 # settings when a project declares it needs no relational store. The template's tools under the
-# same flag are tested in tests/template/test_optional_postgres_tooling.py.
+# same flag are tested in the template's own tests/template/test_optional_postgres_tooling.py.
 
 from __future__ import annotations
 

@@ -4,9 +4,9 @@
 # pinned the clause as a literal string (ADR-010) and anything the pin did not spell out — an
 # INSERT column list, a migration that disagreed with the ORM — was caught by `make test-e2e`
 # alone, which builds two images and which agents run last if at all. Measured on the reference
-# vertical (the mutation baseline in docs/mutations/, 2026-09-24): six SQL defects were caught in the
-# fast suite only by a text pin, two only in e2e. Here the query runs, so it is judged by what
-# it returns.
+# vertical (the template's mutation baseline, docs/mutations/, 2026-09-24): six SQL defects were
+# caught in the fast suite only by a text pin, two only in e2e. Here the query runs, so it is
+# judged by what it returns.
 #
 # What a test in this directory gets:
 # - its own PostgreSQL, started for this checkout by tests/db/stack.py (or TEST_DATABASE_URL);
