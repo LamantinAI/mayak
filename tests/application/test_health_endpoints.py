@@ -14,14 +14,16 @@ from fastapi import FastAPI
 from tests.conftest import _FixtureSettings as FixtureSettings
 
 
-# Build a connection pool double whose alembic_version lookup answers the given state.
-# Returns the connection double and the pool double.
-def _mock_pool_with_migration_state(*, migrated: bool) -> tuple[AsyncMock, MagicMock]:
-    cursor = AsyncMock()
-    cursor.fetchone = AsyncMock(return_value=(migrated,))
+# Build a connection pool double whose alembic_version answers the given revisions — None for no
+# table at all. Returns the connection double and the pool double.
+def _mock_pool_with_schema(revisions: frozenset[str] | None) -> tuple[AsyncMock, MagicMock]:
+    table = AsyncMock()
+    table.fetchone = AsyncMock(return_value=(revisions is not None,))
+    rows = AsyncMock()
+    rows.fetchall = AsyncMock(return_value=[(revision,) for revision in sorted(revisions or ())])
 
     mock_conn = AsyncMock()
-    mock_conn.execute = AsyncMock(return_value=cursor)
+    mock_conn.execute = AsyncMock(side_effect=[table, rows])
 
     mock_pool = MagicMock()
     connection_ctx = MagicMock()
@@ -29,6 +31,12 @@ def _mock_pool_with_migration_state(*, migrated: bool) -> tuple[AsyncMock, Magic
     connection_ctx.__aexit__ = AsyncMock(return_value=False)
     mock_pool.connection.return_value = connection_ctx
     return mock_conn, mock_pool
+
+
+def _heads() -> frozenset[str]:
+    from project.infrastructure.api.endpoints import health as health_module
+
+    return health_module._migration_revisions()[0]
 
 
 class TestHealthEndpoints:
@@ -343,7 +351,7 @@ class TestHealthEndpoints:
     async def test_check_database_exercises_real_probe_under_budget(self) -> None:
         from project.infrastructure.api.endpoints import health as health_module
 
-        mock_conn, mock_pool = _mock_pool_with_migration_state(migrated=True)
+        mock_conn, mock_pool = _mock_pool_with_schema(_heads())
 
         result = await health_module._check_database(pool=mock_pool)
 
@@ -363,12 +371,61 @@ class TestHealthEndpoints:
     async def test_check_database_reports_unmigrated_schema(self) -> None:
         from project.infrastructure.api.endpoints import health as health_module
 
-        _, mock_pool = _mock_pool_with_migration_state(migrated=False)
+        _, mock_pool = _mock_pool_with_schema(None)
 
         result = await health_module._check_database(pool=mock_pool)
 
         assert result["status"] == "unhealthy"
         assert "make migrate" in result["message"]
+
+    # A named cause reaches the caller. The generic replacement below used to cover it too, so an
+    # un-migrated database answered "Database connection failed" and sent its reader to the network.
+    @pytest.mark.unit
+    async def test_readiness_names_an_unmigrated_database(
+        self,
+        async_client: AsyncClient,
+        test_settings: FixtureSettings,
+    ) -> None:
+        with patch(
+            "project.infrastructure.api.endpoints.health._check_database",
+            return_value={
+                "status": "unhealthy",
+                "message": "Database reachable but not migrated — run `make migrate`",
+                "response_time_ms": 1.0,
+            },
+        ):
+            response = await async_client.get("/health/ready")
+
+        assert response.status_code == 503
+        assert "make migrate" in response.json()["checks"]["database"]["message"]
+
+    @pytest.mark.unit
+    async def test_check_database_reports_a_schema_behind_the_code(self) -> None:
+        from project.infrastructure.api.endpoints import health as health_module
+
+        _, mock_pool = _mock_pool_with_schema(frozenset({"001_initial"}))
+
+        result = await health_module._check_database(pool=mock_pool)
+
+        assert result["status"] == "unhealthy"
+        assert "behind" in result["message"]
+        assert result["expected_revision"] == sorted(_heads())
+
+    @pytest.mark.unit
+    async def test_check_database_reports_unreadable_migrations(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from project.infrastructure.api.endpoints import health as health_module
+
+        def unreadable() -> tuple[frozenset[str], frozenset[str]]:
+            raise FileNotFoundError("alembic/ is not there")
+
+        monkeypatch.setattr(health_module, "_migration_revisions", unreadable)
+
+        result = await health_module._check_database(pool=MagicMock())
+
+        assert result["status"] == "unhealthy"
+        assert result["message"] == "This code's migrations could not be read"
 
     # Regression guard: when the inner DB probe stalls past READINESS_DB_TIMEOUT_SECONDS, _check_database must return status='unhealthy' within ~timeout+overhead — never block past the budget. Closes the bug where readiness probe could hang up to system TCP keepalive (~2h).
     @pytest.mark.unit
