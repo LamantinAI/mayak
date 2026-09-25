@@ -204,15 +204,17 @@ this bug is a functional test against the real database: make the second stateme
 the *first* row is absent afterward. That is the one check a missing `connection.transaction()` fails
 and a wrapped one passes.
 
-The same asymmetry applies to the lost update above, and for the same reason. A fake can model the
-condition — `tests/application/test_reference_task_vertical.py` does, and its in-memory double
-refuses a write whose expected timestamp does not match — but nothing interleaves inside one
-process, so a fake proves only that the service passes the right argument, never that the database
-enforces it. `tests/db/test_reference_task_repository.py` stages the interleaving against
-real PostgreSQL: write, let another writer land, then write from the first read and assert the row
-still holds the other writer's value. `tests/functional/src/test_reference_tasks_api.py` runs the
-unstaged version over HTTP with `asyncio.gather`, asserting the invariant rather than a fixed
-outcome — every request that answered 200 must find its own change in the final state.
+The same asymmetry applies to the lost update above, and for the same reason. A unit test can
+check that the service passes the timestamp it read as the condition —
+`tests/application/test_reference_task_vertical.py` does, over a stub of the port — but nothing
+interleaves inside one process, so it proves only the argument, never that the database enforces it.
+`tests/db/test_reference_task_repository.py` stages the interleaving against real PostgreSQL:
+write, then write again from the first read and assert the row still holds the first writer's value;
+`tests/db/test_reference_tasks_api.py` stages it under a PATCH — another writer lands between the
+service's read and its write — and asserts the client gets 409 and the other writer's row survives.
+An unstaged `asyncio.gather` of two requests over HTTP used to stand in for this and was dropped on
+2026-09-24: the mutation baseline showed the two requests never overlapped, so it passed with the
+update token frozen.
 
 ## Operationalization
 

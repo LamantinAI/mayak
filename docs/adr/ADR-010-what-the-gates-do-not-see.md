@@ -25,6 +25,12 @@ pins stay until a rewrite of the reference tests shows the db tier alone catches
 did. `make test-e2e` remains the only place the built image, its entrypoint and HTTP against the
 running container are exercised.
 
+The rewrite came the same week (step 3 of the post-bench2 plan): the reference vertical's mocked
+pool suite, with its literal-text pins, was deleted once the mutation baseline showed the db tier
+catching every defect it caught. A pin is no longer the recipe for a query; a test that runs it is.
+`test.sql_constant_round_trip` still reports a mock test that compares a query with itself — for a
+vertical that keeps one.
+
 ## Decision
 
 `make quality-gates` runs none of the repository's own queries, so it cannot see a defect in SQL —

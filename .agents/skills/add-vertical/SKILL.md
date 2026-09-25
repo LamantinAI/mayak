@@ -26,9 +26,9 @@ before writing your own — every constraint below is already satisfied in them.
 | 6 | `project/application/<name>_service.py` | Orchestration and business rules. Depends on the Protocol, never on the repository. |
 | 7 | `project/application/<name>_dtos.py` | Request and response models, plus `from_domain`. |
 | 8 | `project/infrastructure/api/endpoints/<name>s.py` | Router and handlers. Parse, delegate, convert. |
-| 9 | `tests/application/test_<name>_vertical.py` | Service rules, wiring, HTTP surface — against a fake repository. |
-| 10 | `tests/infrastructure/test_<name>_repository.py` | The row mapper and the parameterisation of every query, without a database. |
-| 11 | `tests/db/test_<name>_repository.py` and `tests/functional/src/test_<name>s_api.py` | The queries against a real PostgreSQL inside `make test` (the db tier); HTTP against the built image in `make test-e2e`. |
+| 9 | `tests/application/test_<name>_vertical.py` | What the service decides before writing — bounds, closed sets, an empty or null patch — over a stub of the port that stores nothing; and the wiring. No database. |
+| 10 | `tests/db/test_<name>_repository.py` | The queries against a real PostgreSQL (the db tier, inside `make test`): the whole row back, filter, order, page, the write condition, id spellings, the spans. |
+| 11 | `tests/db/test_<name>s_api.py` and `tests/functional/src/test_<name>s_api.py` | HTTP in process over the real repository — status codes, a non-default filter, a staged race; and one smoke path through the built image in `make test-e2e`. |
 
 Every file here is type-checked — `MYPY_TARGETS` covers every test suite, so a hand-written fake
 that drifts from the Protocol fails `make gate-types` even though pytest cannot see the drift.
@@ -75,9 +75,11 @@ anywhere in the tree.
    of its own and runs `alembic upgrade head` and `alembic check` there.
 4. `make refresh-generated-docs`, as soon as the first new file exists — a missing or extra file
    moves `docs/project_map.md`, which every gate compares against the tree.
-5. Repository, then `tests/infrastructure/test_<name>_repository.py`, then
-   `tests/db/test_<name>_repository.py` — the db tier is the one place in `make test` where your
-   queries actually run; `tests/db/conftest.py` gives it `db_pool`, every table emptied. Wrap each method in
+5. Repository, then `tests/db/test_<name>_repository.py` — the db tier is the one place in
+   `make test` where your queries actually run; `tests/db/conftest.py` gives it `db_pool`, every
+   table emptied. Judge a query by the rows it returns, on data chosen so a wrong one shows: rows
+   inserted in the reverse of the expected order, a page one smaller than the matches, a row of
+   the other status that sorts first. A mock of the pool proves only what its author imagined. Wrap each method in
    `with logger.span("db.<name>.<op>", ...)` and put the outcome in `span.output` (a row count, a
    found/not-found flag), which only survives the success path — a driver error translated into a
    domain one is asserted on `span.error`, not on an output line before `raise`.
@@ -113,43 +115,44 @@ drops the tables another branch migrated. Catch up instead, or give this worktre
 
 ## Two tests the vertical file must contain, beyond the rules
 
-`test_<name>_vertical.py` covers service rules, the HTTP surface and the wiring. Two shapes matter
+`test_<name>_vertical.py` covers what the service decides before writing, over a stub of the port
+that stores nothing, and the wiring; what needs a write lives in `tests/db`. Two shapes matter
 beyond the obvious happy path.
 
 **1. The arguments arrive.** Not "the repository was called" — *with what*.
 
 ```python
-async def test_the_callers_limit_reaches_the_repository(self) -> None:
-    repository = AsyncMock()
-    repository.list_by_status.return_value = []
-    service = ReferenceTaskService(repository)
+async def test_the_write_is_conditioned_on_the_timestamp_it_read() -> None:
+    port = _Port(_STORED)
 
-    await service.list_tasks(status="pending", limit=7)
+    await _service(port).update_task(_STORED.id, status="done")
 
-    repository.list_by_status.assert_awaited_once_with("pending", 7)  # not assert_awaited_once()
+    ((written, condition),) = port.writes
+    assert condition == _STORED.updated_at < written.updated_at  # not "update was called"
 ```
 
-A bare `assert_awaited_once()` passes even when the service stops forwarding the caller's `limit`
-and always sends its own. `validate_test_quality.py` reports it as
-`test.call_assertion_without_arguments`; a deliberate exception carries `# no-assert-ok: <reason>`.
+Passing the new timestamp as the condition, or not moving it, still stores the row and returns it;
+only the arguments tell. With a mock, a bare `assert_awaited_once()` has the same blindness, and
+`validate_test_quality.py` reports it as `test.call_assertion_without_arguments`; a deliberate
+exception carries `# no-assert-ok: <reason>`.
 
 **2. Both sides of every boundary.** One case exactly on the constant, one case a step past it.
 
 ```python
-@pytest.mark.parametrize("length", [MAX_TITLE_LENGTH - 1, MAX_TITLE_LENGTH])
-async def test_a_title_up_to_the_limit_is_accepted(self, length: int) -> None:
-    service = ReferenceTaskService(AsyncMock())
-
-    task = await service.create_task(title="x" * length)
-
-    assert len(task.title) == length
-
-
-async def test_a_title_one_character_over_the_limit_is_rejected(self) -> None:
-    service = ReferenceTaskService(AsyncMock())
+@pytest.mark.parametrize("title", ["", " \t\n", "x" * (MAX_TITLE_LENGTH + 1)])
+async def test_create_refuses_a_blank_or_overlong_title_before_writing(title: str) -> None:
+    port = _Port()
 
     with pytest.raises(ValidationError):
-        await service.create_task(title="x" * (MAX_TITLE_LENGTH + 1))
+        await _service(port).create_task(title=title)
+
+    assert port.writes == []
+
+
+async def test_create_accepts_a_title_of_exactly_the_maximum_length() -> None:
+    task = await _service(_Port()).create_task(title="x" * MAX_TITLE_LENGTH)
+
+    assert len(task.title) == MAX_TITLE_LENGTH
 ```
 
 A test built from a comfortable middle value — `"a title"` — cannot see `<` silently become `<=`, or
@@ -208,8 +211,8 @@ git rm project/domain/reference_task.py \
        project/infrastructure/persistence/reference_task_repository.py \
        project/infrastructure/api/endpoints/reference_tasks.py \
        tests/application/test_reference_task_vertical.py \
-       tests/infrastructure/test_reference_task_repository.py \
        tests/db/test_reference_task_repository.py \
+       tests/db/test_reference_tasks_api.py \
        tests/functional/src/test_reference_tasks_api.py \
        docs/mutations/reference_task.json \
        scripts/run_mutations.py

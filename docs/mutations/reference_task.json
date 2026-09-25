@@ -137,7 +137,7 @@
     "test_the_timestamp_that_was_read_is_the_one_the_repository_matches_on",
     "test_concurrent_patches_never_lose_a_write_that_reported_success"
    ],
-   "mechanism": "direct; the e2e concurrency test (asyncio.gather of two PATCHes) did not notice: the two requests did not overlap"
+   "mechanism": "direct: unit (the condition is the read timestamp, the new one is later) and db tier (three PATCHes in a row); the old e2e asyncio.gather test that missed it is gone"
   },
   {
    "id": "update_matches_new_timestamp",
@@ -161,7 +161,7 @@
    "expect": [
     "test_update_of_a_deleted_task_is_a_404_not_a_conflict"
    ],
-   "mechanism": "direct"
+   "mechanism": "direct, db tier: a delete staged between the service's read and write answers 404"
   },
   {
    "id": "normalize_id_passthrough",
@@ -174,7 +174,7 @@
     "test_a_malformed_id_never_reaches_the_driver",
     "test_the_driver_receives_the_canonical_spelling"
    ],
-   "mechanism": "direct, through a mocked driver only; no e2e test sends a malformed id"
+   "mechanism": "direct, db tier: a malformed id and `urn:uuid:` spellings against the real driver, and 404 over HTTP"
   },
   {
    "id": "list_filter_inverted",
@@ -188,7 +188,7 @@
     "test_list_by_status_filters_and_orders_newest_first",
     "test_list_filters_by_status_and_orders_newest_first"
    ],
-   "mechanism": "fast tier, twice: the SQL-text pin in tests/infrastructure/test_reference_task_repository.py and a db-tier test that runs the query (tests/db); until the db tier (2026-09-24) the behaviour was seen only in e2e"
+   "mechanism": "direct, db tier: the list is judged by the rows it returns (the SQL-text pin was removed in step 3)"
   },
   {
    "id": "list_order_ascending",
@@ -202,7 +202,7 @@
     "test_list_by_status_filters_and_orders_newest_first",
     "test_list_filters_by_status_and_orders_newest_first"
    ],
-   "mechanism": "fast tier, twice: the SQL-text pin in tests/infrastructure/test_reference_task_repository.py and a db-tier test that runs the query (tests/db); until the db tier (2026-09-24) the behaviour was seen only in e2e"
+   "mechanism": "direct, db tier: rows inserted in the reverse of the expected order"
   },
   {
    "id": "list_order_dropped",
@@ -216,7 +216,7 @@
     "test_list_by_status_filters_and_orders_newest_first",
     "test_list_filters_by_status_and_orders_newest_first"
    ],
-   "mechanism": "fast tier, twice: the SQL-text pin in tests/infrastructure/test_reference_task_repository.py and a db-tier test that runs the query (tests/db); until the db tier (2026-09-24) the behaviour was seen only in e2e"
+   "mechanism": "direct, db tier: rows inserted in the reverse of the expected order, so heap order is wrong"
   },
   {
    "id": "list_limit_ignored",
@@ -229,7 +229,7 @@
     "test_list_binds_status_and_limit_instead_of_formatting_them",
     "test_list_by_status_respects_limit"
    ],
-   "mechanism": "fast tier, twice: the SQL-text pin in tests/infrastructure/test_reference_task_repository.py and a db-tier test that runs the query (tests/db); until the db tier (2026-09-24) the behaviour was seen only in e2e"
+   "mechanism": "direct, db tier: a page one smaller than the matches"
   },
   {
    "id": "update_token_loosened",
@@ -243,7 +243,7 @@
     "test_update_refuses_a_row_another_writer_moved",
     "test_concurrent_patches_never_lose_a_write_that_reported_success"
    ],
-   "mechanism": "fast tier, twice: the SQL-text pin in tests/infrastructure/test_reference_task_repository.py and a db-tier test that runs the query (tests/db); until the db tier (2026-09-24) the behaviour was seen only in e2e"
+   "mechanism": "direct, db tier: a write from a stale read must match nothing; and a staged race under PATCH answers 409"
   },
   {
    "id": "update_set_title_details_swapped",
@@ -256,7 +256,7 @@
     "test_update_binds_the_new_state_and_the_expected_timestamp",
     "test_update_writes_the_new_state_and_returns_it"
    ],
-   "mechanism": "fast tier, twice: the SQL-text pin in tests/infrastructure/test_reference_task_repository.py and a db-tier test that runs the query (tests/db); until the db tier (2026-09-24) the behaviour was seen only in e2e"
+   "mechanism": "direct, db tier: the updated row read back whole"
   },
   {
    "id": "insert_title_details_swapped",
@@ -292,7 +292,7 @@
     "test_row_maps_to_the_expected_domain_object",
     "test_create_then_read_round_trip"
    ],
-   "mechanism": "direct"
+   "mechanism": "direct, db tier: the stored row read back whole"
   },
   {
    "id": "mapper_id_not_stringified",
@@ -305,7 +305,7 @@
     "test_get_maps_a_returned_row_through_the_domain_converter",
     "test_get_returns_domain_types_not_driver_types"
    ],
-   "mechanism": "direct"
+   "mechanism": "direct, db tier: the stored row read back whole"
   },
   {
    "id": "mapper_stamps_swapped",
@@ -318,7 +318,7 @@
     "test_row_maps_to_the_expected_domain_object",
     "test_two_sequential_patches_of_different_fields_both_survive"
    ],
-   "mechanism": "direct"
+   "mechanism": "direct, db tier: after an update the row read back whole; a second PATCH of the same task"
   },
   {
    "id": "create_answers_200",
@@ -357,7 +357,7 @@
     "test_list_filters_by_status_and_orders_newest_first",
     "test_unknown_status_returns_422_from_the_service_rule"
    ],
-   "mechanism": "indirect: only the unknown-status 422 tests notice; every filter test, HTTP and e2e, asks for the default status, so ignoring the parameter returns the same page"
+   "mechanism": "direct, db tier: the list asked for a non-default status (was indirect: only 422 tests noticed)"
   },
   {
    "id": "conflict_answers_400",
@@ -395,16 +395,94 @@
     "test_the_title_bound_is_the_number_the_migration_wrote"
    ],
    "mechanism": "direct, db tier: `alembic check` on a database migrated from nothing (e2e only before the db tier); test_the_title_bound_is_the_number_the_migration_wrote pins the constant, not the migration"
+  },
+  {
+   "id": "span_row_count_lost",
+   "kind": "tracing",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "span.output[\"row_count\"] = len(rows)",
+   "replace": "pass",
+   "breaks": "the list query's span no longer says how many rows came back, so a query that silently matches nothing reads like one that worked",
+   "expect": [
+    "test_list_records_how_many_rows_came_back"
+   ],
+   "mechanism": "direct, db tier: every span's outcome on real queries inside a request span"
+  },
+  {
+   "id": "span_level_left_at_debug",
+   "kind": "tracing",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "with logger.span(\"db.reference_task.get\", task_id=canonical_id, level=logging.INFO) as span:",
+   "replace": "with logger.span(\"db.reference_task.get\", task_id=canonical_id) as span:",
+   "breaks": "the read's span is written at DEBUG, below what production logs, so a trace shows the request and no database work inside it",
+   "expect": [
+    "test_a_query_span_is_written_at_the_level_production_runs_at"
+   ],
+   "mechanism": "direct, db tier: every span's level on real queries inside a request span"
+  },
+  {
+   "id": "readiness_ignores_database",
+   "kind": "health",
+   "file": "project/infrastructure/api/endpoints/health.py",
+   "find": "        critical_statuses.add(checks[\"database\"][\"status\"])",
+   "replace": "        pass",
+   "breaks": "/health/ready answers healthy while the database is down or unmigrated",
+   "expect": [],
+   "mechanism": "direct: tests/application/test_health_endpoints.py (kernel, not the vertical)"
+  },
+  {
+   "id": "readiness_skips_migration_check",
+   "kind": "health",
+   "file": "project/infrastructure/api/endpoints/health.py",
+   "find": "migrated = bool(row[0]) if row else False",
+   "replace": "migrated = True",
+   "breaks": "/health/ready answers healthy against a reachable database that was never migrated",
+   "expect": [],
+   "mechanism": "direct: tests/application/test_health_endpoints.py (kernel, not the vertical)"
+  },
+  {
+   "id": "migration_downgrade_noop",
+   "kind": "schema",
+   "file": "alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py",
+   "find": "    op.drop_column(\"reference_tasks\", \"updated_at\")\n",
+   "replace": "    pass\n",
+   "breaks": "downgrading the updated_at migration leaves the column behind, so a later upgrade fails on a column that already exists",
+   "expect": [],
+   "mechanism": "GAP: no test runs a downgrade; alembic check compares only the head"
+  },
+  {
+   "id": "migration_index_dropped",
+   "kind": "schema",
+   "file": "alembic/versions/001_initial_reference_tasks_schema.py",
+   "find": "    op.create_index(\n        \"ix_reference_tasks_status_created_at\",\n        \"reference_tasks\",\n        [\"status\", \"created_at\"],\n        unique=False,\n    )\n",
+   "replace": "    pass\n",
+   "breaks": "the list query's index is never created; every list becomes a sequential scan",
+   "expect": [
+    "test_alembic_head_matches_the_orm_metadata"
+   ],
+   "mechanism": "direct, db tier: `alembic check` sees the index the ORM declares"
+  },
+  {
+   "id": "migration_primary_key_dropped",
+   "kind": "schema",
+   "file": "alembic/versions/001_initial_reference_tasks_schema.py",
+   "find": "            primary_key=True,\n            nullable=False,\n        ),\n        sa.Column(\"title\"",
+   "replace": "            nullable=False,\n        ),\n        sa.Column(\"title\"",
+   "breaks": "the id column is not a primary key: two tasks can share one id, and an update by id then writes both",
+   "expect": [
+    "test_alembic_head_matches_the_orm_metadata"
+   ],
+   "mechanism": "direct, db tier: a second task with the same id must raise UniqueViolation (was a gap: `alembic check` does not compare primary keys)"
   }
  ],
  "baseline": {
-  "commit": "a936d06",
+  "commit": "3a1f331",
   "results": {
    "create_blank_title_allowed": {
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_create_rejects_a_blank_title"
+      "test_create_refuses_a_blank_or_overlong_title_before_writing"
      ]
     }
    },
@@ -420,11 +498,8 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_list_rejects_status_outside_the_domain_set",
-      "test_unknown_status_returns_422_from_the_service_rule"
-     ],
-     "e2e": [
-      "test_unknown_status_returns_422"
+      "test_list_refuses_an_unknown_status_or_a_page_out_of_bounds",
+      "test_the_list_answers_the_status_it_was_asked_for"
      ]
     }
    },
@@ -432,7 +507,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_list_rejects_limit_outside_the_allowed_range"
+      "test_list_refuses_an_unknown_status_or_a_page_out_of_bounds"
      ]
     }
    },
@@ -440,8 +515,8 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_patch_with_no_fields_is_rejected_with_422",
-      "test_update_rejects_a_patch_that_supplies_nothing"
+      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+      "test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writing"
      ]
     }
    },
@@ -449,7 +524,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_update_rejects_an_explicit_null_for_a_non_nullable_field"
+      "test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writing"
      ]
     }
    },
@@ -457,7 +532,8 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_update_accepts_a_title_of_exactly_the_maximum_length"
+      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+      "test_update_writes_the_patch_conditioned_on_the_timestamp_it_read"
      ]
     }
    },
@@ -465,7 +541,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_update_rejects_a_status_outside_the_domain_set"
+      "test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writing"
      ]
     }
    },
@@ -473,11 +549,8 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_patch_with_an_explicit_null_clears_the_field_over_http",
-      "test_update_clears_a_nullable_field_when_the_caller_asks_for_null"
-     ],
-     "e2e": [
-      "test_patch_with_an_explicit_null_empties_the_column"
+      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+      "test_update_writes_the_patch_conditioned_on_the_timestamp_it_read"
      ]
     }
    },
@@ -485,13 +558,8 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_patch_returns_200_and_the_changed_task",
-      "test_the_timestamp_that_was_read_is_the_one_the_repository_matches_on",
-      "test_update_changes_only_the_supplied_fields"
-     ],
-     "e2e": [
-      "test_concurrent_patches_never_lose_a_write_that_reported_success",
-      "test_patch_changes_one_field_and_leaves_the_rest"
+      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+      "test_update_writes_the_patch_conditioned_on_the_timestamp_it_read"
      ]
     }
    },
@@ -499,19 +567,12 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_patch_returns_200_and_the_changed_task",
-      "test_patch_with_an_explicit_null_clears_the_field_over_http",
-      "test_the_timestamp_that_was_read_is_the_one_the_repository_matches_on",
-      "test_update_accepts_a_title_of_exactly_the_maximum_length",
-      "test_update_changes_only_the_supplied_fields",
-      "test_update_clears_a_nullable_field_when_the_caller_asks_for_null",
-      "test_update_leaves_a_field_alone_when_it_is_not_supplied"
+      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+      "test_the_list_answers_the_status_it_was_asked_for",
+      "test_update_writes_the_patch_conditioned_on_the_timestamp_it_read"
      ],
      "e2e": [
-      "test_concurrent_patches_never_lose_a_write_that_reported_success",
-      "test_patch_changes_one_field_and_leaves_the_rest",
-      "test_patch_with_an_explicit_null_empties_the_column",
-      "test_two_sequential_patches_of_different_fields_both_survive"
+      "test_a_task_created_over_http_is_stored_read_back_and_updated"
      ]
     }
    },
@@ -519,7 +580,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_update_of_a_deleted_task_is_a_404_not_a_conflict"
+      "test_a_patch_of_a_task_deleted_since_the_read_answers_404_not_409"
      ]
     }
    },
@@ -527,8 +588,8 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_a_malformed_id_never_reaches_the_driver",
-      "test_the_driver_receives_the_canonical_spelling"
+      "test_an_id_is_found_in_any_spelling_uuid_accepts_and_a_malformed_one_is_a_miss",
+      "test_an_unknown_or_malformed_id_answers_404_in_the_shared_envelope"
      ]
     }
    },
@@ -536,12 +597,9 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_list_binds_status_and_limit_instead_of_formatting_them",
-      "test_list_by_status_filters_and_orders_newest_first",
-      "test_list_by_status_respects_limit"
-     ],
-     "e2e": [
-      "test_list_filters_by_status_and_orders_newest_first"
+      "test_every_query_leaves_its_outcome_in_a_span_production_can_see",
+      "test_list_filters_by_status_newest_first_within_the_page",
+      "test_the_list_answers_the_status_it_was_asked_for"
      ]
     }
    },
@@ -549,8 +607,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_list_binds_status_and_limit_instead_of_formatting_them",
-      "test_list_by_status_filters_and_orders_newest_first"
+      "test_list_filters_by_status_newest_first_within_the_page"
      ]
     }
    },
@@ -558,8 +615,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_list_binds_status_and_limit_instead_of_formatting_them",
-      "test_list_by_status_filters_and_orders_newest_first"
+      "test_list_filters_by_status_newest_first_within_the_page"
      ]
     }
    },
@@ -567,8 +623,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_list_binds_status_and_limit_instead_of_formatting_them",
-      "test_list_by_status_respects_limit"
+      "test_list_filters_by_status_newest_first_within_the_page"
      ]
     }
    },
@@ -576,11 +631,9 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_update_binds_the_new_state_and_the_expected_timestamp",
-      "test_update_refuses_a_row_another_writer_moved"
-     ],
-     "e2e": [
-      "test_concurrent_patches_never_lose_a_write_that_reported_success"
+      "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
+      "test_every_query_leaves_its_outcome_in_a_span_production_can_see"
      ]
     }
    },
@@ -588,15 +641,13 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_update_binds_the_new_state_and_the_expected_timestamp",
-      "test_update_refuses_a_row_another_writer_moved",
-      "test_update_writes_the_new_state_and_returns_it"
+      "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
+      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+      "test_the_list_answers_the_status_it_was_asked_for"
      ],
      "e2e": [
-      "test_concurrent_patches_never_lose_a_write_that_reported_success",
-      "test_patch_changes_one_field_and_leaves_the_rest",
-      "test_patch_with_an_explicit_null_empties_the_column",
-      "test_two_sequential_patches_of_different_fields_both_survive"
+      "test_a_task_created_over_http_is_stored_read_back_and_updated"
      ]
     }
    },
@@ -604,15 +655,17 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_get_returns_domain_types_not_driver_types"
+      "test_a_created_task_answers_201_and_reads_back",
+      "test_a_patch_of_a_task_deleted_since_the_read_answers_404_not_409",
+      "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_a_stored_task_reads_back_whole_and_in_domain_types",
+      "test_an_id_is_found_in_any_spelling_uuid_accepts_and_a_malformed_one_is_a_miss",
+      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+      "test_list_filters_by_status_newest_first_within_the_page",
+      "test_the_list_answers_the_status_it_was_asked_for"
      ],
      "e2e": [
-      "test_concurrent_patches_never_lose_a_write_that_reported_success",
-      "test_create_then_read_round_trip",
-      "test_created_task_is_persisted_in_the_database",
-      "test_list_filters_by_status_and_orders_newest_first",
-      "test_patch_changes_one_field_and_leaves_the_rest",
-      "test_two_sequential_patches_of_different_fields_both_survive"
+      "test_a_task_created_over_http_is_stored_read_back_and_updated"
      ]
     }
    },
@@ -624,18 +677,17 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_get_returns_domain_types_not_driver_types",
-      "test_optional_details_survive_as_none",
-      "test_row_maps_to_the_expected_domain_object",
-      "test_update_refuses_a_row_another_writer_moved",
-      "test_update_writes_the_new_state_and_returns_it"
+      "test_a_created_task_answers_201_and_reads_back",
+      "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_a_stored_task_reads_back_whole_and_in_domain_types",
+      "test_an_id_is_found_in_any_spelling_uuid_accepts_and_a_malformed_one_is_a_miss",
+      "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
+      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+      "test_list_filters_by_status_newest_first_within_the_page",
+      "test_the_list_answers_the_status_it_was_asked_for"
      ],
      "e2e": [
-      "test_concurrent_patches_never_lose_a_write_that_reported_success",
-      "test_create_then_read_round_trip",
-      "test_list_filters_by_status_and_orders_newest_first",
-      "test_patch_with_an_explicit_null_empties_the_column",
-      "test_two_sequential_patches_of_different_fields_both_survive"
+      "test_a_task_created_over_http_is_stored_read_back_and_updated"
      ]
     }
    },
@@ -643,19 +695,17 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_get_maps_a_returned_row_through_the_domain_converter",
-      "test_get_returns_domain_types_not_driver_types",
-      "test_list_by_status_filters_and_orders_newest_first",
-      "test_list_maps_every_row",
-      "test_row_maps_to_the_expected_domain_object"
+      "test_a_created_task_answers_201_and_reads_back",
+      "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_a_stored_task_reads_back_whole_and_in_domain_types",
+      "test_an_id_is_found_in_any_spelling_uuid_accepts_and_a_malformed_one_is_a_miss",
+      "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
+      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+      "test_list_filters_by_status_newest_first_within_the_page",
+      "test_the_list_answers_the_status_it_was_asked_for"
      ],
      "e2e": [
-      "test_concurrent_patches_never_lose_a_write_that_reported_success",
-      "test_create_then_read_round_trip",
-      "test_list_filters_by_status_and_orders_newest_first",
-      "test_patch_changes_one_field_and_leaves_the_rest",
-      "test_patch_with_an_explicit_null_empties_the_column",
-      "test_two_sequential_patches_of_different_fields_both_survive"
+      "test_a_task_created_over_http_is_stored_read_back_and_updated"
      ]
     }
    },
@@ -663,11 +713,8 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_row_maps_to_the_expected_domain_object"
-     ],
-     "e2e": [
-      "test_patch_changes_one_field_and_leaves_the_rest",
-      "test_two_sequential_patches_of_different_fields_both_survive"
+      "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
+      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands"
      ]
     }
    },
@@ -675,10 +722,10 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_create_returns_201_and_the_stored_task"
+      "test_a_created_task_answers_201_and_reads_back"
      ],
      "e2e": [
-      "test_create_then_read_round_trip"
+      "test_a_task_created_over_http_is_stored_read_back_and_updated"
      ]
     }
    },
@@ -686,10 +733,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_patch_with_an_explicit_null_clears_the_field_over_http"
-     ],
-     "e2e": [
-      "test_patch_with_an_explicit_null_empties_the_column"
+      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands"
      ]
     }
    },
@@ -697,10 +741,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_unknown_status_returns_422_from_the_service_rule"
-     ],
-     "e2e": [
-      "test_unknown_status_returns_422"
+      "test_the_list_answers_the_status_it_was_asked_for"
      ]
     }
    },
@@ -710,11 +751,8 @@
      "fast": [
       "test_a_conflict_raised_inside_a_span_carries_no_error_level_and_no_traceback",
       "test_a_domain_error_answered_4xx_is_a_client_error",
-      "test_conflict_error_maps_to_409",
-      "test_patch_of_a_task_that_moved_returns_409"
-     ],
-     "e2e": [
-      "test_concurrent_patches_never_lose_a_write_that_reported_success"
+      "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_conflict_error_maps_to_409"
      ]
     }
    },
@@ -722,29 +760,16 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
+      "test_a_created_task_answers_201_and_reads_back",
       "test_a_malformed_request_body_is_a_client_error",
-      "test_blank_title_is_rejected_before_the_service_runs",
-      "test_create_returns_201_and_the_stored_task",
-      "test_created_task_is_readable_back",
-      "test_limit_above_the_query_bound_is_rejected",
-      "test_list_returns_an_envelope_with_a_count",
-      "test_patch_of_a_task_that_moved_returns_409",
-      "test_patch_returns_200_and_the_changed_task",
-      "test_patch_with_an_explicit_null_clears_the_field_over_http",
-      "test_patch_with_no_fields_is_rejected_with_422",
-      "test_routes_are_registered_when_the_store_is_enabled",
-      "test_unknown_status_returns_422_from_the_service_rule"
+      "test_a_patch_of_a_task_deleted_since_the_read_answers_404_not_409",
+      "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+      "test_routes_exist_only_when_the_store_is_enabled",
+      "test_the_list_answers_the_status_it_was_asked_for"
      ],
      "e2e": [
-      "test_concurrent_patches_never_lose_a_write_that_reported_success",
-      "test_create_then_read_round_trip",
-      "test_created_task_is_persisted_in_the_database",
-      "test_list_filters_by_status_and_orders_newest_first",
-      "test_patch_changes_one_field_and_leaves_the_rest",
-      "test_patch_with_an_explicit_null_empties_the_column",
-      "test_title_longer_than_the_column_is_rejected",
-      "test_two_sequential_patches_of_different_fields_both_survive",
-      "test_unknown_status_returns_422"
+      "test_a_task_created_over_http_is_stored_read_back_and_updated"
      ]
     }
    },
@@ -752,7 +777,63 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
+      "test_alembic_head_matches_the_orm_metadata",
+      "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands"
+     ]
+    }
+   },
+   "span_row_count_lost": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_every_query_leaves_its_outcome_in_a_span_production_can_see"
+     ]
+    }
+   },
+   "span_level_left_at_debug": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_every_query_leaves_its_outcome_in_a_span_production_can_see"
+     ]
+    }
+   },
+   "readiness_ignores_database": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_missing_pool_is_still_a_fault_when_database_is_enabled",
+      "test_readiness_database_failure_message_hides_internal_details",
+      "test_readiness_database_unhealthy_still_503_regardless_of_llm_criticality",
+      "test_readiness_returns_503_when_database_is_unavailable"
+     ]
+    }
+   },
+   "readiness_skips_migration_check": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_check_database_reports_unmigrated_schema"
+     ]
+    }
+   },
+   "migration_downgrade_noop": {
+    "verdict": "missed",
+    "caught_by": {}
+   },
+   "migration_index_dropped": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
       "test_alembic_head_matches_the_orm_metadata"
+     ]
+    }
+   },
+   "migration_primary_key_dropped": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_two_tasks_cannot_share_an_id"
      ]
     }
    }

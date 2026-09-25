@@ -118,10 +118,11 @@ _TEST_QUALITY_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
             "clause, reverse the ORDER BY, drop the DISTINCT, and this test still passes."
         ),
         "suggested_fix": (
-            "Add one assertion that states the clause as text, e.g. "
-            "`assert _SELECT_BY_ID.split(' WHERE ', 1)[1] == 'id = %s'`. Keep the round-trip "
-            "assertion — it proves the parameters travelled; the literal proves the SQL is the "
-            "SQL you meant."
+            "Test the query where it runs: a tests/db test that stores rows and reads them back "
+            "catches a wrong WHERE, ORDER BY or LIMIT by its result. If this mock test stays, add "
+            "one assertion that states a clause as text, e.g. "
+            "`assert _SELECT_BY_ID.split(' WHERE ', 1)[1] == 'id = %s'` — the literal proves the "
+            "SQL is the SQL you meant; the round trip only proves the parameters travelled."
         ),
         "read_first": [
             "the file referenced by the issue",

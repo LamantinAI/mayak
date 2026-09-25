@@ -197,6 +197,31 @@ def verdict(results: dict[str, TierResult]) -> str:
     return "missed"
 
 
+# FUNCTION: regressions
+# SUMMARY: Name the defects this run catches later, or not at all, compared with the baseline.
+# INPUT: baseline (dict[str, Any]): Recorded results by defect id.
+# INPUT: observed (dict[str, dict[str, Any]]): This run's results by defect id.
+# INPUT: tiers (list[str]): Tier names, cheapest first.
+# OUTPUT: (dict[str, tuple[str, str]]): Defect id to (baseline verdict, this run's verdict).
+# NOTE: Ranked by the cheapest tier that catches: a defect that moves from the fast tier to e2e is
+# a loss even though it is still caught. A timeout ranks with a miss — it proves nothing. A
+# defect without a baseline (newly added to the catalogue) cannot regress.
+def regressions(
+    baseline: dict[str, Any], observed: dict[str, dict[str, Any]], tiers: list[str]
+) -> dict[str, tuple[str, str]]:
+    rank = {f"caught:{name}": index for index, name in enumerate(tiers)}
+
+    def _rank(outcome: str) -> int:
+        return rank.get(outcome, len(tiers))
+
+    worse: dict[str, tuple[str, str]] = {}
+    for defect, item in observed.items():
+        before = baseline.get(defect, {}).get("verdict")
+        if before is not None and _rank(item["verdict"]) > _rank(before):
+            worse[defect] = (before, item["verdict"])
+    return worse
+
+
 # FUNCTION: _short
 # SUMMARY: Reduce a pytest id to its test function name for the printed table.
 # INPUT: test_id (str): Full pytest id.
@@ -214,7 +239,8 @@ def _raise_interrupt(signum: int, frame: object) -> None:
 # FUNCTION: main
 # SUMMARY: Measure the selected defects and report each against the catalogue's baseline.
 # INPUT: argv (Sequence[str] | None): CLI arguments; None means none.
-# OUTPUT: (int): 0 when measured, 2 when the catalogue or the clean code is not fit to measure.
+# OUTPUT: (int): 0 when measured with no lost catch, 1 when a defect is caught later or not at
+# all compared with the baseline, 2 when the catalogue or the clean code is not fit to measure.
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--catalogue", type=Path, default=DEFAULT_CATALOGUE)
@@ -293,7 +319,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     print("total: " + ", ".join(f"{key} {value}" for key, value in counts.items()))
     print(f"report: {report.relative_to(ROOT_DIR)}")
 
-    if args.record:
+    # **LOGIC_STEP**: A change to the tests is judged defect by defect, so a run that loses a catch
+    # must say so in its exit code — a total that stays the same can hide one defect moving from
+    # the fast tier to e2e while another moves the other way. It also refuses to record: writing a
+    # worse result as the new baseline would erase the evidence of the loss.
+    worse = regressions(baseline, observed, list(tiers))
+    for defect, (before, now) in worse.items():
+        print(f"REGRESSION {defect}: {before} -> {now}")
+    if args.record and not worse:
         # **LOGIC_STEP**: The baseline keeps what a later run is compared on — the verdict and the
         # tests each tier named. Durations and error text stay in the report file: they change
         # from run to run and would turn every re-record into noise in the diff.
@@ -315,7 +348,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             json.dumps(catalogue, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
         )
         print(f"baseline written to {args.catalogue.relative_to(ROOT_DIR)}")
-    return 0 if all(result.state == "green" for result in after.values()) else 2
+    elif args.record:
+        print("baseline NOT written: the run lost catches the baseline has")
+    if any(result.state != "green" for result in after.values()):
+        return 2
+    return 1 if worse else 0
 
 
 if __name__ == "__main__":

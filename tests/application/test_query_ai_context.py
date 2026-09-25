@@ -887,7 +887,7 @@ class TestWorksetFindsTestsNamedAfterTheFile:
         ]
         paths += [
             "tests/functional/src/test_reference_tasks_api.py",
-            "tests/functional/src/test_reference_task_repository.py",
+            "tests/functional/src/test_migration_lock.py",
         ]
 
         leaked = [
