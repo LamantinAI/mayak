@@ -160,11 +160,10 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
     #   by example in project/infrastructure/persistence/reference_task_repository.py, which is the
     #   copyable original.
     #   `agent.tool.<tool_name>` — one tool call inside an agent loop, e.g.
-    #   `agent.tool.search_docs`. Two independent projects built on this template each wrapped
-    #   their own tool calls by hand to see which tool ran and with what arguments, because the
-    #   compact trace showed neither — a generic span name and nothing else, the tool itself
-    #   invisible next to the LLM call that requested it. Name the span this way and pass the
-    #   tool's arguments as `input_params` (below) and the compact renderer shows both: see
+    #   `agent.tool.search_docs`, opened by project/infrastructure/agents/tool_runner.py's
+    #   `run_tool`. Two independent projects built on this template each wrapped their own tool
+    #   calls by hand to see which tool ran and with what arguments, because the compact trace
+    #   showed neither. The renderer shows this span's `input_params` inline: see
     #   trace_formatter.py's `_TOOL_SPAN_PREFIX` and the NOTE beside it.
     # Context manager for execution tracing with automatic timing, hierarchy, and request summary events.
     # root: Start a new trace root, ignoring whatever span is ambient. See below.

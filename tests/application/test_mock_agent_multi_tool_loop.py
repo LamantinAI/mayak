@@ -11,8 +11,13 @@
 
 from __future__ import annotations
 
+import json
+import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from decimal import Decimal
 from enum import Enum
+from io import StringIO
 from typing import Any
 from unittest.mock import patch
 
@@ -21,7 +26,12 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, ValidationError
 
+from project.core.logging.context import reset_trace_id, set_trace_id
+from project.core.logging.formatters import NDJSONFormatter
+from project.core.logging.trace_formatter import format_trace_for_llm
+from project.infrastructure.agents import tool_runner
 from project.infrastructure.agents.llm_service import LLMService
+from project.infrastructure.agents.tool_runner import ToolArgumentsError, run_tool
 from tests.conftest import _FixtureSettings as FixtureSettings
 
 
@@ -98,6 +108,10 @@ _VALID_ARGS_BY_TOOL: dict[str, dict[str, Any]] = {
     "send_confirmation": {"customer_id": "cust-42", "channel": "email"},
 }
 
+# The arguments safe to show in the trace verbatim: an id and an enum. Anything else a tool takes is
+# recorded as its type and size — see run_tool.
+_SHOWN = ("customer_id", "channel")
+
 
 # The loop shape a vertical's own agent service runs: call the model, execute whatever
 # tool it asked for against the REAL tool (so args validate against its REAL schema), feed the
@@ -120,9 +134,10 @@ async def _run_agent_loop(service: LLMService, prompt: str) -> tuple[list[str], 
 
         call = response.tool_calls[0]
         called_in_order.append(call["name"])
-        # `ainvoke` runs the tool's own pydantic validation on `call["args"]` —
-        # this is what proves the args are schema-valid, not merely well-typed Python.
-        result = await tools_by_name[call["name"]].ainvoke(call["args"])
+        # run_tool runs the tool's own pydantic validation on `call["args"]` — this is what
+        # proves the args are schema-valid, not merely well-typed Python — inside an
+        # `agent.tool.<name>` span, so the trace shows which tool ran and how it ended.
+        result = await run_tool(tools_by_name[call["name"]], call["args"], shown=_SHOWN)
         messages.append(
             ToolMessage(content=str(result), name=call["name"], tool_call_id=call["id"])
         )
@@ -209,7 +224,7 @@ class TestThreeToolAgentLoopOnMock:
                 break
             call = response.tool_calls[0]
             called_in_order.append(call["name"])
-            result = await tools_by_name[call["name"]].ainvoke(call["args"])
+            result = await run_tool(tools_by_name[call["name"]], call["args"], shown=_SHOWN)
             # The whole point — no `name=`, only the id of the call it answers.
             messages.append(ToolMessage(content=str(result), tool_call_id=call["id"]))
 
@@ -292,8 +307,91 @@ async def _drive(service: LLMService, messages: list[BaseMessage]) -> tuple[list
             return called, response.content
         call = response.tool_calls[0]
         called.append(call["name"])
-        result = await tools_by_name[call["name"]].ainvoke(call["args"])
+        result = await run_tool(tools_by_name[call["name"]], call["args"], shown=_SHOWN)
         messages.append(
             ToolMessage(content=str(result), name=call["name"], tool_call_id=call["id"])
         )
     raise AssertionError("loop did not finalize within its round budget")
+
+
+# What run_tool writes, as the application's own formatter renders it: the NDJSON lines its logger
+# emits at INFO — the level production keeps — under one trace id.
+@contextmanager
+def _trace() -> Iterator[StringIO]:
+    stream = StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(NDJSONFormatter())
+    target = logging.getLogger(tool_runner.__name__)
+    level = target.level
+    target.addHandler(handler)
+    target.setLevel(logging.INFO)
+    token = set_trace_id("trace-agent-loop")
+    try:
+        yield stream
+    finally:
+        reset_trace_id(token)
+        target.removeHandler(handler)
+        target.setLevel(level)
+
+
+def _bound(*, with_arguments: bool) -> LLMService:
+    with patch(
+        "project.infrastructure.agents.llm_service.get_settings",
+        return_value=FixtureSettings(),
+    ):
+        service = LLMService()
+    bound = service.bind_tools(_TOOLS)
+    if with_arguments:
+        bound._mock_tool_args = _VALID_ARGS_BY_TOOL
+    return bound
+
+
+# Two projects built on this template each wrapped their tool calls by hand to see them in the
+# trace; the compact view showed the LLM call and nothing of the tools it asked for.
+class TestEveryToolCallIsASpan:
+    @pytest.mark.unit
+    async def test_the_trace_names_each_tool_and_describes_what_it_was_given(self) -> None:
+        with _trace() as stream, tool_runner.logger.span("agent.loop", root=True):
+            await _run_agent_loop(
+                _bound(with_arguments=True), "place and confirm an order for cust-42"
+            )
+        lines = stream.getvalue().splitlines()
+        started = [
+            event["span_name"]
+            for event in map(json.loads, lines)
+            if event.get("event_id") == "span.start" and event["span_name"] != "agent.loop"
+        ]
+        rendered = format_trace_for_llm(lines)
+
+        assert started == [
+            "agent.tool.lookup_customer",
+            "agent.tool.price_order",
+            "agent.tool.send_confirmation",
+        ]
+        assert 'agent.tool.price_order (customer_id="cust-42", total="object, 2 keys")' in rendered
+        assert 'agent.tool.send_confirmation (customer_id="cust-42", channel="email")' in rendered
+        assert rendered.count("result_chars=") == 3
+
+    # A model's arguments that miss the schema are an error the loop hands back to the model —
+    # and pydantic's own message quotes every input value, the user's text among them, into an
+    # ERROR record with its traceback.
+    @pytest.mark.unit
+    async def test_arguments_that_miss_the_schema_fail_the_span_and_quote_no_user_text(
+        self,
+    ) -> None:
+        prompt = "Ivan Petrov, 12 Baker Street, card ending 4242"
+        with _trace() as stream, tool_runner.logger.span("agent.loop", root=True):
+            response = await _bound(with_arguments=False).call([HumanMessage(content=prompt)])
+            assert isinstance(response, AIMessage)
+            with pytest.raises(ToolArgumentsError, match="customer_id: Field required"):
+                await run_tool(_TOOLS[0], response.tool_calls[0]["args"])
+        lines = stream.getvalue().splitlines()
+        failed = [
+            event["span_name"]
+            for event in map(json.loads, lines)
+            if event.get("event_id") == "span.error"
+        ]
+
+        assert failed == ["agent.tool.lookup_customer"]
+        assert "Ivan Petrov" not in stream.getvalue()
+        assert 'agent.tool.lookup_customer (query="str, ' in format_trace_for_llm(lines)
