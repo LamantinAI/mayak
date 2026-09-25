@@ -258,24 +258,7 @@ def _valid_skeleton() -> dict[str, Any]:
         "project_name": "Test Project",
         "domain": "Test domain",
         "is_template": False,
-        "verticals": {
-            "orders": {
-                "description": "Order management",
-                "status": "active",
-                "domain_entities": ["Order"],
-                "api_prefix": "/orders",
-                "business_rules": ["BR-001"],
-                "notes": "",
-            }
-        },
         "integrations": {},
-        "business_rules": {
-            "BR-001": {
-                "summary": "Orders must have at least one item",
-                "vertical": "orders",
-                "enforcement": "application_service",
-            }
-        },
         "glossary": {"order": "A customer purchase request"},
         "api_overview": {"base_path": "/api/v1", "auth_strategy": "jwt", "notes": ""},
         "project_decisions": [],
@@ -373,18 +356,10 @@ class TestProjectContextValidation:
     @pytest.mark.unit
     def test_wrong_type(self, tmp_path: Path) -> None:
         data = _valid_skeleton()
-        data["verticals"] = "not a dict"
+        data["integrations"] = "not a dict"
         _write_context(tmp_path, data)
         issues = collect_project_context_issues(tmp_path)
-        assert any("verticals" in i.field for i in issues)
-
-    @pytest.mark.unit
-    def test_invalid_vertical_status(self, tmp_path: Path) -> None:
-        data = _valid_skeleton()
-        data["verticals"]["orders"]["status"] = "unknown_status"
-        _write_context(tmp_path, data)
-        issues = collect_project_context_issues(tmp_path)
-        assert any("status" in i.field for i in issues)
+        assert any("integrations" in i.field for i in issues)
 
     @pytest.mark.unit
     def test_invalid_integration_type(self, tmp_path: Path) -> None:
@@ -394,53 +369,21 @@ class TestProjectContextValidation:
         issues = collect_project_context_issues(tmp_path)
         assert any("type" in i.field for i in issues)
 
+    # No list of verticals or business rules is asked for any more: nothing held either to the
+    # code, and a product with a live vertical carried an empty one under a green gate. One a
+    # project still has is left alone rather than turned into a failure on update.
     @pytest.mark.unit
-    def test_business_rule_references_unknown_vertical(self, tmp_path: Path) -> None:
+    def test_a_context_that_lists_no_verticals_passes_and_an_old_list_is_ignored(
+        self, tmp_path: Path
+    ) -> None:
         data = _valid_skeleton()
-        data["business_rules"]["BR-002"] = {
-            "summary": "test",
-            "vertical": "nonexistent",
-            "enforcement": "domain",
-        }
-        _write_context(tmp_path, data)
-        issues = collect_project_context_issues(tmp_path)
-        assert any("nonexistent" in i.message for i in issues)
-
-    @pytest.mark.unit
-    def test_vertical_references_unknown_business_rule(self, tmp_path: Path) -> None:
-        data = _valid_skeleton()
-        data["verticals"]["orders"]["business_rules"] = ["BR-999"]
-        _write_context(tmp_path, data)
-        issues = collect_project_context_issues(tmp_path)
-        assert any("BR-999" in i.message for i in issues)
-
-    @pytest.mark.unit
-    def test_cross_cutting_rule_is_valid(self, tmp_path: Path) -> None:
-        data = _valid_skeleton()
-        data["business_rules"]["BR-002"] = {
-            "summary": "Global logging required",
-            "vertical": "cross-cutting",
-            "enforcement": "infrastructure",
-        }
-        _write_context(tmp_path, data)
-        issues = collect_project_context_issues(tmp_path)
-        assert not any("BR-002" in i.message for i in issues)
-
-    @pytest.mark.unit
-    def test_empty_verticals_and_rules_is_valid(self, tmp_path: Path) -> None:
-        data = _valid_skeleton()
-        data["verticals"] = {}
-        data["business_rules"] = {}
+        assert "verticals" not in data and "business_rules" not in data
         _write_context(tmp_path, data)
         assert collect_project_context_issues(tmp_path) == []
 
-    @pytest.mark.unit
-    def test_invalid_status_carries_rule_id(self, tmp_path: Path) -> None:
-        data = _valid_skeleton()
-        data["verticals"]["orders"]["status"] = "BOGUS"
+        data["verticals"] = {"orders": {"status": "whatever"}}
         _write_context(tmp_path, data)
-        issues = collect_project_context_issues(tmp_path)
-        assert any(issue.rule_id == "project_context.invalid_vertical_status" for issue in issues)
+        assert collect_project_context_issues(tmp_path) == []
 
     @pytest.mark.unit
     def test_missing_top_level_carries_rule_id(self, tmp_path: Path) -> None:
@@ -463,7 +406,7 @@ class TestProjectContextValidation:
 class TestProjectContextRulePlaybook:
     @pytest.mark.unit
     def test_known_rule_returns_dict(self) -> None:
-        playbook = get_repository_metadata_rule_playbook("project_context.invalid_vertical_status")
+        playbook = get_repository_metadata_rule_playbook("project_context.invalid_integration_type")
         assert isinstance(playbook, dict)
         assert "meaning" in playbook
         assert "smallest_command_to_rerun" in playbook
@@ -471,62 +414,3 @@ class TestProjectContextRulePlaybook:
     @pytest.mark.unit
     def test_unknown_rule_returns_none(self) -> None:
         assert get_repository_metadata_rule_playbook("project_context.bogus_rule") is None
-
-
-# =========================================================================================
-# Shape of the shipped example (unaffected by the merge — reads docs/project_context.json and
-# PROJECT.md directly, not through any of the three former validators)
-# =========================================================================================
-
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
-class TestTheShippedFileShowsTheShape:
-    @staticmethod
-    def _shipped_context() -> dict[str, Any]:
-        shipped: dict[str, Any] = json.loads(
-            (_REPO_ROOT / "docs" / "project_context.json").read_text(encoding="utf-8")
-        )
-        if not shipped.get("is_template", False):
-            pytest.skip("this repository is a project built from the template, not the template")
-        return shipped
-
-    @pytest.mark.unit
-    def test_the_shipped_context_demonstrates_a_business_rule(self) -> None:
-        data = self._shipped_context()
-        rules = data["business_rules"]
-        assert rules, "business_rules is empty, so the shipped file shows no example of the shape"
-        referenced = {
-            rule_id
-            for vertical in data["verticals"].values()
-            for rule_id in vertical.get("business_rules", [])
-        }
-        assert referenced, "no vertical references a rule, so the cross-reference is undemonstrated"
-        assert referenced <= set(rules)
-
-    @pytest.mark.unit
-    def test_the_prose_and_the_json_agree_on_whether_rules_exist(self) -> None:
-        data = self._shipped_context()
-        prose = (_REPO_ROOT / "PROJECT.md").read_text(encoding="utf-8")
-        missing = [rule_id for rule_id in data["business_rules"] if rule_id not in prose]
-        assert missing == [], (
-            f"docs/project_context.json declares {missing} and PROJECT.md never mentions them, "
-            "though it calls that file its machine-readable counterpart"
-        )
-
-    @pytest.mark.unit
-    def test_every_constant_a_shipped_rule_names_still_exists(self) -> None:
-        import re
-
-        constant_pattern = re.compile(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b")
-        data = self._shipped_context()
-        sources = "\n".join(
-            path.read_text(encoding="utf-8")
-            for path in sorted((_REPO_ROOT / "project").rglob("*.py"))
-        )
-        missing: list[str] = []
-        for rule_id, rule in data["business_rules"].items():
-            for name in constant_pattern.findall(str(rule["summary"])):
-                if not re.search(rf"\b{re.escape(name)}\b", sources):
-                    missing.append(f"{rule_id} -> {name}")
-        assert missing == [], f"these rules name constants no longer in project/: {missing}"
