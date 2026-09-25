@@ -166,3 +166,29 @@ async def test_a_patch_of_a_task_deleted_since_the_read_answers_404_not_409(
         response = await client.patch(f"/reference-tasks/{task_id}", json={"title": "Mine"})
 
     assert response.status_code == 404
+
+
+# FUNCTION: test_a_request_that_would_open_a_second_task_with_a_title_answers_409
+# SUMMARY: Verify every path to a second open title — create, rename, reopen by status alone — is refused.
+# NOTE: The status-only PATCH is the one bench2's service-side check never looked at: it validated a
+# title when one was sent, and reopening a closed task sends none. The index sees the row, not the
+# request, so every path is covered by the same rule.
+async def test_a_request_that_would_open_a_second_task_with_a_title_answers_409(
+    fastapi_app: FastAPI, db_pool: AsyncConnectionPool
+) -> None:
+    async with _serve(fastapi_app, ReferenceTaskRepository(db_pool)) as client:
+        closed = (await client.post("/reference-tasks", json={"title": "Plan"})).json()["id"]
+        await client.patch(f"/reference-tasks/{closed}", json={"status": "done"})
+        reused = await client.post("/reference-tasks", json={"title": "PLAN"})
+        other = (await client.post("/reference-tasks", json={"title": "Other"})).json()["id"]
+        refused = [
+            await client.post("/reference-tasks", json={"title": "plan"}),
+            await client.patch(f"/reference-tasks/{other}", json={"title": "Plan"}),
+            await client.patch(f"/reference-tasks/{closed}", json={"status": "pending"}),
+        ]
+        after = [(await client.get(f"/reference-tasks/{i}")).json() for i in (closed, other)]
+
+    assert reused.status_code == 201
+    assert [response.status_code for response in refused] == [409, 409, 409]
+    assert refused[0].json()["error"]["status_code"] == 409
+    assert (after[0]["status"], after[1]["title"]) == ("done", "Other")

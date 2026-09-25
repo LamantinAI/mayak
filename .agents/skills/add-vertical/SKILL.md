@@ -87,8 +87,12 @@ anywhere in the tree.
    `ReferenceTaskService.update_task` whole: the conditional write stops a concurrent patch erasing
    another one, and the `UNCHANGED` sentinel lets a caller clear a nullable field instead of `None`
    meaning both "absent" and "null" — see `docs/adr/ADR-007-autocommit-and-explicit-transactions.md`.
-   That token only protects the one row it is read from; a rule spanning several rows needs a
-   different mechanism, under "Where the single-row token does not reach" in the same ADR.
+   That token only protects the one row it is read from. A rule spanning several rows — one open
+   task per title, no overlapping bookings — goes into the database, never into a check before
+   the write and never under an `asyncio.Lock`: copy `uq_reference_tasks_open_title` (a partial
+   unique index, its migration, and `_open_title_taken_is_a_conflict` in the repository) and its
+   two-process test in `tests/db/test_reference_task_repository.py`. A rule no constraint can
+   name takes `FOR UPDATE` instead — "Where the single-row token does not reach" in the same ADR.
 7. **The endpoint and all three wiring files in the same step.** The endpoint's last import is the
    typed alias defined in `dependencies.py`. `service_registration.py` and `router_registration.py`
    belong here too — the next step's `TestWiring` reads both.
@@ -223,9 +227,10 @@ the template's measuring stick for the reference tests and has nothing to measur
 `find . -iname '*reference_task*'` as the completeness check — the references that break the build
 live in files named after something else.
 
-`alembic/versions/001_initial_reference_tasks_schema.py` and
-`alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py` stay — both have run on every
-database created from this template. **Append** a drop migration (autogenerate it once the ORM
+`alembic/versions/001_initial_reference_tasks_schema.py`,
+`alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py` and
+`alembic/versions/b5e2c1a9d4f0_one_open_reference_task_per_title.py` stay — all three have run on
+every database created from this template. **Append** a drop migration (autogenerate it once the ORM
 model is gone) rather than folding it into `001` or deleting `001` — your own first migration names
 `001` as its parent.
 
@@ -279,6 +284,7 @@ the vertical without appearing below — trust that test, and the table it check
 |---|---|
 | `alembic/versions/001_initial_reference_tasks_schema.py` | history every database already ran |
 | `alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py` | history; the update endpoint's optimistic-lock column |
+| `alembic/versions/b5e2c1a9d4f0_one_open_reference_task_per_title.py` | history; the open-title rule's partial unique index |
 | the drop migration you just appended | names what it drops |
 | `docs/project_map.md` | generated tree; shows the migration filenames that still exist |
 | `.agents/skills/add-vertical/SKILL.md` | this file has to name what it deletes |

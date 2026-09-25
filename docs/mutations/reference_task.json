@@ -473,10 +473,63 @@
     "test_alembic_head_matches_the_orm_metadata"
    ],
    "mechanism": "direct, db tier: a second task with the same id must raise UniqueViolation (was a gap: `alembic check` does not compare primary keys)"
+  },
+  {
+   "id": "open_title_index_dropped",
+   "kind": "invariant",
+   "file": "alembic/versions/b5e2c1a9d4f0_one_open_reference_task_per_title.py",
+   "find": "    op.create_index(\n        \"uq_reference_tasks_open_title\",\n        \"reference_tasks\",\n        [sa.text(\"lower(title)\")],\n        unique=True,\n        postgresql_where=sa.text(\"status <> 'done'\"),\n    )\n",
+   "replace": "    pass\n",
+   "breaks": "nothing holds the rule: two open tasks with one title are stored, from one process or two",
+   "expect": [
+    "test_only_one_open_task_may_carry_a_title_whatever_its_case",
+    "test_two_processes_that_both_saw_a_title_free_cannot_both_open_it",
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409"
+   ],
+   "mechanism": "direct, db tier: repository conflict test, the two-process test and the 409 HTTP test (and `alembic check`)"
+  },
+  {
+   "id": "open_title_predicate_dropped",
+   "kind": "invariant",
+   "file": "alembic/versions/b5e2c1a9d4f0_one_open_reference_task_per_title.py",
+   "find": "        postgresql_where=sa.text(\"status <> 'done'\"),\n",
+   "replace": "",
+   "breaks": "a closed task keeps its title forever: reusing it answers 409",
+   "expect": [
+    "test_only_one_open_task_may_carry_a_title_whatever_its_case",
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409"
+   ],
+   "mechanism": "direct, db tier: a closed task's title must be reusable; `alembic check` does NOT see the dropped WHERE — only the behaviour tests do"
+  },
+  {
+   "id": "open_title_case_sensitive",
+   "kind": "invariant",
+   "file": "alembic/versions/b5e2c1a9d4f0_one_open_reference_task_per_title.py",
+   "find": "[sa.text(\"lower(title)\")],",
+   "replace": "[sa.text(\"title\")],",
+   "breaks": "'Plan' and 'plan' open side by side",
+   "expect": [
+    "test_only_one_open_task_may_carry_a_title_whatever_its_case",
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409"
+   ],
+   "mechanism": "direct, db tier: 'plan' and 'PLAN' must conflict with 'Plan' (and `alembic check`)"
+  },
+  {
+   "id": "open_title_violation_not_translated",
+   "kind": "invariant",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "        if exc.diag.constraint_name != _OPEN_TITLE_INDEX:\n",
+   "replace": "        if True:\n",
+   "breaks": "the rule holds but a second open title answers 500 with a driver error instead of 409",
+   "expect": [
+    "test_only_one_open_task_may_carry_a_title_whatever_its_case",
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409"
+   ],
+   "mechanism": "direct, db tier: ConflictError from the repository and 409 over HTTP, not a driver error"
   }
  ],
  "baseline": {
-  "commit": "3a1f331",
+  "commit": "f1c4046",
   "results": {
    "create_blank_title_allowed": {
     "verdict": "caught:fast",
@@ -567,6 +620,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
+      "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
       "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
       "test_the_list_answers_the_status_it_was_asked_for",
       "test_update_writes_the_patch_conditioned_on_the_timestamp_it_read"
@@ -599,7 +653,8 @@
      "fast": [
       "test_every_query_leaves_its_outcome_in_a_span_production_can_see",
       "test_list_filters_by_status_newest_first_within_the_page",
-      "test_the_list_answers_the_status_it_was_asked_for"
+      "test_the_list_answers_the_status_it_was_asked_for",
+      "test_two_processes_that_both_saw_a_title_free_cannot_both_open_it"
      ]
     }
    },
@@ -642,6 +697,7 @@
     "caught_by": {
      "fast": [
       "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
       "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
       "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
       "test_the_list_answers_the_status_it_was_asked_for"
@@ -658,11 +714,14 @@
       "test_a_created_task_answers_201_and_reads_back",
       "test_a_patch_of_a_task_deleted_since_the_read_answers_404_not_409",
       "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
       "test_a_stored_task_reads_back_whole_and_in_domain_types",
       "test_an_id_is_found_in_any_spelling_uuid_accepts_and_a_malformed_one_is_a_miss",
       "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
       "test_list_filters_by_status_newest_first_within_the_page",
-      "test_the_list_answers_the_status_it_was_asked_for"
+      "test_only_one_open_task_may_carry_a_title_whatever_its_case",
+      "test_the_list_answers_the_status_it_was_asked_for",
+      "test_two_processes_that_both_saw_a_title_free_cannot_both_open_it"
      ],
      "e2e": [
       "test_a_task_created_over_http_is_stored_read_back_and_updated"
@@ -679,12 +738,14 @@
      "fast": [
       "test_a_created_task_answers_201_and_reads_back",
       "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
       "test_a_stored_task_reads_back_whole_and_in_domain_types",
       "test_an_id_is_found_in_any_spelling_uuid_accepts_and_a_malformed_one_is_a_miss",
       "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
       "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
       "test_list_filters_by_status_newest_first_within_the_page",
-      "test_the_list_answers_the_status_it_was_asked_for"
+      "test_the_list_answers_the_status_it_was_asked_for",
+      "test_two_processes_that_both_saw_a_title_free_cannot_both_open_it"
      ],
      "e2e": [
       "test_a_task_created_over_http_is_stored_read_back_and_updated"
@@ -697,6 +758,7 @@
      "fast": [
       "test_a_created_task_answers_201_and_reads_back",
       "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
       "test_a_stored_task_reads_back_whole_and_in_domain_types",
       "test_an_id_is_found_in_any_spelling_uuid_accepts_and_a_malformed_one_is_a_miss",
       "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
@@ -722,7 +784,8 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
-      "test_a_created_task_answers_201_and_reads_back"
+      "test_a_created_task_answers_201_and_reads_back",
+      "test_a_request_that_would_open_a_second_task_with_a_title_answers_409"
      ],
      "e2e": [
       "test_a_task_created_over_http_is_stored_read_back_and_updated"
@@ -752,6 +815,7 @@
       "test_a_conflict_raised_inside_a_span_carries_no_error_level_and_no_traceback",
       "test_a_domain_error_answered_4xx_is_a_client_error",
       "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
       "test_conflict_error_maps_to_409"
      ]
     }
@@ -764,6 +828,7 @@
       "test_a_malformed_request_body_is_a_client_error",
       "test_a_patch_of_a_task_deleted_since_the_read_answers_404_not_409",
       "test_a_patch_of_a_task_somebody_else_wrote_since_the_read_answers_409",
+      "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
       "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
       "test_routes_exist_only_when_the_store_is_enabled",
       "test_the_list_answers_the_status_it_was_asked_for"
@@ -834,6 +899,46 @@
     "caught_by": {
      "fast": [
       "test_two_tasks_cannot_share_an_id"
+     ]
+    }
+   },
+   "open_title_index_dropped": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+      "test_alembic_head_matches_the_orm_metadata",
+      "test_only_one_open_task_may_carry_a_title_whatever_its_case",
+      "test_two_processes_that_both_saw_a_title_free_cannot_both_open_it"
+     ]
+    }
+   },
+   "open_title_predicate_dropped": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+      "test_only_one_open_task_may_carry_a_title_whatever_its_case"
+     ]
+    }
+   },
+   "open_title_case_sensitive": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+      "test_alembic_head_matches_the_orm_metadata",
+      "test_only_one_open_task_may_carry_a_title_whatever_its_case"
+     ]
+    }
+   },
+   "open_title_violation_not_translated": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+      "test_only_one_open_task_may_carry_a_title_whatever_its_case",
+      "test_two_processes_that_both_saw_a_title_free_cannot_both_open_it"
      ]
     }
    }

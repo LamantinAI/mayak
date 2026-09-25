@@ -12,11 +12,19 @@ from typing import Optional
 # SUMMARY: Status every task starts in. Mirrors the server-side default in the ORM model.
 DEFAULT_STATUS = "pending"
 
+# ATTRIBUTE: CLOSED_STATUS (str)
+# SUMMARY: The status that frees a task's title for reuse.
+# NOTE: The rule it belongs to — at most one open task per title, case-insensitively — is not
+# enforced here or in the service. It spans rows, so only the database can hold it for two
+# concurrent writers: the partial unique index uq_reference_tasks_open_title (`WHERE status <>
+# 'done'`), turned into ConflictError by the repository. See ADR-007.
+CLOSED_STATUS = "done"
+
 # ATTRIBUTE: ALLOWED_STATUSES (frozenset[str])
 # SUMMARY: The closed set of workflow statuses. Lives in the domain, not in the DTO, because it is
 # a business rule rather than a wire-format detail: the service enforces it for every caller,
 # including callers that never pass through FastAPI validation.
-ALLOWED_STATUSES = frozenset({DEFAULT_STATUS, "in_progress", "done"})
+ALLOWED_STATUSES = frozenset({DEFAULT_STATUS, "in_progress", CLOSED_STATUS})
 
 # ATTRIBUTE: MAX_TITLE_LENGTH (int)
 # SUMMARY: Longest title the store can hold. One number, three consumers: the ORM column, the

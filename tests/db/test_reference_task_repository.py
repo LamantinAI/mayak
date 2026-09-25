@@ -6,9 +6,13 @@
 # text says. It replaced a mocked-pool suite that pinned each query as literal text (ADR-010): the
 # pin caught an edit to the text, this catches a query that returns the wrong rows.
 
+import asyncio
 import logging
+import multiprocessing
+import os
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from uuid import UUID, uuid4
 
 import psycopg
@@ -16,6 +20,7 @@ import pytest
 from psycopg_pool import AsyncConnectionPool
 
 from project.core.logging.logger import get_logger
+from project.domain.exceptions import ConflictError
 from project.domain.reference_task import ReferenceTask
 from project.infrastructure.persistence.reference_task_repository import ReferenceTaskRepository
 
@@ -30,12 +35,14 @@ def repository(db_pool: AsyncConnectionPool) -> ReferenceTaskRepository:
 # FUNCTION: _task
 # SUMMARY: A task with a fresh id; title and details differ so an exchanged pair of columns shows.
 # NOTE: created_at equals updated_at, as at every real insert — so a mapper that swapped the two
-# is invisible to a plain round trip and is caught by the update test, where they differ.
-def _task(status: str = "pending", minutes_ago: int = 0) -> ReferenceTask:
+# is invisible to a plain round trip and is caught by the update test, where they differ. The
+# title is unique unless one is given: two open tasks may not share one.
+def _task(status: str = "pending", minutes_ago: int = 0, title: str | None = None) -> ReferenceTask:
     stamp = _NOW - timedelta(minutes=minutes_ago)
+    task_id = str(uuid4())
     return ReferenceTask(
-        id=str(uuid4()),
-        title="Reference task",
+        id=task_id,
+        title=title or f"Reference task {task_id[:8]}",
         details="What the reference task is about",
         status=status,
         created_at=stamp,
@@ -149,3 +156,76 @@ async def test_every_query_leaves_its_outcome_in_a_span_production_can_see(
         ("db.reference_task.update", logging.INFO, {"row_written": True}),
         ("db.reference_task.update", logging.INFO, {"row_written": False}),
     ]
+
+
+# FUNCTION: test_only_one_open_task_may_carry_a_title_whatever_its_case
+# SUMMARY: Verify the open-title rule: a second open task conflicts, a closed one frees its title.
+# NOTE: Fifty newer tasks first, so the one that holds the title is far past the first page — bench2
+# measured a rule checked in the service against one page of the list, and it let this through.
+async def test_only_one_open_task_may_carry_a_title_whatever_its_case(
+    repository: ReferenceTaskRepository,
+) -> None:
+    first = _task(title="Plan", minutes_ago=60)
+    await repository.add(first)
+    for _ in range(50):
+        await repository.add(_task())
+
+    for duplicate in (_task(title="plan"), _task(status="in_progress", title="PLAN")):
+        with pytest.raises(ConflictError):
+            await repository.add(duplicate)
+    closed = replace(first, status="done", updated_at=_NOW)
+    await repository.update(closed, expected_updated_at=first.updated_at)
+    await repository.add(_task(title="Plan"))
+
+
+# FUNCTION: _add_once_both_saw_the_title_free
+# SUMMARY: In a process of its own: look for the title, wait until the other process has looked too, then write.
+# NOTE: The window a check-then-write implementation leaves open, held open on purpose by the
+# barrier: both processes have read "free" before either writes. Only something outside the two
+# processes can refuse one of the writes — an in-process lock cannot, which is how bench2's
+# asyncio.Lock let 28 of 30 duplicates through.
+def _add_once_both_saw_the_title_free(url: str, title: str, barrier: Any, results: Any) -> None:
+    async def run() -> tuple[str, int, bool]:
+        pool = AsyncConnectionPool(
+            url, min_size=1, max_size=1, open=False, kwargs={"autocommit": True}
+        )
+        await pool.open(wait=True, timeout=30.0)
+        try:
+            repository = ReferenceTaskRepository(pool)
+            free = all(task.title != title for task in await repository.list_by_status("pending"))
+            barrier.wait(timeout=30)
+            try:
+                await repository.add(_task(title=title))
+            except ConflictError:
+                return ("conflict", os.getpid(), free)
+            return ("added", os.getpid(), free)
+        finally:
+            await pool.close()
+
+    results.put(asyncio.run(run()))
+
+
+# FUNCTION: test_two_processes_that_both_saw_a_title_free_cannot_both_open_it
+# SUMMARY: Verify the rule across processes: after both read "free", exactly one write lands.
+async def test_two_processes_that_both_saw_a_title_free_cannot_both_open_it(
+    database_url: str, repository: ReferenceTaskRepository
+) -> None:
+    context = multiprocessing.get_context("spawn")
+    barrier, results = context.Barrier(2), context.Queue()
+    workers = [
+        context.Process(
+            target=_add_once_both_saw_the_title_free,
+            args=(database_url, "Shared", barrier, results),
+        )
+        for _ in range(2)
+    ]
+    for worker in workers:
+        worker.start()
+    outcomes = [await asyncio.to_thread(results.get, True, 60) for _ in workers]
+    for worker in workers:
+        await asyncio.to_thread(worker.join, 60)
+
+    assert sorted(outcome for outcome, _, _ in outcomes) == ["added", "conflict"]
+    assert all(saw_free for _, _, saw_free in outcomes)
+    assert len({pid for _, pid, _ in outcomes} - {os.getpid()}) == 2
+    assert [task.title for task in await repository.list_by_status("pending")] == ["Shared"]

@@ -42,7 +42,10 @@ class TestValidateMigrations:
         reference_tasks = Base.metadata.tables["reference_tasks"]
         index_names = {index.name for index in reference_tasks.indexes}
 
-        assert index_names == {"ix_reference_tasks_status_created_at"}
+        assert index_names == {
+            "ix_reference_tasks_status_created_at",
+            "uq_reference_tasks_open_title",
+        }
 
     # FUNCTION: test_build_commands_returns_upgrade_then_check
     # SUMMARY: Ensure the quality gate plans both Alembic steps with the repository config file.
