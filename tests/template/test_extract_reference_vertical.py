@@ -214,6 +214,22 @@ def test_a_project_has_the_vertical_taken_out_once(
     )
 
 
+# Blank lines an editor added at the end of a shared file are not a line of the project's own; a
+# refusal over them would stop every project whose editor ends files differently.
+@pytest.mark.unit
+def test_blank_lines_at_the_end_of_a_shared_file_do_not_stop_it(
+    checkout: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    replace_identity(checkout)
+    for path in ("project/core/service_registration.py", ".agents/skills/add-vertical/SKILL.md"):
+        target = checkout / path
+        target.write_text(target.read_text(encoding="utf-8") + "\n\n", encoding="utf-8")
+
+    assert extraction.main(["--root", str(checkout)]) == 0
+
+    assert "reference vertical taken out" in capsys.readouterr().out
+
+
 def _keep_the_template_name(root: Path) -> None:
     context_path = root / "docs/project_context.json"
     context = json.loads(context_path.read_text(encoding="utf-8"))

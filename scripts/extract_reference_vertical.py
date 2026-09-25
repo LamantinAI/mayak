@@ -275,24 +275,24 @@ CUTS: tuple[Cut, ...] = (
 # check of 2026-09-25 lost three of three. Anything but the shipped text now refuses instead.
 # Regenerate with --print-manifest after editing a shared file; tests/template fails while stale.
 CUT_SHA256: dict[str, str] = {
-    "project/core/service_registration.py: from project.application.reference_task_service import ReferenceTaskService": "faf06cb9cf1bf36b3f12cb820039615fd982b130ee67ae3c3d558a9b8567d448",
-    "project/core/service_registration.py: from project.infrastructure.persistence.reference_task_repository import (": "226a1662e17e93d206e2fd78c1b8e340ae51dfcedb945d485394ab7511ac5b0e",
-    "project/core/service_registration.py:     # None when the project runs without the relational store: there is no pool to give it.": "7aae7f99a2f4ecc64b5b8b8ff9fac1aa1d381f9d2976a057acc1ffe517839c30",
-    "project/infrastructure/api/router_registration.py: from project.infrastructure.api.endpoints.reference_tasks import reference_tasks_router": "f90b5d5aa66f5a8484a1015d1737c67689067cef7023172e1cfe7b2d4eb04b9b",
-    "project/infrastructure/api/router_registration.py:     # The reference vertical needs the relational store, so its routes exist only": "d2c7dc49a07ff317463ee64b50742b0ad2a50fe66f96d6e766da1a3525eda4dc",
-    "project/infrastructure/api/dependencies.py: from typing import Annotated, TypeVar": "4b7b46f4069b3545d2b4b6290066004691e8f1cd578f61284d76a8f8892b4205",
-    "project/infrastructure/api/dependencies.py: from fastapi import Depends, Request": "62417366aa2c04995a52378378e6503ba195615382ed2f2845e7cb5c5b48a237",
-    "project/infrastructure/api/dependencies.py: from project.application.reference_task_service import ReferenceTaskService": "faf06cb9cf1bf36b3f12cb820039615fd982b130ee67ae3c3d558a9b8567d448",
-    "project/infrastructure/api/dependencies.py: # Returns the service built by service_registration.build_reference_services.": "09828b56c11a92413c200f7b83bb7d9a77c4d427c25a5bb6c26d31af660bbcb3",
-    "project/domain/ports.py: from datetime import datetime": "2ed0247cc05b861fea3391ee7651aec4bb57304b71be6e96d2b74d171c551f55",
-    "project/domain/ports.py: from project.domain.reference_task import ReferenceTask": "e0f1a1b053251260c459f586eceee0c0a44b3e5c6eb577d1df902c4398aed381",
-    "project/domain/ports.py: # Canonical data-access boundary. Verticals define one of these per aggregate.": "f91d2580fe1251c0c58675fa55580f619eebb4385221cbc1e36b65ee13e4838e",
-    "project/infrastructure/persistence/orm_models.py: from datetime import datetime": "187559fff8496d81418e598015d438f8881a4c47e0feed629496b6a51b37da2e",
-    "project/infrastructure/persistence/orm_models.py: # Alembic reads this metadata; nothing reads the ORM at runtime, because ReferenceTaskRepository speaks raw psycopg. Verticals add their own tables alongside it and delete this one with the rest of the example.": "ce3a3b1bf7ac177e7efab523b597c134f83bc4ba855baf8a6edf95b7f0e109af",
-    "project/infrastructure/persistence/__init__.py: # writes go through psycopg against the shared pool; reference_task_repository.py is the worked": "71e7591fcefe6a168f0a3297b1d57fe841734da81a96da01a8a2de216ab1af2d",
-    "docs/agent_rules.md: - Copy the `reference_task` vertical. It is the one worked example and it exists to be copied — eleven files plus three wiring edits; `.agents/skills/add-vertical` carries the order and the removal list for when your own vertical replaces it. A project that has replaced it edits this line and nothing else: the wrapper's Quick Start is generated from these bullets.": "1d46a4d19931e0735a562161c5a38bef04b91fa034a619291247f3314fd84072",
-    ".agents/skills/add-vertical/SKILL.md: # Add Vertical": "f03eebf7b9f53efe93379711189b4c2eeb8070c924fcbe6a441de2090a1d29cd",
-    ".agents/skills/add-vertical/SKILL.md: ## Deleting the reference vertical": "192a0bdcc245ee2071afa662ecc50a727de38fdd5d926c9dfd8e31eb58d58a71",
+    "project/core/service_registration.py: from project.application.reference_task_service import ReferenceTaskService": "c2d1578871d269e933963d3810fd1d165aaddb0b74c7e990bbceb195e1afb376",
+    "project/core/service_registration.py: from project.infrastructure.persistence.reference_task_repository import (": "77055d131f9e4fc85e52805966d4cc8fc7494116cea3ffca71f4023eebbbd7bc",
+    "project/core/service_registration.py:     # None when the project runs without the relational store: there is no pool to give it.": "2c86a9cf93d841fad6b5aaafc9c8db4b9b7e07e904a59edf79eb6714981d46f3",
+    "project/infrastructure/api/router_registration.py: from project.infrastructure.api.endpoints.reference_tasks import reference_tasks_router": "f40804ebc62d1536fe3b0e0fb17d956ac9cc41e372162cdee3c0cf92540fc4e9",
+    "project/infrastructure/api/router_registration.py:     # The reference vertical needs the relational store, so its routes exist only": "8ee7e3f10f9372ad080c4f8ff192c371d6455b1ae7029b1465ee3a32255c5ebd",
+    "project/infrastructure/api/dependencies.py: from typing import Annotated, TypeVar": "202ef05b2e8a534ff3b37bbd9497e170b18f31b6ab5c9a94f85446af54940ee6",
+    "project/infrastructure/api/dependencies.py: from fastapi import Depends, Request": "f6cdda0f1cc3add875d477429f2d5a92e4afb84574487822522d93bdb99cd877",
+    "project/infrastructure/api/dependencies.py: from project.application.reference_task_service import ReferenceTaskService": "c2d1578871d269e933963d3810fd1d165aaddb0b74c7e990bbceb195e1afb376",
+    "project/infrastructure/api/dependencies.py: # Returns the service built by service_registration.build_reference_services.": "7f371525c6952dd199a98f3bbcef9681d14b0fa0bcf62288e7d66809e2a0bedf",
+    "project/domain/ports.py: from datetime import datetime": "1c80ee441a56d69acae99266605441b0bb38a078dd24cafe32771d718f2b86a4",
+    "project/domain/ports.py: from project.domain.reference_task import ReferenceTask": "187181b41049f2a8f9f9c630c724547e2ddd8ef9821a44e122247f96aa8f7afc",
+    "project/domain/ports.py: # Canonical data-access boundary. Verticals define one of these per aggregate.": "0b92a33017edb7b1f0b4c96337e5256015273de609378b3f22ca2b818e3b1858",
+    "project/infrastructure/persistence/orm_models.py: from datetime import datetime": "0da6047c5ab62b685d806fac9973d83e6db326e082942f4e98c98ca95c95e599",
+    "project/infrastructure/persistence/orm_models.py: # Alembic reads this metadata; nothing reads the ORM at runtime, because ReferenceTaskRepository speaks raw psycopg. Verticals add their own tables alongside it and delete this one with the rest of the example.": "ac37054fd19d77cc08654e55e4ba5a2938d8f7a25f6d357712e03be906060704",
+    "project/infrastructure/persistence/__init__.py: # writes go through psycopg against the shared pool; reference_task_repository.py is the worked": "65e8404cb3529b13c13657d8c32f2dcf7b38c6de1ac7246f73cf93f25341ba60",
+    "docs/agent_rules.md: - Copy the `reference_task` vertical. It is the one worked example and it exists to be copied — eleven files plus three wiring edits; `.agents/skills/add-vertical` carries the order and the removal list for when your own vertical replaces it. A project that has replaced it edits this line and nothing else: the wrapper's Quick Start is generated from these bullets.": "9b7ab18e46dabcc13dfaafab0156bfb41bf50a91b6b422495ec674d218108d48",
+    ".agents/skills/add-vertical/SKILL.md: # Add Vertical": "ea123ba5901f1bcc464ff4cb4060688b2793f1870dfead15c1b909435f86c289",
+    ".agents/skills/add-vertical/SKILL.md: ## Deleting the reference vertical": "62015290e767a42e5baa92a5e8141d7bf687760d484323cb6d545bb3b7dfdbab",
 }
 
 
@@ -322,8 +322,10 @@ def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+# Trailing whitespace left out: an editor that adds or drops the blank line at the end of a file
+# changes nothing a cut takes, and refusing a project over it would be a false alarm.
 def _text_digest(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return hashlib.sha256(text.rstrip().encode("utf-8")).hexdigest()
 
 
 # Returns the edited text, or a reason the cut does not fit.
