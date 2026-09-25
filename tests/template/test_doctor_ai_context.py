@@ -1,16 +1,15 @@
 # FILE: tests/template/test_doctor_ai_context.py
-# SUMMARY: Unit tests for the AI-context doctor entrypoint.
+# SUMMARY: Unit tests for the doctor: the blocking layer of a red gate, and `--rule <rule_id>`.
 
 from __future__ import annotations
 
+import importlib
 import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-
-from ai_context.errors import ContextBuildError, ContextIssue
 from scripts.doctor_ai_context import (
     LAYER_UNAVAILABLE_RULE_ID,
     SECURITY_LAYER,
@@ -24,6 +23,7 @@ from scripts.doctor_ai_context import (
     diagnose_early_layers,
     diagnose_full,
     diagnose_tool_layer,
+    failure_playbook,
     get_doctor_layer_playbook,
     main,
     unavailable_validator_payload,
@@ -53,45 +53,12 @@ def _no_subprocess_layers(monkeypatch: pytest.MonkeyPatch) -> None:
 
 # Verify the doctor entrypoint reports the first blocking issue class in priority order.
 class TestDoctorAIContext:
-    @pytest.mark.unit
-    def test_diagnose_reports_syntax_error_first(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context._build_generated_outputs",
-            lambda: (_ for _ in ()).throw(
-                ContextBuildError(
-                    ContextIssue(
-                        issue_type="syntax_error",
-                        path=Path("project/application/broken.py"),
-                        line=9,
-                        message="SyntaxError while parsing project/application/broken.py: invalid syntax",
-                        recommended_next_command="uv run python generate_ai_context.py --check --json",
-                    )
-                )
-            ),
-        )
-
-        payload: dict[str, Any] = diagnose()
-
-        assert payload["degraded_status"] == "syntax_error"
-        assert payload["issues"][0]["issue_type"] == "syntax_error"
-
     # Verify the doctor returns the first architecture issue before endpoint/runtime/cbm checks.
     @pytest.mark.unit
     def test_diagnose_reports_architecture_before_other_validators(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("scripts.doctor_ai_context._build_generated_outputs", lambda: {})
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.generated_output_issues", lambda _outputs: []
-        )
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.build_context_map",
-            lambda: {"integrity": {"status": "ok", "issues": []}},
-        )
         monkeypatch.setattr(
             "scripts.doctor_ai_context.collect_architecture_issues",
             lambda _repo_root: [
@@ -111,74 +78,10 @@ class TestDoctorAIContext:
         assert payload["issues"][0]["rule_id"] == "arch.infrastructure.no_forbidden_import"
 
     @pytest.mark.unit
-    def test_diagnose_reports_generated_outdated_before_validators(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        monkeypatch.setattr("scripts.doctor_ai_context._build_generated_outputs", lambda: {})
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.generated_output_issues",
-            lambda _outputs: [
-                {
-                    "rule_id": "drift.generated.outdated",
-                    "category": "drift",
-                    "file": "docs/ai_context_map.json",
-                    "line": 1,
-                    "message": "Outdated generated file: docs/ai_context_map.json",
-                }
-            ],
-        )
-
-        payload: dict[str, Any] = diagnose()
-
-        assert payload["status"] == "error"
-        assert payload["degraded_status"] == "generated_outdated"
-        assert payload["issues"][0]["recommended_next_command"] == "make refresh-generated-docs"
-
-    @pytest.mark.unit
-    def test_diagnose_reports_integrity_error(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        monkeypatch.setattr("scripts.doctor_ai_context._build_generated_outputs", lambda: {})
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.generated_output_issues", lambda _outputs: []
-        )
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.build_context_map",
-            lambda: {
-                "integrity": {
-                    "status": "error",
-                    "issues": [
-                        {
-                            "issue_type": "service_key_missing",
-                            "message": "Dependency getter references unknown service key 'missing_svc'.",
-                            "repair_protocol": ["Check service_registration.py"],
-                            "recommended_next_command": "make refresh-ai-context",
-                        }
-                    ],
-                }
-            },
-        )
-
-        payload: dict[str, Any] = diagnose()
-
-        assert payload["status"] == "error"
-        assert payload["degraded_status"] == "integrity_error"
-
-    @pytest.mark.unit
     def test_diagnose_reports_endpoint_wiring_error(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("scripts.doctor_ai_context._build_generated_outputs", lambda: {})
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.generated_output_issues", lambda _outputs: []
-        )
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.build_context_map",
-            lambda: {"integrity": {"status": "ok", "issues": []}},
-        )
         monkeypatch.setattr(
             "scripts.doctor_ai_context.collect_architecture_issues", lambda _root: []
         )
@@ -205,14 +108,6 @@ class TestDoctorAIContext:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("scripts.doctor_ai_context._build_generated_outputs", lambda: {})
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.generated_output_issues", lambda _outputs: []
-        )
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.build_context_map",
-            lambda: {"integrity": {"status": "ok", "issues": []}},
-        )
         monkeypatch.setattr(
             "scripts.doctor_ai_context.collect_architecture_issues", lambda _root: []
         )
@@ -250,14 +145,6 @@ class TestDoctorAIContext:
     ) -> None:
         from scripts.validate_cbm import _CBM_RULE_MAP
 
-        monkeypatch.setattr("scripts.doctor_ai_context._build_generated_outputs", lambda: {})
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.generated_output_issues", lambda _outputs: []
-        )
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.build_context_map",
-            lambda: {"integrity": {"status": "ok", "issues": []}},
-        )
         monkeypatch.setattr(
             "scripts.doctor_ai_context.collect_architecture_issues", lambda _root: []
         )
@@ -294,14 +181,6 @@ class TestDoctorAIContext:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("scripts.doctor_ai_context._build_generated_outputs", lambda: {})
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.generated_output_issues", lambda _outputs: []
-        )
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.build_context_map",
-            lambda: {"integrity": {"status": "ok", "issues": []}},
-        )
         monkeypatch.setattr(
             "scripts.doctor_ai_context.collect_architecture_issues", lambda _root: []
         )
@@ -338,14 +217,6 @@ class TestDoctorAIContext:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        monkeypatch.setattr("scripts.doctor_ai_context._build_generated_outputs", lambda: {})
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.generated_output_issues", lambda _outputs: []
-        )
-        monkeypatch.setattr(
-            "scripts.doctor_ai_context.build_context_map",
-            lambda: {"integrity": {"status": "ok", "issues": []}},
-        )
         monkeypatch.setattr(
             "scripts.doctor_ai_context.collect_architecture_issues", lambda _root: []
         )
@@ -371,10 +242,6 @@ class TestDoctorAIContext:
             lambda _root: [],
         )
         monkeypatch.setattr(
-            "scripts.doctor_ai_context.collect_file_policy_issues",
-            lambda _root: [],
-        )
-        monkeypatch.setattr(
             "scripts.doctor_ai_context._diagnose_drift_layer",
             lambda **kwargs: None,
         )
@@ -382,10 +249,8 @@ class TestDoctorAIContext:
         payload: dict[str, Any] = diagnose()
 
         assert payload["status"] == "ok"
-        assert "context" in payload["checked_layers"]
         assert "module_size" in payload["checked_layers"]
         assert "repository_metadata" in payload["checked_layers"]
-        assert "file_policy" in payload["checked_layers"]
         assert "agent_docs_drift" in payload["checked_layers"]
         assert payload["final_gate"] == "make quality-gates"
 
@@ -427,7 +292,7 @@ class TestDoctorAIContext:
             "scripts.doctor_ai_context.diagnose",
             lambda: {
                 "status": "ok",
-                "checked_layers": ["context"],
+                "checked_layers": ["architecture"],
                 "final_gate": "make quality-gates",
             },
         )
@@ -449,22 +314,15 @@ class TestExtendedCheckedLayers:
 
         payload: dict[str, Any] = diagnose()
         # When the live repo is clean we expect status=ok with the extended layer list.
-        # If anything else (drift, integrity error) is reported we still expect the
+        # If anything else is reported we still expect the
         # blocking_layer to be one of the layers we registered — i.e. the doctor
         # never returns a layer not in the canonical set.
         if payload.get("status") == "ok":
             layers = set(payload.get("checked_layers", []))
-            assert {
-                "repository_metadata",
-                "migrations",
-                "file_policy",
-                "agent_docs_drift",
-                "project_map_drift",
-            }.issubset(layers)
+            assert {"repository_metadata", "migrations", "agent_docs_drift"}.issubset(layers)
         else:
             blocking = payload.get("blocking_layer")
             assert blocking in {
-                "context",
                 "architecture",
                 "endpoint_wiring",
                 "runtime_ownership",
@@ -472,13 +330,7 @@ class TestExtendedCheckedLayers:
                 "module_size",
                 "repository_metadata",
                 "migrations",
-                "file_policy",
                 "agent_docs_drift",
-                "project_map_drift",
-                "generated_outdated",
-                "integrity_error",
-                # degraded_query_payload may surface a status string here too:
-                "context_build_error",
             }, f"Unexpected blocking_layer: {blocking!r}"
 
 
@@ -523,11 +375,8 @@ class TestGateLayersAreModelled:
             "$(UV) run python scripts/validate_test_quality.py": "test_quality",
             "$(UV) run python scripts/validate_dependencies.py": "dependencies",
             "$(UV) run python scripts/validate_repository_metadata.py": "repository_metadata",
-            "$(UV) run python scripts/validate_file_policy.py": "file_policy",
             "$(UV) run python scripts/validate_secrets.py": "secrets",
             "$(MAKE) --no-print-directory security-scan": "security",
-            "$(UV) run python scripts/structure_builder.py --check": "project_map_drift",
-            "$(UV) run python scripts/generate_ai_context.py --check": "context",
             "$(UV) run python scripts/sync_agent_docs.py --check": "agent_docs_drift",
         }
         steps = self._quality_gate_steps()
@@ -608,21 +457,17 @@ class TestGateLayersAreModelled:
         assert payload["issues"][0]["message"].startswith(">> Issue: [B608")
         assert get_doctor_layer_playbook(str(payload["issues"][0]["rule_id"])) is not None
 
-    # Verify a printed rule_id is one `failure rule` can answer.
+    # Verify a printed rule_id is one `--rule` can answer.
     @pytest.mark.unit
     @pytest.mark.parametrize("layer", [*TOOL_LAYERS, TESTS_LAYER], ids=lambda layer: layer.name)
     def test_every_tool_layer_rule_id_resolves_through_failure_playbook(
         self, layer: ToolLayer
     ) -> None:
-        from ai_query.common import failure_playbook
-
         assert failure_playbook(layer.rule_id)["rule_id"] == layer.rule_id
 
-    # Regression guard: the parametrised test above covers gate layers only, so a rule id the doctor can print outside them needs its own case or it reaches `failure rule` as a KeyError.
+    # Regression guard: the parametrised test above covers gate layers only, so a rule id the doctor can print outside them needs its own case or it reaches `--rule` as a KeyError.
     @pytest.mark.unit
     def test_the_unavailable_layer_rule_id_resolves_too(self) -> None:
-        from ai_query.common import failure_playbook
-
         playbook = failure_playbook(LAYER_UNAVAILABLE_RULE_ID)
 
         assert playbook["rule_id"] == LAYER_UNAVAILABLE_RULE_ID
@@ -690,7 +535,7 @@ class TestGateLayersAreModelled:
 
 # Verify a validator the doctor cannot import is diagnosed rather than raised as a traceback.
 class TestDoctorSurvivesItsOwnTooling:
-    # Regression guard: deleting scripts/validate_cbm.py made `make doctor` exit with a raw ModuleNotFoundError from ai_query/common.py, at the one moment a diagnostic tool has a job to do.
+    # Regression guard: deleting scripts/validate_cbm.py made `make doctor` exit with a raw ModuleNotFoundError, at the one moment a diagnostic tool has a job to do.
     @pytest.mark.unit
     def test_a_missing_validator_becomes_a_named_issue(
         self, monkeypatch: pytest.MonkeyPatch
@@ -860,3 +705,63 @@ class TestDoctorRepeatsTheUnverifiedMigrationNotice:
         if payload.get("status") != "ok":
             pytest.skip("working tree is not clean enough to read an OK payload")
         assert _NOT_VERIFIED_BANNER in str(payload["migrations_notice"])
+
+
+# Every rule_id a gate step declares a playbook for, read from the tables themselves rather than
+# listed here: a validator whose getter failure_playbook does not ask, or a new rule without a
+# playbook, fails by name.
+def _declared_rule_ids() -> list[str]:
+    found: set[str] = set()
+    for path in sorted((_REPO_ROOT / "scripts").glob("*.py")):
+        module = importlib.import_module(f"scripts.{path.stem}")
+        for name, value in vars(module).items():
+            if name.endswith("RULE_PLAYBOOKS") or name == "_RULE_MEANINGS":
+                found.update(value)
+            elif name.endswith("RULE_ID") and isinstance(value, str):
+                found.add(value)
+            elif name == "_CBM_RULE_MAP":
+                found.update(rule_id for _keyword, rule_id, _fix in value)
+    return sorted(found)
+
+
+# `--rule` replaced `query_ai_context.py failure rule` as the answer to "three failures running,
+# what now?": AGENTS.md sends an agent here, so every rule a gate can print has to answer.
+class TestRulePlaybooks:
+    @pytest.mark.unit
+    @pytest.mark.parametrize("rule_id", _declared_rule_ids())
+    def test_every_declared_rule_id_has_a_playbook(self, rule_id: str) -> None:
+        playbook = failure_playbook(rule_id)
+
+        assert playbook["rule_id"] == rule_id
+        assert playbook["likely_fix_shape"]
+        assert playbook["stop_widening_condition"]
+
+    @pytest.mark.unit
+    def test_the_rule_flag_prints_one_playbook_and_runs_no_gate(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(
+            "scripts.doctor_ai_context.diagnose_full",
+            lambda: pytest.fail("--rule ran the gates"),
+        )
+        monkeypatch.setattr(
+            sys, "argv", ["scripts/doctor_ai_context.py", "--rule", "endpoint.wiring_chain_broken"]
+        )
+
+        exit_code = main()
+
+        printed = capsys.readouterr().out
+        assert exit_code == 0
+        assert "rule_id: endpoint.wiring_chain_broken" in printed
+        assert "smallest_files_to_read: project/infrastructure/api/dependencies.py" in printed
+
+    @pytest.mark.unit
+    def test_an_unknown_rule_is_an_error_not_a_guess(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(sys, "argv", ["scripts/doctor_ai_context.py", "--rule", "cbm.no_such"])
+
+        exit_code = main()
+
+        assert exit_code == 2
+        assert "Unknown failure rule ID: cbm.no_such" in capsys.readouterr().err

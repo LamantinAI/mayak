@@ -1,4 +1,4 @@
-# FILE: ai_context/dynamic_imports.py
+# FILE: validation_support/dynamic_imports.py
 # SUMMARY: Recognise dynamic import calls so the import-boundary validators are not blind to them.
 # Both validators that police imports — scripts/validate_architecture.py (the domain
 # allowlist) and scripts/validate_dependencies.py (the undeclared-dependency check) — walk the AST

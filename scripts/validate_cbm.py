@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-from ai_context.validator_contract import build_validator_issue_payload
+from validation_support.validator_contract import build_validator_issue_payload
 
 
 @dataclass(slots=True)
@@ -55,8 +55,7 @@ def validate_python_source(path: Path) -> list[ValidationIssue]:
         ]
     issues: list[ValidationIssue] = []
 
-    # A module docstring would be a second place for what the header's SUMMARY says, and
-    # scripts/structure_builder.py reads only the header when it lists the file in the map.
+    # A module docstring would be a second place for what the header's SUMMARY says.
     if source.lstrip().startswith(('"""', "'''")):
         issues.append(
             ValidationIssue(
@@ -150,10 +149,10 @@ def _issue_to_json(issue: ValidationIssue, repo_root: Path) -> dict:
     return entry
 
 
-# The playbook query_ai_context.py and the doctor answer with; None for anything not in the table.
+# The playbook the doctor answers with; None for anything not in the table.
 def get_cbm_rule_playbook(rule_id: str) -> dict | None:
     fix_map = {rid: fix for _keyword, rid, fix in _CBM_RULE_MAP}
-    # The prefix alone is not enough: `failure rule cbm.this_does_not_exist` would get a confident
+    # The prefix alone is not enough: `--rule cbm.this_does_not_exist` would get a confident
     # answer about a rule that does not exist, while every other rule family answers "Unknown
     # failure rule ID". `cbm.unknown` is a real answer from classify_issue, so it keeps its playbook.
     if rule_id not in fix_map and rule_id != "cbm.unknown":

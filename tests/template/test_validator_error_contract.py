@@ -1,5 +1,5 @@
 # FILE: test_validator_error_contract.py
-# SUMMARY: Contract test proving every scripts/validate_*.py JSON converter — plus the generate_ai_context.py drift-issue producer — surfaces rule_id, suggested_fix, read_first, next_commands, and stop_widening_condition on every emitted issue. Measured: stop_widening_condition was 0/10 in actual CLI JSON output despite living in every validator's internal rule-playbook dict.
+# SUMMARY: Contract test proving every scripts/validate_*.py JSON converter surfaces rule_id, suggested_fix, read_first, next_commands, and stop_widening_condition on every emitted issue. Measured: stop_widening_condition was 0/10 in actual CLI JSON output despite living in every validator's internal rule-playbook dict.
 
 from __future__ import annotations
 
@@ -7,15 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from scripts.generate_ai_context import generated_output_issues
 from scripts.validate_architecture import collect_architecture_issues
 from scripts.validate_architecture import _issue_to_payload as _architecture_issue_to_payload
 from scripts.validate_cbm import _issue_to_json as _cbm_issue_to_json
 from scripts.validate_cbm import collect_validation_issues
 from scripts.validate_endpoint_wiring import collect_endpoint_wiring_issues
 from scripts.validate_endpoint_wiring import _issue_to_payload as _endpoint_issue_to_payload
-from scripts.validate_file_policy import collect_file_policy_issues
-from scripts.validate_file_policy import _issue_to_payload as _file_policy_issue_to_payload
 from scripts.validate_migrations import MigrationIssue
 from scripts.validate_migrations import _issue_to_payload as _migrations_issue_to_payload
 from scripts.validate_module_sizes import MAX_CODE_LINES
@@ -154,18 +151,6 @@ class TestValidatorErrorContract:
         for issue in issues:
             _assert_contract(_module_size_issue_to_json(issue))
 
-    # Force a FILE_POLICY_INDEX entry with a missing required field and check the JSON payload.
-    @pytest.mark.unit
-    def test_file_policy_issue_satisfies_contract(self, tmp_path: Path) -> None:
-        entry_path = tmp_path / "fixture.txt"
-        entry_path.write_text("placeholder", encoding="utf-8")
-        index: dict[str, dict[str, object]] = {entry_path.name: {"edit_zone": "safe"}}
-
-        issues = collect_file_policy_issues(tmp_path, index_override=index)
-        assert issues, "expected at least one forced file_policy violation"
-        for issue in issues:
-            _assert_contract(_file_policy_issue_to_payload(issue))
-
     @pytest.mark.unit
     def test_migrations_issue_satisfies_contract(self) -> None:
         issue = MigrationIssue(
@@ -232,31 +217,7 @@ class TestValidatorErrorContract:
             assert payload["stop_widening_condition"]
 
 
-# Perimeter-extension coverage — scripts/generate_ai_context.py's generated_output_issues() is a second producer of the same issue-payload shape (drift.generated.missing/outdated) with the identical pre-fix gap (no stop_widening_condition even though ai_query.common._DRIFT_RULE_PLAYBOOKS already had it for both rule_ids).
-class TestGeneratedOutputIssuesContract:
-    @pytest.mark.unit
-    def test_missing_generated_file_satisfies_contract(self, tmp_path: Path) -> None:
-        missing_path = tmp_path / "docs" / "ai_context_map.json"
-        issues = generated_output_issues({missing_path: "irrelevant rendered content"})
-
-        assert len(issues) == 1
-        assert issues[0]["rule_id"] == "drift.generated.missing"
-        _assert_contract(issues[0])
-
-    @pytest.mark.unit
-    def test_outdated_generated_file_satisfies_contract(self, tmp_path: Path) -> None:
-        outdated_path = tmp_path / "docs" / "ai_context_map.json"
-        outdated_path.parent.mkdir(parents=True, exist_ok=True)
-        outdated_path.write_text("stale content", encoding="utf-8")
-
-        issues = generated_output_issues({outdated_path: "fresh content"})
-
-        assert len(issues) == 1
-        assert issues[0]["rule_id"] == "drift.generated.outdated"
-        _assert_contract(issues[0])
-
-
-# AC3 — query_ai_context.py failure rule <id> must not have regressed: it reads
+# AC3 — doctor_ai_context.py --rule <id> must not have regressed: it reads
 # get_*_rule_playbook() functions directly (untouched by this task), independent of the
 # _issue_to_payload/_issue_to_json converters this task modified.
 class TestFailureRuleRegression:
@@ -268,7 +229,6 @@ class TestFailureRuleRegression:
             "endpoint.no_direct_service_import",
             "cbm.missing_file_tag",
             "size.module_exceeds_limit",
-            "file_policy.missing_field",
             "migrations.head_drift",
             "migrations.multiple_heads",
             "migrations.broken_revision_graph",
@@ -280,7 +240,7 @@ class TestFailureRuleRegression:
         ],
     )
     def test_failure_playbook_still_returns_stop_widening_condition(self, rule_id: str) -> None:
-        from ai_query.common import failure_playbook
+        from scripts.doctor_ai_context import failure_playbook
 
         playbook = failure_playbook(rule_id)
 

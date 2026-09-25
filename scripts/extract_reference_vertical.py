@@ -183,8 +183,8 @@ CUTS: tuple[Cut, ...] = (
         "#\n"
         "#     <Name>ServiceDep = Annotated[<Name>Service, Depends(get_<name>_service)]\n"
         "#\n"
-        "# ai_context/extraction.py recognises exactly that shape to link alias -> getter -> service key,\n"
-        "# and validate_endpoint_wiring.py refuses an endpoint whose alias chain does not resolve.\n",
+        "# validate_endpoint_wiring.py recognises exactly that shape to link alias -> getter -> service\n"
+        "# key, and refuses an endpoint whose alias chain does not resolve.\n",
     ),
     Cut(
         "project/domain/ports.py",
@@ -268,14 +268,6 @@ CUTS: tuple[Cut, ...] = (
         keep_in_readme=False,
     ),
 )
-
-# The list items naming a template tool test as the check to run, in the two files the generated
-# maps are built from: the tests leave with tests/template, and a check naming one fails when an
-# agent runs it. Each item sits on a line of its own there.
-_TEMPLATE_TEST_ITEMS = {
-    "ai_context/file_policy.py": '"uv run pytest tests/template/',
-    "ai_context/build_change_map.py": '"tests/template/',
-}
 
 
 @dataclass
@@ -502,9 +494,6 @@ def build_plan(root: Path) -> Plan | str:
             removed.append((cut.path, taken))
 
     edited["docs/project_context.json"] = _project_context(_read(root, "docs/project_context.json"))
-    for path, item in _TEMPLATE_TEST_ITEMS.items():
-        lines = _read(root, path).splitlines(keepends=True)
-        edited[path] = "".join(line for line in lines if not line.lstrip().startswith(item))
 
     deleted = set(SAMPLE_SHA256)
     for path in TEMPLATE_ONLY:
@@ -553,8 +542,8 @@ def apply_plan(root: Path, plan: Plan) -> list[str]:
                 leftover.rmdir() if leftover.is_dir() else leftover.unlink()
             target.rmdir()
     # The project's own modules first. An editable install puts the checkout the interpreter was
-    # installed from on sys.path, so run against a copy — by the tests, by check-product — the
-    # generators read the template's file policy and rewrote the template's maps, leaving the
+    # installed from on sys.path, so run against a copy — by the tests, by check-product — a
+    # generator imported the template's modules and rewrote the template's files, leaving the
     # copy's stale: measured on 2026-09-24.
     env = hermetic_env()
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(root), env.get("PYTHONPATH")]))
@@ -568,11 +557,8 @@ def apply_plan(root: Path, plan: Plan) -> list[str]:
             "--quiet",
             *sorted(p for p in plan.writes if p.endswith(".py")),
         ],
-        [sys.executable, "scripts/generate_ai_context.py"],
         [sys.executable, "scripts/sync_agent_docs.py"],
-        ["git", "add", "-A", "--", *sorted(set(plan.writes) | set(plan.deletes))],
-        [sys.executable, "scripts/structure_builder.py"],
-        ["git", "add", "-A", "--", "docs"],
+        ["git", "add", "-A", "--", *sorted(set(plan.writes) | set(plan.deletes)), "AGENTS.md"],
     )
     for command in steps:
         result = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True)

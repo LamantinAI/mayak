@@ -1,10 +1,9 @@
 # FILE: tests/template/test_template_neutrality.py
 # SUMMARY: Guard every way a stale project name creeps back into a template that must stay neutral.
-# Every guard here exists because the defect it covers shipped. The template was renamed once and a sweep
-# over the code missed `docs/project_map.md:1`, because that line sits OUTSIDE the block
-# `scripts/structure_builder.py` regenerates — so `make refresh-project-map` rewrote the map every
-# time and left the wrong name in the heading, and the drift check compared only the generated
-# block. A grep-based sweep cannot be repeated by hand on every rename; a test can.
+# Every guard here exists because the defect it covers shipped: the template was renamed once and a
+# sweep over the code missed a heading outside a generated block, which the generator then rewrote
+# around the wrong name on every run. A grep-based sweep cannot be repeated by hand on every rename;
+# a test can.
 
 import json
 import re
@@ -15,7 +14,7 @@ from typing import Any
 import pytest
 from fastapi import FastAPI
 
-from scripts.structure_builder import hermetic_git_env
+from scripts.check_product_from_template import hermetic_env
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -67,9 +66,6 @@ def _files_containing(paths: list[Path], terms: tuple[str, ...]) -> list[str]:
     return hits
 
 
-# The only heading docs/project_map.md may carry — generic, so it cannot go stale.
-PROJECT_MAP_HEADING = "# Project Map"
-
 # The only heading the always-loaded contract may carry. It names the kernel's contract, not a domain.
 CONTRACT_HEADING = "# AGENTS.md"
 
@@ -89,7 +85,7 @@ def _working_copy_files(root: Path = _REPO_ROOT) -> list[Path]:
     result = run(
         ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=root,
-        env=hermetic_git_env(),
+        env=hermetic_env(),
         capture_output=True,
         text=True,
         check=True,
@@ -163,7 +159,7 @@ class TestForbiddenTermsMechanism:
 class TestWorkingCopyEnumerationMechanism:
     @pytest.mark.unit
     def test_a_file_not_yet_added_is_still_enumerated(self, tmp_path: Path) -> None:
-        run(["git", "init", "-q"], cwd=tmp_path, check=True, env=hermetic_git_env())
+        run(["git", "init", "-q"], cwd=tmp_path, check=True, env=hermetic_env())
         (tmp_path / "new_vertical.md").write_text("drafted, never added", encoding="utf-8")
 
         found = {path.name for path in _working_copy_files(root=tmp_path)}
@@ -172,28 +168,13 @@ class TestWorkingCopyEnumerationMechanism:
 
     @pytest.mark.unit
     def test_an_ignored_file_is_not_enumerated(self, tmp_path: Path) -> None:
-        run(["git", "init", "-q"], cwd=tmp_path, check=True, env=hermetic_git_env())
+        run(["git", "init", "-q"], cwd=tmp_path, check=True, env=hermetic_env())
         (tmp_path / ".gitignore").write_text("scratch.md\n", encoding="utf-8")
         (tmp_path / "scratch.md").write_text("drafted, ignored", encoding="utf-8")
 
         found = {path.name for path in _working_copy_files(root=tmp_path)}
 
         assert "scratch.md" not in found
-
-
-class TestProjectMapHeading:
-    @pytest.mark.unit
-    def test_heading_is_generic(self) -> None:
-        # The generated block below the marker already prints the live project
-        # name, so the heading carrying one too is duplication that only ever goes stale.
-        first_line = (
-            (_REPO_ROOT / "docs" / "project_map.md")
-            .read_text(encoding="utf-8")
-            .splitlines()[0]
-            .strip()
-        )
-
-        assert first_line == PROJECT_MAP_HEADING
 
 
 # Verify the identity checklist cannot silently grow a seventh place.

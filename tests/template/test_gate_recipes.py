@@ -14,7 +14,7 @@ from subprocess import CompletedProcess, run
 
 import pytest
 
-from scripts.structure_builder import hermetic_git_env
+from scripts.check_product_from_template import hermetic_env
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -96,12 +96,12 @@ class TestToolStepsHaveOneDefinition:
 
     # Restricting this check to the Makefile is how three stale copies survived unnoticed:
     # .github/workflows/ci.yml ran mypy over four roots where the gate covers five and installed
-    # it with `--with mypy` instead of the pin; ai_context/build_context_map.py handed an agent a
+    # it with `--with mypy` instead of the pin; the generated context map handed an agent a
     # lint command still naming top-level script paths that moved into scripts/ long ago, and a
     # type check covering `project` alone. Each was a command someone could run and believe.
     # Only the two steps that carry a source list. `uv lock --check` and
     # `run_all_tests.py --skip-functional` take no arguments that can go stale, and they appear
-    # legitimately as recommended commands in the change map, the file policy and skill prose —
+    # legitimately as recommended commands in validator playbooks and skill prose —
     # forbidding them there would be a rule with no defect behind it.
     @pytest.mark.unit
     @pytest.mark.parametrize(
@@ -478,7 +478,7 @@ class TestGeneratedArtifactsAreRefreshedNotReported:
         hook = (_REPO_ROOT / ".githooks" / "pre-commit").read_text(encoding="utf-8")
 
         assert "make -s print-generated-paths" in hook
-        assert "docs/ai_context_map.json docs/ai_change_map.json" not in hook
+        assert "CLAUDE.md AGENTS.md" not in hook
 
     # Verify the list names real outputs, so the refresh and the hook act on something.
     @pytest.mark.unit
@@ -492,7 +492,7 @@ class TestGeneratedArtifactsAreRefreshedNotReported:
         )
         paths = listed.stdout.split()
 
-        assert len(paths) >= 5
+        assert paths, "GENERATED_PATHS is empty"
         missing = [name for name in paths if not (_REPO_ROOT / name).exists()]
         assert missing == [], f"GENERATED_PATHS names things that do not exist: {missing}"
 
@@ -514,7 +514,7 @@ class TestGeneratedFilesRefuseTheEdit:
             [str(_REPO_ROOT / ".agents" / "hooks" / "pre-edit-guard.sh")],
             input=payload,
             cwd=cwd,
-            env=hermetic_git_env(),
+            env=hermetic_env(),
             capture_output=True,
             text=True,
             check=True,
@@ -562,7 +562,7 @@ class TestGeneratedFilesRefuseTheEdit:
     def test_a_file_inside_a_generated_directory_is_refused(self, tmp_path: Path) -> None:
         # Without git's own variables: run from the pre-commit hook, an inherited GIT_DIR made this
         # re-initialise the repository being committed and set core.bare=true on its main checkout.
-        run(["git", "init", "-q"], cwd=tmp_path, check=True, env=hermetic_git_env())
+        run(["git", "init", "-q"], cwd=tmp_path, check=True, env=hermetic_env())
         (tmp_path / "Makefile").write_text(
             "print-generated-paths:\n\t@echo rendered\n", encoding="utf-8"
         )

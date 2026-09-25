@@ -102,7 +102,7 @@ class TestValidateArchitecture:
     # not ast.Import/ast.ImportFrom, so `importlib.import_module("psycopg")` in a domain
     # module left the full `make quality-gates` at exit 0 — measured, both this validator and
     # validate_dependencies.py reporting "passed". The parameters cover the three call shapes
-    # ai_context/dynamic_imports.py claims to recognise; the variable form below is the documented
+    # validation_support/dynamic_imports.py claims to recognise; the variable form below is the documented
     # residue, not an oversight.
     @pytest.mark.unit
     @pytest.mark.parametrize(

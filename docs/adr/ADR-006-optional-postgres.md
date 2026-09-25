@@ -45,20 +45,12 @@ Two shapes were rejected:
   compose file matters as much as the overlay: it is what forwards `POSTGRES_ENABLED` into the
   container. Without that line the Makefile dropped the database service while `entrypoint.sh`,
   reading only `.env`, still ran Alembic against a server nobody started.
-- `ai_query/handlers/overview.py` — the agent-visible state
 - `tests/application/test_optional_postgres.py`
 
 ## Consequences
 
 - A vertical that needs the database must handle `db_pool is None` explicitly; mypy enforces it
   through the `AsyncConnectionPool | None` signature of `build_reference_services`.
-- The conditional construction **must** be written as `db_pool = None` above the `if`, with no
-  `else` branch. `ai_context/extraction.py` resolves the service registry statically and
-  `ast.walk` visits an `If` node as `test → body → orelse`, so an assignment in `else` is
-  processed last and overwrites the binding metadata: `db_pool` degrades from
-  `class=AsyncConnectionPool / confidence=high` to `class=null / confidence=low`, and
-  `docs/ai_context_map.json` starts misdescribing the kernel's own service. Measured, and guarded
-  by `test_composition_root_has_no_else_branch_for_the_pool`.
 - `POSTGRES_ENABLED` is deliberately **not** `MIGRATIONS_ALLOW_SKIP`. The latter is the emergency
   hatch for "the database is temporarily unreachable" and stays an error-suppressor; this flag
   describes the project's composition. One switch covering both would hide a real outage behind a

@@ -10,7 +10,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from ai_context.validator_contract import build_validator_issue_payload
+from validation_support.validator_contract import build_validator_issue_payload
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -60,7 +60,7 @@ _RUNTIME_OWNERSHIP_RULE_PLAYBOOKS = {
         "read_first": [
             "AGENTS.md",
             "project/core/config.py",
-            "docs/architecture_rules.json",
+            "scripts/validate_runtime_ownership.py",
         ],
         "smallest_command_to_rerun": "uv run python scripts/validate_runtime_ownership.py",
         "likely_fix_shape": (
@@ -83,7 +83,7 @@ _RUNTIME_OWNERSHIP_RULE_PLAYBOOKS = {
         "read_first": [
             "AGENTS.md",
             "project/core/composition_root.py",
-            "docs/architecture_rules.json",
+            "scripts/validate_runtime_ownership.py",
         ],
         "smallest_command_to_rerun": "uv run python scripts/validate_runtime_ownership.py",
         "likely_fix_shape": (
@@ -108,7 +108,7 @@ _RUNTIME_OWNERSHIP_RULE_PLAYBOOKS = {
             "AGENTS.md",
             "project/core/composition_root.py",
             "project/core/lifecycle.py",
-            "docs/architecture_rules.json",
+            "scripts/validate_runtime_ownership.py",
         ],
         "smallest_command_to_rerun": "uv run python scripts/validate_runtime_ownership.py",
         "likely_fix_shape": (

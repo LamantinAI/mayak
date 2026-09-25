@@ -26,9 +26,9 @@ from typing import Sequence
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-# The ceiling on non-empty Python lines a project inherits. The plan's target after step 7 is
-# 19-21 thousand; until navigation and its tests leave the product, 26 000 is the step-6 bound.
-DEFAULT_LINE_LIMIT = 26_000
+# The ceiling on non-empty Python lines a project inherits: the post-bench2 plan's 19-21 thousand,
+# reached once the navigation maps and their query tool left the product (step 7).
+DEFAULT_LINE_LIMIT = 21_000
 
 PROBE_NAME = "Harbor Probe"
 PROBE_DOMAIN = "Berth bookings for a small marina — a throwaway project made to check the template."

@@ -16,8 +16,8 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from ai_context.rendering import render_json
-from ai_context.validator_contract import build_validator_issue_payload
+from validation_support.rendering import render_json
+from validation_support.validator_contract import build_validator_issue_payload
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
@@ -153,7 +153,7 @@ _REPOSITORY_METADATA_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
 
 # Return a copy of the playbook for any rule_id this module emits, or None if unknown.
 # Replaces get_skills_frontmatter_rule_playbook, get_script_paths_rule_playbook and
-# get_project_context_rule_playbook — one getter, registered once in ai_query/common.py.
+# get_project_context_rule_playbook — one getter, registered once in doctor_ai_context.py.
 def get_repository_metadata_rule_playbook(rule_id: str) -> dict[str, object] | None:
     playbook = _REPOSITORY_METADATA_RULE_PLAYBOOKS.get(rule_id)
     return None if playbook is None else dict(playbook)
@@ -339,14 +339,13 @@ _SCAN_PREFIXES: tuple[str, ...] = (
     "docs/",
     "alembic/",
     ".agents/skills/",
-    "ai_context/",
-    "ai_query/",
+    "validation_support/",
     ".github/",
     ".githooks/",
 )
 
 _PATH_PATTERN: re.Pattern[str] = re.compile(
-    r"^(?:tests|project|docs|alembic|skills|ai_context|ai_query|\.github|\.githooks|\.agents/skills)/[\w./\-]+$"
+    r"^(?:tests|project|docs|alembic|skills|validation_support|\.github|\.githooks|\.agents/skills)/[\w./\-]+$"
 )
 
 # Path-shaped literals that intentionally do not need to exist on disk. Add sparingly.

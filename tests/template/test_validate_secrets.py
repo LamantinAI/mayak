@@ -155,7 +155,7 @@ class TestCollect:
 
         assert collect_secret_issues(root) == []
 
-    # Every rule id an agent can hit must answer `failure rule <id>` with remediation.
+    # Every rule id an agent can hit must answer `doctor_ai_context.py --rule <id>` with remediation.
     @pytest.mark.unit
     def test_rule_has_a_playbook(self) -> None:
         playbook = get_secrets_rule_playbook(SECRET_RULE_ID)

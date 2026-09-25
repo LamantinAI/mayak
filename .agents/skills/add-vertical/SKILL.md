@@ -71,9 +71,7 @@ list of table names used to stand in for, and one it made every project edit on 
    `uv run alembic -c alembic.ini heads` and `... upgrade head --sql`. Neither compares
    `orm_models.py` against a real schema. `make test` does, for real: its db tier starts a PostgreSQL
    of its own and runs `alembic upgrade head` and `alembic check` there.
-4. `make refresh-generated-docs`, as soon as the first new file exists — a missing or extra file
-   moves `docs/project_map.md`, which every gate compares against the tree.
-5. Repository, then `tests/db/test_<name>_repository.py` — the db tier is the one place in
+4. Repository, then `tests/db/test_<name>_repository.py` — the db tier is the one place in
    `make test` where your queries actually run; `tests/db/conftest.py` gives it `db_pool`, every
    table emptied. Judge a query by the rows it returns, on data chosen so a wrong one shows: rows
    inserted in the reverse of the expected order, a page one smaller than the matches, a row of
@@ -81,7 +79,7 @@ list of table names used to stand in for, and one it made every project edit on 
    `with logger.span("db.<name>.<op>", ...)` and put the outcome in `span.output` (a row count, a
    found/not-found flag), which only survives the success path — a driver error translated into a
    domain one is asserted on `span.error`, not on an output line before `raise`.
-6. Application service and DTOs. A field check is written once, in the domain, and the service
+5. Application service and DTOs. A field check is written once, in the domain, and the service
    calls it on every path that writes or filters; the DTO declares types only. A bound repeated in
    the DTO is a second copy that drifts, and the verticals bench2 measured copied the one the sample
    used to carry. If the vertical has an update, copy
@@ -94,11 +92,11 @@ list of table names used to stand in for, and one it made every project edit on 
    unique index, its migration, and `_open_title_taken_is_a_conflict` in the repository) and its
    two-process test in `tests/db/test_reference_task_repository.py`. A rule no constraint can
    name takes `FOR UPDATE` instead — "Where the single-row token does not reach" in the same ADR.
-7. **The endpoint and all three wiring files in the same step.** The endpoint's last import is the
+6. **The endpoint and all three wiring files in the same step.** The endpoint's last import is the
    typed alias defined in `dependencies.py`. `service_registration.py` and `router_registration.py`
    belong here too — the next step's `TestWiring` builds the application from both.
-8. Unit tests, and `make refresh-generated-docs` again.
-9. `make quality-gates`, then `make test-e2e`.
+7. Unit tests.
+8. `make quality-gates`, then `make test-e2e`.
 
 ## Two branches, one migration history
 
@@ -235,7 +233,7 @@ every database created from this template. **Append** a drop migration (autogene
 model is gone) rather than folding it into `001` or deleting `001` — your own first migration names
 `001` as its parent.
 
-Nine more files carry the vertical without naming it:
+These files carry the vertical too, without its name in theirs:
 
 | File | What to remove |
 |------|----------------|
@@ -245,7 +243,6 @@ Nine more files carry the vertical without naming it:
 | `project/domain/ports.py` | `ReferenceTaskRepositoryPort` and its `ReferenceTask` import |
 | `project/infrastructure/persistence/orm_models.py` | `ReferenceTaskORM` and its `MAX_TITLE_LENGTH` import |
 | `project/infrastructure/persistence/__init__.py` | the worked-example sentence in the docstring |
-| `tests/template/test_ai_query_zone_lookup.py` | the vertical's paths in the parametrised control list |
 
 
 Then the prose: `README.md`, `docs/agent_rules.md`, `PROJECT.md`, `docs/project_context.json`, the
@@ -260,7 +257,7 @@ compares the two. And update `minimal_read_set` in this file's own front matter 
 `project/application/reference_task_service.py`, and once that is gone
 `scripts/validate_repository_metadata.py` reports `skills_frontmatter.broken_path`.
 
-Finish with `make refresh-generated-docs && make quality-gates && make test-e2e`, then sweep. Not
+Finish with `make quality-gates && make test-e2e`, then sweep. Not
 with `git grep -n reference_task` — case-sensitive and underscore-only, it misses `ReferenceTaskORM`
 and every `/reference-tasks/` path. Use:
 
@@ -283,19 +280,14 @@ the vertical without appearing below — trust that test, and the table it check
 | `alembic/versions/7300d4656a8d_add_updated_at_to_reference_tasks.py` | history; the update endpoint's optimistic-lock column |
 | `alembic/versions/b5e2c1a9d4f0_one_open_reference_task_per_title.py` | history; the open-title rule's partial unique index |
 | the drop migration you just appended | names what it drops |
-| `docs/project_map.md` | generated tree; shows the migration filenames that still exist |
-| `docs/ai_context_map.json` | generated; `make refresh-generated-docs` rewrites it from the code |
 | `.agents/skills/add-vertical/SKILL.md` | this file has to name what it deletes |
 | `tests/template/test_skill_texts_match_reality.py` | pins the sweep spelling and runs this accounting check |
-| `tests/template/test_generate_ai_context.py` | synthetic `"reference_task_service"` fixture strings |
 | `tests/template/test_validate_architecture.py` | a synthetic source line containing `ReferenceTaskORM` |
 | `tests/application/test_trace_formatter_against_real_output.py` | mentions inside recorded log fixtures |
 | `tests/application/test_logging_api.py` | the span name `db.reference_task.get` in logging fixtures |
-| `tests/template/test_query_ai_context.py` | functional-test paths inside a fixture list |
 | `scripts/validate_test_quality.py` | one query in a comment, illustrating a rule |
 | `tests/template/test_sync_agent_docs.py` | asserts the generated Quick Start does **not** name the vertical |
-| `ai_context/dynamic_imports.py` | a comment about `project/domain/reference_task.py`'s line count |
-| `ai_query/common.py` | a comment illustrating the vertical-name-from-path heuristic |
+| `validation_support/dynamic_imports.py` | a comment about `project/domain/reference_task.py`'s line count |
 | `tests/application/test_client_errors_are_not_service_errors.py` | a fixture `POST /reference-tasks` |
 | `tests/application/test_functional_request_helpers.py` | a fixture `GET /reference-tasks/<uuid>` |
 | `tests/template/test_gate_recipes.py` | a synthetic `SELECT ... FROM reference_tasks` string |

@@ -12,8 +12,8 @@ import ast
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ai_context.rendering import render_json
-from ai_context.validator_contract import build_validator_issue_payload
+from validation_support.rendering import render_json
+from validation_support.validator_contract import build_validator_issue_payload
 
 
 # Absolute repository root used by the validator entrypoint.

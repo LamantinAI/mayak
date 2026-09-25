@@ -1,9 +1,9 @@
-.PHONY: check-product print-generated-paths refresh-generated-unless-strict checksum-generated gate-lockfile gate-lint gate-format gate-types gate-tests help logs logs-raw init-project refresh-ai-context refresh-agent-docs refresh-project-map refresh-generated-docs ai-autofix quality-gates quality-gates-steps doctor doctor-json test test-all test-e2e diff-coverage smoke run-local migrate autogenerate-migration format-trace update-deps audit-deps security-scan ci-local db-up-worktree db-down-worktree
+.PHONY: check-product print-generated-paths refresh-generated-unless-strict checksum-generated gate-lockfile gate-lint gate-format gate-types gate-tests help logs logs-raw init-project refresh-agent-docs ai-autofix quality-gates quality-gates-steps doctor doctor-json test test-all test-e2e diff-coverage smoke run-local migrate autogenerate-migration format-trace update-deps audit-deps security-scan ci-local db-up-worktree db-down-worktree
 
 # Auto-discover uv; override with UV=/path/to/uv if needed.
 UV := $(shell command -v uv 2>/dev/null || echo /opt/homebrew/bin/uv)
 
-PYTHON_SOURCES = project tests ai_context ai_query scripts
+PYTHON_SOURCES = project tests validation_support scripts
 
 # What mypy checks: every source root, every test suite, and alembic. Two entries are not
 # directories. tests/functional is a second import root (pytest runs it with its own rootdir) and
@@ -17,7 +17,7 @@ PYTHON_SOURCES = project tests ai_context ai_query scripts
 # Running a test does not check an annotation. `adapter: SomePort = _Fake()` is an assertion no
 # interpreter evaluates and no Protocol enforces at runtime, so a fake whose signature had drifted
 # from LLMPort kept a green test that proved nothing.
-MYPY_TARGETS = project scripts ai_context ai_query alembic tests/functional tests/application tests/infrastructure tests/integration tests/db tests/support tests/conftest.py $(wildcard tests/template)
+MYPY_TARGETS = project scripts validation_support alembic tests/functional tests/application tests/infrastructure tests/integration tests/db tests/support tests/conftest.py $(wildcard tests/template)
 
 # Does this project use a relational store? Asked through the same reader the migration gate
 # uses (scripts/validate_migrations.py::postgres_is_enabled), so there is one implementation of
@@ -88,11 +88,6 @@ help:
 
 init-project:
 	./dev_setup.sh
-	$(UV) run python scripts/query_ai_context.py bootstrap
-	$(UV) run python scripts/query_ai_context.py overview
-	@if [ -n "$$(git status --short)" ]; then \
-		$(UV) run python scripts/query_ai_context.py workset diff; \
-	fi
 	@# The identity decision cannot be guessed: a checkout named anything at all may be the template
 	@# itself or a project built from it. Guessing wrong is worse than asking, so init states the
 	@# open question instead of silently leaving the template's name in place forever.
@@ -114,19 +109,8 @@ init-project:
 		$(MAKE) quality-gates; \
 	fi
 
-refresh-ai-context: ## Refresh generated artifacts | Regenerate AI context maps
-	$(UV) run python scripts/generate_ai_context.py
-
-refresh-agent-docs: ## Refresh generated artifacts | Regenerate CLAUDE.md and AGENTS.md
+refresh-agent-docs: ## Refresh generated artifacts | Regenerate CLAUDE.md and AGENTS.md from docs/agent_rules.md
 	$(UV) run python scripts/sync_agent_docs.py
-
-refresh-project-map: ## Refresh generated artifacts | Regenerate docs/project_map.md
-	$(UV) run python scripts/structure_builder.py
-
-# refresh-project-map runs LAST on purpose: it renders the file tree, and the steps before it
-# write files. With the map first, a new generated file left `make refresh-generated-docs`
-# immediately followed by a red `structure_builder --check`.
-refresh-generated-docs: refresh-ai-context refresh-agent-docs refresh-project-map ## Refresh generated artifacts | All of the above, in dependency order
 
 # Template only: builds a throwaway project from this checkout, takes the reference vertical out,
 # counts the Python it inherits and runs its gates and e2e. A project has no script to run.
@@ -175,13 +159,12 @@ quality-gates: ## Validation | The validation suite — run it before committing
 		|| ($(MAKE) --no-print-directory doctor; exit 1)
 
 # ATTRIBUTE: GENERATED_PATHS
-# Every output of `refresh-generated-docs`, declared once. Two hooks read this list through
+# Every output of `refresh-agent-docs`, declared once. Two hooks read this list through
 # `make print-generated-paths` rather than repeating it: `.githooks/pre-commit`, which stages what
 # the refresh rewrote, and `.agents/hooks/pre-edit-guard.sh`, which refuses a write to any of them.
 # The pre-commit hook's own copy had already drifted once, missing two entries, so a regenerated
 # file went unstaged and the commit went through green with the output left behind.
-GENERATED_PATHS = docs/ai_context_map.json docs/ai_change_map.json docs/architecture_rules.json \
-	CLAUDE.md AGENTS.md docs/project_map.md
+GENERATED_PATHS = CLAUDE.md AGENTS.md
 
 print-generated-paths:
 	@echo "$(GENERATED_PATHS)"
@@ -189,13 +172,13 @@ print-generated-paths:
 # Regenerate before checking, unless something asked for the strict behaviour.
 #
 # Measured: the ONLY failure both arms of an A/B measurement hit was
-# `drift.generated.outdated` — a generated map left behind by an edit, fixed by the same command
+# `drift.generated.outdated` — a generated file left behind by an edit, fixed by the same command
 # every time. Twice out of two, plus three more times in one session. A step whose fix is
 # always the identical command is a ritual, not a check: it costs a full red gate and a rerun to
 # tell you something the machine could have done.
 #
-# So locally the artifacts are refreshed and what changed is printed; the five `--check` steps in
-# quality-gates-steps then pass, and the doctor still models each of them for the case where a
+# So locally the wrappers are refreshed and what changed is printed; the `--check` step in
+# quality-gates-steps then passes, and the doctor still models it for the case where the
 # generator genuinely breaks. `STRICT_GENERATED=1` restores check-only behaviour, and `ci-local`
 # and the pipeline both set it: stale artifacts must never reach a commit, and there the answer
 # has to be a failure rather than a fix.
@@ -205,7 +188,7 @@ refresh-generated-unless-strict:
 	fi; \
 	before=$$(mktemp); after=$$(mktemp); \
 	$(MAKE) --no-print-directory checksum-generated > "$$before"; \
-	$(MAKE) --no-print-directory refresh-generated-docs >/dev/null; \
+	$(MAKE) --no-print-directory refresh-agent-docs >/dev/null; \
 	$(MAKE) --no-print-directory checksum-generated > "$$after"; \
 	changed=$$(diff "$$before" "$$after" | grep '^>' | awk '{print $$3}'); \
 	rm -f "$$before" "$$after"; \
@@ -241,19 +224,15 @@ quality-gates-steps:
 	$(UV) run python scripts/validate_test_quality.py
 	$(UV) run python scripts/validate_dependencies.py
 	$(UV) run python scripts/validate_repository_metadata.py
-	$(UV) run python scripts/validate_file_policy.py
 	$(UV) run python scripts/validate_secrets.py
 	@$(MAKE) --no-print-directory security-scan
-	$(UV) run python scripts/structure_builder.py --check
-	$(UV) run python scripts/generate_ai_context.py --check
 	$(UV) run python scripts/sync_agent_docs.py --check
 	@$(MAKE) --no-print-directory gate-tests
 
 # No separate `quality-gates-no-regen` twin of the target above exists for the pre-commit hook to
-# call, even though `refresh-generated-docs` has just run there and re-checking the generators is
-# redundant: those five `--check` invocations cost 0.4 s together. A second copy of a twenty-step
-# recipe, kept in step by hand, is not worth four tenths of a second — a hand-kept copy is exactly
-# what drifts silently.
+# call, even though `refresh-agent-docs` has just run there and re-checking the wrappers is
+# redundant: the `--check` costs a tenth of a second. A second copy of a twenty-step recipe, kept
+# in step by hand, is not worth that — a hand-kept copy is exactly what drifts silently.
 
 # Intentionally update pyproject.toml dependencies and refresh uv.lock.
 # Default `quality-gates` enforces `uv lock --check` to detect accidental drift —
@@ -527,8 +506,8 @@ logs: ## Reading a running service | Render the container's semantic log as a tr
 
 # Where logs-raw writes. `?=` so an environment variable overrides it — make imports the
 # environment before reading the makefile, and a conditional assignment leaves an already-set
-# variable alone. tests/template/test_gate_recipes.py::TestLogTargetsReportAFailedCompose uses
-# exactly that: pointing LOGS_DIR at a tmp_path keeps those tests from reading this checkout's own
+# variable alone. The template's tests of the log targets use exactly that: pointing LOGS_DIR at
+# a tmp_path keeps those tests from reading this checkout's own
 # logs/, which whatever container is actually running writes into concurrently — a before/after
 # glob compared against the shared directory went red whenever that happened mid-test, for a
 # reason that had nothing to do with the recipe under test.

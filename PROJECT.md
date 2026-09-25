@@ -19,9 +19,8 @@ the kernel infrastructure that every project built on top of it inherits:
 - Semantic NDJSON logging with LLM-friendly trace formatting.
 - `LLMService` (live + mock mixin) with **mock-first** default per ADR-003,
   so the kernel boots and CI runs deterministically without a real provider.
-- Mayak AI tooling: query CLI (`scripts/query_ai_context.py`),
-  validators (`scripts/validate_*.py`), doctor (`scripts/doctor_ai_context.py`),
-  skills under `.agents/skills/`, and generated AI artifacts under `docs/`.
+- Mayak AI tooling: validators (`scripts/validate_*.py`), doctor
+  (`scripts/doctor_ai_context.py`), and skills under `.agents/skills/`.
 
 Beyond health checks the kernel exposes one worked example. Concrete features
 (chat, RAG, agentic pipelines, CRUD APIs, …) are added by **verticals** on top of
@@ -47,8 +46,7 @@ The recommended pattern is:
    (or add a vertical-specific builder and call it from `CompositionRoot`).
 5. Expose typed dependency aliases in `project/infrastructure/api/dependencies.py`.
 6. Include the endpoint's router in `project/infrastructure/api/router_registration.py`.
-7. Cover with unit and functional tests, regenerate AI artifacts
-   (`make refresh-generated-docs`), and run `make quality-gates`.
+7. Cover with unit and functional tests, and run `make quality-gates`.
 
 **Where the files go depends on how many verticals the project has.** One or two verticals stay
 flat, named by prefix: `project/domain/<vertical>.py`, `project/application/<vertical>_service.py`,

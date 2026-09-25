@@ -27,14 +27,14 @@ bench2 (2026-09) measured the price and found no measured benefit:
 - Tags were 19–24% of the non-empty lines of new code under `project/` in the first vertical — the
   stage that carried 62–64% of the template's extra cost — and agents copy the example vertical's
   proportions into their own.
-- The CBM gate blocked one commit in the whole measurement; the navigation map builds its symbols
-  from the AST and never read a tag.
+- The CBM gate blocked one commit in the whole measurement; the navigation map (removed in 2026-09,
+  ADR-005) built its symbols from the AST and never read a tag.
 - Before the removal, 1 545 of the 7 305 non-empty lines under `project/` were tag lines
   (`grep -E '^\s*# ([A-Z_]{3,}:|\*\*LOGIC_STEP)'` over `project/` at commit e47eeeb).
 
-The header stays, for now, because it is the one piece with a reader: `scripts/structure_builder.py`
-puts the SUMMARY into `docs/project_map.md`, and an agent that opens a file sees what it is for
-before the code. Whether that earns two lines per file is measured by bench3, which compares the
+The header stays, for now, because it is the one piece with a reader: an agent that opens a file
+sees what it is for before the code, and `git grep -n '^# SUMMARY:' -- project` lists every
+module's purpose at once — the job a generated project map did until 2026-09 (ADR-005). Whether that earns two lines per file is measured by bench3, which compares the
 template with and without the header; if the variant without it is no worse at navigation and no
 more expensive, the header goes too.
 

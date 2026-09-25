@@ -136,7 +136,7 @@ class TestTheRuleTableStaysReachable:
 # The validator checks that the tag is present; nothing else compared it with the file. Three files
 # once spelled it as a dotted module (`tests.application.test_query_ai_context.py`), which resolves
 # to nothing: an agent told to open the file the header names had no file to open. Both spellings
-# that do resolve are accepted — the bare name has always been used inside scripts/ and ai_context/.
+# that do resolve are accepted — the bare name has always been used inside scripts/ and validation_support/.
 class TestTheFileTagNamesTheFile:
     @staticmethod
     def _declared_tags() -> list[tuple[str, str]]:

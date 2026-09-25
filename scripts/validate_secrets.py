@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from ai_context.validator_contract import build_validator_issue_payload
+from validation_support.validator_contract import build_validator_issue_payload
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
@@ -108,7 +108,7 @@ _PLACEHOLDER_HINTS: tuple[str, ...] = (
     "sk-test",
 )
 
-# Stable rule_id → playbook mapping consumed by `query_ai_context.py failure rule`.
+# Stable rule_id → playbook mapping consumed by `doctor_ai_context.py --rule`.
 _SECRETS_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
     SECRET_RULE_ID: {
         "meaning": (
