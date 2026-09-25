@@ -468,12 +468,6 @@ def downgrade() -> None:
 
 def _project_context(text: str) -> str:
     data = json.loads(text)
-    data["verticals"].pop("reference_task", None)
-    data["business_rules"] = {
-        rule: entry
-        for rule, entry in data["business_rules"].items()
-        if not (isinstance(entry, dict) and entry.get("vertical") == "reference_task")
-    }
     overview = data.get("api_overview", {})
     notes = overview.get("notes")
     if isinstance(notes, str):

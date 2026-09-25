@@ -17,9 +17,10 @@ because a database kept between runs never re-ran an edited migration that had a
 the mutation baseline caught exactly that. An unreachable database is an error, not a skip; `POSTGRES_ENABLED=false`
 deselects the tier and says so.
 
-What that changed, measured with `uv run python scripts/run_mutations.py` against the reference
-vertical: an INSERT with two columns exchanged and a migration narrower than the ORM column were
-caught only by `make test-e2e` before and are caught by `make test` now; six SQL defects the fast
+What that changed, measured in the template with `uv run python scripts/run_mutations.py` against
+the reference vertical (a project made from it keeps neither the runner nor its catalogue): an
+INSERT with two columns exchanged and a migration narrower than the ORM column were caught only by
+`make test-e2e` before and are caught by `make test` now; six SQL defects the fast
 suite caught only through a literal-text pin are now also caught by a test that runs the query. The
 pins stay until a rewrite of the reference tests shows the db tier alone catches everything they
 did. `make test-e2e` remains the only place the built image, its entrypoint and HTTP against the
@@ -46,7 +47,8 @@ below are why those two sentences are load-bearing rather than routine advice.
 On 2026-08-12, reversing `ORDER BY created_at DESC` to `ASC` in the shipped repository left every
 gate green; only `make test-e2e` failed. Remeasured on 2026-08-24 with the same reversal:
 `STRICT_GENERATED=1 make quality-gates` now fails with no database at all, at a plain literal-string
-assertion in `tests/infrastructure/test_reference_task_repository.py` —
+assertion in `tests/infrastructure/test_reference_task_repository.py` (deleted with the rewrite
+above; `tests/db/test_reference_task_repository.py` runs the query instead) —
 `assert _SELECT_BY_STATUS.split(" WHERE ", 1)[1] == "status = %s ORDER BY created_at DESC LIMIT %s"`.
 That assertion is the trap, not `scripts/validate_test_quality.py`: run the validator alone against
 the same reversal and it still exits 0. Its `test.sql_constant_round_trip` rule only checks that some

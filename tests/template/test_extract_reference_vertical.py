@@ -205,7 +205,7 @@ def test_a_project_has_the_vertical_taken_out_once(
     assert not (checkout / "tests/template").exists()
     assert _imports_of_the_vertical(checkout) == []
     context = json.loads((checkout / "docs/project_context.json").read_text(encoding="utf-8"))
-    assert "reference_task" not in context["verticals"]
+    assert "verticals" not in context
     drop = (checkout / extraction.DROP_MIGRATION).read_text(encoding="utf-8")
     assert f'down_revision: Union[str, None] = "{extraction.SAMPLE_HEAD}"' in drop
     assert _missing_paths_an_agent_is_told_to_use(checkout) == []

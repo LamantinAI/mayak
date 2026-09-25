@@ -43,7 +43,7 @@ ADR-006 (routes absent, service key present and `None`) instead of rebuilding th
 No test lists the tables. A table whose migration is missing fails `alembic check`, which the db
 tier runs inside `make test` (`tests/db/test_migrations_match_models.py`) — the claim a hand-kept
 list of table names used to stand in for, and one it made every project edit on its first table.
-`test_skill_texts_match_reality.py` fails if such a list comes back anywhere in the tree.
+Do not bring such a list back — the template's own test of its skill texts refuses one.
 
 ## Order of work
 

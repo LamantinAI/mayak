@@ -51,4 +51,4 @@ Python: `project/` 8 281 → 7 331, `tests/` 21 186 → 18 735, the repository 4
 ## Operationalization
 
 - `scripts/validate_cbm.py` — the header check, run by `make quality-gates`
-- `tests/template/test_validate_cbm.py`
+- `tests/template/test_validate_cbm.py` — in the template; a project made from it does not keep it

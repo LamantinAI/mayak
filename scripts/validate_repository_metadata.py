@@ -2,9 +2,10 @@
 # FILE: validate_repository_metadata.py
 # Three repository-metadata validators merged into one module: skills/commands frontmatter,
 # path-shaped literals inside scripts/*.py, and docs/project_context.json schema + cross-references.
-# By design, this module does not flag project_context.vertical_status_contradicts_wiring —
-# the declared status in project_context.json is a description, and
-# scripts/validate_endpoint_wiring.py is what actually checks the wiring.
+# project_context.json lists no verticals and no business rules. It did, and nothing checked either
+# list against the code: a product with a live vertical carried an empty one under a green gate
+# (2026-09-25). The vertical is its code, wiring is validate_endpoint_wiring.py's, and a rule is
+# the comment beside the check that holds it.
 
 from __future__ import annotations
 
@@ -88,8 +89,8 @@ _REPOSITORY_METADATA_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
     },
     "project_context.missing_required_field": {
         "meaning": "A required top-level field is missing or has the wrong type. Required: "
-        "schema_version, project_name, domain, verticals, integrations, business_rules, glossary, "
-        "api_overview, project_decisions.",
+        "schema_version, project_name, domain, integrations, glossary, api_overview, "
+        "project_decisions.",
         "suggested_fix": "Add the field with the expected type; see PROJECT.md for the shape.",
         "read_first": ["PROJECT.md", "docs/project_context.json"],
         "smallest_command_to_rerun": _RERUN,
@@ -108,16 +109,6 @@ _REPOSITORY_METADATA_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
         "next_checks": [_RERUN, "make quality-gates"],
         "stop_widening_condition": "Stop once project_name and domain describe this project.",
     },
-    "project_context.invalid_vertical_status": {
-        "meaning": "A vertical's status is not one of active, planned, deprecated, "
-        "reference_implementation.",
-        "suggested_fix": "Replace it with one of the four allowed values.",
-        "read_first": ["docs/project_context.json", "PROJECT.md"],
-        "smallest_command_to_rerun": _RERUN,
-        "likely_fix_shape": "Set the vertical's status field to an allowed value.",
-        "next_checks": [_RERUN],
-        "stop_widening_condition": "Stop once every vertical status is in the allowed set.",
-    },
     "project_context.invalid_integration_type": {
         "meaning": "An integration's type is not one of database, api, message_queue, llm, "
         "storage, other.",
@@ -129,24 +120,13 @@ _REPOSITORY_METADATA_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
         "stop_widening_condition": "Stop once every integration type is in the allowed set.",
     },
     "project_context.missing_field": {
-        "meaning": "A vertical, integration, or business_rule entry is missing a required "
-        "sub-field (description, status, type, summary, vertical, ...).",
+        "meaning": "An integration entry is missing a required sub-field (type, description).",
         "suggested_fix": "Add the missing sub-field as PROJECT.md and the other entries show.",
         "read_first": ["docs/project_context.json", "PROJECT.md"],
         "smallest_command_to_rerun": _RERUN,
         "likely_fix_shape": "Insert the named field with the value the section's shape expects.",
         "next_checks": [_RERUN],
         "stop_widening_condition": "Stop once every entry has all required sub-fields.",
-    },
-    "project_context.cross_reference_unknown": {
-        "meaning": "A business_rule names a vertical that does not exist, or a vertical names a "
-        "business_rule id that does not exist.",
-        "suggested_fix": "Fix the reference to an existing entry, or add the missing entry.",
-        "read_first": ["docs/project_context.json"],
-        "smallest_command_to_rerun": _RERUN,
-        "likely_fix_shape": "Correct the cross-reference, or define the missing key.",
-        "next_checks": [_RERUN],
-        "stop_widening_condition": "Stop once every cross-reference resolves to an existing entry.",
     },
 }
 
@@ -445,16 +425,13 @@ def _script_paths_issue_to_payload(issue: ScriptPathIssue) -> dict[str, object]:
 # docs/project_context.json schema + cross-references (formerly validate_project_context.py)
 # ------------------------------------------------------------------------------------------------
 
-VALID_VERTICAL_STATUSES = {"active", "planned", "deprecated", "reference_implementation"}
 VALID_INTEGRATION_TYPES = {"database", "api", "message_queue", "llm", "storage", "other"}
 
 REQUIRED_TOP_LEVEL_KEYS = {
     "schema_version": int,
     "project_name": str,
     "domain": str,
-    "verticals": dict,
     "integrations": dict,
-    "business_rules": dict,
     "glossary": dict,
     "api_overview": dict,
     "project_decisions": list,
@@ -469,7 +446,7 @@ TEMPLATE_PROJECT_NAME = "Mayak"
 TEMPLATE_DOMAIN = (
     "Reusable AI-friendly FastAPI backend template. The kernel ships a CompositionRoot, "
     "semantic NDJSON logging, an LLMService with mock-first ADR-003 default, and the Mayak AI "
-    "tooling (query CLI, validators, doctor, skills). Verticals (RAG / agents / domain-specific "
+    "tooling (validators, doctor, skills). Verticals (RAG / agents / domain-specific "
     "services) are added on top by extending build_reference_services and wiring typed dependency "
     "aliases."
 )
@@ -537,9 +514,8 @@ def _validate_identity(data: dict[str, object]) -> list[ProjectContextIssue]:
     return issues
 
 
-# Shared shape check for a verticals/integrations/business_rules section: every entry
-# must be an object and carry its required sub-fields. The per-section extras (an enum field, a
-# cross-reference, a list-typed field) are layered on by each caller below, over the same entries.
+# Shape check for a section of named entries: every entry must be an object and carry its required
+# sub-fields. The integrations check layers its enum field on top, over the same entries.
 def _validate_entries(
     entries: dict[str, object],
     prefix: str,
@@ -570,33 +546,6 @@ def _validate_entries(
     return issues
 
 
-def _validate_verticals(verticals: dict[str, object]) -> list[ProjectContextIssue]:
-    issues = _validate_entries(verticals, "verticals", "Vertical", ("description", "status"))
-    for name, entry in verticals.items():
-        if not isinstance(entry, dict):
-            continue
-        prefix = f"verticals.{name}"
-        status = entry.get("status")
-        if status is not None and status not in VALID_VERTICAL_STATUSES:
-            issues.append(
-                _pc(
-                    "project_context.invalid_vertical_status",
-                    f"{prefix}.status",
-                    f"Invalid status '{status}'. Must be one of: {', '.join(sorted(VALID_VERTICAL_STATUSES))}.",
-                )
-            )
-        for list_field in ("domain_entities", "business_rules"):
-            if list_field in entry and not isinstance(entry[list_field], list):
-                issues.append(
-                    _pc(
-                        "project_context.missing_field",
-                        f"{prefix}.{list_field}",
-                        f"Field '{list_field}' must be a list.",
-                    )
-                )
-    return issues
-
-
 def _validate_integrations(integrations: dict[str, object]) -> list[ProjectContextIssue]:
     issues = _validate_entries(integrations, "integrations", "Integration", ("type", "description"))
     for name, entry in integrations.items():
@@ -614,60 +563,8 @@ def _validate_integrations(integrations: dict[str, object]) -> list[ProjectConte
     return issues
 
 
-def _validate_business_rules(
-    business_rules: dict[str, object],
-    vertical_names: set[str],
-) -> list[ProjectContextIssue]:
-    issues = _validate_entries(
-        business_rules, "business_rules", "Business rule", ("summary", "vertical")
-    )
-    for rule_id, entry in business_rules.items():
-        if not isinstance(entry, dict):
-            continue
-        vertical = entry.get("vertical")
-        if vertical is not None and vertical != "cross-cutting" and vertical not in vertical_names:
-            issues.append(
-                _pc(
-                    "project_context.cross_reference_unknown",
-                    f"business_rules.{rule_id}.vertical",
-                    f"Vertical '{vertical}' not found in verticals section.",
-                )
-            )
-    return issues
-
-
-def _validate_cross_references(
-    verticals: dict[str, object],
-    business_rule_ids: set[str],
-) -> list[ProjectContextIssue]:
-    """Check that BR-ids referenced from verticals exist in business_rules."""
-    issues: list[ProjectContextIssue] = []
-    for name, entry in verticals.items():
-        if not isinstance(entry, dict):
-            continue
-        br_refs = entry.get("business_rules", [])
-        if not isinstance(br_refs, list):
-            continue
-        for br_id in br_refs:
-            if br_id not in business_rule_ids:
-                issues.append(
-                    _pc(
-                        "project_context.cross_reference_unknown",
-                        f"verticals.{name}.business_rules",
-                        f"Referenced business rule '{br_id}' not found in business_rules section.",
-                    )
-                )
-    return issues
-
-
 def collect_project_context_issues(root_dir: Path) -> list[ProjectContextIssue]:
-    """Load and validate docs/project_context.json, returning all found issues.
-
-    Cross-referencing declared vertical status against the wiring files
-    (service_registration.py / router_registration.py) is deliberately not done here: status is a
-    description, and scripts/validate_endpoint_wiring.py is the validator that actually checks
-    wiring — one fact belongs in one place.
-    """
+    """Load and validate docs/project_context.json, returning all found issues."""
     context_path = root_dir / "docs" / "project_context.json"
     if not context_path.exists():
         return [
@@ -691,21 +588,9 @@ def collect_project_context_issues(root_dir: Path) -> list[ProjectContextIssue]:
 
     issues.extend(_validate_identity(data))
 
-    verticals = data.get("verticals", {})
     integrations = data.get("integrations", {})
-    business_rules = data.get("business_rules", {})
-
-    if isinstance(verticals, dict):
-        issues.extend(_validate_verticals(verticals))
     if isinstance(integrations, dict):
         issues.extend(_validate_integrations(integrations))
-
-    vertical_names = set(verticals.keys()) if isinstance(verticals, dict) else set()
-    business_rule_ids = set(business_rules.keys()) if isinstance(business_rules, dict) else set()
-    if isinstance(business_rules, dict):
-        issues.extend(_validate_business_rules(business_rules, vertical_names))
-    if isinstance(verticals, dict):
-        issues.extend(_validate_cross_references(verticals, business_rule_ids))
 
     return issues
 
