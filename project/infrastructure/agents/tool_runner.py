@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Collection, Mapping
-from typing import Any
+from typing import Any, get_args
 
 from langchain_core.tools import BaseTool
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
+from pydantic_core import ErrorDetails
+from pydantic_core.core_schema import ErrorType
 
 from project.core.logging import get_logger
 
@@ -25,6 +27,20 @@ logger = get_logger(__name__)
 # hands back to the model so it can try again.
 class ToolArgumentsError(ValueError):
     pass
+
+
+# The error types whose message is pydantic's own wording ("Field required", "Input should be a
+# valid integer"), which names no value. value_error, assertion_error and a custom type carry the
+# message a check of the tool's own wrote, and that can quote the value: `no customer called
+# {value}` put a user's name into the ERROR record, the independent check of 2026-09-25 found.
+_PYDANTIC_WORDING = frozenset(get_args(ErrorType)) - {"value_error", "assertion_error"}
+
+
+def _problem(item: ErrorDetails) -> str:
+    field = ".".join(map(str, item["loc"])) or "arguments"
+    if item["type"] in _PYDANTIC_WORDING:
+        return f"{field}: {item['msg']}"
+    return f"{field}: rejected by the tool's own check ({item['type']})"
 
 
 # An argument's type and size, never its value. Tool arguments are what a user typed or a model
@@ -55,13 +71,19 @@ async def run_tool(
         for name, value in arguments.items()
     }
     with logger.span(f"agent.tool.{tool.name}", input_params=recorded, level=logging.INFO) as span:
-        try:
-            result = await tool.ainvoke(dict(arguments))
-        except ValidationError as error:
-            problems = "; ".join(
-                f"{'.'.join(map(str, item['loc'])) or 'arguments'}: {item['msg']}"
-                for item in error.errors(include_input=False, include_url=False)
-            )
-            raise ToolArgumentsError(f"{tool.name} — {problems}") from None
+        # The schema first and on its own. Caught around `ainvoke`, a ValidationError the tool's
+        # body raised on its own data read as the model's arguments being wrong, and the loop sent
+        # the model to retry arguments that were right. `ainvoke` validates again; that pass
+        # cannot fail once this one has.
+        schema = tool.args_schema
+        if isinstance(schema, type) and issubclass(schema, BaseModel):
+            try:
+                schema.model_validate(dict(arguments))
+            except ValidationError as error:
+                problems = "; ".join(
+                    _problem(item) for item in error.errors(include_input=False, include_url=False)
+                )
+                raise ToolArgumentsError(f"{tool.name} — {problems}") from None
+        result = await tool.ainvoke(dict(arguments))
         span.output["result_chars"] = len(str(result))
         return result

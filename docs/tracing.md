@@ -37,9 +37,12 @@ An agent loop calls its tools through `run_tool(tool, arguments, shown=(...))` f
 characters came back. An argument named in `shown` — an id, an enum — is recorded as it is; every
 other one as its type and size, since a tool argument is routinely what a user typed. Arguments that
 miss the tool's schema raise `ToolArgumentsError`, naming each field and the problem without
-pydantic's quoted input values — the text a loop hands back to the model. That is the one error it
-rewrites: an exception a tool's own body raises reaches the span as it is, message and traceback,
-so a tool must not put what the user typed into one.
+pydantic's quoted input values — the text a loop hands back to the model. A check of the tool's own
+in that schema (a `field_validator` raising `ValueError`) is named by field and type only, since its
+message can quote the value. That is the one error it rewrites, and it checks the schema before the
+call to know it is one: an exception the tool's own body raises — a `ValidationError` on its own
+data included — reaches the span as it is, message and traceback, so a tool must not put what the
+user typed into one.
 `tests/application/test_mock_agent_multi_tool_loop.py` is a loop to copy.
 
 ## A database call is a span an operator can see

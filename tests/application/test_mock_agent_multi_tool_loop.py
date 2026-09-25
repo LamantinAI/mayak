@@ -24,7 +24,7 @@ from unittest.mock import patch
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 
 from project.core.logging.context import reset_trace_id, set_trace_id
 from project.core.logging.formatters import NDJSONFormatter
@@ -395,3 +395,65 @@ class TestEveryToolCallIsASpan:
         assert failed == ["agent.tool.lookup_customer"]
         assert "Ivan Petrov" not in stream.getvalue()
         assert 'agent.tool.lookup_customer (query="str, ' in format_trace_for_llm(lines)
+
+
+# A check of the tool's own that puts the value in its message. The step-9 wrapper copied that
+# message into ToolArgumentsError and the ERROR record under it — the independent check of
+# 2026-09-25 found the value there. Only the field and pydantic's own wording travel now.
+class _NamedCustomerArgs(BaseModel):
+    customer_id: str
+
+    @field_validator("customer_id")
+    @classmethod
+    def _looks_like_an_id(cls, value: str) -> str:
+        if not value.startswith("cust-"):
+            raise ValueError(f"no customer called {value}")
+        return value
+
+
+class _Internal(BaseModel):
+    amount: int
+
+
+def _price_with_a_bug(customer_id: str) -> str:
+    _Internal.model_validate({"amount": "not a number"})
+    return f"priced for {customer_id}"
+
+
+class TestAToolsOwnFailureIsNotTheModelsArguments:
+    @pytest.mark.unit
+    async def test_a_check_that_quotes_the_value_does_not_carry_it_into_the_error_or_the_log(
+        self,
+    ) -> None:
+        tool = StructuredTool.from_function(
+            func=_lookup_customer,
+            name="lookup_named_customer",
+            description="Look up a customer by id.",
+            args_schema=_NamedCustomerArgs,
+        )
+        with _trace() as stream, tool_runner.logger.span("agent.loop", root=True):
+            with pytest.raises(ToolArgumentsError) as raised:
+                await run_tool(tool, {"customer_id": "Ivan Petrov"})
+
+        assert "customer_id" in str(raised.value)
+        assert "Ivan Petrov" not in str(raised.value)
+        assert "Ivan Petrov" not in stream.getvalue()
+
+    # The model's arguments fit; the tool's own body failed a pydantic check of its own data. That
+    # is the tool's failure, and "your arguments were wrong" sends the model to retry arguments
+    # that were right.
+    @pytest.mark.unit
+    async def test_a_validation_error_inside_the_tool_is_raised_as_the_tools_own(self) -> None:
+        tool = StructuredTool.from_function(
+            func=_price_with_a_bug,
+            name="price_with_a_bug",
+            description="Price something.",
+            args_schema=LookupArgs,
+        )
+        with _trace() as stream, tool_runner.logger.span("agent.loop", root=True):
+            with pytest.raises(ValidationError) as raised:
+                await run_tool(tool, {"customer_id": "cust-42"})
+
+        assert not isinstance(raised.value, ToolArgumentsError)
+        assert "_Internal" in str(raised.value)
+        assert "agent.tool.price_with_a_bug" in stream.getvalue()
