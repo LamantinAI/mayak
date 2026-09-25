@@ -412,6 +412,21 @@ class TestHealthEndpoints:
         assert result["expected_revision"] == sorted(_heads())
 
     @pytest.mark.unit
+    @pytest.mark.parametrize("recorded", ["", " ", "padded "])
+    async def test_check_database_does_not_take_a_malformed_revision_for_a_newer_one(
+        self, recorded: str
+    ) -> None:
+        from project.infrastructure.api.endpoints import health as health_module
+
+        padded = recorded if recorded != "padded " else f"{sorted(_heads())[0]} "
+        _, mock_pool = _mock_pool_with_schema(frozenset({padded}))
+
+        result = await health_module._check_database(pool=mock_pool)
+
+        assert result["status"] == "unhealthy"
+        assert "malformed" in result["message"]
+
+    @pytest.mark.unit
     async def test_check_database_reports_unreadable_migrations(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

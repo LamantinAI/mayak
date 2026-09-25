@@ -27,6 +27,7 @@ _DATABASE_NOT_MIGRATED_MESSAGE = "Database reachable but not migrated — run `m
 _DATABASE_BEHIND_MESSAGE = "Database schema is behind this code's migrations — run `make migrate`"
 _DATABASE_TIMEOUT_MESSAGE = "Database check timed out"
 _MIGRATIONS_UNREADABLE_MESSAGE = "This code's migrations could not be read"
+_DATABASE_REVISION_MALFORMED_MESSAGE = "Database records a malformed migration revision"
 
 # The only database messages readiness hands a caller as they are; any other text an unhealthy
 # check carries is replaced with the generic failure, since a probe error's text can hold a DSN.
@@ -38,6 +39,7 @@ _SAFE_DATABASE_MESSAGES = frozenset(
         _DATABASE_BEHIND_MESSAGE,
         _DATABASE_TIMEOUT_MESSAGE,
         _MIGRATIONS_UNREADABLE_MESSAGE,
+        _DATABASE_REVISION_MALFORMED_MESSAGE,
     }
 )
 
@@ -127,6 +129,16 @@ async def _check_database(pool: AsyncConnectionPool[Any]) -> dict[str, Any]:
                 "status": "unhealthy",
                 "message": _DATABASE_NOT_MIGRATED_MESSAGE,
                 "response_time_ms": latency,
+            }
+        # alembic writes an id with no surrounding space; a blank or padded one was put there by
+        # hand, and read as an unknown id it would pass for a newer deploy's (independent check,
+        # 2026-09-25).
+        if any(not revision or revision != revision.strip() for revision in revisions):
+            return {
+                "status": "unhealthy",
+                "message": _DATABASE_REVISION_MALFORMED_MESSAGE,
+                "response_time_ms": latency,
+                "schema_revision": sorted(revisions),
             }
         if revisions != expected and revisions <= known:
             return {
