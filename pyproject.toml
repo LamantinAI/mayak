@@ -8,6 +8,9 @@ requires-python = ">=3.13"
 dependencies = [
     "orjson==3.11.9",
     "pydantic==2.13.4",
+    # Imported directly by tool_runner.py for the list of pydantic's own error types. Pinned to the
+    # version pydantic 2.13.4 requires — bump the two together.
+    "pydantic-core==2.46.4",
     "fastapi==0.141.1",
     # Imported directly by middleware.py and exception_handlers.py. Declared explicitly rather
     # than relied on through FastAPI's pin, so a FastAPI bump cannot silently move it.

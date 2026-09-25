@@ -3,7 +3,6 @@
 
 import asyncio
 import contextlib
-import inspect
 import logging
 from pathlib import Path
 
@@ -12,31 +11,10 @@ import pytest
 from project.core.logging import get_logger
 from project.core.logging.logger_types import LogValue
 from project.core.logging.enums import EventType
-from project.core.logging.logger import SemanticLogger
 from project.domain.exceptions import ConflictError
 
 
 class TestLoggingApi:
-    @pytest.mark.unit
-    def test_log_user_input_signature_uses_message_summary(self) -> None:
-        signature = inspect.signature(SemanticLogger.log_user_input)
-
-        assert "message_summary" in signature.parameters
-        assert "message_text" not in signature.parameters
-
-    @pytest.mark.unit
-    def test_log_user_input_emits_message_summary_payload(self, log_capture: list[dict]) -> None:
-        logger = get_logger("tests.application.test_logging_api")
-
-        logger.log_user_input(
-            user_id="user-1",
-            input_type="chat",
-            message_summary={"length": 5},
-        )
-
-        assert log_capture[0]["kwargs"]["data"]["message_summary"] == {"length": 5}
-        assert "message_text" not in log_capture[0]["kwargs"]["data"]
-
     @pytest.mark.unit
     def test_production_code_does_not_use_removed_message_text_keyword(self) -> None:
         root_dir = Path(__file__).resolve().parents[2]

@@ -185,7 +185,10 @@ Same shape as the storage verticals: a Protocol in `project/domain/ports.py`, an
 `project/infrastructure/agents/`, a service that has never heard of a message. `LLMPort` fits a
 prompt-in-text-out vertical; a tool-loop vertical declares its own port. Mock mode walks every bound
 tool once before summarising (`tests/application/test_mock_agent_multi_tool_loop.py`) but cannot
-invent a tool's argument shape (`bound._mock_tool_args = {...}` after `bind_tools(...)`). Declare a
+invent a tool's argument shape (`bound._mock_tool_args = {...}` after `bind_tools(...)`). Call each
+tool through `run_tool(tool, args, shown=(...))` from `project/infrastructure/agents/tool_runner.py`:
+it opens the `agent.tool.<name>` span the trace shows, and turns arguments that miss the schema
+into a `ToolArgumentsError` safe to log and to hand back to the model (`docs/tracing.md`). Declare a
 tool's arguments on `ToolArgs`, not `CoreModel`: CoreModel's validation aliases drop every field from
 the schema the provider receives, and `bind_tools` refuses such a tool. Test the
 answer parser, the `isinstance`-before-`in VALID_X` check (model output can be a list, not a string),

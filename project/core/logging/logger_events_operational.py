@@ -23,78 +23,6 @@ _TRUNCATED_FINISH_REASONS = frozenset({"length"})
 
 
 class SemanticLoggerOperationalEventsMixin:
-    def log_api_call(
-        self: SemanticLoggerEventContract,
-        endpoint: str,
-        method: str,
-        *,
-        status_code: int,
-        **extra: LogValue,
-    ) -> None:
-        _caller = self._resolve_caller()
-        payload: LogPayload = {
-            "endpoint": endpoint,
-            "method": method,
-            "status_code": status_code,
-        }
-        payload.update(extra)
-        self.log_event(
-            EventType.EXTERNAL_API,
-            f"API call {method} {endpoint} returned {status_code}",
-            level=logging.INFO,
-            event_id=f"api.call.{method}.{endpoint}",
-            _caller=_caller,
-            data=payload,
-        )
-
-    def log_database_operation(
-        self: SemanticLoggerEventContract,
-        operation: str,
-        database: str,
-        *,
-        affected_rows: Optional[int] = None,
-        **extra: LogValue,
-    ) -> None:
-        _caller = self._resolve_caller()
-        payload: LogPayload = {
-            "operation": operation,
-            "database": database,
-        }
-        if affected_rows is not None:
-            payload["affected_rows"] = affected_rows
-        payload.update(extra)
-        self.log_event(
-            EventType.DATABASE,
-            f"Database {operation} on {database}",
-            level=logging.INFO,
-            event_id=f"database.{operation}.{database}",
-            _caller=_caller,
-            data=payload,
-        )
-
-    # Log user interaction events using only safe structural summaries.
-    def log_user_input(
-        self: SemanticLoggerEventContract,
-        user_id: str,
-        input_type: str,
-        *,
-        message_summary: Optional[dict[str, Any]] = None,
-        **extra: LogValue,
-    ) -> None:
-        _caller = self._resolve_caller()
-        payload: LogPayload = {"user_id": user_id, "input_type": input_type}
-        if message_summary is not None:
-            payload["message_summary"] = message_summary
-        payload.update(extra)
-        self.log_event(
-            EventType.USER_INPUT,
-            f"User input from {user_id}: {input_type}",
-            level=logging.INFO,
-            event_id=f"user.input.{input_type}",
-            _caller=_caller,
-            data=payload,
-        )
-
     def log_system_event(
         self: SemanticLoggerEventContract,
         event_name: str,
@@ -116,31 +44,6 @@ class SemanticLoggerOperationalEventsMixin:
             f"System event: {event_name} ({category})",
             level=logging.INFO,
             event_id=f"system.{event_name}",
-            _caller=_caller,
-            data=payload,
-        )
-
-    def log_metric(
-        self: SemanticLoggerEventContract,
-        metric_name: str,
-        value: int | float,
-        *,
-        unit: Optional[str] = None,
-        tags: Optional[dict[str, Any]] = None,
-        **extra: LogValue,
-    ) -> None:
-        _caller = self._resolve_caller()
-        payload: dict[str, Any] = {"metric_name": metric_name, "value": value}
-        if unit is not None:
-            payload["unit"] = unit
-        if tags is not None:
-            payload["tags"] = tags
-        payload.update(extra)
-        self.log_event(
-            EventType.METRIC,
-            f"Metric {metric_name} = {value}",
-            level=logging.INFO,
-            event_id=f"metric.{metric_name}",
             _caller=_caller,
             data=payload,
         )
