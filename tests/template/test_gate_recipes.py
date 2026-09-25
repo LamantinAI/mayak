@@ -883,10 +883,16 @@ class TestTheGateFixesLocallyAndFailsStrictly:
     # `uv run <tool>` answered by this environment's own tool, so the recipe runs in a throwaway
     # repository without uv building an environment for it there. STRICT_RUFF comes only from
     # `env`: CI's gate job and ci-local export it, and inherited it turned the local case into the
-    # strict one — the recipe fixed nothing and this test failed there and nowhere else.
-    @staticmethod
-    def _fix(repo: Path, shim_dir: Path, **env: str) -> CompletedProcess[str]:
-        inherited = {key: value for key, value in hermetic_env().items() if key != "STRICT_RUFF"}
+    # strict one — the recipe fixed nothing and this test failed there and nowhere else. The outer
+    # make's own variables go for the same reason: `make quality-gates STRICT_RUFF=1` hands the flag
+    # down in MAKEFLAGS, and the make started here takes it back from there.
+    _MAKE_STATE = frozenset({"STRICT_RUFF", "MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES", "MAKELEVEL"})
+
+    @classmethod
+    def _fix(cls, repo: Path, shim_dir: Path, **env: str) -> CompletedProcess[str]:
+        inherited = {
+            key: value for key, value in hermetic_env().items() if key not in cls._MAKE_STATE
+        }
         shim = shim_dir / "uv"
         shim.write_text(
             f'#!/bin/sh\n[ "$1" = run ] && shift\ntool=$1\nshift\n'
@@ -929,6 +935,23 @@ class TestTheGateFixesLocallyAndFailsStrictly:
         assert (repo / "src" / "with space" / "ёж.py").read_text(encoding="utf-8") == "w = 4\n"
         assert (repo / "src" / "untouched.py").read_text(encoding="utf-8") == "x  =  1\n"
         assert again.stdout == ""
+
+    # `make quality-gates STRICT_RUFF=1` puts the flag in MAKEFLAGS, not in the environment, and a
+    # make started under it takes the flag back from there: this test ran strict and failed, the
+    # independent check of 2026-09-25 found, while CI — which exports the flag — stayed green.
+    @pytest.mark.unit
+    def test_a_strict_flag_the_outer_make_was_given_does_not_reach_the_local_case(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("MAKEFLAGS", " -- STRICT_RUFF=1")
+        monkeypatch.setenv("MAKEOVERRIDES", "${-*-command-variables-*-}")
+        repo = self._repository(tmp_path / "repo")
+
+        result = self._fix(repo, tmp_path)
+
+        assert result.returncode == 0, result.stderr
+        assert "src/edited.py" in result.stdout
+        assert (repo / "src" / "edited.py").read_text(encoding="utf-8") == "y = 2\n"
 
     @pytest.mark.unit
     def test_strict_changes_nothing(self, tmp_path: Path) -> None:
