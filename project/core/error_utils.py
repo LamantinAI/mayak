@@ -52,12 +52,13 @@ def summarize_exception_for_logging(error: Exception) -> dict[str, Any]:
     message_summary = summarize_text(error_message) if error_message else None
 
     # Return stable metadata that helps debugging while keeping payloads redacted.
+    detail_safe_for_client = isinstance(error, ProjectError) and is_client_safe_project_error(error)
     return {
         "exception_type": type(error).__name__,
         "exception_module": type(error).__module__,
-        "client_message": get_client_safe_message(error),
-        "detail_safe_for_client": (
-            isinstance(error, ProjectError) and is_client_safe_project_error(error)
-        ),
+        # Only the fixed text a client gets in place of the exception's own. When the client gets
+        # the exception's own text, that is what it sent coming back to it — kept out (ADR-013).
+        "client_message": None if detail_safe_for_client else get_client_safe_message(error),
+        "detail_safe_for_client": detail_safe_for_client,
         "message_summary": message_summary,
     }

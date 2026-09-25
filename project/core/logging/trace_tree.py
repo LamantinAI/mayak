@@ -229,7 +229,13 @@ def _build_tree(
                 spans[sid] = node
             node.duration_ms = ev.get("duration_ms")
             node.parent_span_id = ev.get("parent_span_id")
-            node.error = data.get("exception_type", data.get("error_message", "error"))
+            node.client_rejection = bool(data.get("client_rejection", False))
+            # A rejection's error_message is its type and the field it names (ADR-013), which
+            # says more than the type alone; a failure's is raw text, so its type is shown.
+            if node.client_rejection:
+                node.error = data.get("error_message") or data.get("exception_type", "error")
+            else:
+                node.error = data.get("exception_type", data.get("error_message", "error"))
             node.error_site = _last_own_frame(ev.get("exc_traceback"))
             # Three different reasons a span ends in span.error, and a reader needs
             # to tell them apart at a glance rather than by grepping the exception type: the
@@ -239,7 +245,6 @@ def _build_tree(
             # Without `client_rejection`, the two WARNING cases are indistinguishable here: a
             # routine rejection would render with the same ⊘ "stopped" mark a genuine cancellation
             # gets — as misleading as the ERROR-plus-traceback treatment it replaces.
-            node.client_rejection = bool(data.get("client_rejection", False))
             node.interrupted = ev.get("level") == "WARNING" and not node.client_rejection
             node.seq = seq
 
@@ -276,7 +281,18 @@ def _build_tree(
             # exception type and message appear where the failure happened.
             failure = data.get("failure_type") or data.get("error_type") or eid
             exception_type = data.get("exception_type", "")
-            detail = data.get("exception_message") or data.get("message") or ""
+            detail = (
+                data.get("exception_message") or data.get("rejection") or data.get("message") or ""
+            )
+            # A 422 names its fields and why each failed; the values stay out (ADR-013).
+            failed_fields = data.get("validation_errors")
+            if isinstance(failed_fields, list) and failed_fields:
+                named = ", ".join(
+                    f"{item.get('field')} ({item.get('type')})"
+                    for item in failed_fields
+                    if isinstance(item, dict)
+                )
+                detail = f"{detail}: {named}" if detail else named
             # A 4xx is the application working — it read a request it could
             # not serve and said so — so it is marked apart from a failure rather than sharing
             # the ✗ of one. It is rendered at all because the alternative, silence, is worse: the
