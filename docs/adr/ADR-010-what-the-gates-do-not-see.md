@@ -47,7 +47,8 @@ below are why those two sentences are load-bearing rather than routine advice.
 On 2026-08-12, reversing `ORDER BY created_at DESC` to `ASC` in the shipped repository left every
 gate green; only `make test-e2e` failed. Remeasured on 2026-08-24 with the same reversal:
 `STRICT_GENERATED=1 make quality-gates` now fails with no database at all, at a plain literal-string
-assertion in `tests/infrastructure/test_reference_task_repository.py` —
+assertion in `tests/infrastructure/test_reference_task_repository.py` (deleted with the rewrite
+above; `tests/db/test_reference_task_repository.py` runs the query instead) —
 `assert _SELECT_BY_STATUS.split(" WHERE ", 1)[1] == "status = %s ORDER BY created_at DESC LIMIT %s"`.
 That assertion is the trap, not `scripts/validate_test_quality.py`: run the validator alone against
 the same reversal and it still exits 0. Its `test.sql_constant_round_trip` rule only checks that some
