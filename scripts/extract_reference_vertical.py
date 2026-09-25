@@ -46,14 +46,14 @@ SAMPLE_FILES = (
     "tests/functional/src/test_reference_tasks_api.py",
 )
 SAMPLE_SHA256: dict[str, str] = {
-    "project/domain/reference_task.py": "4c057d0e93ee00b1c084416c88c5717b97376d664c15333f0bafca109cd3642d",
-    "project/application/reference_task_service.py": "900b34bb977a40fb219e848dbe6a14cc40bd127c02347e0ec0cd3ef54e7d09c7",
+    "project/domain/reference_task.py": "a73fa60f6b34d5e71797bb403683476cefd6ecf96da3a023081b1141701b0ac2",
+    "project/application/reference_task_service.py": "6ceb1ba2d6d4ecb2b71564a8c4004594b3b940a42778f45444b197fa3159a689",
     "project/application/reference_task_dtos.py": "31f2578ce6404a3f9a8c6b3438adb9ba1da301a18ec616faec961fad9938c5bc",
     "project/infrastructure/persistence/reference_task_repository.py": "59eb61963d35dce2de4a23037216ab7d3ccde306749e4c5bbfaa8da6a5f71256",
     "project/infrastructure/api/endpoints/reference_tasks.py": "cf4be1ec16fa1035a351a915600ae627c0e20fa2b8e1ede45a5c851d67845ba9",
-    "tests/application/test_reference_task_vertical.py": "666aa0a16bffd70617290b7bc6caf30f69c8d26b613e910089b0537141b0d781",
+    "tests/application/test_reference_task_vertical.py": "2b110976df6c22dbf6766d0bf0e477d17146119d87a20fde0202aae9144a987a",
     "tests/db/test_reference_task_repository.py": "a94504ec248f2559951345e964507868d3b10817c80e954bad9b8e5adc7b1d3f",
-    "tests/db/test_reference_tasks_api.py": "e5e287cd5bcfafd13df26e071617f5bf7ac98b2450060e4351f8e12a22275daa",
+    "tests/db/test_reference_tasks_api.py": "135106c468658c89cc6cdfe0e4ef8257229cb649b0bd257ccf18b9d7421dba61",
     "tests/functional/src/test_reference_tasks_api.py": "6d4ed6eb1f8583483b2737762f0046e5a3fbb807149c59c7689d20f9b63f896b",
 }
 

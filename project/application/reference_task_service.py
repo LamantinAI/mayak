@@ -12,6 +12,7 @@ from project.domain.ports import ReferenceTaskRepositoryPort
 from project.domain.reference_task import (
     DEFAULT_STATUS,
     ReferenceTask,
+    check_details,
     check_status,
     check_title,
 )
@@ -43,7 +44,7 @@ class ReferenceTaskService:
         task = ReferenceTask(
             id=str(uuid4()),
             title=check_title(title),
-            details=details,
+            details=check_details(details),
             status=DEFAULT_STATUS,
             created_at=now,
             updated_at=now,
@@ -83,7 +84,7 @@ class ReferenceTaskService:
         changed = replace(
             current,
             title=current.title if isinstance(title, _Unchanged) else check_title(title),
-            details=current.details if isinstance(details, _Unchanged) else details,
+            details=current.details if isinstance(details, _Unchanged) else check_details(details),
             status=current.status if isinstance(status, _Unchanged) else check_status(status),
             updated_at=datetime.now(timezone.utc),
         )

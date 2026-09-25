@@ -16,6 +16,10 @@ CLOSED_STATUS = "done"
 ALLOWED_STATUSES = frozenset({DEFAULT_STATUS, "in_progress", CLOSED_STATUS})
 # Also the width of the ORM column: a longer title would reach the database and come back a 500.
 MAX_TITLE_LENGTH = 200
+# Far below SERVER_MAX_BODY_BYTES. That limit keeps one request from filling memory; this keeps a row
+# from filling the table, and meets every writer, not only a request. Unbounded, this field was
+# copied into a product whose vertical then stored a 20 MB note (2026-09-25).
+MAX_DETAILS_LENGTH = 10_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +46,15 @@ def check_title(title: str | None) -> str:
             f"title must be at most {MAX_TITLE_LENGTH} characters, got {len(title)}", field="title"
         )
     return title
+
+
+def check_details(details: str | None) -> str | None:
+    if details is not None and len(details) > MAX_DETAILS_LENGTH:
+        raise ValidationError(
+            f"details must be at most {MAX_DETAILS_LENGTH} characters, got {len(details)}",
+            field="details",
+        )
+    return details
 
 
 def check_status(status: str | None) -> str:
