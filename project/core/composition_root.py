@@ -17,6 +17,27 @@ from project.infrastructure.api.middleware import AILoggingMiddleware
 from project.infrastructure.api.router_registration import include_application_routers
 
 
+class _CORSWrappedFastAPI(FastAPI):
+    # ServerErrorMiddleware wraps ALL user middleware, including CORSMiddleware added via
+    # add_middleware(): a 500 it builds never passes back through CORS, so the browser sees a CORS
+    # failure instead of the JSON error and cannot read X-Request-ID. Wrapping the whole built
+    # stack in CORS, rather than adding CORS as user middleware, puts it outside ServerErrorMiddleware.
+    def __init__(self, *, origins: list[str], allow_credentials: bool, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._cors_origins = origins
+        self._cors_credentials = allow_credentials
+
+    def build_middleware_stack(self) -> Any:
+        return CORSMiddleware(
+            super().build_middleware_stack(),
+            allow_origins=self._cors_origins,
+            allow_credentials=self._cors_credentials,
+            allow_methods=["*"],
+            allow_headers=["*"],
+            expose_headers=["X-Request-ID"],
+        )
+
+
 class CompositionRoot:
     def __init__(self) -> None:
         # Initialize logger for dependency injection tracking.
@@ -108,7 +129,13 @@ class CompositionRoot:
                 # rather than a literal: the name was declared as a setting, documented in
                 # .env.sample and never read, so every project built from the template shipped
                 # OpenAPI titled after the template instead of after itself.
-                app = FastAPI(
+                app = _CORSWrappedFastAPI(
+                    origins=settings.server.cors_origins,
+                    # Read from settings rather than hardcoding True. Used to be a
+                    # literal with no supported way to turn it off; project/core/config_runtime.py
+                    # (Settings.validate_runtime) owns why this combined with a wildcard origin is
+                    # the actual vulnerability and refuses that combination outside debug mode.
+                    allow_credentials=settings.server.cors_allow_credentials,
                     title=f"{settings.project.name} API",
                     description="FastAPI application with semantic logging and hexagonal architecture",
                     version=APP_VERSION,
@@ -129,19 +156,6 @@ class CompositionRoot:
                 # Set up middleware.
                 app.add_middleware(
                     AILoggingMiddleware, max_body_bytes=settings.server.max_body_bytes
-                )
-
-                # Add CORS middleware
-                app.add_middleware(
-                    CORSMiddleware,
-                    allow_origins=settings.server.cors_origins,
-                    # Read from settings rather than hardcoding True. Used to be a
-                    # literal with no supported way to turn it off; project/core/config_runtime.py
-                    # (Settings.validate_runtime) owns why this combined with a wildcard origin is
-                    # the actual vulnerability and refuses that combination outside debug mode.
-                    allow_credentials=settings.server.cors_allow_credentials,
-                    allow_methods=["*"],
-                    allow_headers=["*"],
                 )
 
                 # Set up exception handlers.

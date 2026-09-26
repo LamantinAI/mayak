@@ -59,6 +59,23 @@ class TestAnHttpExceptionKeepsItsHeaders:
 
 
 class TestAFiveHundredCarriesItsRequestId:
+    # ServerErrorMiddleware builds the 500 outside any user middleware, so CORS added the ordinary
+    # way (add_middleware) never sees it — a browser client reads a CORS failure, not the JSON body,
+    # and cannot read X-Request-ID either. CORS must wrap the whole stack instead.
+    @pytest.mark.unit
+    async def test_crash_keeps_cors_and_exposes_request_id(self, fastapi_app: FastAPI) -> None:
+        async def crash() -> None:
+            raise RuntimeError("probe")
+
+        fastapi_app.add_api_route("/__cors_crash", crash)
+        async with _crash_tolerant(fastapi_app) as client:
+            response = await client.get(
+                "/__cors_crash", headers={"Origin": "http://127.0.0.1:8000"}
+            )
+        assert response.status_code == 500
+        assert response.headers["access-control-allow-origin"] == "http://127.0.0.1:8000"
+        assert "x-request-id" in response.headers["access-control-expose-headers"].lower()
+
     @pytest.mark.unit
     async def test_the_header_names_the_request_the_log_names(self, fastapi_app: FastAPI) -> None:
         async def _boom() -> None:
