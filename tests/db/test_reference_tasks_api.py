@@ -104,6 +104,9 @@ async def test_a_request_outside_the_rules_answers_422_and_writes_nothing(
             await client.post("/reference-tasks", json={"title": " "}),
             await client.post("/reference-tasks", json={"title": too_long}),
             await client.post("/reference-tasks", json={"title": "t", "details": long_details}),
+            # PostgreSQL rejects 0x00 in text with a 500; the domain must refuse it first.
+            await client.post("/reference-tasks", json={"title": "bad\x00title"}),
+            await client.post("/reference-tasks", json={"title": "t", "details": "bad\x00details"}),
             await client.patch(path, json={}),
             await client.patch(path, json={"title": None}),
             await client.patch(path, json={"title": too_long}),
@@ -125,6 +128,8 @@ async def test_a_request_outside_the_rules_answers_422_and_writes_nothing(
     ]
     assert fields == (
         [["title"]] * 2
+        + [["details"]]
+        + [["title"]]
         + [["details"]]
         + [[]]
         + [["title"]] * 2
