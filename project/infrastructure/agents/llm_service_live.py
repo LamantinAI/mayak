@@ -22,6 +22,7 @@ from openai import ConflictError as OpenAIConflictError
 from openai import NotFoundError as OpenAINotFoundError
 from tenacity import (
     AsyncRetrying,
+    RetryCallState,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
@@ -57,6 +58,26 @@ def _build_full_trace_extras(
     if completion_text is not None:
         extras["completion_text"] = redact_secrets(completion_text)
     return extras
+
+
+# max_retries=0 (see _initialize_llm) took the SDK's own Retry-After handling with it, so
+# Tenacity has to honour it: a 429/503 naming a short wait is respected, a date or anything over
+# the request timeout falls back to the fixed backoff. wait_exponential is looked up by name here,
+# not bound at import time, so a test replacing live_module.wait_exponential still reaches it.
+def _wait_after_retry_header(retry_state: RetryCallState) -> float:
+    exception = retry_state.outcome.exception() if retry_state.outcome else None
+    headers = getattr(getattr(exception, "response", None), "headers", None)
+    for header, seconds_per_unit in (("retry-after-ms", 0.001), ("retry-after", 1.0)):
+        raw_value = headers.get(header) if headers is not None else None
+        if raw_value is None:
+            continue
+        try:
+            wait_seconds = float(raw_value) * seconds_per_unit
+        except (TypeError, ValueError):
+            continue
+        if 0 < wait_seconds <= 60:
+            return wait_seconds
+    return wait_exponential(multiplier=1, min=2, max=10)(retry_state)
 
 
 class _LLMServiceLiveContract(Protocol):
@@ -117,6 +138,8 @@ class LLMServiceLiveMixin:
             "max_tokens": effective_max_tokens,
             "tiktoken_model_name": self._settings.llm.tiktoken_model_name,
             "timeout": self._settings.llm.request_timeout,
+            # Tenacity owns the attempt budget; SDK retries would multiply it (see below).
+            "max_retries": 0,
         }
         llm = ChatOpenAI(**llm_kwargs)
         self._llm = llm
@@ -157,7 +180,7 @@ class LLMServiceLiveMixin:
         try:
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(effective_retries),
-                wait=wait_exponential(multiplier=1, min=2, max=10),
+                wait=_wait_after_retry_header,
                 retry=retry_if_exception_type(
                     (
                         RateLimitError,

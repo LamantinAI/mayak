@@ -24,7 +24,7 @@ from openai import (
     RateLimitError,
     UnprocessableEntityError,
 )
-from tenacity import wait_none
+from tenacity import RetryCallState, wait_none
 
 from project.domain.exceptions import ExternalServiceError, UpstreamAuthenticationError
 from project.infrastructure.agents import llm_service_live as live_module
@@ -49,6 +49,20 @@ def _status_error(error_class: type[APIStatusError], status_code: int) -> APISta
     request = httpx.Request("POST", "https://provider.invalid/v1")
     response = httpx.Response(status_code=status_code, request=request)
     return error_class("provider said no", response=response, body=None)
+
+
+# A 429 carrying whatever Retry-After shape a test wants to check.
+def _status_error_with_headers(headers: dict[str, str]) -> RateLimitError:
+    request = httpx.Request("POST", "https://provider.invalid/v1")
+    response = httpx.Response(status_code=429, request=request, headers=headers)
+    return RateLimitError("slow down", response=response, body=None)
+
+
+# A RetryCallState whose last attempt failed with `error` — enough for a wait strategy to read.
+def _retry_state_for(error: BaseException) -> RetryCallState:
+    state = RetryCallState(retry_object=MagicMock(), fn=None, args=(), kwargs={})
+    state.set_exception((type(error), error, None))
+    return state
 
 
 # Live mixin plus the two contract attributes LLMService.__init__ normally supplies.
@@ -87,6 +101,25 @@ def no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
 
 # What the retry loop does with retryable failures, permanent failures, and success.
 class TestRetryPolicy:
+    # SDK-side retries and Tenacity's would multiply (R14): a 429 the SDK retried internally,
+    # inside Tenacity's own attempt loop, before this test existed. max_tokens and timeout were
+    # never checked reaching the client either — either one silently dropped would leave every
+    # other gate green.
+    @pytest.mark.unit
+    def test_llm_client_kwargs_reach_chat_openai(self, test_settings: FixtureSettings) -> None:
+        from unittest.mock import patch
+
+        test_settings.agent.llm_mode = "live"
+        instance = _RetryHarness.__new__(_RetryHarness)
+        instance._settings = test_settings
+        instance._logger = MagicMock()
+        with patch.object(live_module, "ChatOpenAI") as client:
+            instance._initialize_llm()
+        kwargs = client.call_args.kwargs
+        assert kwargs["max_retries"] == 0
+        assert kwargs["max_tokens"] == test_settings.agent.max_tokens
+        assert kwargs["timeout"] == test_settings.llm.request_timeout
+
     @pytest.mark.unit
     async def test_transient_failure_is_retried_until_success(
         self, test_settings: FixtureSettings
@@ -150,6 +183,34 @@ class TestRetryPolicy:
 
         with pytest.raises(Exception, match="not initialized"):
             await instance._call_llm_with_retry([HumanMessage(content="hi")])
+
+
+# max_retries=0 (above) turns off the SDK's own Retry-After handling; Tenacity must
+# read it instead, or a 429 waits the fixed backoff even when the provider named a shorter one.
+class TestRetryAfterWait:
+    @pytest.mark.unit
+    def test_retry_after_seconds_is_honoured(self) -> None:
+        state = _retry_state_for(_status_error_with_headers({"retry-after": "7"}))
+
+        assert live_module._wait_after_retry_header(state) == 7.0
+
+    @pytest.mark.unit
+    def test_retry_after_ms_is_honoured(self) -> None:
+        state = _retry_state_for(_status_error_with_headers({"retry-after-ms": "250"}))
+
+        assert live_module._wait_after_retry_header(state) == 0.25
+
+    # An out-of-range or unparsable value (including an HTTP-date) falls back rather than
+    # blocking the retry for the SDK's own two-minute ceiling or crashing on a bad float().
+    @pytest.mark.unit
+    @pytest.mark.parametrize("headers", [{}, {"retry-after": "120"}, {"retry-after": "not-a-date"}])
+    def test_missing_or_unusable_header_falls_back_to_backoff(
+        self, headers: dict[str, str]
+    ) -> None:
+        state = _retry_state_for(_status_error_with_headers(headers))
+
+        # no_backoff patches wait_exponential to wait_none(), so the fallback reads as 0.
+        assert live_module._wait_after_retry_header(state) == 0
 
 
 # Every shape of provider failure, and the domain error the caller is given instead.
