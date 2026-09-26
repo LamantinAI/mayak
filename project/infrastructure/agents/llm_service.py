@@ -25,7 +25,10 @@ class SupportsAsyncInvoke(Protocol):
 
 # langchain drops a field whose only alias is a validation alias (what CoreModel gives every
 # field) from the exported schema, so a tool built on it reached the provider as
-# `"properties": {}` (bench2, 2026-09-24). Checked at binding since mock mode skips it.
+# `"properties": {}` (bench2, 2026-09-24). Checked at binding since mock mode skips it. The
+# exported schema is compared, not alias attributes (`Field(alias=...)`, AliasChoices, AliasPath
+# survive); injected arguments are left out on purpose, and a model class passed as the tool
+# round-trips through its aliases, so both are skipped.
 def _refuse_aliased_arguments(tool: Any) -> None:
     if isinstance(tool, dict):
         raise TypeError("Raw dict tools need a Pydantic argument schema")
