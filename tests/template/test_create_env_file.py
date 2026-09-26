@@ -16,6 +16,22 @@ from tests.conftest import _FixtureSettings as FixtureSettings
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.unit
+def test_setup_fails_if_uv_sync_fails(tmp_path: Path) -> None:
+    import os
+    import subprocess
+
+    (tmp_path / "dev_setup.sh").write_bytes((_REPO_ROOT / "dev_setup.sh").read_bytes())
+    (tmp_path / "uv").write_text("#!/bin/sh\nexit 17\n", encoding="utf-8")
+    (tmp_path / "uv").chmod(0o755)
+    (tmp_path / ".githooks").mkdir()
+    (tmp_path / ".githooks" / "pre-commit").write_text("#!/bin/sh\n")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    env = dict(os.environ, PATH=f"{tmp_path}:{os.environ['PATH']}")
+    result = subprocess.run(["bash", "dev_setup.sh"], cwd=tmp_path, env=env, capture_output=True)
+    assert result.returncode != 0 and b"Dev setup complete" not in result.stdout
+
+
 def _password_in(text: str) -> str:
     for line in text.splitlines():
         if line.startswith("POSTGRES_PASSWORD="):
