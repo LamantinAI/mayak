@@ -6,9 +6,11 @@ import logging
 import re
 import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
 import orjson
 import pytest
+from pydantic import AnyHttpUrl
 from starlette.testclient import TestClient
 
 from project.core.composition_root import CompositionRoot
@@ -28,6 +30,8 @@ _FAKE_DSN = (
     "postgresql://appuser:hunter2@db.internal:5432/app"  # allow-secret: fixture for the scrubber
 )
 _FAKE_KEY = "sk-abcdefghijklmnopqrstuvwxyz012345"  # allow-secret: fixture for the scrubber
+# allow-secret: fixture for the config-snapshot guard below
+_FAKE_LLM_URL = "https://alice:secret@llm.invalid/v1?key=private"
 
 
 # Guard the shipped .env.sample against re-enabling Starlette's traceback response.
@@ -248,6 +252,30 @@ class TestDebugFlagCannotPublishTracebacks:
         assert response.json()["error"]["message"] == SAFE_INTERNAL_ERROR_MESSAGE
         assert "hunter2" not in response.text
         assert "Traceback" not in response.text
+
+
+# Userinfo or a query string on the LLM base_url is a provider credential, and DEBUG logs are the
+# widest-read tier.
+class TestConfigSnapshotHidesUrlCredentials:
+    @pytest.mark.unit
+    def test_base_url_credentials_are_not_logged(
+        self, test_settings: FixtureSettings, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # test_settings is session-scoped (tests/conftest.py); monkeypatch restores this after
+        # the test so later tests do not inherit the fixture credential.
+        monkeypatch.setattr(test_settings.llm, "base_url", AnyHttpUrl(_FAKE_LLM_URL))
+        set_settings_override(test_settings)
+        root = CompositionRoot()
+        try:
+            with (
+                patch("project.core.composition_root.AsyncConnectionPool"),
+                patch.object(root._logger, "log_state_snapshot") as logged,
+            ):
+                root.build_dependencies()
+        finally:
+            clear_settings_override()
+        snapshot = logged.call_args.kwargs["snapshot"]
+        assert "secret" not in str(snapshot) and "private" not in str(snapshot)
 
 
 class TestRedactionCoversRealCredentialShapes:

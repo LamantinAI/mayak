@@ -43,6 +43,13 @@ class TestScanLine:
     def test_provider_key_shapes_are_caught(self, line: str, expected: str) -> None:
         assert scan_line(line) == expected
 
+    @pytest.mark.unit
+    def test_percent_encoded_password_is_caught_but_templates_are_not(self) -> None:
+        assert scan_line("DATABASE_URL=postgresql://alice:p%40ss%25word@db.invalid/app") == (
+            "connection string with password"
+        )
+        assert scan_line("DATABASE_URL=postgresql://alice:%(password)s@db.invalid/app") is None
+
     # A scanner that cries wolf gets switched off, so these must stay silent.
     @pytest.mark.unit
     @pytest.mark.parametrize(

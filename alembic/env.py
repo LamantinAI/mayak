@@ -38,27 +38,18 @@ target_metadata = Base.metadata
 # Construct the database URL through the shared runtime settings model.
 postgres_settings = PostgresSettings()
 
-# Set the database URL on the main config object.
-config.set_main_option("sqlalchemy.url", str(postgres_settings.sqlalchemy_database_url))
+# ConfigParser treats URL escapes such as %40 as interpolation markers.
+config.set_main_option(
+    "sqlalchemy.url", str(postgres_settings.sqlalchemy_database_url).replace("%", "%%")
+)
 
 _migration_logger = logging.getLogger("alembic.migration")
 
-# The advisory-lock key every process that migrates this database agrees on.
-# entrypoint.sh runs `alembic upgrade head` in EVERY container, so two replicas started
-# together against a database that has never been migrated both try to create `alembic_version` at
-# once. Measured on 2026-09-02, twice: two parallel `docker compose run --rm app` against a fresh
-# volume left one container at exit 0 and the other dead with
-# `psycopg.errors.UniqueViolation: duplicate key value violates unique constraint
-# "pg_type_typname_nsp_index" DETAIL: Key (typname, typnamespace)=(alembic_version, 2200)`.
-# PostgreSQL rolls the loser's DDL transaction back whole, so no data is damaged and a retry
-# succeeds — but docker-compose.yml deliberately ships no restart policy, so under Compose that
-# replica simply stays down, and under Kubernetes it costs a crash loop and a page.
-#
-# The key is derived from a fixed string rather than typed as a magic number, so it is stable
-# across processes, Python versions and PYTHONHASHSEED (which is why zlib.crc32 and not hash()),
-# and self-documenting about who owns the lock. crc32 returns an unsigned 32-bit value, which fits
-# a PostgreSQL bigint with room to spare. A project that shares one database with another service
-# also using advisory locks changes this string, not the mechanism.
+# Advisory-lock key every migrating process agrees on, so two containers started together against
+# an unmigrated database serialise instead of both creating alembic_version at once. A fixed string
+# through crc32 keeps the key stable across processes and PYTHONHASHSEED, unlike hash(). A project
+# sharing this database with another service that also uses advisory locks changes this string,
+# not the mechanism.
 _MIGRATION_LOCK_KEY = zlib.crc32(b"mayak.alembic.migrations")
 
 
@@ -100,28 +91,15 @@ def run_migrations_online() -> None:
         )
 
         with context.begin_transaction():
-            # Serialise every migrating process on one advisory lock before any
-            # DDL runs. `pg_advisory_xact_lock` blocks until the lock is free and releases it when
-            # this transaction commits or rolls back — nothing to unlock by hand, and a container
-            # killed mid-migration cannot leave the lock held, because the session dies with it.
-            # The runner-up therefore waits rather than colliding, then finds the schema already at
-            # head and applies nothing. The xact variant is deliberate: the session-level
-            # `pg_advisory_lock` would need a matching unlock on every exit path, which is exactly
-            # the kind of bookkeeping a crash skips.
-            #
-            # Taken INSIDE begin_transaction() and before run_migrations(), because the collision
-            # this prevents is the creation of `alembic_version` itself, which happens on the first
-            # statement Alembic issues.
+            # xact lock releases itself on commit/rollback, so a killed container cannot leave it
+            # held — session-level pg_advisory_lock would instead need a matching unlock on every
+            # exit path. Taken before run_migrations() because that first statement creates
+            # alembic_version, which is the collision this serialises.
             _lock_requested_at = time.perf_counter()
             connection.execute(
                 text("SELECT pg_advisory_xact_lock(:key)"), {"key": _MIGRATION_LOCK_KEY}
             )
-            # The wait is logged on its own line rather than folded into the total
-            # below. It is included in that total — the total is wall clock, and pretending
-            # otherwise would be its own lie — but a run that reports "complete in 10142 ms"
-            # because it queued behind another replica for ten seconds, with no line saying so,
-            # reads as a migration that took ten seconds. Anyone watching migration duration would
-            # chase the DDL.
+            # Logged on its own line so lock queueing time is not mistaken for DDL time.
             _waited_ms = round((time.perf_counter() - _lock_requested_at) * 1000, 1)
             if _waited_ms >= 1.0:
                 _migration_logger.info(
