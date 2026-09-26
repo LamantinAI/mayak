@@ -31,6 +31,20 @@ def _app_with_services(services: dict[str, Any]) -> FastAPI:
 
 class TestLifespanStartup:
     @pytest.mark.unit
+    async def test_cancelled_startup_closes_pool(self, test_settings: Any) -> None:
+        import asyncio
+
+        pool = MagicMock()
+        pool.open = AsyncMock(side_effect=asyncio.CancelledError)
+        pool.close = AsyncMock()
+        with pytest.raises(asyncio.CancelledError):
+            async with create_lifespan(test_settings, get_logger(__name__))(
+                _app_with_services({"db_pool": pool})
+            ):
+                pass
+        pool.close.assert_awaited_once_with()
+
+    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_startup_opens_the_pool_and_records_start_time(
         self,
