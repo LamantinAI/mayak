@@ -69,7 +69,8 @@ def test_small_pool_has_valid_minimum(test_settings: FixtureSettings) -> None:
 
 
 class TestProjectSettings:
-    # Keep project identity in docs/project_context.json, not a test literal.
+    # The default name is read from docs/project_context.json, not hardcoded, so a renamed
+    # project's fallback (no APP_NAME) stays its own name instead of the template's.
     @pytest.mark.unit
     def test_default_values(self) -> None:
         expected_name = json.loads(
@@ -270,7 +271,8 @@ class TestSettings:
                 settings.validate_runtime()
             assert "SERVER_CORS_ORIGINS" in str(exc_info.value)
 
-    # Wildcard CORS with credentials exposes cross-origin responses in production.
+    # Pins the membership check (`"*" in cors_origins`) in Settings.validate_runtime, not the
+    # old `== ["*"]` equality — a future "simplification" back to equality must fail here first.
     @pytest.mark.unit
     def test_runtime_validation_rejects_wildcard_mixed_with_real_origins(self) -> None:
         with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
@@ -296,7 +298,8 @@ class TestSettings:
 
             settings.validate_runtime()
 
-    # Check the actual configured list, not a hardcoded CORS default.
+    # The sibling test above already covers this via the cors_allow_credentials default (True);
+    # this one pins the flag explicitly so the case keeps failing if that default ever changes.
     @pytest.mark.unit
     def test_runtime_validation_rejects_wildcard_with_credentials_enabled(self) -> None:
         with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
@@ -327,7 +330,8 @@ class TestSettings:
         with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
             settings = Settings()
             settings.project.debug = False
-            # Disable PostgreSQL here to isolate the CORS setting under test.
+            # Settings() reads the ambient .env: without this, the password guard stays quiet
+            # locally but fires on a checkout with no .env — it failed CI that way.
             settings.postgres.enabled = False
             settings.server.cors_allow_credentials = False
             settings.server.cors_origins = ["*"]
@@ -370,7 +374,8 @@ class TestSettings:
         assert response.status_code == 200
         assert "access-control-allow-credentials" not in response.headers
 
-    # Assert the browser-visible CORS response, not just the setting object.
+    # Proves the wiring, not the guard: CompositionRoot must actually pass cors_origins to
+    # CORSMiddleware, not a hardcoded list — validate_runtime() alone does not prove that.
     @pytest.mark.unit
     async def test_only_configured_origins_are_echoed_by_the_middleware(self) -> None:
         settings = FixtureSettings()
@@ -395,7 +400,8 @@ class TestSettings:
         assert configured.headers["access-control-allow-origin"] == "https://app.example.com"
         assert "access-control-allow-origin" not in stranger.headers
 
-    # Preflight has a separate middleware path from ordinary GETs.
+    # Preflight (OPTIONS with Access-Control-Request-Method) exercises a CORSMiddleware code
+    # path a plain GET never reaches, so a narrowed allow_methods could break it unnoticed.
     @pytest.mark.unit
     async def test_a_preflight_answers_for_the_methods_the_application_serves(self) -> None:
         settings = FixtureSettings()
@@ -447,7 +453,8 @@ class TestSettings:
         test_settings.validate_runtime()
 
 
-# Placeholder credentials must fail before the service accepts traffic.
+# Production startup must refuse the credential placeholders .env.sample ships; the guard
+# compares against that file directly, so it cannot drift from the actual placeholder.
 class TestPlaceholderCredentialsAreRefusedInProduction:
     @staticmethod
     def _production_settings() -> FixtureSettings:
@@ -532,7 +539,8 @@ class TestPlaceholderCredentialsAreRefusedInProduction:
     # no-assert-ok: the assertion is that validate_runtime() does not raise; it returns None.
     @pytest.mark.unit
     def test_the_provider_key_rule_leaves_mock_mode_alone(self, tmp_path: Path) -> None:
-        # Only enabled PostgreSQL needs DB credential validation.
+        # The provider-key rule is gated like the password rule — refusing to start over a
+        # credential mock mode never reads would just teach people to ignore the guard.
         sample = tmp_path / ".env.sample"
         sample.write_text("OPENAI_COMPATIBLE_API_KEY=your_api_key_here\n", encoding="utf-8")
 
@@ -550,7 +558,8 @@ class TestPlaceholderCredentialsAreRefusedInProduction:
         assert _ENV_SAMPLE_PATH.is_file()
 
 
-# Version should follow the package, not a template literal.
+# APP_VERSION must be read from pyproject.toml, not a literal, so bumping the version in one
+# place actually changes what /health/, the OpenAPI document, and startup logs report.
 class TestAppVersionFollowsTheManifest:
     @pytest.mark.unit
     def test_app_version_equals_the_declared_version(self) -> None:
@@ -561,7 +570,8 @@ class TestAppVersionFollowsTheManifest:
 
     @pytest.mark.unit
     def test_manifest_path_resolves_from_the_module_not_the_working_directory(self) -> None:
-        # Resolve metadata in the container layout too.
+        # The image is built with --no-install-project, so this module-relative path is the
+        # only way the version metadata reaches production — a relative path resolves differently.
         assert _PYPROJECT_PATH == Path(__file__).resolve().parents[2] / "pyproject.toml"
         assert _PYPROJECT_PATH.is_file()
 
@@ -575,7 +585,8 @@ class TestAppVersionFollowsTheManifest:
 
         assert _declared_app_version() == _UNKNOWN_APP_VERSION
 
-    # A corrupted manifest must fail clearly rather than silently falling back.
+    # A corrupted UTF-8 manifest raises UnicodeDecodeError; version is read at import time, so
+    # an uncaught error would take the app down over a display string instead of degrading.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         "shape",

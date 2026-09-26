@@ -47,7 +47,9 @@ _MIGRATIONS_DIR = Path(__file__).resolve().parents[4] / "alembic"
 # so a half-open TCP connection cannot stall the probe past k8s timeoutSeconds.
 READINESS_DB_TIMEOUT_SECONDS = 2.0
 
-# psycopg cancellation can itself hang on a dead server; cap probes to one per pool.
+# psycopg cancellation can itself hang on a dead server; cap probes to one per pool. A stuck
+# probe ends when the DB answers again or the pool's keepalive/tcp_user_timeout (composition_root)
+# drops the socket — until then, staying unhealthy is correct.
 _active_db_probes: dict[int, asyncio.Task[tuple[float, frozenset[str] | None]]] = {}
 
 _LLM_HEALTH_UNAVAILABLE_MESSAGE = "LLM service is unavailable"
@@ -224,7 +226,7 @@ async def _check_llm_service(request: Request) -> dict[str, Any]:
     return sanitized
 
 
-# Only critical checks decide the verdict; all checks remain visible.
+# Only critical checks decide the verdict; every check is still reported (ADR-008).
 async def _build_readiness_response(
     request: Request,
 ) -> tuple[Literal["healthy", "unhealthy"], dict[str, dict[str, Any]]]:
@@ -250,17 +252,20 @@ async def _build_readiness_response(
         }
     }
 
-    # Read one settings snapshot so criticality cannot change mid-probe.
+    # One defensive getattr chain: an app with no settings object degrades to each check's own
+    # default instead of raising — ADR-006 for the database, ADR-008 for the LLM check.
     settings = getattr(request.app.state, "settings", None)
     llm_critical = getattr(getattr(settings, "agent", None), "llm_readiness_critical", False)
     database_enabled = getattr(getattr(settings, "postgres", None), "enabled", True)
 
     llm_check = await _check_llm_service(request)
-    # Keep optional failure visible even when it cannot fail readiness.
+    # Default AGENT_LLM_READINESS_CRITICAL=false keeps a shared provider's bad minute from
+    # evicting every replica at once (ADR-008); the check's real status is still reported either way.
     llm_check["critical"] = llm_critical
     checks["llm"] = llm_check
 
-    # No DB pool is expected when the product disabled PostgreSQL.
+    # No pool by design (POSTGRES_ENABLED=false) is reported "disabled"; a missing pool while
+    # the database IS enabled stays unhealthy — that is a real fault.
     db_pool = services.get("db_pool")
     if not database_enabled:
         checks["database"] = {

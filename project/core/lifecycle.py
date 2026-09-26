@@ -47,8 +47,8 @@ def create_lifespan(
             # Yield control back to FastAPI.
             yield
         finally:
-            # A cancelled startup (never reaching yield) leaked the pool the same as a clean
-            # shutdown never running cleanup — both paths now share the one cleanup call below.
+            # A cancelled startup raises CancelledError, a BaseException `except Exception`
+            # above never sees, and must still close the pool.
             logger.log_system_event(
                 event_name="application_shutdown_initiated", category="lifecycle"
             )
