@@ -72,6 +72,10 @@ async def run_tool(
         # the model to retry arguments that were right. `ainvoke` validates again; that pass
         # cannot fail once this one has.
         schema = tool.args_schema
+        if isinstance(schema, dict):
+            # bind_tools (llm_service.py) already refuses this; a tool built and run
+            # without going through it would otherwise reach the body unvalidated.
+            raise TypeError(f"Tool {tool.name!r} needs a Pydantic argument schema")
         if isinstance(schema, type) and issubclass(schema, BaseModel):
             try:
                 schema.model_validate(dict(arguments))

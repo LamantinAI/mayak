@@ -92,3 +92,27 @@ def test_aliases_that_lose_nothing_are_bound(test_settings: FixtureSettings) -> 
 
     assert set(convert_to_openai_tool(tool)["function"]["parameters"]["properties"]) == {"hall_id"}
     _create_service(test_settings).bind_tools([tool])
+
+
+# A JSON-Schema (dict) args_schema reaches run_tool's own validation unchecked — only a
+# Pydantic schema is validated there. Refusing it at bind time is cheaper than a second
+# validator that re-implements what pydantic already does.
+@pytest.mark.unit
+def test_dict_tool_schema_is_refused_at_binding(test_settings: FixtureSettings) -> None:
+    schema = {"type": "object", "properties": {"hall_id": {"type": "integer"}}}
+    tool = StructuredTool.from_function(_find_sessions, args_schema=schema, name="find_sessions")
+
+    with pytest.raises(TypeError, match="Pydantic"):
+        _create_service(test_settings).bind_tools([tool])
+
+
+# The provider's own tool-call wire format, passed straight through instead of a StructuredTool.
+@pytest.mark.unit
+def test_raw_dict_tool_is_refused_at_binding(test_settings: FixtureSettings) -> None:
+    tool = {
+        "type": "function",
+        "function": {"name": "find_sessions", "parameters": {"type": "object"}},
+    }
+
+    with pytest.raises(TypeError, match="Pydantic"):
+        _create_service(test_settings).bind_tools([tool])

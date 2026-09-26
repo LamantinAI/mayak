@@ -33,7 +33,13 @@ class SupportsAsyncInvoke(Protocol):
 # is left out on purpose, alias or not, so it is skipped. A model class passed as the tool itself is
 # not checked: it is exported under its aliases and parsed back through them, which works.
 def _refuse_aliased_arguments(tool: Any) -> None:
+    if isinstance(tool, dict):
+        raise TypeError("Raw dict tools need a Pydantic argument schema")
     schema = getattr(tool, "args_schema", None)
+    if isinstance(schema, dict):
+        # run_tool (tool_runner.py) only validates Pydantic schemas; a dict one would
+        # reach the tool body unchecked.
+        raise TypeError(f"Tool {getattr(tool, 'name', '?')!r} needs a Pydantic argument schema")
     if isinstance(tool, type) or not (isinstance(schema, type) and issubclass(schema, BaseModel)):
         return
     exported = convert_to_openai_tool(tool)["function"]["parameters"].get("properties", {})
