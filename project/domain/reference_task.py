@@ -41,6 +41,8 @@ def check_title(title: str | None) -> str:
         raise ValidationError("title must not be null", field="title")
     if not title.strip():
         raise ValidationError("title must not be empty", field="title")
+    if "\x00" in title:
+        raise ValidationError("title must not contain NUL", field="title")
     if len(title) > MAX_TITLE_LENGTH:
         raise ValidationError(
             f"title must be at most {MAX_TITLE_LENGTH} characters, got {len(title)}", field="title"
@@ -49,6 +51,8 @@ def check_title(title: str | None) -> str:
 
 
 def check_details(details: str | None) -> str | None:
+    if details is not None and "\x00" in details:
+        raise ValidationError("details must not contain NUL", field="details")
     if details is not None and len(details) > MAX_DETAILS_LENGTH:
         raise ValidationError(
             f"details must be at most {MAX_DETAILS_LENGTH} characters, got {len(details)}",

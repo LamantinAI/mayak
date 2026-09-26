@@ -21,9 +21,22 @@ from project.domain.reference_task import (
     MAX_DETAILS_LENGTH,
     MAX_TITLE_LENGTH,
     ReferenceTask,
+    check_details,
+    check_title,
 )
 from project.infrastructure.persistence.orm_models import ReferenceTaskORM
 from tests.conftest import registered_paths
+
+
+# NUL is legal Python text but PostgreSQL rejects 0x00 in text columns with a 500; catching it here
+# turns that into a 422 instead of letting any client trigger a CRITICAL alert at will.
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("check", "value"), [(check_title, "bad\x00title"), (check_details, "bad\x00details")]
+)
+def test_nul_is_rejected_before_postgres(check: Any, value: str) -> None:
+    with pytest.raises(ValidationError):
+        check(value)
 
 
 # The port for rules decided before a write: one stored task to read, every write recorded.

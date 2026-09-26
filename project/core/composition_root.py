@@ -17,6 +17,25 @@ from project.infrastructure.api.middleware import AILoggingMiddleware
 from project.infrastructure.api.router_registration import include_application_routers
 
 
+class _CORSWrappedFastAPI(FastAPI):
+    # ServerErrorMiddleware wraps every user middleware, CORS included, so a 500 it builds
+    # never passes back through CORS. Wrapping the whole built stack puts CORS outside it.
+    def __init__(self, *, origins: list[str], allow_credentials: bool, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._cors_origins = origins
+        self._cors_credentials = allow_credentials
+
+    def build_middleware_stack(self) -> Any:
+        return CORSMiddleware(
+            super().build_middleware_stack(),
+            allow_origins=self._cors_origins,
+            allow_credentials=self._cors_credentials,
+            allow_methods=["*"],
+            allow_headers=["*"],
+            expose_headers=["X-Request-ID"],
+        )
+
+
 class CompositionRoot:
     def __init__(self) -> None:
         # Initialize logger for dependency injection tracking.
@@ -104,24 +123,15 @@ class CompositionRoot:
                 if settings is None:
                     raise ProjectError("Settings not initialized before app creation")
 
-                # Initialize FastAPI application. The title comes from APP_NAME
-                # rather than a literal: the name was declared as a setting, documented in
-                # .env.sample and never read, so every project built from the template shipped
-                # OpenAPI titled after the template instead of after itself.
-                app = FastAPI(
+                # Use APP_NAME so extracted projects do not keep the template title.
+                app = _CORSWrappedFastAPI(
+                    origins=settings.server.cors_origins,
+                    allow_credentials=settings.server.cors_allow_credentials,
                     title=f"{settings.project.name} API",
                     description="FastAPI application with semantic logging and hexagonal architecture",
                     version=APP_VERSION,
-                    # Never settings.project.debug. Starlette handles unhandled
-                    # exceptions in ServerErrorMiddleware, which checks its own debug flag FIRST
-                    # and, when set, renders the full traceback to the client — file paths, local
-                    # variables, and whatever secret was in scope — while the application's
-                    # registered Exception handler and its SAFE_INTERNAL_ERROR_MESSAGE are never
-                    # reached. APP_DEBUG is documented as verbose logging and a single worker;
-                    # turning it on must not silently also publish tracebacks over HTTP. The same
-                    # trap made the whole test suite exercise a code path production never used
-                    # until tests/conftest.py pinned debug off. Guarded by
-                    # tests/application/test_secret_leak_guards.py.
+                    # Starlette debug publishes traceback details on 500; APP_DEBUG must affect
+                    # logging only. Guarded by tests/application/test_secret_leak_guards.py.
                     debug=False,
                     lifespan=lifespan,
                 )
@@ -129,19 +139,6 @@ class CompositionRoot:
                 # Set up middleware.
                 app.add_middleware(
                     AILoggingMiddleware, max_body_bytes=settings.server.max_body_bytes
-                )
-
-                # Add CORS middleware
-                app.add_middleware(
-                    CORSMiddleware,
-                    allow_origins=settings.server.cors_origins,
-                    # Read from settings rather than hardcoding True. Used to be a
-                    # literal with no supported way to turn it off; project/core/config_runtime.py
-                    # (Settings.validate_runtime) owns why this combined with a wildcard origin is
-                    # the actual vulnerability and refuses that combination outside debug mode.
-                    allow_credentials=settings.server.cors_allow_credentials,
-                    allow_methods=["*"],
-                    allow_headers=["*"],
                 )
 
                 # Set up exception handlers.
@@ -178,16 +175,11 @@ class CompositionRoot:
                     event_name="fastapi_application_built",
                     category="application_lifecycle",
                     new_value={
-                        # app.title, never a literal. The literal was the
-                        # template's own name, so every project built from it logged a title it
-                        # had already stopped using at the FastAPI() call above.
+                        # Report the configured product title, not the template title.
                         "title": app.title,
                         "version": APP_VERSION,
                         "debug": settings.project.debug,
-                        # Which startup checks this build skipped, by the
-                        # variable each protects, so a debug flag left on in a deployed
-                        # container shows in the first lines of its log rather than in a README
-                        # row nobody reads at 3 a.m. Empty whenever the guards ran.
+                        # Make debug-relaxed guards visible in the startup log.
                         "guards_relaxed_by_debug": (
                             list(GUARDS_RELAXED_BY_DEBUG) if settings.project.debug else []
                         ),
