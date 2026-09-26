@@ -2,6 +2,7 @@
 # SUMMARY: Composition Root that creates and links all dependencies, creating adapters and injecting them into Core services for FastAPI application.
 
 from typing import Any, Dict
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,7 +36,10 @@ class CompositionRoot:
                     entity="app_config",
                     snapshot={
                         "model": settings.llm.model,
-                        "base_url": settings.llm.base_url,
+                        # URL userinfo and query can carry provider credentials.
+                        "base_url_host": urlsplit(str(settings.llm.base_url)).hostname
+                        if settings.llm.base_url
+                        else None,
                         "db_host": settings.postgres.host,
                         "server_host": settings.server.host,
                         "server_port": settings.server.port,
