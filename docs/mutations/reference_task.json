@@ -519,8 +519,8 @@
    "id": "readiness_skips_migration_check",
    "kind": "health",
    "file": "project/infrastructure/api/endpoints/health.py",
-   "find": "if not revisions:",
-   "replace": "if False:",
+   "find": "        if not revisions:\n            return {",
+   "replace": "        if not revisions:\n            revisions = expected\n        if False:\n            return {",
    "breaks": "/health/ready answers healthy against a reachable database that was never migrated",
    "expect": [
     "test_check_database_reports_unmigrated_schema"
