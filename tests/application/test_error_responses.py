@@ -59,9 +59,8 @@ class TestAnHttpExceptionKeepsItsHeaders:
 
 
 class TestAFiveHundredCarriesItsRequestId:
-    # ServerErrorMiddleware builds the 500 outside any user middleware, so CORS added the ordinary
-    # way (add_middleware) never sees it — a browser client reads a CORS failure, not the JSON body,
-    # and cannot read X-Request-ID either. CORS must wrap the whole stack instead.
+    # CORS added via add_middleware() sits inside ServerErrorMiddleware, so a 500 never reaches
+    # it — a browser sees a CORS failure, not the JSON body, and cannot read X-Request-ID either.
     @pytest.mark.unit
     async def test_crash_keeps_cors_and_exposes_request_id(self, fastapi_app: FastAPI) -> None:
         async def crash() -> None:
