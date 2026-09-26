@@ -72,19 +72,14 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("GitHub fine-grained token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{50,}\b")),
     ("GitLab personal access token", re.compile(r"\bglpat-[A-Za-z0-9_-]{20,}\b")),
     ("Slack token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b")),
-    # Of the shapes this scanner checks, a connection string is the most likely credential to be
-    # committed from this template specifically — it ships a DSN in .env.sample and builds one in
-    # config — and it carries the password in the clear.
-    #
-    # The character class excludes `{ } $ % < >` from both userinfo halves, which is what keeps
-    # this from crying wolf: every DSN the repository legitimately contains is an interpolation
-    # template — `${POSTGRES_PASSWORD}` in alembic.ini and compose, `{encoded_password}` in the
-    # f-string that builds the real URL. Those carry no credential and firing on them would train
-    # the reader to ignore this rule. A `/` is excluded too, so an ordinary URL path of the shape
-    # `https://host/a:b@c` cannot match.
+    # Keep percent-encoded passwords visible while excluding ${...}, {...} and %(...) templates.
+    # A slash is excluded so a URL path containing colon and @ is not treated as userinfo.
     (
         "connection string with password",
-        re.compile(r"\b[a-z][a-z0-9+.\-]*://[^\s:/'\"{}$%<>]+:[^\s@/'\"{}$%<>]{3,}@"),
+        re.compile(
+            r"\b[a-z][a-z0-9+.\-]*://(?:[^\s:/'\"{}$%<>]|%[0-9A-Fa-f]{2})+:"
+            r"(?:[^\s@/'\"{}$%<>]|%[0-9A-Fa-f]{2}){3,}@"
+        ),
     ),
     ("Stripe-style secret key", re.compile(r"\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b")),
     ("JSON Web Token", re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+")),
