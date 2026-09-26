@@ -73,8 +73,7 @@ async def run_tool(
         # cannot fail once this one has.
         schema = tool.args_schema
         if isinstance(schema, dict):
-            # bind_tools (llm_service.py) already refuses this; a tool built and run
-            # without going through it would otherwise reach the body unvalidated.
+            # bind_tools (llm_service.py) already refuses this; defense in depth.
             raise TypeError(f"Tool {tool.name!r} needs a Pydantic argument schema")
         if isinstance(schema, type) and issubclass(schema, BaseModel):
             try:

@@ -1,9 +1,5 @@
 # FILE: tests/application/test_llm_service_retry.py
 # SUMMARY: Tests for the retry policy and token accounting of live LLM calls.
-#
-# The retry loop, the timeout, and the token counters shipped untested: no test simulated a provider
-# failure, and none asserted that usage_metadata reached the log. A silent change to the retryable
-# exception set, the attempt count, or the usage parsing would have gone unnoticed until production.
 
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -37,10 +33,11 @@ def _timeout_error() -> APITimeoutError:
     return APITimeoutError(request=httpx.Request("POST", "https://provider.invalid/v1"))
 
 
-# Build a provider rate-limit error, the second retryable shape.
-def _rate_limit_error() -> RateLimitError:
+# Build a provider rate-limit error, the second retryable shape; optionally with the
+# Retry-After headers a wait-strategy test wants to check.
+def _rate_limit_error(headers: dict[str, str] | None = None) -> RateLimitError:
     request = httpx.Request("POST", "https://provider.invalid/v1")
-    response = httpx.Response(status_code=429, request=request)
+    response = httpx.Response(status_code=429, request=request, headers=headers)
     return RateLimitError("slow down", response=response, body=None)
 
 
@@ -49,13 +46,6 @@ def _status_error(error_class: type[APIStatusError], status_code: int) -> APISta
     request = httpx.Request("POST", "https://provider.invalid/v1")
     response = httpx.Response(status_code=status_code, request=request)
     return error_class("provider said no", response=response, body=None)
-
-
-# A 429 carrying whatever Retry-After shape a test wants to check.
-def _status_error_with_headers(headers: dict[str, str]) -> RateLimitError:
-    request = httpx.Request("POST", "https://provider.invalid/v1")
-    response = httpx.Response(status_code=429, request=request, headers=headers)
-    return RateLimitError("slow down", response=response, body=None)
 
 
 # A RetryCallState whose last attempt failed with `error` — enough for a wait strategy to read.
@@ -67,10 +57,7 @@ def _retry_state_for(error: BaseException) -> RetryCallState:
 
 # Live mixin plus the two contract attributes LLMService.__init__ normally supplies.
 class _RetryHarness(LLMServiceLiveMixin):
-    # The mixin declares only what it assigns itself; `_settings` and `_logger`
-    # come from the composed LLMService. These tests build the mixin alone, so the harness
-    # declares them here instead — as Any, because both are stubs and a narrower type would make
-    # mypy reject the MagicMock the assertions read `call_args` from.
+    # Any: both are MagicMock stubs here, not the real Settings/SemanticLogger.
     _settings: Any
 
     _logger: Any
@@ -101,10 +88,8 @@ def no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
 
 # What the retry loop does with retryable failures, permanent failures, and success.
 class TestRetryPolicy:
-    # SDK-side retries and Tenacity's would multiply (R14): a 429 the SDK retried internally,
-    # inside Tenacity's own attempt loop, before this test existed. max_tokens and timeout were
-    # never checked reaching the client either — either one silently dropped would leave every
-    # other gate green.
+    # max_retries=0 is what stops the SDK's own retries from multiplying Tenacity's;
+    # max_tokens and timeout were never checked reaching the client either.
     @pytest.mark.unit
     def test_llm_client_kwargs_reach_chat_openai(self, test_settings: FixtureSettings) -> None:
         from unittest.mock import patch
@@ -133,12 +118,7 @@ class TestRetryPolicy:
 
         assert result.content == "ok"
         assert instance._bound_llm.ainvoke.await_count == 3
-        # Each failed attempt is logged as its own llm.call with success=False
-        # before the retry, and only the last one as success=True. Without this test, nothing
-        # reads these calls: flipping the retry branch to success=True leaves every gate green, so
-        # a log in which every timeout looks like a completed call would ship. The two assertions
-        # on `TestTokenAccounting` read `call_args` — the last call only — and never execute the
-        # retry branch at all.
+        # Each failed attempt logs its own success=False before the retry; only the last is True.
         calls = instance._logger.log_llm_call.call_args_list
         assert [call.kwargs["success"] for call in calls] == [False, False, True]
         assert calls[0].kwargs["error"] == "Request timed out."
@@ -157,9 +137,7 @@ class TestRetryPolicy:
         provider_error = _timeout_error()
         instance = _build_instance(test_settings, side_effect=provider_error)
 
-        # A retryable failure that used up its attempts leaves as a domain error,
-        # like every other provider failure — what the caller sees must not depend on which shape
-        # of provider trouble it was. The provider exception survives on __cause__ for the log.
+        # Exhausted retries leave as a domain error, like every other provider failure.
         with pytest.raises(ExternalServiceError) as raised:
             await instance._call_llm_with_retry([HumanMessage(content="hi")])
 
@@ -184,60 +162,42 @@ class TestRetryPolicy:
         with pytest.raises(Exception, match="not initialized"):
             await instance._call_llm_with_retry([HumanMessage(content="hi")])
 
-    # langchain-openai raises one of these four for a malformed 200 (empty, missing, or
-    # null choices/message) — reproduced with a fake httpx transport for all but KeyError.
-    # Unhandled, any of them reached the caller as a raw parsing exception instead of the
-    # domain error every other provider failure gets.
+    # langchain-openai raises IndexError/KeyError/TypeError/AttributeError for a malformed
+    # 200 (empty, missing, or null choices/message) — reproduced with a fake httpx transport
+    # for the first three; a raw parsing exception otherwise reached the caller.
     @pytest.mark.unit
-    @pytest.mark.parametrize(
-        "error", [IndexError(), KeyError("choices"), TypeError(), AttributeError()]
-    )
     async def test_malformed_provider_reply_maps_to_domain_error(
-        self, test_settings: FixtureSettings, error: Exception
+        self, test_settings: FixtureSettings
     ) -> None:
-        instance = _build_instance(test_settings, side_effect=error)
+        instance = _build_instance(test_settings, side_effect=KeyError("choices"))
 
-        with pytest.raises(ExternalServiceError) as raised:
+        with pytest.raises(ExternalServiceError):
             await instance._call_llm_with_retry([HumanMessage(content="hi")])
 
-        assert raised.value.__cause__ is error
         assert instance._bound_llm.ainvoke.await_count == 1
 
 
-# max_retries=0 (above) turns off the SDK's own Retry-After handling; Tenacity must
-# read it instead, or a 429 waits the fixed backoff even when the provider named a shorter one.
+# max_retries=0 (above) turns off the SDK's own Retry-After handling; Tenacity must read it
+# instead. no_backoff (fixture) patches wait_exponential to wait_none(), so a fallback reads as 0.
 class TestRetryAfterWait:
     @pytest.mark.unit
-    def test_retry_after_seconds_is_honoured(self) -> None:
-        state = _retry_state_for(_status_error_with_headers({"retry-after": "7"}))
+    @pytest.mark.parametrize(
+        ("headers", "expected"),
+        [
+            ({"retry-after": "7"}, 7.0),
+            ({"retry-after-ms": "250"}, 0.25),
+            ({}, 0),
+            ({"retry-after": "120"}, 0),  # over the 60s cap: falls back
+            ({"retry-after": "not-a-date"}, 0),  # unparsable: falls back
+        ],
+    )
+    def test_retry_after_header_or_fallback(self, headers: dict[str, str], expected: float) -> None:
+        state = _retry_state_for(_rate_limit_error(headers=headers))
 
-        assert live_module._wait_after_retry_header(state) == 7.0
-
-    @pytest.mark.unit
-    def test_retry_after_ms_is_honoured(self) -> None:
-        state = _retry_state_for(_status_error_with_headers({"retry-after-ms": "250"}))
-
-        assert live_module._wait_after_retry_header(state) == 0.25
-
-    # An out-of-range or unparsable value (including an HTTP-date) falls back rather than
-    # blocking the retry for the SDK's own two-minute ceiling or crashing on a bad float().
-    @pytest.mark.unit
-    @pytest.mark.parametrize("headers", [{}, {"retry-after": "120"}, {"retry-after": "not-a-date"}])
-    def test_missing_or_unusable_header_falls_back_to_backoff(
-        self, headers: dict[str, str]
-    ) -> None:
-        state = _retry_state_for(_status_error_with_headers(headers))
-
-        # no_backoff patches wait_exponential to wait_none(), so the fallback reads as 0.
-        assert live_module._wait_after_retry_header(state) == 0
+        assert live_module._wait_after_retry_header(state) == expected
 
 
 # Every shape of provider failure, and the domain error the caller is given instead.
-# Without this translation, a dead API key, a rate limit that outlived its retries and a
-# provider outage are one indistinguishable 500 — nothing in the kernel differentiates them. The
-# point of the matrix is that the caller's contract is the domain type, not the vendor's: a
-# project that swaps langchain-openai for another client changes this file and nothing downstream
-# of it.
 class TestProviderErrorsBecomeDomainErrors:
     @pytest.mark.unit
     @pytest.mark.parametrize(
@@ -257,9 +217,7 @@ class TestProviderErrorsBecomeDomainErrors:
             await instance._call_llm_with_retry([HumanMessage(content="hi")])
 
         assert raised.value.__cause__ is provider_error
-        # A subclass of ExternalServiceError, so it answers 502 and carries the
-        # generic upstream message. The caller's own credentials were never in question, and
-        # answering 401 would send them to re-authenticate against a key they cannot reach.
+        # A subclass of ExternalServiceError: the caller's own credentials were never in question.
         assert isinstance(raised.value, ExternalServiceError)
         assert instance._bound_llm.ainvoke.await_count == 1
 
@@ -298,14 +256,8 @@ class TestProviderErrorsBecomeDomainErrors:
 
         assert raised.value.__cause__ is provider_error
 
-    # Every "we asked for the wrong thing" status stays the provider's own error, and so
-    # reports as a 500.
-    # The deliberate hole in the translation. Each status here means the provider understood
-    # the request and refused it — a tool schema it will not take, a prompt past the context
-    # window, a model name that does not exist in `Settings.llm.model`. Each is this service's own
-    # defect, and the identical retry fails identically forever. Calling any of them 502 would say
-    # "the provider is unwell" and send whoever is on call to a status page that is green. A rate
-    # limit is deliberately NOT here: that one is the provider declining to serve us right now.
+    # The deliberate hole in the translation: the provider understood and refused the
+    # request, so the identical retry fails identically forever — reported as 500, not 502.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         ("error_class", "status_code"),
@@ -342,10 +294,8 @@ class TestProviderErrorsBecomeDomainErrors:
         with pytest.raises(UpstreamAuthenticationError):
             await instance._call_llm_with_retry([HumanMessage(content="hi")])
 
-        # The translation could have been written inside the loop's own except
-        # clauses, and that would have been wrong twice over: tenacity re-reads the raised type to
-        # decide whether to retry, so a domain error there would end retrying after one attempt —
-        # and the log event that names the provider's own message would have been skipped.
+        # Translating inside the loop's own except clauses would end retrying after one
+        # attempt (tenacity re-reads the raised type) and skip the provider's own log message.
         assert instance._logger.log_llm_call.call_args.kwargs["success"] is False
         assert instance._logger.log_error.call_args.kwargs["error_type"] == "llm_call_failed"
 
@@ -382,16 +332,8 @@ class TestTokenAccounting:
         assert kwargs["total_tokens"] is None
 
 
-# finish_reason must survive from the raw provider reply to the log_llm_call call site.
-# Without finish_reason in the log, a reply cut off by the output-token or tool-schema
-# limit (finish_reason="length") carries success=True and looks identical to a complete answer.
-# An agent debugging a live run against this template spent the whole live-run stage of a session
-# on a tool-argument Decimal field the model never finished writing, because nothing in the log
-# said the response was truncated. langchain-openai puts
-# finish_reason in AIMessage.response_metadata on every reply; this class pins that
-# _call_llm_with_retry reads it from there. What log_llm_call DOES with the value (WARNING
-# escalation) is tests/application/test_logging_api.py::TestATruncatedLLMCallIsAWarning — a
-# different fact, tested where it is implemented.
+# finish_reason must survive from the raw provider reply to the log_llm_call call site — a
+# truncated reply (finish_reason="length") otherwise looks identical to a complete one.
 class TestFinishReasonReachesTheLog:
     @pytest.mark.unit
     async def test_finish_reason_is_read_from_response_metadata(

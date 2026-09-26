@@ -46,11 +46,7 @@ def _build_full_trace_extras(
 
     system_prompt = "\n\n".join(str(m.content) for m in messages if isinstance(m, SystemMessage))
     user_message = "\n\n".join(str(m.content) for m in messages if not isinstance(m, SystemMessage))
-    # The same scrubber every other free-text log path in this repository already
-    # runs, which this one skipped: a key or a token pasted into a prompt reached the file in
-    # full. It catches credential shapes and nothing else — a customer's email in a prompt is
-    # still recorded verbatim, which is what the startup warning is for. Redaction here is
-    # consistency, not a promise about personal data.
+    # Scrub credential shapes in full-trace prompts; personal data still needs operator care.
     extras: dict[str, Any] = {
         "system_prompt": redact_secrets(system_prompt),
         "user_message": redact_secrets(user_message),
@@ -100,10 +96,7 @@ class LLMServiceLiveMixin:
     # Provider runnable optionally enhanced with bound tools.
     _bound_llm: Any
 
-    # Kept to a single resolution tier — global settings — deliberately: a per-agent
-    # override mechanism would be machinery the kernel cannot demonstrate using, since nothing in
-    # the template ever constructs one. A vertical that needs a second LLM endpoint builds its
-    # own service rather than inheriting an unused mechanism.
+    # A second provider belongs to a vertical; the kernel has one shared client.
     def _initialize_llm(self: _LLMServiceLiveContract) -> None:
         effective_mode = self._settings.agent.llm_mode
         effective_model = self._settings.llm.model
@@ -156,10 +149,7 @@ class LLMServiceLiveMixin:
             },
         )
 
-    # Raises UpstreamAuthenticationError if the provider rejects this service's credentials.
-    # Raises ExternalServiceError if the provider is uninitialised, or fails for any other
-    # reason — including a retryable failure that used up every attempt.
-    # Raises BadRequestError untranslated on purpose; see the handler at the end of this method.
+    # Provider auth failures and other upstream failures have distinct domain errors.
     async def _call_llm_with_retry(
         self: _LLMServiceLiveContract,
         messages: list[BaseMessage],
@@ -171,12 +161,7 @@ class LLMServiceLiveMixin:
 
         effective_retries = self._settings.agent.max_llm_call_retries
 
-        # Invoke the provider with configurable retry logic.
-        # This AsyncRetrying is the **single source of retry truth** for LLM calls.
-        # Callers must not wrap it in their own @retry: the two layers multiply rather than
-        # combine, so three attempts around three attempts is a nine-attempt worst case that
-        # outlives whatever asyncio.wait_for budget the caller set. Add attempts here, never
-        # around this.
+        # Tenacity is the only retry loop; nested retries multiply the attempt budget.
         try:
             async for attempt in AsyncRetrying(
                 stop=stop_after_attempt(effective_retries),
@@ -233,15 +218,7 @@ class LLMServiceLiveMixin:
                         response_content = getattr(response, "content", "")
                         response_chars = len(str(response_content))
 
-                        # langchain-openai puts `finish_reason` in
-                        # `response_metadata` on every reply, success or not — it is how the
-                        # provider says WHY it stopped, and "it hit the output-token or
-                        # tool-schema limit" (`finish_reason == "length"`) looks identical to a
-                        # normal reply everywhere else on this object: `success=True`, content
-                        # present, no exception. Without this the log had no way to tell a
-                        # complete answer from one truncated mid-JSON. A response_metadata that is
-                        # missing or not a dict — a mock runnable in a test, a future provider that
-                        # omits it — reports finish_reason=None rather than raising.
+                        # Preserve finish_reason: a truncated answer otherwise looks successful.
                         response_metadata = getattr(response, "response_metadata", None)
                         finish_reason = (
                             response_metadata.get("finish_reason")
@@ -330,12 +307,7 @@ class LLMServiceLiveMixin:
                         )
                         raise
         except (OpenAIAuthenticationError, PermissionDeniedError) as error:
-            # Whose credentials failed decides who can fix it. The provider
-            # rejecting OUR key is an operator's configuration problem — a dead key, a revoked
-            # project — and it is answered 502 like any other upstream failure, because the
-            # caller's own credentials are fine and a 401 would send them to re-authenticate
-            # against something they cannot reach. The distinct type is what a log query, an
-            # alert or a test can key on.
+            # Provider credentials are owned by this service, not the HTTP caller.
             raise UpstreamAuthenticationError(
                 "LLM provider rejected this service's credentials"
             ) from error
@@ -345,18 +317,10 @@ class LLMServiceLiveMixin:
             OpenAIConflictError,
             UnprocessableEntityError,
         ):
-            # Deliberately not translated. Every status here says the provider
-            # understood us and refused what we asked for: a malformed tool schema, a prompt past
-            # the context window, a model name that does not exist. Each is this service's own
-            # defect, and the identical retry fails identically forever. Reported as 500, because
-            # 502 would say "the provider is unwell" and send whoever is on call to a status page
-            # that is green. A rate limit is not in this list — that one really is the provider
-            # declining to serve us right now, and it is retried before it becomes a 502.
+            # Bad requests from our own code must surface rather than masquerade as outages.
             raise
         except OpenAIError as error:
-            # Everything else the provider can fail with, including the retryable
-            # kinds that exhausted their attempts above. The cause survives on __cause__ for the
-            # log; the client is told only that an upstream service failed.
+            # Other provider failures become domain errors at this boundary.
             raise ExternalServiceError("LLM provider call failed") from error
 
         raise ExternalServiceError("LLM retry loop exited unexpectedly")

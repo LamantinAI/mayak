@@ -37,8 +37,7 @@ def _refuse_aliased_arguments(tool: Any) -> None:
         raise TypeError("Raw dict tools need a Pydantic argument schema")
     schema = getattr(tool, "args_schema", None)
     if isinstance(schema, dict):
-        # run_tool (tool_runner.py) only validates Pydantic schemas; a dict one would
-        # reach the tool body unchecked.
+        # run_tool (tool_runner.py) only validates Pydantic schemas.
         raise TypeError(f"Tool {getattr(tool, 'name', '?')!r} needs a Pydantic argument schema")
     if isinstance(tool, type) or not (isinstance(schema, type) and issubclass(schema, BaseModel)):
         return
