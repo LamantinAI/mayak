@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
 # FILE: validate_secrets.py
 # Scan tracked text files for credential-shaped literals so a key cannot reach a commit.
-#
-# Nothing in this repository looked for secrets before: not the pre-commit hook, not any of the
-# eight CI jobs. A key pasted into a config file or a test fixture would have travelled to the
-# remote with no warning at any point, and with branch protection unavailable on this plan there is
-# no later reviewer to catch it either.
-#
-# The patterns below are deliberately high-precision — provider-issued key shapes and private key
-# headers — because a scanner that cries wolf gets disabled. It will not catch a hand-rolled secret
-# that looks like ordinary text; a dedicated tool such as gitleaks in CI is the upgrade path when
-# that matters. This one runs offline, in the same gate ladder as everything else.
+# Patterns are deliberately high-precision — provider-issued key shapes and private key headers —
+# because a scanner that cries wolf gets disabled; a hand-rolled secret needs a dedicated tool.
 
 from __future__ import annotations
 
@@ -56,17 +48,9 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # dashes inside the tail made `sk-onboarding-flow-token-abc123` — an ordinary internal id — read
     # as a credential, which is the crying-wolf failure this file warns about at the top.
     ("OpenAI-style API key", re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9]{20,}\b")),
-    # OpenRouter needs its own entry because the pattern above cannot be widened to reach it. Its
-    # keys are `sk-or-v1-<hex>`, and the dashes in `or-v1-` are exactly what the rule above excludes
-    # on purpose. Remeasured on 2026-08-14 across every git-tracked file: the shipped rule matches
-    # 3 strings, all of them test fixtures; allowing dashes in the tail takes it to 7, and the four
-    # it adds are ordinary hyphenated identifiers shaped like the internal id quoted above — the
-    # crying-wolf failure that comment describes. Reproduce with:
-    #   git ls-files -z | xargs -0 grep -onE 'sk-(proj-)?[A-Za-z0-9-]{20,}'
-    #
-    # This provider in particular, because `.env.sample` points OPENAI_COMPATIBLE_BASE_URL at
-    # openrouter.ai — so the one key a project built from this template is most likely to hold was
-    # the one shape the scanner could not see.
+    # Own entry because `sk-or-v1-<hex>` has dashes the OpenAI rule above deliberately excludes;
+    # `.env.sample` points OPENAI_COMPATIBLE_BASE_URL at openrouter.ai, so this is the shape a
+    # project built from this template is most likely to hold.
     ("OpenRouter API key", re.compile(r"\bsk-or-v1-[A-Za-z0-9]{32,}\b")),
     ("GitHub personal access token", re.compile(r"\bghp_[A-Za-z0-9]{36}\b")),
     ("GitHub fine-grained token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{50,}\b")),
@@ -85,12 +69,9 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("JSON Web Token", re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+")),
 )
 
-# Substrings that mark a matched value as an obvious stand-in rather than a live credential.
-# These are tested against the MATCHED VALUE, never against the whole line. Matching the line
-# silenced real keys whenever an ordinary word happened to share it: `AKIA... # rotate immediately
-# if invalid` was skipped because the comment said "invalid", and the same went for "dummy",
-# "your-" and "test-key" appearing anywhere in a sentence. A hint has to be inside the credential
-# itself to mean anything.
+# Substrings that mark a matched value as an obvious stand-in rather than a live credential. Tested
+# against the MATCHED VALUE only — against the whole line, an unrelated word like "invalid" in a
+# neighbouring comment silenced a real key.
 _PLACEHOLDER_HINTS: tuple[str, ...] = (
     "example",
     "changeme",
