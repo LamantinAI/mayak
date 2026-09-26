@@ -70,20 +70,21 @@ class CompositionRoot:
                     db_pool = AsyncConnectionPool(
                         str(settings.postgres.database_url),
                         open=False,
+                        min_size=min(4, settings.postgres.pool_size),
                         max_size=settings.postgres.pool_size,
+                        check=AsyncConnectionPool.check_connection,
                         kwargs={
-                            # autocommit=True is deliberate, not a default left in
-                            # place — a method with one execute() needs nothing further; a method
-                            # that must land two or more statements together (aggregate + outbox
-                            # row, order + line items) wraps them in
-                            # "async with connection.transaction():" inside the connection block
-                            # it already opens, or a crash between the two leaves a partial write
-                            # nothing here catches. Full rationale, the code shape, and how to
-                            # prove it with a functional test:
-                            # docs/adr/ADR-007-autocommit-and-explicit-transactions.md.
+                            # autocommit keeps single statements independent; multi-statement writes must use
+                            # connection.transaction() to avoid partial aggregate/outbox writes (ADR-007).
                             "autocommit": True,
                             "connect_timeout": 5,
                             "prepare_threshold": None,
+                            # Dead TCP sessions otherwise hold pool slots for minutes.
+                            "keepalives": 1,
+                            "keepalives_idle": 5,
+                            "keepalives_interval": 2,
+                            "keepalives_count": 3,
+                            "tcp_user_timeout": 10_000,
                         },
                     )
 

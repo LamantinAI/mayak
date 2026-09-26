@@ -35,12 +35,42 @@ from project.core.config_runtime import (
 from tests.conftest import _FixtureSettings as FixtureSettings
 
 
+def _pool_kwargs(settings: FixtureSettings) -> dict[str, object]:
+    set_settings_override(settings)
+    try:
+        with patch("project.core.composition_root.AsyncConnectionPool") as pool:
+            CompositionRoot().build_dependencies()
+        return dict(pool.call_args.kwargs)
+    finally:
+        clear_settings_override()
+
+
+@pytest.mark.unit
+def test_pool_checks_stale_connections(test_settings: FixtureSettings) -> None:
+    assert callable(_pool_kwargs(test_settings)["check"])
+
+
+@pytest.mark.unit
+def test_pool_bounds_broken_tcp(test_settings: FixtureSettings) -> None:
+    options = _pool_kwargs(test_settings)["kwargs"]
+    assert isinstance(options, dict)
+    assert options["keepalives"] == 1 and options["tcp_user_timeout"] > 0
+
+
+@pytest.mark.unit
+def test_small_pool_has_valid_minimum(test_settings: FixtureSettings) -> None:
+    original = test_settings.postgres.pool_size
+    test_settings.postgres.pool_size = 1
+    try:
+        options = _pool_kwargs(test_settings)
+    finally:
+        test_settings.postgres.pool_size = original
+    assert options["min_size"] == options["max_size"] == 1
+
+
 class TestProjectSettings:
-    # The name is read from docs/project_context.json rather than written here. It used to
-    # be the literal "Mayak", so renaming a project built from this template failed a kernel test
-    # about configuration defaults — and the fix looked like editing a test that had nothing to do
-    # with the rename. The assertion is also stronger this way: the fallback name a deployment
-    # without APP_NAME serves must be this project's own.
+    # The default name is read from docs/project_context.json, not hardcoded, so a renamed
+    # project's fallback (no APP_NAME) stays its own name instead of the template's.
     @pytest.mark.unit
     def test_default_values(self) -> None:
         expected_name = json.loads(
@@ -241,11 +271,8 @@ class TestSettings:
                 settings.validate_runtime()
             assert "SERVER_CORS_ORIGINS" in str(exc_info.value)
 
-    # Pins the membership check (`"*" in self.server.cors_origins`) in
-    # Settings.validate_runtime (project/core/config_runtime.py) so a future "simplification" back
-    # to the old `== ["*"]` equality check fails here first. Why membership and not equality, the
-    # Starlette mechanism it guards against, and the reproduction with its date all live in that
-    # comment — not repeated here.
+    # Pins the membership check (`"*" in cors_origins`) in Settings.validate_runtime, not the
+    # old `== ["*"]` equality — a future "simplification" back to equality must fail here first.
     @pytest.mark.unit
     def test_runtime_validation_rejects_wildcard_mixed_with_real_origins(self) -> None:
         with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
@@ -271,9 +298,8 @@ class TestSettings:
 
             settings.validate_runtime()
 
-    # test_runtime_validation_rejects_wildcard_cors_in_production already covers this via the
-    # cors_allow_credentials default (True) — this test pins the flag explicitly so the case keeps
-    # failing even if that default ever changes.
+    # The sibling test above already covers this via the cors_allow_credentials default (True);
+    # this one pins the flag explicitly so the case keeps failing if that default ever changes.
     @pytest.mark.unit
     def test_runtime_validation_rejects_wildcard_with_credentials_enabled(self) -> None:
         with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
@@ -297,24 +323,15 @@ class TestSettings:
                 settings.validate_runtime()
             assert "SERVER_CORS_ORIGINS" in str(exc_info.value)
 
-    # Verify the newly legitimate configuration passes: a wildcard is safe once no
-    # credential ever rides on the response.
-    # no-assert-ok: the assertion is that validate_runtime() does not raise; it returns None.
+    # Wildcard CORS is safe only without credentials.
+    # no-assert-ok: success means validate_runtime() returns without raising.
     @pytest.mark.unit
     def test_runtime_validation_allows_wildcard_when_credentials_disabled(self) -> None:
         with patch.dict(os.environ, {"OPENAI_COMPATIBLE_API_KEY": "test_api_key"}, clear=False):
             settings = Settings()
             settings.project.debug = False
-            # Declare no relational store, because this test asserts that
-            # validate_runtime() RETURNS, and with debug off every other guard in that method is
-            # live too. The placeholder-password guard is the one that bites: `Settings()` reads
-            # the ambient .env, so on a developer machine POSTGRES_PASSWORD holds the real value
-            # `make init-project` generated and the guard stays quiet, while on a fresh checkout
-            # with no .env it falls back to the driver default and the guard fires. Measured: this
-            # test and the one below passed locally and failed three CI jobs for exactly that
-            # reason. Reproduce either state with `mv .env /tmp/ && pytest …`.
-            # The sibling refusal tests never hit this because they assert a raise, and the
-            # debug-mode test never hits it because the guard is gated on `not debug`.
+            # Settings() reads the ambient .env: without this, the password guard stays quiet
+            # locally but fires on a checkout with no .env — it failed CI that way.
             settings.postgres.enabled = False
             settings.server.cors_allow_credentials = False
             settings.server.cors_origins = ["*"]
@@ -357,18 +374,8 @@ class TestSettings:
         assert response.status_code == 200
         assert "access-control-allow-credentials" not in response.headers
 
-    # Verify the configured origin LIST is what CORSMiddleware answers with, so a
-    # deployment that lists its own origins cannot be silently serving every origin instead.
-    # This is the wiring, not the guard. Settings.validate_runtime() refuses a wildcard in
-    # `settings.server.cors_origins`, and the tests above prove that refusal — but the guard reads
-    # the settings object, and nothing read what CompositionRoot actually handed to CORSMiddleware.
-    # Measured: replacing `allow_origins=settings.server.cors_origins` with a literal `["*"]` in
-    # composition_root.py left `STRICT_GENERATED=1 make quality-gates-steps` at exit 0,
-    # every test green, while a request carrying `Origin: https://evil.attacker.test` came back
-    # with that origin echoed and `access-control-allow-credentials: true` — the credentialed
-    # wildcard the guard exists to prevent, reached by bypassing the setting the guard checks.
-    # `grep -rn access-control-allow-origin tests/` was empty before this test; the second request
-    # below is what makes the mutation red.
+    # Proves the wiring, not the guard: CompositionRoot must actually pass cors_origins to
+    # CORSMiddleware, not a hardcoded list — validate_runtime() alone does not prove that.
     @pytest.mark.unit
     async def test_only_configured_origins_are_echoed_by_the_middleware(self) -> None:
         settings = FixtureSettings()
@@ -393,13 +400,8 @@ class TestSettings:
         assert configured.headers["access-control-allow-origin"] == "https://app.example.com"
         assert "access-control-allow-origin" not in stranger.headers
 
-    # Verify the preflight branch of CORSMiddleware answers, which a plain GET never
-    # reaches — so a narrowed allow_methods cannot break every browser client unnoticed.
-    # Added after an independent review of the test above showed its blind spot: Starlette
-    # applies `allow_methods` only to an OPTIONS request carrying Access-Control-Request-Method, so
-    # narrowing the list to ["POST"] left all 836 tests green while a browser's preflight for a GET
-    # would have received 400. The origin assertion above and this one are the two halves of "the
-    # CORS configuration reaches the middleware".
+    # Preflight (OPTIONS with Access-Control-Request-Method) exercises a CORSMiddleware code
+    # path a plain GET never reaches, so a narrowed allow_methods could break it unnoticed.
     @pytest.mark.unit
     async def test_a_preflight_answers_for_the_methods_the_application_serves(self) -> None:
         settings = FixtureSettings()
@@ -451,11 +453,8 @@ class TestSettings:
         test_settings.validate_runtime()
 
 
-# Verify production startup refuses the credential placeholders .env.sample ships.
-# The password check compared against the literal "postgres" and nothing else. Measured:
-# `your_postgres_password` — this repository's own sample value — along with `changeme` and
-# `password`, all started in production silently. The comparison now reads the
-# sample file, so the guard cannot drift away from the placeholder it is meant to catch.
+# Production startup must refuse the credential placeholders .env.sample ships; the guard
+# compares against that file directly, so it cannot drift from the actual placeholder.
 class TestPlaceholderCredentialsAreRefusedInProduction:
     @staticmethod
     def _production_settings() -> FixtureSettings:
@@ -540,9 +539,8 @@ class TestPlaceholderCredentialsAreRefusedInProduction:
     # no-assert-ok: the assertion is that validate_runtime() does not raise; it returns None.
     @pytest.mark.unit
     def test_the_provider_key_rule_leaves_mock_mode_alone(self, tmp_path: Path) -> None:
-        # Same gating as the password check, which fires only when postgres.enabled.
-        # Refusing to start over a credential nothing reads is the pointless ceremony that teaches
-        # people to ignore guards.
+        # The provider-key rule is gated like the password rule — refusing to start over a
+        # credential mock mode never reads would just teach people to ignore the guard.
         sample = tmp_path / ".env.sample"
         sample.write_text("OPENAI_COMPATIBLE_API_KEY=your_api_key_here\n", encoding="utf-8")
 
@@ -560,9 +558,8 @@ class TestPlaceholderCredentialsAreRefusedInProduction:
         assert _ENV_SAMPLE_PATH.is_file()
 
 
-# APP_VERSION was the literal "1.0.0" and reached /health/, the OpenAPI document and every
-# startup event. Setting a version in pyproject.toml changed none of them: nothing compared the
-# two, and the rename checklist did not mention the literal.
+# APP_VERSION must be read from pyproject.toml, not a literal, so bumping the version in one
+# place actually changes what /health/, the OpenAPI document, and startup logs report.
 class TestAppVersionFollowsTheManifest:
     @pytest.mark.unit
     def test_app_version_equals_the_declared_version(self) -> None:
@@ -573,9 +570,8 @@ class TestAppVersionFollowsTheManifest:
 
     @pytest.mark.unit
     def test_manifest_path_resolves_from_the_module_not_the_working_directory(self) -> None:
-        # The container runs from /app with sources at /app/project/, and the
-        # image is built with --no-install-project, so this path is the only way the version
-        # reaches production. A relative path would resolve differently there.
+        # The image is built with --no-install-project, so this module-relative path is the
+        # only way the version metadata reaches production — a relative path resolves differently.
         assert _PYPROJECT_PATH == Path(__file__).resolve().parents[2] / "pyproject.toml"
         assert _PYPROJECT_PATH.is_file()
 
@@ -589,11 +585,8 @@ class TestAppVersionFollowsTheManifest:
 
         assert _declared_app_version() == _UNKNOWN_APP_VERSION
 
-    # TOML is defined as UTF-8, so a manifest with one corrupted byte raises
-    # UnicodeDecodeError — uncaught unless the except clause names it beside
-    # tomllib.TOMLDecodeError, which at import time would take the whole application down over a
-    # display string. Driving the cases from a table is what makes the next unlisted shape a
-    # visible gap rather than a silent one.
+    # A corrupted UTF-8 manifest raises UnicodeDecodeError; version is read at import time, so
+    # an uncaught error would take the app down over a display string instead of degrading.
     @pytest.mark.unit
     @pytest.mark.parametrize(
         "shape",
@@ -612,9 +605,7 @@ class TestAppVersionFollowsTheManifest:
         elif shape == "wrong_type":
             manifest.write_text('project = "not a table"\n', encoding="utf-8")
         elif shape == "bad_bytes":
-            # A real encoding-corrupted manifest, not a synthetic one — this is
-            # the shape that raises UnicodeDecodeError, which the except clause below must catch
-            # like every other bad-manifest shape, not just TOMLDecodeError.
+            # Exercise real corrupted bytes, not a mocked decoder.
             manifest.write_bytes(b'[project]\nversion = "1.0.0"\nname = "\xff\xfe"\n')
         monkeypatch.setattr("project.core.config_runtime._PYPROJECT_PATH", manifest)
 
