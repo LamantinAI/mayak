@@ -14,6 +14,37 @@ from fastapi import FastAPI
 from tests.conftest import _FixtureSettings as FixtureSettings
 
 
+@pytest.mark.unit
+async def test_readiness_budget_survives_resistant_cancel(monkeypatch: pytest.MonkeyPatch) -> None:
+    from project.infrastructure.api.endpoints import health
+
+    release = asyncio.Event()
+    calls = 0
+
+    async def stuck(_pool: object) -> tuple[float, frozenset[str]]:
+        nonlocal calls
+        calls += 1
+        try:
+            await asyncio.sleep(10)
+        except asyncio.CancelledError:
+            await release.wait()
+        return 0.0, frozenset()
+
+    monkeypatch.setattr(health, "_run_db_probe", stuck)
+    monkeypatch.setattr(health, "READINESS_DB_TIMEOUT_SECONDS", 0.01)
+    asyncio.get_running_loop().call_later(0.2, release.set)
+    started = time.monotonic()
+    pool = MagicMock()
+    try:
+        first = await health._check_database(pool)
+        second = await health._check_database(pool)
+        assert first["message"] == second["message"] == "Database check timed out"
+        assert calls == 1
+        assert time.monotonic() - started < 0.1
+    finally:
+        release.set()
+
+
 # Build a connection pool double whose alembic_version answers the given revisions — None for no
 # table at all. Returns the connection double and the pool double.
 def _mock_pool_with_schema(revisions: frozenset[str] | None) -> tuple[AsyncMock, MagicMock]:

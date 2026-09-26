@@ -50,6 +50,9 @@ _MIGRATIONS_DIR = Path(__file__).resolve().parents[4] / "alembic"
 # so a half-open TCP connection cannot stall the probe past k8s timeoutSeconds.
 READINESS_DB_TIMEOUT_SECONDS = 2.0
 
+# psycopg cancellation can itself hang on a dead server; cap probes to one per pool.
+_active_db_probes: dict[int, asyncio.Task[tuple[float, frozenset[str] | None]]] = {}
+
 _LLM_HEALTH_UNAVAILABLE_MESSAGE = "LLM service is unavailable"
 
 _LLM_HEALTH_PROBE_FAILURE_MESSAGE = "LLM provider probe failed"
@@ -76,14 +79,9 @@ def _migration_revisions() -> tuple[frozenset[str], frozenset[str]]:
     return frozenset(script.get_heads()), known
 
 
-# Inner DB readiness probe that reaches the database and reads which migrations have run. Separated from _check_database so the surrounding asyncio.wait_for can cancel it on timeout.
-# Returns probe latency in milliseconds, and the revisions alembic_version records — None when there
-# is no such table at all.
-# A bare SELECT 1 answered "healthy" against a database with no tables at all, the state a fresh
-# checkout is in before `make migrate`. The table's existence alone was not enough either, measured
-# on a live database 2026-09-25: `alembic downgrade base` empties alembic_version without dropping it
-# (a DELETE, alembic/runtime/migration.py), and a schema one migration behind has the table too —
-# both answered "healthy" while every request failed.
+# Read alembic_version, including its empty-table state; SELECT 1 misses unmigrated DBs. Separated
+# from _check_database so a probe left running past its timeout can be tracked and cancelled by
+# _active_db_probes instead of merely abandoned.
 async def _run_db_probe(pool: AsyncConnectionPool[Any]) -> tuple[float, frozenset[str] | None]:
     start_ns = time.perf_counter_ns()
     revisions: frozenset[str] | None = None
@@ -114,12 +112,35 @@ async def _check_database(pool: AsyncConnectionPool[Any]) -> dict[str, Any]:
             "response_time_ms": None,
         }
 
-    # Execute the probe under an asyncio.wait_for budget to bound probe latency.
+    # asyncio.wait_for cancels the awaiting coroutine on timeout, but a cancelled psycopg
+    # call can itself hang on a dead server — the cancellation is awaited, and that await
+    # never returns. Tracking the task in _active_db_probes and using asyncio.wait instead
+    # lets this function return on the timeout without ever awaiting that cancellation.
+    key = id(pool)
+    previous = _active_db_probes.get(key)
+    if previous is not None and not previous.done():
+        return {
+            "status": "unhealthy",
+            "message": _DATABASE_TIMEOUT_MESSAGE,
+            "timeout_seconds": READINESS_DB_TIMEOUT_SECONDS,
+            "response_time_ms": None,
+        }
+    probe = asyncio.create_task(_run_db_probe(pool))
+    _active_db_probes[key] = probe
+
+    def settled(task: asyncio.Task[tuple[float, frozenset[str] | None]]) -> None:
+        if _active_db_probes.get(key) is task:
+            _active_db_probes.pop(key, None)
+        if not task.cancelled():
+            task.exception()
+
+    probe.add_done_callback(settled)
     try:
-        response_time_ms, revisions = await asyncio.wait_for(
-            _run_db_probe(pool),
-            timeout=READINESS_DB_TIMEOUT_SECONDS,
-        )
+        done, _ = await asyncio.wait({probe}, timeout=READINESS_DB_TIMEOUT_SECONDS)
+        if not done:
+            probe.cancel()
+            raise asyncio.TimeoutError
+        response_time_ms, revisions = probe.result()
         latency = round(response_time_ms, 2)
 
         # A reachable but un-migrated database is not ready — name it instead of
@@ -187,6 +208,9 @@ async def _check_database(pool: AsyncConnectionPool[Any]) -> dict[str, Any]:
             "message": _DATABASE_HEALTH_FAILURE_MESSAGE,
             "response_time_ms": None,
         }
+    finally:
+        if not probe.done():
+            probe.cancel()
 
 
 async def _check_llm_service(request: Request) -> dict[str, Any]:
