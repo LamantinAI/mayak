@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # Path to the hooks directory in the repository
 HOOKS_DIR=".githooks"
