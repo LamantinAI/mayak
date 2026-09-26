@@ -196,7 +196,16 @@ class LLMServiceLiveMixin:
                     model = self._settings.llm.model
 
                     try:
-                        response = cast(BaseMessage, await runnable.ainvoke(messages))
+                        try:
+                            response = cast(BaseMessage, await runnable.ainvoke(messages))
+                        except (IndexError, KeyError, TypeError, AttributeError) as error:
+                            # langchain-openai raises these four for a malformed 200 (empty,
+                            # missing, or null choices/message) — reproduced with a fake
+                            # transport for all but KeyError, which is its own dict-shaped
+                            # response_dict branch. Not retried: the same body comes back.
+                            raise ExternalServiceError(
+                                "LLM provider returned an invalid reply"
+                            ) from error
                         duration_ms = (time.perf_counter_ns() - start_ns) / 1e6
                         input_tokens = None
                         output_tokens = None

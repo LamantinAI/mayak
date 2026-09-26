@@ -184,6 +184,25 @@ class TestRetryPolicy:
         with pytest.raises(Exception, match="not initialized"):
             await instance._call_llm_with_retry([HumanMessage(content="hi")])
 
+    # langchain-openai raises one of these four for a malformed 200 (empty, missing, or
+    # null choices/message) — reproduced with a fake httpx transport for all but KeyError.
+    # Unhandled, any of them reached the caller as a raw parsing exception instead of the
+    # domain error every other provider failure gets.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "error", [IndexError(), KeyError("choices"), TypeError(), AttributeError()]
+    )
+    async def test_malformed_provider_reply_maps_to_domain_error(
+        self, test_settings: FixtureSettings, error: Exception
+    ) -> None:
+        instance = _build_instance(test_settings, side_effect=error)
+
+        with pytest.raises(ExternalServiceError) as raised:
+            await instance._call_llm_with_retry([HumanMessage(content="hi")])
+
+        assert raised.value.__cause__ is error
+        assert instance._bound_llm.ainvoke.await_count == 1
+
 
 # max_retries=0 (above) turns off the SDK's own Retry-After handling; Tenacity must
 # read it instead, or a 429 waits the fixed backoff even when the provider named a shorter one.
