@@ -51,7 +51,9 @@ class CompositionRoot:
                     db_pool = AsyncConnectionPool(
                         str(settings.postgres.database_url),
                         open=False,
+                        min_size=min(4, settings.postgres.pool_size),
                         max_size=settings.postgres.pool_size,
+                        check=AsyncConnectionPool.check_connection,
                         kwargs={
                             # autocommit=True is deliberate, not a default left in
                             # place — a method with one execute() needs nothing further; a method
@@ -65,6 +67,12 @@ class CompositionRoot:
                             "autocommit": True,
                             "connect_timeout": 5,
                             "prepare_threshold": None,
+                            # Dead TCP sessions otherwise hold pool slots for minutes.
+                            "keepalives": 1,
+                            "keepalives_idle": 5,
+                            "keepalives_interval": 2,
+                            "keepalives_count": 3,
+                            "tcp_user_timeout": 10_000,
                         },
                     )
 

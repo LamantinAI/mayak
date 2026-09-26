@@ -35,6 +35,39 @@ from project.core.config_runtime import (
 from tests.conftest import _FixtureSettings as FixtureSettings
 
 
+def _pool_kwargs(settings: FixtureSettings) -> dict[str, object]:
+    set_settings_override(settings)
+    try:
+        with patch("project.core.composition_root.AsyncConnectionPool") as pool:
+            CompositionRoot().build_dependencies()
+        return dict(pool.call_args.kwargs)
+    finally:
+        clear_settings_override()
+
+
+@pytest.mark.unit
+def test_pool_checks_stale_connections(test_settings: FixtureSettings) -> None:
+    assert callable(_pool_kwargs(test_settings)["check"])
+
+
+@pytest.mark.unit
+def test_pool_bounds_broken_tcp(test_settings: FixtureSettings) -> None:
+    options = _pool_kwargs(test_settings)["kwargs"]
+    assert isinstance(options, dict)
+    assert options["keepalives"] == 1 and options["tcp_user_timeout"] > 0
+
+
+@pytest.mark.unit
+def test_small_pool_has_valid_minimum(test_settings: FixtureSettings) -> None:
+    original = test_settings.postgres.pool_size
+    test_settings.postgres.pool_size = 1
+    try:
+        options = _pool_kwargs(test_settings)
+    finally:
+        test_settings.postgres.pool_size = original
+    assert options["min_size"] == options["max_size"] == 1
+
+
 class TestProjectSettings:
     # The name is read from docs/project_context.json rather than written here. It used to
     # be the literal "Mayak", so renaming a project built from this template failed a kernel test
