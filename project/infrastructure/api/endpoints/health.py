@@ -29,10 +29,7 @@ _DATABASE_TIMEOUT_MESSAGE = "Database check timed out"
 _MIGRATIONS_UNREADABLE_MESSAGE = "This code's migrations could not be read"
 _DATABASE_REVISION_MALFORMED_MESSAGE = "Database records a malformed migration revision"
 
-# The only database messages readiness hands a caller as they are; any other text an unhealthy
-# check carries is replaced with the generic failure, since a probe error's text can hold a DSN.
-# The replacement used to cover every unhealthy result, named causes included: a database nobody
-# had migrated answered "Database connection failed", and whoever read that went to fix the network.
+# Only named safe DB failures are exposed; raw errors may contain credentials.
 _SAFE_DATABASE_MESSAGES = frozenset(
     {
         _DATABASE_NOT_MIGRATED_MESSAGE,
@@ -69,9 +66,7 @@ def _get_uptime_seconds(request: Request) -> float:
     return time.monotonic() - start_time
 
 
-# The revisions this code expects the database to be at (the heads), and every revision it knows.
-# Read once per process: alembic imports each revision file to read it, and a probe runs every few
-# seconds.
+# Cache migration metadata: checking files on every readiness call is expensive.
 @cache
 def _migration_revisions() -> tuple[frozenset[str], frozenset[str]]:
     script = ScriptDirectory(str(_MIGRATIONS_DIR))
@@ -86,9 +81,7 @@ async def _run_db_probe(pool: AsyncConnectionPool[Any]) -> tuple[float, frozense
     start_ns = time.perf_counter_ns()
     revisions: frozenset[str] | None = None
     async with pool.connection() as conn:
-        # Unqualified on purpose — to_regclass resolves through search_path, so a
-        # project that puts alembic's version table in its own schema is still recognised. Hardcoding
-        # `public.` reported "not migrated" forever on a fully migrated database.
+        # to_regclass follows search_path, including non-public Alembic schemas.
         cursor = await conn.execute("SELECT to_regclass('alembic_version') IS NOT NULL")
         row = await cursor.fetchone()
         if row and row[0]:
@@ -151,9 +144,7 @@ async def _check_database(pool: AsyncConnectionPool[Any]) -> dict[str, Any]:
                 "message": _DATABASE_NOT_MIGRATED_MESSAGE,
                 "response_time_ms": latency,
             }
-        # alembic writes an id with no surrounding space; a blank or padded one was put there by
-        # hand, and read as an unknown id it would pass for a newer deploy's (independent check,
-        # 2026-09-25).
+        # Blank or padded revisions are corrupt, not unknown newer revisions.
         if any(not revision or revision != revision.strip() for revision in revisions):
             return {
                 "status": "unhealthy",
@@ -175,10 +166,7 @@ async def _check_database(pool: AsyncConnectionPool[Any]) -> dict[str, Any]:
             "message": "Database connection successful",
             "response_time_ms": latency,
         }
-        # A revision this code has never seen is a newer deploy's migration: in a rolling deploy
-        # the old replicas keep serving against the new schema. Calling them unready would take
-        # every one of them out of rotation before a new one is up, so this stays healthy and
-        # names the revisions.
+        # An old replica stays ready against a newer schema during a rolling deploy.
         if not revisions <= known:
             result["message"] = "Database connection successful; its schema is newer than this code"
             result["schema_revision"] = sorted(revisions)
@@ -236,10 +224,7 @@ async def _check_llm_service(request: Request) -> dict[str, Any]:
     return sanitized
 
 
-# Build aggregated readiness status from critical and optional dependency checks. Every
-# check always runs and its status is always reported in the returned dict; a per-check "critical"
-# flag, not presence in the dict, decides whether that status can flip the overall verdict — see
-# ADR-008.
+# Only critical checks decide the verdict; all checks remain visible.
 async def _build_readiness_response(
     request: Request,
 ) -> tuple[Literal["healthy", "unhealthy"], dict[str, dict[str, Any]]]:
@@ -265,28 +250,17 @@ async def _build_readiness_response(
         }
     }
 
-    # Read both conditional-criticality settings up front, off the same
-    # request.app.state.settings object, with the same defensive getattr chain — a project
-    # running with no settings object attached (or an older one missing the field) degrades to
-    # each check's own historical default rather than raising. See ADR-008 for why the LLM check
-    # gets the same "does this deployment actually depend on it" treatment ADR-006 already gave
-    # the database.
+    # Read one settings snapshot so criticality cannot change mid-probe.
     settings = getattr(request.app.state, "settings", None)
     llm_critical = getattr(getattr(settings, "agent", None), "llm_readiness_critical", False)
     database_enabled = getattr(getattr(settings, "postgres", None), "enabled", True)
 
     llm_check = await _check_llm_service(request)
-    # The check ran and its real status is reported either way; "critical" only
-    # marks whether that status can flip the overall verdict below. Default
-    # AGENT_LLM_READINESS_CRITICAL=false keeps a shared third-party provider's bad minute from
-    # evicting every replica at once — see ADR-008.
+    # Keep optional failure visible even when it cannot fail readiness.
     llm_check["critical"] = llm_critical
     checks["llm"] = llm_check
 
-    # A project that declared POSTGRES_ENABLED=false has no pool by design.
-    # Reporting that as unhealthy would make readiness permanently false for a service that is
-    # working exactly as configured, so the check reports "disabled" and leaves the critical
-    # set. A missing pool while the database IS enabled stays unhealthy — that is a real fault.
+    # No DB pool is expected when the product disabled PostgreSQL.
     db_pool = services.get("db_pool")
     if not database_enabled:
         checks["database"] = {
