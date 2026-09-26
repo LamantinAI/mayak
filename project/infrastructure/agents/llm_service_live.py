@@ -194,9 +194,9 @@ class LLMServiceLiveMixin:
                             json.JSONDecodeError,
                         ) as error:
                             # What langchain-openai raises for a 200 with empty, missing or null
-                            # choices/message, or a non-JSON body. Not retried: the same body
-                            # comes back. Not bare ValueError: pydantic's ValidationError must
-                            # still surface.
+                            # choices/message, or a non-JSON body. Not retried: the policy covers
+                            # transport and rate-limit failures, not a broken reply. Not bare
+                            # ValueError: pydantic's ValidationError must still surface.
                             raise ExternalServiceError(
                                 "LLM provider returned an invalid reply"
                             ) from error
