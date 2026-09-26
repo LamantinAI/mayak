@@ -29,10 +29,8 @@ class ToolArgumentsError(ValueError):
     pass
 
 
-# Pydantic's message when it names no value ("Field required", "Input should be a valid integer");
-# otherwise the field and the error's type. A check of the tool's own can quote the value — `no
-# customer called {value}` put a user's name into the ERROR record (independent check, 2026-09-25)
-# — and so can some of pydantic's own messages, so the list of safe ones is explicit (ADR-013).
+# Pydantic's message when it names no value; otherwise the field and the error's type — a
+# value can leak into the ERROR record otherwise, so the safe messages are explicit (ADR-013).
 def _problem(item: ErrorDetails) -> str:
     field = ".".join(map(str, item["loc"])) or "arguments"
     message = value_free_message(item)

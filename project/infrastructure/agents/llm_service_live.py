@@ -1,7 +1,10 @@
 # FILE: project/infrastructure/agents/llm_service_live.py
 # SUMMARY: Live-provider mixin for LLMService covering client initialization and retryable provider calls.
 
+import email.utils
+import json
 import time
+from contextlib import suppress
 from typing import Any, Protocol, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -56,23 +59,23 @@ def _build_full_trace_extras(
     return extras
 
 
-# max_retries=0 (see _initialize_llm) took the SDK's own Retry-After handling with it, so
-# Tenacity has to honour it: a 429/503 naming a short wait is respected, a date or anything over
-# the request timeout falls back to the fixed backoff. wait_exponential is looked up by name here,
-# not bound at import time, so a test replacing live_module.wait_exponential still reaches it.
+# Mirrors openai._base_client._parse_retry_after_header (ms/seconds/HTTP-date), capped at 120s.
+def _retry_after_seconds(headers: Any) -> float | None:
+    for raw, scale in ((headers.get("retry-after-ms"), 0.001), (headers.get("retry-after"), 1.0)):
+        with suppress(TypeError, ValueError):
+            return float(raw) * scale
+    with suppress(TypeError, ValueError, OverflowError, OSError):
+        parsed = email.utils.parsedate_tz(headers.get("retry-after"))
+        return None if parsed is None else email.utils.mktime_tz(parsed) - time.time()
+    return None
+
+
 def _wait_after_retry_header(retry_state: RetryCallState) -> float:
     exception = retry_state.outcome.exception() if retry_state.outcome else None
     headers = getattr(getattr(exception, "response", None), "headers", None)
-    for header, seconds_per_unit in (("retry-after-ms", 0.001), ("retry-after", 1.0)):
-        raw_value = headers.get(header) if headers is not None else None
-        if raw_value is None:
-            continue
-        try:
-            wait_seconds = float(raw_value) * seconds_per_unit
-        except (TypeError, ValueError):
-            continue
-        if 0 < wait_seconds <= 60:
-            return wait_seconds
+    wait_seconds = _retry_after_seconds(headers) if headers is not None else None
+    if wait_seconds is not None and 0 < wait_seconds <= 120:
+        return wait_seconds
     return wait_exponential(multiplier=1, min=2, max=10)(retry_state)
 
 
@@ -183,11 +186,14 @@ class LLMServiceLiveMixin:
                     try:
                         try:
                             response = cast(BaseMessage, await runnable.ainvoke(messages))
-                        except (IndexError, KeyError, TypeError, AttributeError) as error:
-                            # langchain-openai raises these four for a malformed 200 (empty,
-                            # missing, or null choices/message) — reproduced with a fake
-                            # transport for all but KeyError, which is its own dict-shaped
-                            # response_dict branch. Not retried: the same body comes back.
+                        except (
+                            IndexError,
+                            KeyError,
+                            TypeError,
+                            AttributeError,
+                            json.JSONDecodeError,
+                        ) as error:
+                            # Not bare ValueError: pydantic's ValidationError must still surface.
                             raise ExternalServiceError(
                                 "LLM provider returned an invalid reply"
                             ) from error

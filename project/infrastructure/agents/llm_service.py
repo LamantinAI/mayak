@@ -23,15 +23,9 @@ class SupportsAsyncInvoke(Protocol):
     async def ainvoke(self, input: list[BaseMessage]) -> BaseMessage: ...
 
 
-# langchain leaves out of a tool's exported schema a field whose validation alias differs from
-# its name while it has no plain alias — exactly what CoreModel's generator gives every field. A tool
-# whose arguments inherited CoreModel therefore reached the provider as `"properties": {}`. Mock
-# mode never reads that schema, which is why this runs at binding, in every mode: the first unit
-# test to bind the tool fails, not the first live request. Found by the bench2 measurement
-# (2026-09-24). The exported schema itself is checked, not the alias attributes: `Field(alias=...)`,
-# `AliasChoices` and `AliasPath` all survive (measured, langchain-core 1.5.3). An injected argument
-# is left out on purpose, alias or not, so it is skipped. A model class passed as the tool itself is
-# not checked: it is exported under its aliases and parsed back through them, which works.
+# langchain drops a field whose only alias is a validation alias (what CoreModel gives every
+# field) from the exported schema, so a tool built on it reached the provider as
+# `"properties": {}` (bench2, 2026-09-24). Checked at binding since mock mode skips it.
 def _refuse_aliased_arguments(tool: Any) -> None:
     if isinstance(tool, dict):
         raise TypeError("Raw dict tools need a Pydantic argument schema")
@@ -90,14 +84,8 @@ class LLMService(
     def get_llm(self) -> BaseChatModel | None:
         return self._llm
 
-    # Keep it — the receiver, not the caller's variable, is bound.
-    # Mutating `self._mock_tools` and returning `self` would corrupt shared state:
-    # CompositionRoot builds exactly one LLMService and hands the same object to every vertical,
-    # so a second agentic vertical binding its own tools would silently replace the first one's —
-    # last caller wins, no error, wrong tools on the next request. The copy is shallow on
-    # purpose: `_llm`, `_settings` and `_logger` are shared, so nothing re-opens a provider
-    # client, while `_mock_tools` and `_bound_llm` are per-binding. langchain's own `bind_tools`
-    # already returns a new runnable rather than mutating.
+    # Returns a copy, not self: mutating in place would let a second vertical's tools silently
+    # replace the first one's. Shallow — only `_mock_tools`/`_bound_llm` differ per binding.
     def bind_tools(self, tools: list[Any]) -> "LLMService":
         for tool in tools:
             _refuse_aliased_arguments(tool)

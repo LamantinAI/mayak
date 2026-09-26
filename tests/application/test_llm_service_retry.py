@@ -1,6 +1,9 @@
 # FILE: tests/application/test_llm_service_retry.py
 # SUMMARY: Tests for the retry policy and token accounting of live LLM calls.
 
+import email.utils
+import json
+import time
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -91,10 +94,13 @@ class TestRetryPolicy:
     # max_retries=0 is what stops the SDK's own retries from multiplying Tenacity's;
     # max_tokens and timeout were never checked reaching the client either.
     @pytest.mark.unit
-    def test_llm_client_kwargs_reach_chat_openai(self, test_settings: FixtureSettings) -> None:
+    def test_llm_client_kwargs_reach_chat_openai(
+        self, test_settings: FixtureSettings, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from unittest.mock import patch
 
-        test_settings.agent.llm_mode = "live"
+        # test_settings is session-scoped: a plain assignment would leak "live" mode onward.
+        monkeypatch.setattr(test_settings.agent, "llm_mode", "live")
         instance = _RetryHarness.__new__(_RetryHarness)
         instance._settings = test_settings
         instance._logger = MagicMock()
@@ -162,14 +168,22 @@ class TestRetryPolicy:
         with pytest.raises(Exception, match="not initialized"):
             await instance._call_llm_with_retry([HumanMessage(content="hi")])
 
-    # langchain-openai raises IndexError/KeyError/TypeError/AttributeError for a malformed
-    # 200 (empty, missing, or null choices/message) — reproduced with a fake httpx transport
-    # for the first three; a raw parsing exception otherwise reached the caller.
+    # A malformed 200 raises one of these; a raw parsing exception otherwise reached the caller.
     @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "error",
+        [
+            KeyError("choices"),
+            IndexError(),
+            TypeError(),
+            AttributeError(),
+            json.JSONDecodeError("Expecting value", "not json", 0),
+        ],
+    )
     async def test_malformed_provider_reply_maps_to_domain_error(
-        self, test_settings: FixtureSettings
+        self, test_settings: FixtureSettings, error: Exception
     ) -> None:
-        instance = _build_instance(test_settings, side_effect=KeyError("choices"))
+        instance = _build_instance(test_settings, side_effect=error)
 
         with pytest.raises(ExternalServiceError):
             await instance._call_llm_with_retry([HumanMessage(content="hi")])
@@ -177,8 +191,8 @@ class TestRetryPolicy:
         assert instance._bound_llm.ainvoke.await_count == 1
 
 
-# max_retries=0 (above) turns off the SDK's own Retry-After handling; Tenacity must read it
-# instead. no_backoff (fixture) patches wait_exponential to wait_none(), so a fallback reads as 0.
+# Mirrors the SDK's own 120s cap and its three header shapes (ms, seconds, HTTP-date).
+# no_backoff (fixture) patches wait_exponential to wait_none(), so a fallback reads as 0.
 class TestRetryAfterWait:
     @pytest.mark.unit
     @pytest.mark.parametrize(
@@ -187,14 +201,23 @@ class TestRetryAfterWait:
             ({"retry-after": "7"}, 7.0),
             ({"retry-after-ms": "250"}, 0.25),
             ({}, 0),
-            ({"retry-after": "120"}, 0),  # over the 60s cap: falls back
+            ({"retry-after": "90"}, 90.0),
+            ({"retry-after": "150"}, 0),  # over the 120s cap: falls back
             ({"retry-after": "not-a-date"}, 0),  # unparsable: falls back
         ],
     )
-    def test_retry_after_header_or_fallback(self, headers: dict[str, str], expected: float) -> None:
+    def test_retry_after_header_or_fallback(self, headers: dict[str, str], expected: Any) -> None:
         state = _retry_state_for(_rate_limit_error(headers=headers))
 
         assert live_module._wait_after_retry_header(state) == expected
+
+    # Built at call time: a value baked into the parametrize table drifts past `abs=2`.
+    @pytest.mark.unit
+    def test_http_date_retry_after_is_honoured(self) -> None:
+        soon = email.utils.formatdate(time.time() + 30, usegmt=True)
+        state = _retry_state_for(_rate_limit_error(headers={"retry-after": soon}))
+
+        assert live_module._wait_after_retry_header(state) == pytest.approx(30, abs=2)
 
 
 # Every shape of provider failure, and the domain error the caller is given instead.
