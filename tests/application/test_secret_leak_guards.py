@@ -254,12 +254,16 @@ class TestDebugFlagCannotPublishTracebacks:
         assert "Traceback" not in response.text
 
 
-# The DEBUG config-snapshot logged at startup used to include the raw LLM base_url; userinfo or a
-# query string on that URL is a provider credential, and DEBUG logs are the widest-read tier.
+# Userinfo or a query string on the LLM base_url is a provider credential, and DEBUG logs are the
+# widest-read tier.
 class TestConfigSnapshotHidesUrlCredentials:
     @pytest.mark.unit
-    def test_base_url_credentials_are_not_logged(self, test_settings: FixtureSettings) -> None:
-        test_settings.llm.base_url = AnyHttpUrl(_FAKE_LLM_URL)
+    def test_base_url_credentials_are_not_logged(
+        self, test_settings: FixtureSettings, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # test_settings is session-scoped (tests/conftest.py); monkeypatch restores this after
+        # the test so later tests do not inherit the fixture credential.
+        monkeypatch.setattr(test_settings.llm, "base_url", AnyHttpUrl(_FAKE_LLM_URL))
         set_settings_override(test_settings)
         root = CompositionRoot()
         try:

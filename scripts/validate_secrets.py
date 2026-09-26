@@ -48,9 +48,9 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # dashes inside the tail made `sk-onboarding-flow-token-abc123` — an ordinary internal id — read
     # as a credential, which is the crying-wolf failure this file warns about at the top.
     ("OpenAI-style API key", re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9]{20,}\b")),
-    # Own entry because `sk-or-v1-<hex>` has dashes the OpenAI rule above deliberately excludes;
-    # `.env.sample` points OPENAI_COMPATIBLE_BASE_URL at openrouter.ai, so this is the shape a
-    # project built from this template is most likely to hold.
+    # Own entry because `sk-or-v1-<hex>` has dashes the OpenAI rule above deliberately excludes.
+    # Allowing dashes there took matches from 3 to 7 (2026-08-14), all four new ones ordinary
+    # ids; reproduce with `git ls-files -z | xargs -0 grep -onE 'sk-(proj-)?[A-Za-z0-9-]{20,}'`.
     ("OpenRouter API key", re.compile(r"\bsk-or-v1-[A-Za-z0-9]{32,}\b")),
     ("GitHub personal access token", re.compile(r"\bghp_[A-Za-z0-9]{36}\b")),
     ("GitHub fine-grained token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{50,}\b")),

@@ -47,7 +47,9 @@ _migration_logger = logging.getLogger("alembic.migration")
 
 # Advisory-lock key every migrating process agrees on, so two containers started together against
 # an unmigrated database serialise instead of both creating alembic_version at once. A fixed string
-# through crc32 keeps the key stable across processes and PYTHONHASHSEED, unlike hash().
+# through crc32 keeps the key stable across processes and PYTHONHASHSEED, unlike hash(). A project
+# sharing this database with another service that also uses advisory locks changes this string,
+# not the mechanism.
 _MIGRATION_LOCK_KEY = zlib.crc32(b"mayak.alembic.migrations")
 
 
@@ -90,7 +92,8 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             # xact lock releases itself on commit/rollback, so a killed container cannot leave it
-            # held; taken before run_migrations() because that first statement creates
+            # held — session-level pg_advisory_lock would instead need a matching unlock on every
+            # exit path. Taken before run_migrations() because that first statement creates
             # alembic_version, which is the collision this serialises.
             _lock_requested_at = time.perf_counter()
             connection.execute(
