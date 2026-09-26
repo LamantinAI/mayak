@@ -1,6 +1,8 @@
 # FILE: tests/template/test_validate_migrations.py
 # SUMMARY: Unit tests for the Alembic migration validation quality gate.
 
+import os
+import shutil
 import subprocess
 import sys
 from functools import partial
@@ -18,6 +20,26 @@ from scripts.validate_migrations import (
     get_migrations_rule_playbook,
     main,
 )
+
+
+# A password with `@ % : /` is common from a generated cloud secret; ConfigParser reads `%` as
+# interpolation unless env.py escapes it first (alembic/env.py). Copied to tmp_path so the
+# process never touches this checkout's own .env.
+@pytest.mark.unit
+def test_encoded_password_survives_alembic_offline(tmp_path: Path) -> None:
+    for name in ("project", "alembic", "alembic.ini", "pyproject.toml"):
+        source = ROOT_DIR / name
+        copy = shutil.copytree if source.is_dir() else shutil.copy2
+        copy(source, tmp_path / name)
+    env = dict(os.environ, POSTGRES_PASSWORD="p@ss%w0rd:x/y", POSTGRES_HOST="localhost")
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head", "--sql"],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 class TestValidateMigrations:

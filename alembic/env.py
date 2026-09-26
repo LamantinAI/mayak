@@ -38,8 +38,10 @@ target_metadata = Base.metadata
 # Construct the database URL through the shared runtime settings model.
 postgres_settings = PostgresSettings()
 
-# Set the database URL on the main config object.
-config.set_main_option("sqlalchemy.url", str(postgres_settings.sqlalchemy_database_url))
+# ConfigParser treats URL escapes such as %40 as interpolation markers.
+config.set_main_option(
+    "sqlalchemy.url", str(postgres_settings.sqlalchemy_database_url).replace("%", "%%")
+)
 
 _migration_logger = logging.getLogger("alembic.migration")
 
