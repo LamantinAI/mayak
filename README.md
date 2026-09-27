@@ -246,7 +246,7 @@ No external memory integration, no metrics exporter, no feature-flag system. Eac
 either removed after measuring that it earned nothing, or never added for the same reason.
 
 No SQL or request deadlines. The pool drops a dead TCP peer (`keepalives`, `tcp_user_timeout`)
-and the database check in `/health/ready` has a 2 s budget, but a query to a server that keeps the
+and the database probe in `/health/ready` has a 2 s budget, but a query to a server that keeps the
 connection open and stops answering waits with no limit, and so does the request that sent it
 (measured: a GET against a frozen database was still waiting after 45 s). The right limits depend
 on the product's queries, so the product sets them: `statement_timeout` and `lock_timeout` for the
