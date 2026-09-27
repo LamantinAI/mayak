@@ -246,13 +246,15 @@ No external memory integration, no metrics exporter, no feature-flag system. Eac
 either removed after measuring that it earned nothing, or never added for the same reason.
 
 No SQL or request deadlines. The pool drops a dead TCP peer (`keepalives`, `tcp_user_timeout`)
-and `/health/ready` answers within its 2 s budget, but a query to a server that keeps the
+and the database check in `/health/ready` has a 2 s budget, but a query to a server that keeps the
 connection open and stops answering waits with no limit, and so does the request that sent it
 (measured: a GET against a frozen database was still waiting after 45 s). The right limits depend
-on the product's queries, so the product sets them: `statement_timeout` and `lock_timeout` on the
-application's database role (`ALTER ROLE <app_role> IN DATABASE <db> SET statement_timeout =
-'5s';` — not on the role that runs migrations), and a deadline for the whole request, since a
-proxy timeout closes the client's connection but does not stop the work behind it. Migrations wait
+on the product's queries, so the product sets them: `statement_timeout` and `lock_timeout` for the
+application's connections — for example `"options": "-c statement_timeout=5s -c lock_timeout=2s"`
+in the pool's `kwargs` in `project/core/composition_root.py`; an `ALTER ROLE … SET` would bind
+migrations too, because the container runs Alembic with the same role — and a deadline for the
+whole request, since a proxy timeout closes the client's connection but does not stop the work
+behind it. Migrations wait
 for the advisory lock in `alembic/env.py` with no limit either; bound that wait with the deadline
 of whatever runs them. In a rolling deploy old and new code share one schema: add first
 (expand), and remove what old code still reads only after its last replica is gone (contract) —
