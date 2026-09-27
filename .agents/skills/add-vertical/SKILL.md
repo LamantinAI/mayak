@@ -169,7 +169,8 @@ A test built from a comfortable middle value — `"a title"` — cannot see `<` 
 1. **The service key stays in the registry dict literal even when its value is `None`.**
    `validate_endpoint_wiring.py` reads the literal to learn the service exists; dropping the key
    makes the dependency alias unresolvable and it reports `endpoint.wiring_chain_broken`.
-2. **Endpoints import DTOs, domain constants and typed aliases — nothing else.**
+2. **Endpoints reach a service only through its typed dependency alias — never the service class.**
+   DTOs, constants and values such as the service's `UNCHANGED` sentinel may be imported.
    Importing the service, calling `Depends(get_...)` inline, or annotating a parameter with the
    service type each has its own rule ID in `validate_endpoint_wiring.py`. The alias lives in
    `dependencies.py` as a getter returning `_get_service(request, "<key>", <Type>)` plus an
