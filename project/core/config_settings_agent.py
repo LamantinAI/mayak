@@ -49,7 +49,7 @@ class AgentSettings(BaseSettings):
 
     prompts_dir: Path = Field(default=Path("project/prompts"), description="Prompts directory")
 
-    # In "probe" mode (non-mock), every /health/ready round-trips to the real provider —
+    # In "probe" mode (non-mock), a /health/ready with no fresh cached result calls the provider —
     # llm_service_readiness.py's _run_readiness_probe calls async_client.create(...) or
     # llm.ainvoke(...). "init" checks only that the client was constructed at startup, at zero
     # ongoing provider cost, which is why it is the default: it never depends on a third party
@@ -62,7 +62,7 @@ class AgentSettings(BaseSettings):
     # check gets a vote in the overall readiness verdict is `llm_readiness_critical` below
     # (AGENT_LLM_READINESS_CRITICAL, default false) — see ADR-008 for the general principle,
     # rather than repeating it here. What is specific to *this* field, not to that principle:
-    # "probe" mode still round-trips the provider on every poll (bounded by the 30s cache above)
+    # "probe" mode still calls the provider once per 30s cache window (the cache described above)
     # even with `llm_readiness_critical=false`; that cost does not go away, only the eviction
     # consequence does. A project that sets `llm_readiness_critical=true` together with "probe"
     # should also raise the Kubernetes readiness `periodSeconds` and `failureThreshold` to
@@ -79,8 +79,8 @@ class AgentSettings(BaseSettings):
         description=(
             "Readiness check mode for the LLM service: 'init' (default) verifies only that the "
             "provider client was constructed at startup, at zero ongoing cost; 'probe' calls the "
-            "provider on every poll. Whether that call can fail the overall verdict is a separate "
-            "setting, llm_readiness_critical (default false) — see the note above the field for why"
+            "provider at most once per 30s (cached). Whether that call can fail the verdict is a "
+            "separate setting, llm_readiness_critical (default false) — see the note above"
         ),
     )
 

@@ -245,6 +245,21 @@ vertical that needs a graph library adds one; see `docs/adr/ADR-003-mock-first-l
 No external memory integration, no metrics exporter, no feature-flag system. Each of those was
 either removed after measuring that it earned nothing, or never added for the same reason.
 
+No SQL or request deadlines. The pool drops a dead TCP peer (`keepalives`, `tcp_user_timeout`)
+and the database probe in `/health/ready` has a 2 s budget, but a query to a server that keeps the
+connection open and stops answering waits with no limit, and so does the request that sent it
+(measured: a GET against a frozen database was still waiting after 45 s). The right limits depend
+on the product's queries, so the product sets them: `statement_timeout` and `lock_timeout` for the
+application's connections — for example `"options": "-c statement_timeout=5s -c lock_timeout=2s"`
+in the pool's `kwargs` in `project/core/composition_root.py`; an `ALTER ROLE … SET` would bind
+migrations too, because the container runs Alembic with the same role — and a deadline for the
+whole request, since a proxy timeout closes the client's connection but does not stop the work
+behind it. Migrations wait
+for the advisory lock in `alembic/env.py` with no limit either; bound that wait with the deadline
+of whatever runs them. In a rolling deploy old and new code share one schema: add first
+(expand), and remove what old code still reads only after its last replica is gone (contract) —
+readiness already stays healthy on a schema newer than the code.
+
 ---
 
 ## Environment configuration
@@ -265,7 +280,7 @@ either removed after measuring that it earned nothing, or never added for the sa
 | `AGENT_LLM_MODE` | `mock` for dev, CI and tests; `live` to call a provider | `mock` |
 | `AGENT_DEFAULT_LLM_TEMPERATURE` | LLM temperature (0.0-2.0) | `0.2` |
 | `AGENT_MAX_TOKENS` | maximum output tokens | `4096` |
-| `AGENT_LLM_READINESS_CHECK_MODE` | `init` checks only that the provider client was constructed at startup, at zero ongoing cost; `probe` performs a real provider call on every `/health/ready` check | `init` |
+| `AGENT_LLM_READINESS_CHECK_MODE` | `init` checks only that the provider client was constructed at startup, at zero ongoing cost; `probe` calls the provider when no result from the last 30 s is cached — success and failure are both cached, per instance | `init` |
 | `AGENT_LLM_READINESS_CRITICAL` | whether an unhealthy LLM check makes `/health/ready` report unready | `false` |
 | `SERVER_CORS_ORIGINS` | allowed CORS origins; a wildcard is rejected at startup under the conditions below | `["*"]` |
 | `SERVER_CORS_ALLOW_CREDENTIALS` | whether the app sends `Access-Control-Allow-Credentials`; `false` makes a wildcard origin list safe | `true` |
