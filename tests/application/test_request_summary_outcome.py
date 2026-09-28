@@ -12,6 +12,7 @@ from typing import Any, AsyncGenerator, Optional
 
 import pytest
 from fastapi import APIRouter, FastAPI
+from fastapi.responses import StreamingResponse
 from httpx import ASGITransport, AsyncClient
 from pydantic import BaseModel
 
@@ -43,6 +44,14 @@ def _probe_router() -> APIRouter:
     @router.get("/probe/crash")
     async def _crash() -> dict[str, str]:
         raise RuntimeError("unhandled")
+
+    @router.get("/probe/crash-mid-body")
+    async def _crash_mid_body() -> StreamingResponse:
+        async def _chunks() -> AsyncGenerator[bytes, None]:
+            yield b"partial"
+            raise RuntimeError("unhandled after the status was sent")
+
+        return StreamingResponse(_chunks())
 
     return router
 
@@ -125,13 +134,21 @@ async def test_handled_client_errors_are_not_server_errors(
     assert summary["status_code"] == expected_status
 
 
+# The summary is written before Starlette renders the 500, outside the logging middleware; until
+# 2026-09-28 it carried no status at all. Once the response has started, the status the client
+# got is the one to report, still as a server error.
+@pytest.mark.parametrize(
+    ("path", "status"), [("/probe/crash", 500), ("/probe/crash-mid-body", 200)]
+)
 async def test_unhandled_exception_is_reported_as_server_error(
-    probe_client: AsyncClient, log_capture: list[dict[str, Any]]
+    probe_client: AsyncClient, log_capture: list[dict[str, Any]], path: str, status: int
 ) -> None:
-    response = await probe_client.get("/probe/crash")
+    response = await probe_client.get(path)
 
+    summaries = [e for e in log_capture if e["kwargs"].get("event_id") == "request.summary"]
     summary = _last_summary(log_capture)
-    assert response.status_code == 500
+    assert response.status_code == status
+    assert (len(summaries), summary["status_code"]) == (1, status)
     assert summary["outcome"] == RequestOutcome.SERVER_ERROR.value
     assert summary["error_count"] == 1
 
