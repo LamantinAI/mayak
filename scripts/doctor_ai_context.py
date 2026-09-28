@@ -196,12 +196,19 @@ def tool_layers_enabled() -> bool:
 # keyed by the rule_id this module prints. Reachable through `doctor_ai_context.py --rule <id>`.
 _GATE_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
     "gate.lockfile.stale": {
-        "meaning": "uv.lock no longer matches pyproject.toml, so the environment is not reproducible.",
+        "meaning": (
+            "`uv lock --check` failed: uv.lock no longer matches pyproject.toml, or uv itself "
+            "could not run."
+        ),
         "read_first": ["pyproject.toml", "uv.lock"],
         "smallest_command_to_rerun": "uv lock --check",
+        # A cache uv could not initialise reached here too and was told to regenerate the lock
+        # (round-4 finding R23): the advice now depends on what uv said.
         "likely_fix_shape": (
-            "Run `make update-deps` to regenerate uv.lock, then commit it alongside the "
-            "pyproject.toml change that caused the drift."
+            "If uv says the lockfile needs to be updated, run `make update-deps` and commit uv.lock "
+            "with the pyproject.toml change that caused the drift. Any other error — a cache it "
+            "cannot initialise, no network — is uv failing to run: fix that and rerun; the lock "
+            "is not the problem."
         ),
         "next_checks": ["uv lock --check", "make quality-gates"],
         "stop_widening_condition": "Stop widening once `uv lock --check` exits 0.",
