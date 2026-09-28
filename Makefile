@@ -86,7 +86,7 @@ help:
 		| sort -t'	' -k1,1 -s \
 		| awk -F'\t' '{ if ($$1 != g) { g = $$1; printf "\n%s\n", g } printf "  make %-24s %s\n", $$2, $$3 }'
 
-init-project:
+init-project: ## Scaffolding | Install dependencies and create .env (idempotent: never overwrites one)
 	./dev_setup.sh
 	@# The identity decision cannot be guessed: a checkout named anything at all may be the template
 	@# itself or a project built from it. Guessing wrong is worse than asking, so init states the
@@ -291,7 +291,7 @@ update-deps:
 # The requirements file goes to a `mktemp` path, not a fixed /tmp name. The fixed name carried
 # the template's own name into every project built from it, and two checkouts auditing at the
 # same time wrote over each other's export.
-audit-deps:
+audit-deps: ## Validation | Audit the locked dependencies for known CVEs (pip-audit)
 	@set +e; \
 	requirements=$$(mktemp); \
 	$(UV) export --no-emit-project --frozen > "$$requirements"; \
@@ -365,7 +365,7 @@ ci-local: ## Validation | Everything CI runs, locally: the full gate, the no-Pos
 # children it spawns so "the doctor runs the test suite, and the suite exercises the doctor"
 # terminates — but a shell that exports it for any other reason would silently disable five layers
 # and get a bare "ok" back in a second. This is the entry point a human uses; it starts clean.
-doctor:
+doctor: ## Validation | Diagnose a red gate: each failed layer with its rule ID and playbook
 	@MAYAK_DOCTOR_SUBPROCESS= $(UV) run python scripts/doctor_ai_context.py
 
 doctor-json:

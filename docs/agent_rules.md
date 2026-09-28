@@ -6,7 +6,7 @@ expands its `@AGENTS.md` import at session start, because Claude Code does not r
 itself. One document holds the rules either way — ADR-011.
 
 Start here:
-- Copy the `reference_task` vertical. It is the one worked example and it exists to be copied — eleven files plus three wiring edits; `.agents/skills/add-vertical` carries the order and the removal list for when your own vertical replaces it. A project that has replaced it edits this line and nothing else: the wrapper's Quick Start is generated from these bullets.
+- Copy the `reference_task` vertical. It is the one worked example and it exists to be copied — twelve files plus three wiring edits; `.agents/skills/add-vertical` carries the order and the removal list for when your own vertical replaces it. A project that has replaced it edits this line and nothing else: the wrapper's Quick Start is generated from these bullets.
 - If `.env` is missing: `make init-project`. Nothing else creates it, and the app does not start without it. Idempotent — it never overwrites an existing `.env`.
 - `make gate-fast` while editing — format, lint, types with the tests, layer rules, in seconds. `make quality-gates` before committing — its test run includes the db tier, which runs your queries and migrations against a PostgreSQL it starts itself (needs Docker). When the diff touched endpoints, wiring or a migration, `make test-e2e` too: only it runs the built image over HTTP.
 

@@ -52,7 +52,7 @@ The recommended pattern is:
 flat, named by prefix: `project/domain/<vertical>.py`, `project/application/<vertical>_service.py`,
 `project/infrastructure/persistence/<vertical>_repository.py`,
 `tests/application/test_<vertical>_vertical.py`. That is what the shipped `reference_task` vertical
-does, and `.agents/skills/add-vertical/SKILL.md` maps its eleven files onto the steps above. A project that
+does, and `.agents/skills/add-vertical/SKILL.md` maps its twelve files onto the steps above. A project that
 grows past a handful of verticals moves each into its own package —
 `project/domain/<vertical>/`, `project/application/<vertical>/` — and the steps are unchanged;
 only the paths get one level deeper.

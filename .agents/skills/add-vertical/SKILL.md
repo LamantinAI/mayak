@@ -14,7 +14,7 @@ validation_command: make quality-gates
 This repository ships one worked vertical, `reference_task`, purely to be copied. Read its files
 before writing your own — every constraint below is already satisfied in them.
 
-## The eleven files of a vertical
+## The twelve files of a vertical
 
 | # | File | What it holds |
 |---|------|---------------|
@@ -28,7 +28,8 @@ before writing your own — every constraint below is already satisfied in them.
 | 8 | `project/infrastructure/api/endpoints/<name>s.py` | Router and handlers. Parse, delegate, convert. |
 | 9 | `tests/application/test_<name>_vertical.py` | What the service decides before writing — bounds, closed sets, an empty or null patch — over a stub of the port that stores nothing; and the wiring. No database. |
 | 10 | `tests/db/test_<name>_repository.py` | The queries against a real PostgreSQL (the db tier, inside `make test`): the whole row back, filter, order, page, the write condition, id spellings, the spans. |
-| 11 | `tests/db/test_<name>s_api.py` and `tests/functional/src/test_<name>s_api.py` | HTTP in process over the real repository — status codes, a non-default filter, a staged race; and one smoke path through the built image in `make test-e2e`. |
+| 11 | `tests/db/test_<name>s_api.py` | HTTP in process over the real repository — status codes, a non-default filter, a staged race. |
+| 12 | `tests/functional/src/test_<name>s_api.py` | One smoke path through the built image, in `make test-e2e`. |
 
 Every file here is type-checked — `MYPY_TARGETS` covers every test suite, so a hand-written fake
 that drifts from the Protocol fails `make gate-types` even though pytest cannot see the drift.

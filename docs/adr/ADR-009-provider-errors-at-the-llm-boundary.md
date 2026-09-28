@@ -6,8 +6,9 @@ Accepted (2026-09-04)
 
 ## Decision
 
-`LLMService` raises the domain's own error types, never the provider client's. The adapter in
-`project/infrastructure/agents/llm_service_live.py` translates on the way out:
+`LLMService` raises the domain's own error types for every failure on the provider's side; a request
+the provider refused as malformed is this service's bug and keeps the provider's own type. The
+adapter in `project/infrastructure/agents/llm_service_live.py` translates on the way out:
 
 | What happened | What leaves the adapter | What the caller is answered |
 | --- | --- | --- |

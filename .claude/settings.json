@@ -14,6 +14,7 @@
   },
   "permissions": {
     "allow": [
+      "Bash(make init-project)",
       "Bash(make ai-autofix)",
       "Bash(make quality-gates)",
       "Bash(make doctor)",
