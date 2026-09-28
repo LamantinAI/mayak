@@ -87,14 +87,15 @@ table the caller writes ahead of time, not a second source of behavior, so it do
 "the model answered with something plausible and wrong" case above. That case is still
 `tests/support/scripted_llm.py`'s alone.
 
-Nor does the mock read what it is sent. It calls the next bound tool whatever the messages hold, so
-a vertical that sends only the user's text — no ids, no candidates, no system prompt — passes every
-mock test, and a live model given the same messages asks for the ids instead of calling a tool.
-Both bench measurements (2026-09) met exactly this at their first live stage. The test that sees it
-calls the vertical's real method against `ScriptedLLMService` and asserts on `received` that the
-first call carried what the tools need, then on the vertical's port that the scripted tool call
-actually ran before the answer says it did. Which message class carries the context is the
-vertical's choice: `PromptLLMAdapter.call(system=None)` is legal.
+Nor does the mock judge whether the messages are enough. It calls the next bound tool whatever
+they hold, so a vertical that sends only the user's text — no ids, no candidates — passes its mock
+tests, and a live model given the same messages asks for the ids instead of calling a tool. Both
+bench measurements (2026-09) met exactly this at their first live stage, and bench3's final agent
+writes "the draft check passed" whether or not the model called the check. Two tests of the
+vertical's real method against `ScriptedLLMService` see both: assert on `received` that the first
+call carried what the tools need; script a text reply with no tool call and assert the answer does
+not claim the check ran. Which message class carries the context is the vertical's choice:
+`PromptLLMAdapter.call(system=None)` is legal.
 
 So a test that needs one writes it down. `tests/support/scripted_llm.py` ships a `ScriptedLLMService`
 that replays a fixed list of replies in order and raises when a call arrives past the end of the

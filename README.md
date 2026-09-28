@@ -298,8 +298,8 @@ Notes worth knowing:
   authenticated cross-origin requests. Either list the exact origins this deployment serves, or set
   `SERVER_CORS_ALLOW_CREDENTIALS=false` if the API is public or token-authenticated and never relies
   on cookies.
-- `.env.sample` is the documentation for every variable; a test compares its values against the
-  defaults declared in code, except the placeholders and local conveniences it lists by name.
+- `.env.sample` is the documentation for every variable; a test compares each value against the
+  default the code declares for it, except the placeholders and local conveniences it lists by name.
 
 ---
 

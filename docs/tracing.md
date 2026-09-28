@@ -20,12 +20,14 @@ keyboard: `make format-trace ARGS="<logfile>"` (a local file) or `make logs` (a 
 ## Reading the request you just made
 
 Whatever ran after it — the `GET` checking what it created — is the last trace now, and the default
-render shows that one; `(N more trace(s) in this log — rerun with --all)` is the only sign. So:
+render shows that one; a line under the tree counting the hidden traces is the only sign. So:
 
 1. Record: the service logs NDJSON to stdout, `mkdir -p logs && make run-local | tee
    logs/run.ndjson`; for a container, `make logs-raw` once the request is done.
 2. Make the one request you want to read — your own endpoint; the kernel has none to stand in.
-3. `make format-trace ARGS="logs/run.ndjson --all"`, then `--trace <ID>` for the one you need.
+3. `make format-trace ARGS="logs/run.ndjson --all"`, then `--trace <ID>` with the full id — the
+   response's `x-request-id` header or the `trace_id` of its NDJSON lines; the tree prints eight
+   characters of it, and `--trace` matches only the whole.
 
 `ENABLE_FULL_TRACE=true` also writes prompts and completions to `logs/<ts>_pid<PID>.ndjson`. The
 spans do not need it, and what lands there is what users typed — ADR-013.

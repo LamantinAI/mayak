@@ -6,9 +6,10 @@ Accepted (2026-09-04)
 
 ## Decision
 
-`LLMService` raises the domain's own error types for every failure on the provider's side; a request
-the provider refused as malformed is this service's bug and keeps the provider's own type. The
-adapter in `project/infrastructure/agents/llm_service_live.py` translates on the way out:
+`LLMService` raises the domain's own error types when the provider failed or refused our
+credentials. When it refused the request itself — 400, 404, 409, 422 — the request is this
+service's bug, and the provider's own error goes through untranslated, a 500. The adapter in
+`project/infrastructure/agents/llm_service_live.py` translates on the way out:
 
 | What happened | What leaves the adapter | What the caller is answered |
 | --- | --- | --- |
@@ -61,8 +62,9 @@ catches whatever finally escapes it, retryable or not.
 
 ## Consequences
 
-- A vertical that calls the model catches `ExternalServiceError` and gets every provider failure,
-  or catches `UpstreamAuthenticationError` first when it wants to treat a dead key differently.
+- A vertical that calls the model catches `ExternalServiceError` and gets every provider failure
+  but a refused request, or catches `UpstreamAuthenticationError` first when it wants to treat a
+  dead key differently.
 - Swapping `langchain-openai` for another client changes this adapter and nothing downstream.
 - `/health/ready` is unaffected: the readiness probe has always caught every exception itself and
   reported a status rather than raising. Whether the LLM check can fail the verdict is ADR-008.

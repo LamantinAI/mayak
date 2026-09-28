@@ -78,21 +78,17 @@ next file supplies; it formats what you changed. `make quality-gates` once the s
 4. Repository, then `tests/db/test_<name>_repository.py` — the db tier is the one place in
    `make test` where your queries actually run; `tests/db/conftest.py` gives it `db_pool`, every
    table emptied. A mock of the pool proves only what its author imagined. Judge a query by the
-   rows it returns, on data where a wrong query returns something else:
-   - order: rows inserted in the reverse of the expected order;
-   - limit: one match more than the page;
-   - filter: a second row differing only in the filtered column — the other status sorting
-     first, or another parent row at the same moment, so a condition on the wrong column shows;
-   - a rule: which rule refused — with two constraints on one table, `pytest.raises(ConflictError,
-     match=...)` names it; a bare 409 passes whichever one fired.
-
-   Wrap each method in
+   rows it returns, on data chosen so a wrong one shows: rows inserted in the reverse of the
+   expected order, a page one smaller than the matches, and for each filter a second row that
+   differs only in the filtered column — another parent row at the same moment included. With two
+   constraints on one table, the repository's own test names the one that refused
+   (`pytest.raises(ConflictError, match=...)`): a bare 409 passes whichever fired. Wrap each method in
    `with logger.span("db.<name>.<op>", ...)` and put the outcome in `span.output` (a row count, a
    found/not-found flag), which only survives the success path — a driver error translated into a
    domain one is asserted on `span.error`, not on an output line before `raise`.
 5. Application service and DTOs. A field check is written once, in the domain, and the service
-   calls it on every path that writes or filters; a filter value it refuses — an id that does not
-   parse — answers 422, never drops the condition and returns every row. The DTO declares types only. A bound repeated in
+   calls it on every path that writes or filters. A filter value that does not parse answers 422 or
+   matches nothing — never drops the condition and returns every row. The DTO declares types only. A bound repeated in
    the DTO is a second copy that drifts, and the verticals bench2 measured copied the one the sample
    used to carry. If the vertical has an update, copy
    `ReferenceTaskService.update_task` whole: the conditional write stops a concurrent patch erasing
@@ -207,11 +203,9 @@ the schema the provider receives, and `bind_tools` refuses such a tool. Test the
 answer parser, the `isinstance`-before-`in VALID_X` check (model output can be a list, not a string),
 and the loop's bookkeeping by hand — the last needs `tests/support/scripted_llm.py` and an adapter
 typed against a Protocol, as `prompt_llm_adapter.py` declares `SupportsMessageCall`. Mock mode
-answers without reading what it was sent, so a vertical that sends only the user's text — no ids,
-no candidates — passes every mock test and then meets a live model asking for the ids instead of
-calling a tool. Call the vertical's real method against `ScriptedLLMService`, assert on its
-`received` that the first call carried what the tools need, and on the port that the scripted tool
-actually ran before the answer says it did — ADR-003. A provider error
+calls a tool whether or not the messages would let a live model choose one, so two scripted tests
+do what it cannot — ADR-003: `received` shows the first call carried the ids and context the tools
+need, and a reply of text with no tool call is not reported as a check that passed. A provider error
 reaches your vertical translated: `ExternalServiceError` or `UpstreamAuthenticationError`, both 502.
 See ADR-009. What neither mock nor script can settle is the turn ceiling a production loop needs:
 measure that against a live provider, and make the loop say it hit one — in the trace and in the
