@@ -77,6 +77,10 @@ if scenario in ("assertion", "final_control_red"):
 if scenario == "setup_error":
     print("ERROR tests/test_code.py::test_it - psycopg.OperationalError: connection refused")
     sys.exit(1)
+if scenario == "failed_and_error":
+    print("FAILED tests/test_code.py::test_it - assert 1 == 2")
+    print("ERROR tests/test_db.py::test_row - psycopg.OperationalError: connection refused")
+    sys.exit(1)
 if scenario == "infrastructure":
     print("Cannot connect to the Docker daemon at unix:///var/run/docker.sock")
     sys.exit(2)
@@ -94,6 +98,7 @@ time.sleep(30)
     [
         ("assertion", 0),
         ("setup_error", 2),
+        ("failed_and_error", 2),
         ("infrastructure", 2),
         ("timeout", 2),
         ("final_control_red", 2),

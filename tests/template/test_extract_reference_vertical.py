@@ -216,9 +216,10 @@ def test_a_project_has_the_vertical_taken_out_once(
 
 
 # bench3 (2026-09-27): a test run had left bytecode in tests/template/__pycache__, the plan named it
-# among the deletions, and `git add` refused the whole list — exit 1, nothing staged.
+# among the deletions, and `git add` refused the whole list — exit 1, nothing staged. Any file git
+# never knew did the same (GPT-6 Sol, 2026-09-28).
 @pytest.mark.unit
-def test_bytecode_a_test_run_left_behind_does_not_stop_the_staging(
+def test_files_git_never_knew_do_not_stop_the_staging(
     checkout: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     replace_identity(checkout)
@@ -226,6 +227,7 @@ def test_bytecode_a_test_run_left_behind_does_not_stop_the_staging(
     py_compile.compile(
         str(source), cfile=str(source.parent / "__pycache__/test_run_mutations.cpython-313.pyc")
     )
+    (source.parent / "local-note.txt").write_text("not tracked\n", encoding="utf-8")
 
     assert extraction.main(["--root", str(checkout)]) == 0
 

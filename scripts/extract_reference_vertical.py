@@ -383,6 +383,25 @@ def _tracked_text_files(root: Path) -> list[str]:
     )
 
 
+# What git tracks under `path` — the only deletions `git add` can stage. Bytecode a test run left
+# there (bench3, 2026-09-27), or any other file git never knew, failed the whole staging step when
+# named; the directory is still removed whole. Outside a repository, everything but bytecode.
+def _tracked_under(root: Path, path: str) -> list[str]:
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "--", path],
+            cwd=root,
+            env=hermetic_env(),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split("\n")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        found = (root / path).rglob("*")
+        return [str(p.relative_to(root)) for p in found if p.is_file() and p.suffix != ".pyc"]
+    return [name for name in listed if name]
+
+
 # Recursive: a vertical kept in a package of its own (project/domain/booking/model.py) is a
 # vertical too, and a search of the top level alone let the extraction go ahead past it.
 def _own_vertical_files(root: Path) -> list[str]:
@@ -562,13 +581,7 @@ def build_plan(root: Path) -> Plan | str:
     for path in TEMPLATE_ONLY:
         target = root / path
         if target.is_dir():
-            # Bytecode the tests left behind goes with the directory, not through `git add`: git
-            # never knew it, and naming it failed the whole staging step (bench3, 2026-09-27).
-            deleted.update(
-                str(p.relative_to(root))
-                for p in target.rglob("*")
-                if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"
-            )
+            deleted.update(_tracked_under(root, path))
         elif target.is_file():
             deleted.add(path)
 

@@ -312,7 +312,8 @@ class ErrorEnvelopeBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: str
-    message: str
+    # An HTTPException's detail, whatever the raiser gave it; text everywhere else.
+    message: Any
     status_code: int
     details: list[ErrorEnvelopeDetail] | None = None
 
@@ -325,7 +326,8 @@ class ErrorEnvelope(BaseModel):
 
 # FastAPI declares every 422 as its own HTTPValidationError, `{"detail": [...]}`, while
 # _render_validation_error answers `{"error": {...}}` — a client generated from the schema parsed
-# a body it never receives (GPT-6 Astra, 2026-09-27). The declaration is rewritten, not the answer.
+# a body it never receives (GPT-6 Astra, 2026-09-27). The declaration is rewritten, not the answer,
+# and only FastAPI's own: a 422 a route declared itself is that route's to describe.
 def _declare_the_error_envelope(app: FastAPI) -> None:
     generate = app.openapi
 
@@ -336,11 +338,12 @@ def _declare_the_error_envelope(app: FastAPI) -> None:
         envelope = ErrorEnvelope.model_json_schema(ref_template="#/components/schemas/{model}")
         components = schema.setdefault("components", {}).setdefault("schemas", {})
         components.update(envelope.pop("$defs", {}), ErrorEnvelope=envelope)
+        generated = {"$ref": "#/components/schemas/HTTPValidationError"}
         reference = {"$ref": "#/components/schemas/ErrorEnvelope"}
         for operation in (op for path in schema.get("paths", {}).values() for op in path.values()):
-            declared = operation.get("responses", {}).get("422")
-            if declared is not None:
-                declared["content"] = {"application/json": {"schema": reference}}
+            content = operation.get("responses", {}).get("422", {}).get("content", {})
+            if content.get("application/json", {}).get("schema") == generated:
+                content["application/json"]["schema"] = reference
         return schema
 
     app.openapi = openapi  # type: ignore[method-assign]

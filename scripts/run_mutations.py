@@ -68,8 +68,8 @@ _WITHOUT_TEMPLATE_TESTS = "--deselect=tests/template/"
 # What one tier did with one version of the code.
 @dataclass
 class TierResult:
-    # "green"; "red" when a test body failed; "inconclusive" when the tier failed without one —
-    # only errored tests, or none named at all; "timeout".
+    # "green"; "red" when test bodies failed and nothing errored; "inconclusive" when anything
+    # errored or nothing was named; "timeout".
     state: str
 
     # Wall-clock duration of the tier.
@@ -107,7 +107,9 @@ def parse_failed_tests(output: str) -> tuple[list[str], list[str], str]:
 # Returns: Its state, duration and the tests it named.
 # A tier that fails with no FAILED test is inconclusive, with the output tail as the reason. That
 # is how a coverage floor, a collection error, a database that never started or a Docker daemon
-# that is down shows up; counting it red credited the defect with a catch no test made.
+# that is down shows up; counting it red credited the defect with a catch no test made. So is one
+# where anything ERRORed beside a FAILED: a database gone mid-run fails a body and errors a
+# fixture at once (GPT-6 Sol, 2026-09-28). No catch of the catalogue's 2026-09-28 run had an ERROR.
 def run_tier(command: Sequence[str]) -> TierResult:
     started = time.monotonic()
     try:
@@ -136,7 +138,8 @@ def run_tier(command: Sequence[str]) -> TierResult:
     failed, errored, first_error = parse_failed_tests(output)
     if not first_error:
         first_error = " ".join(_ANSI.sub("", output)[-400:].split())
-    return TierResult("red" if failed else "inconclusive", seconds, failed, first_error, errored)
+    state = "red" if failed and not errored else "inconclusive"
+    return TierResult(state, seconds, failed, first_error, errored)
 
 
 # Put back any file a previous run left mutated because it was killed mid-defect.
