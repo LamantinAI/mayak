@@ -2,10 +2,12 @@
 # SUMMARY: FastAPI exception handlers for translating domain exceptions to HTTP responses with semantic logging.
 
 import uuid
+from typing import Any
 
 from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from project.core.error_utils import (
@@ -295,6 +297,56 @@ class ExceptionHandlerManager:
         )
 
 
+# The envelope every handler above answers in, declared for the schema only: the handlers build it
+# as a dict, and tests/application/test_openapi_declares_the_error_envelope.py holds the two
+# together. Extra keys are refused so a field one side adds and the other lacks shows there.
+class ErrorEnvelopeDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    message: str
+    type: str
+
+
+class ErrorEnvelopeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: str
+    message: str
+    status_code: int
+    details: list[ErrorEnvelopeDetail] | None = None
+
+
+class ErrorEnvelope(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    error: ErrorEnvelopeBody
+
+
+# FastAPI declares every 422 as its own HTTPValidationError, `{"detail": [...]}`, while
+# _render_validation_error answers `{"error": {...}}` — a client generated from the schema parsed
+# a body it never receives (GPT-6 Astra, 2026-09-27). The declaration is rewritten, not the answer.
+def _declare_the_error_envelope(app: FastAPI) -> None:
+    generate = app.openapi
+
+    def openapi() -> dict[str, Any]:
+        if app.openapi_schema is not None:
+            return app.openapi_schema
+        schema = generate()
+        envelope = ErrorEnvelope.model_json_schema(ref_template="#/components/schemas/{model}")
+        components = schema.setdefault("components", {}).setdefault("schemas", {})
+        components.update(envelope.pop("$defs", {}), ErrorEnvelope=envelope)
+        reference = {"$ref": "#/components/schemas/ErrorEnvelope"}
+        for operation in (op for path in schema.get("paths", {}).values() for op in path.values()):
+            declared = operation.get("responses", {}).get("422")
+            if declared is not None:
+                declared["content"] = {"application/json": {"schema": reference}}
+        return schema
+
+    app.openapi = openapi  # type: ignore[method-assign]
+
+
 def setup_exception_handlers(app: FastAPI) -> None:
     # Create exception handler manager and register handlers.
     ExceptionHandlerManager(app)
+    _declare_the_error_envelope(app)
