@@ -27,8 +27,12 @@ from typing import Sequence
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 # The ceiling on non-empty Python lines a project inherits: the post-bench2 plan's 19-21 thousand,
-# reached once the navigation maps and their query tool left the product (step 7).
-DEFAULT_LINE_LIMIT = 21_000
+# reached once the navigation maps and their query tool left the product (step 7). Raised to 22 000
+# by the owner on 2026-09-28: the product stood at 20 983, and the fixes bench3 asked for (the
+# layer validator, provider errors, the 500's status, the sample's update conflict) add code a
+# project inherits. bench3 found no link between this count and what an agent pays; it is a brake on
+# the diff, not a goal.
+DEFAULT_LINE_LIMIT = 22_000
 
 PROBE_NAME = "Harbor Probe"
 PROBE_DOMAIN = "Berth bookings for a small marina — a throwaway project made to check the template."
