@@ -82,6 +82,11 @@ while IFS= read -r target; do
         /*) ;;
         *) target="$repo_root/$target" ;;
     esac
+    # `./AGENTS.md` and `docs/../AGENTS.md` are AGENTS.md too, and passed the comparison below
+    # (round-4 finding K3): compare the directory as the file system resolves it.
+    if resolved=$(cd "$(dirname "$target")" 2>/dev/null && pwd -P); then
+        target="$resolved/$(basename "$target")"
+    fi
     for relative in $generated; do
     absolute="$repo_root/$relative"
     # Equality covers the generated files themselves; the prefix test covers a
