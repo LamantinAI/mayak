@@ -291,7 +291,7 @@ update-deps:
 # The requirements file goes to a `mktemp` path, not a fixed /tmp name. The fixed name carried
 # the template's own name into every project built from it, and two checkouts auditing at the
 # same time wrote over each other's export.
-audit-deps: ## Validation | Audit the locked dependencies for known CVEs (pip-audit)
+audit-deps:
 	@set +e; \
 	requirements=$$(mktemp); \
 	$(UV) export --no-emit-project --frozen > "$$requirements"; \
