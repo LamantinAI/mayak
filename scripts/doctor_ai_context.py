@@ -297,9 +297,12 @@ def get_doctor_layer_playbook(rule_id: str) -> dict[str, object] | None:
 # now?". Every validator's getter is asked in turn; in the template,
 # tests/template/test_doctor_ai_context.py parametrises over every rule_id a validator declares, so
 # a new rule without a playbook is red.
-# A playbook's list fields, read from a dict[str, object] the validators declare by hand.
+# A playbook's list fields, read from a dict[str, object] the validators declare by hand. A field
+# of another type is a broken playbook and fails as `list(value)` did, not as an empty list.
 def _listed(value: object) -> list[object]:
-    return list(value) if isinstance(value, (list, tuple)) else []
+    if not isinstance(value, (list, tuple)):
+        raise TypeError(f"a playbook list field holds {type(value).__name__}")
+    return list(value)
 
 
 # Raises KeyError for a rule_id nothing declares.

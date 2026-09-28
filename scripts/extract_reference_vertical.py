@@ -255,7 +255,7 @@ CUTS: tuple[Cut, ...] = (
     ),
     # The job that makes a project from the template has nothing to make in a project: it started
     # a PostgreSQL service, installed everything and printed "belongs to the template" on every
-    # push of every project (round-4 finding K1).
+    # push of every project (round-4 finding K1, its second half).
     Cut(
         ".github/workflows/ci.yml",
         "  # A project made from this template today: its identity replaced, the reference vertical taken",
