@@ -31,6 +31,8 @@ from tenacity import (
     wait_exponential,
 )
 
+from pydantic import ValidationError
+
 from project.core.config import Settings
 from project.core.logging import SemanticLogger
 from project.core.logging.redaction import redact_secrets
@@ -192,11 +194,15 @@ class LLMServiceLiveMixin:
                             TypeError,
                             AttributeError,
                             json.JSONDecodeError,
+                            ValidationError,
                         ) as error:
                             # What langchain-openai raises for a 200 with empty, missing or null
-                            # choices/message, or a non-JSON body. Not retried: the policy covers
-                            # transport and rate-limit failures, not a broken reply. Not bare
-                            # ValueError: pydantic's ValidationError must still surface.
+                            # choices/message, or a non-JSON body — and ValidationError for a
+                            # message whose content is an object, not text (a 500 until
+                            # 2026-09-28): our own messages are validated when built, before
+                            # this call, so one raised here is the reply's. Not retried: the policy
+                            # covers transport and rate-limit failures, not a broken reply. Not
+                            # bare ValueError, which would also take in a bug of this service.
                             raise ExternalServiceError(
                                 "LLM provider returned an invalid reply"
                             ) from error
