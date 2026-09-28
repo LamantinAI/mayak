@@ -79,6 +79,17 @@ class TestRuntimeValidationWithoutPostgres:
 
         settings.validate_runtime()  # no-assert-ok: the assertion is that this does not raise
 
+    # The suite's settings carry the shipped prompts whatever the environment names: a developer's
+    # AGENT_PROMPTS_DIR failed the test above on a missing prompt (round-4 finding K12).
+    # no-assert-ok: the assertion is that validate_runtime() does not raise.
+    @pytest.mark.unit
+    def test_the_suite_settings_ignore_a_local_prompts_dir(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("AGENT_PROMPTS_DIR", "/nonexistent")
+
+        FixtureSettings().validate_runtime()  # no-assert-ok: the assertion is that this does not raise
+
     @pytest.mark.unit
     def test_default_password_is_still_rejected_when_database_is_enabled(self) -> None:
         settings = FixtureSettings()
