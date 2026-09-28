@@ -13,6 +13,16 @@ if [ ! -w "$LOGS_DIR" ]; then
     echo "WARNING: logs directory '$LOGS_DIR' is not writable; file logging will be disabled."
 fi
 
+# The check the application runs at startup, run before anything touches the database. It used to
+# come after `alembic upgrade head`, so a container refused for its settings — a wildcard CORS
+# origin, a placeholder password — had already migrated the database it shares (round-4 finding
+# R7). Settings only: no application is built.
+echo "Checking the configuration..."
+if ! python -c "from project.core.config import get_settings; get_settings().validate_runtime()"; then
+    echo "ERROR: the configuration was refused (the reason is above); nothing was migrated."
+    exit 1
+fi
+
 # A project that declared POSTGRES_ENABLED=false has no relational store, so there is nothing
 # to migrate. Without this branch the container exits 1 before the application is ever reached.
 if [ "${POSTGRES_ENABLED:-true}" = "false" ]; then
