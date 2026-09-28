@@ -89,6 +89,11 @@ once per microsecond, or because it wants the version visible to clients — use
 column with `SET version = version + 1 ... WHERE id = %s AND version = %s` instead. The mechanism is
 identical; only the token changes.
 
+The token guards the read this request made, not the one its client made. A client that loaded the
+row a minute ago and sends its edit now still overwrites whatever changed in that minute. A vertical
+whose clients edit shared rows takes the token from the client — a `version` field or an `If-Match`
+header — and passes that as the condition; the sample does not, having no such client.
+
 Measured on 2026-09-02: an agent given "add a vertical with PATCH" and following
 `.agents/skills/add-vertical/SKILL.md` wrote the blind form, because the reference vertical had no
 update to copy and this ADR said nothing about the case. All 876 tests passed.
@@ -147,6 +152,17 @@ or `errors.UniqueViolation`, which the repository catches and re-raises as a dom
 own code does, which is what the `fetchone()` branch above is for. Either way the exception the
 application layer sees is `ConflictError`, the same shape as the zero-row `RETURNING` above, so the
 API answers 409 rather than showing the client a driver exception as a 500.
+
+Either mechanism holds only on the paths that use it. A constraint sees every statement, but each
+one must translate its violation — an update that meets it untranslated answers 500. `FOR UPDATE`
+sees only the writers that take the lock: a PATCH lengthening a booking moves a weekly total as
+surely as an INSERT adds one, and without the lock and the re-check two concurrent lengthenings each
+read the old total and both pass. A total across rows is exactly the rule no constraint names, so an
+`EXCLUDE` on overlaps beside it does not hold it. Three layers, three jobs: the domain check gives
+the clear error for what one row can know (a start before its end); the constraint or the lock is
+the guarantee; a `SELECT` before the write is a third copy that guarantees nothing the second does
+not. Lock order matters only once two paths lock the same rows — with one path there is nothing to
+order.
 
 Since 2026-09-24 the reference vertical carries the first mechanism, so copying it carries the
 pattern. Its rule — at most one open task per title, compared case-insensitively — is the partial

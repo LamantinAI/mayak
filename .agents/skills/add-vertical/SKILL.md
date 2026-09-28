@@ -48,8 +48,8 @@ Do not bring such a list back — the template's own test of its skill texts ref
 
 ## Order of work
 
-`make gate-fast` after each file — format, lint, types and layers in seconds, and it formats
-what you changed; `make quality-gates` once the steps are done.
+`make gate-fast` after each step below, not after each file — a half-written step fails on what its
+next file supplies; it formats what you changed. `make quality-gates` once the steps are done.
 
 1. Domain model and port.
 2. The ORM model in `orm_models.py`. Before the migration, not after — autogeneration compares this
@@ -77,14 +77,22 @@ what you changed; `make quality-gates` once the steps are done.
    of its own and runs `alembic upgrade head` and `alembic check` there.
 4. Repository, then `tests/db/test_<name>_repository.py` — the db tier is the one place in
    `make test` where your queries actually run; `tests/db/conftest.py` gives it `db_pool`, every
-   table emptied. Judge a query by the rows it returns, on data chosen so a wrong one shows: rows
-   inserted in the reverse of the expected order, a page one smaller than the matches, a row of
-   the other status that sorts first. A mock of the pool proves only what its author imagined. Wrap each method in
+   table emptied. A mock of the pool proves only what its author imagined. Judge a query by the
+   rows it returns, on data where a wrong query returns something else:
+   - order: rows inserted in the reverse of the expected order;
+   - limit: one match more than the page;
+   - filter: a second row differing only in the filtered column — the other status sorting
+     first, or another parent row at the same moment, so a condition on the wrong column shows;
+   - a rule: which rule refused — with two constraints on one table, `pytest.raises(ConflictError,
+     match=...)` names it; a bare 409 passes whichever one fired.
+
+   Wrap each method in
    `with logger.span("db.<name>.<op>", ...)` and put the outcome in `span.output` (a row count, a
    found/not-found flag), which only survives the success path — a driver error translated into a
    domain one is asserted on `span.error`, not on an output line before `raise`.
 5. Application service and DTOs. A field check is written once, in the domain, and the service
-   calls it on every path that writes or filters; the DTO declares types only. A bound repeated in
+   calls it on every path that writes or filters; a filter value it refuses — an id that does not
+   parse — answers 422, never drops the condition and returns every row. The DTO declares types only. A bound repeated in
    the DTO is a second copy that drifts, and the verticals bench2 measured copied the one the sample
    used to carry. If the vertical has an update, copy
    `ReferenceTaskService.update_task` whole: the conditional write stops a concurrent patch erasing
@@ -93,9 +101,11 @@ what you changed; `make quality-gates` once the steps are done.
    That token only protects the one row it is read from. A rule spanning several rows — one open
    task per title, no overlapping bookings — goes into the database, never into a check before
    the write and never under an `asyncio.Lock`: copy `uq_reference_tasks_open_title` (a partial
-   unique index, its migration, and `_open_title_taken_is_a_conflict` in the repository) and its
+   unique index, its migration, and `_open_title_taken_is_a_conflict` in the repository, around
+   the insert and the update both — a write path left out answers the conflict as a 500) and its
    two-process test in `tests/db/test_reference_task_repository.py`. A rule no constraint can
-   name takes `FOR UPDATE` instead — "Where the single-row token does not reach" in the same ADR.
+   name — a total across rows, such as a weekly ceiling — takes `FOR UPDATE` and a re-check on
+   every path that writes, update included: "Where the single-row token does not reach" in the same ADR.
 6. **The endpoint and all three wiring files in the same step.** The endpoint's last import is the
    typed alias defined in `dependencies.py`. `service_registration.py` and `router_registration.py`
    belong here too — the next step's `TestWiring` builds the application from both.
@@ -196,7 +206,12 @@ tool's arguments on `ToolArgs`, not `CoreModel`: CoreModel's validation aliases 
 the schema the provider receives, and `bind_tools` refuses such a tool. Test the
 answer parser, the `isinstance`-before-`in VALID_X` check (model output can be a list, not a string),
 and the loop's bookkeeping by hand — the last needs `tests/support/scripted_llm.py` and an adapter
-typed against a Protocol, as `prompt_llm_adapter.py` declares `SupportsMessageCall`. A provider error
+typed against a Protocol, as `prompt_llm_adapter.py` declares `SupportsMessageCall`. Mock mode
+answers without reading what it was sent, so a vertical that sends only the user's text — no ids,
+no candidates — passes every mock test and then meets a live model asking for the ids instead of
+calling a tool. Call the vertical's real method against `ScriptedLLMService`, assert on its
+`received` that the first call carried what the tools need, and on the port that the scripted tool
+actually ran before the answer says it did — ADR-003. A provider error
 reaches your vertical translated: `ExternalServiceError` or `UpstreamAuthenticationError`, both 502.
 See ADR-009. What neither mock nor script can settle is the turn ceiling a production loop needs:
 measure that against a live provider, and make the loop say it hit one — in the trace and in the
