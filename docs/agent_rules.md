@@ -11,14 +11,14 @@ Start here:
 - `make gate-fast` while editing — format, lint, types with the tests, layer rules, in seconds. `make quality-gates` before committing — its test run includes the db tier, which runs your queries and migrations against a PostgreSQL it starts itself (needs Docker). When the diff touched endpoints, wiring or a migration, `make test-e2e` too: only it runs the built image over HTTP.
 
 Task process:
-- When one command fails three times running, stop editing: write down the assumption you now doubt, ask `uv run python scripts/doctor_ai_context.py --rule <rule_id>` for its playbook, read only the files it names, and change one thing before rerunning.
+- When the same cause fails a third time — the same error, whatever flags or command you changed around it — stop editing: write down the assumption you now doubt; if a gate named a rule ID, ask `uv run python scripts/doctor_ai_context.py --rule <rule_id>` for its playbook and read only the files it names; change one thing before rerunning.
 - Never claim task completion without fresh `make quality-gates` evidence.
 - Use a fresh subagent for independent verification — do not self-verify.
 - A finished task ends as an open pull request, never a merge: branch `task/<ID>` → commit → push → `gh pr create --base main`. No deploy job ships — "done" means open and green.
 - A fixed defect is proved by one test in the same pull request, failing on the defective code for the stated reason and passing once fixed — not by a test, an ADR, and a wrapper bullet all at once. A new blocking validator rule ships with one failing example and several correct ones it must pass — earned by a real defect, not symmetry.
 
 Working notes:
-- Every Python file opens with `# SUMMARY:`, so `git grep -n '^# SUMMARY:' -- project` lists what each module is for; `git grep -n <name>` finds a symbol and who uses it.
+- Every Python file opens with `# SUMMARY:`, so `git grep -n '^# SUMMARY:' -- project` lists what each module is for; `git grep -n <name>` finds a symbol and who uses it — run it before naming a test, command or symbol in an answer; a name recalled rather than found is a guess.
 - `PROJECT.md` and `docs/project_context.json` carry the business domain; this file covers only the kernel.
 - If `.env` is missing, run `make init-project` (idempotent) — nothing else creates it. `make run-local`/`make migrate` need reachable PostgreSQL unless `POSTGRES_ENABLED=false`; bring one up with `docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d db`.
 - `make quality-gates` and `make gate-fast` first fix what a machine can — refresh the generated wrappers, format and safe-fix the Python you changed — and name each file they rewrote; `make ci-local`, CI and the pre-commit hook set `STRICT_GENERATED=1 STRICT_RUFF=1` and fail instead (ADR-012). On failure `make quality-gates` runs `make doctor`. A narrow `pytest` run measures no coverage — the floor and the total live in `scripts/run_all_tests.py`'s full run.
