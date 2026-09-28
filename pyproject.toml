@@ -184,6 +184,25 @@ disable_error_code = [
 module = ["backoff.*"]
 ignore_missing_imports = true
 
+# The doctor is checked in full: it is what an agent asks after a red gate, and its strict-mode
+# errors (28, 2026-09-28) were a helper typed as returning `object` and one name reused across
+# types — not the schema debt above. Re-enable the codes for one more module once its own are fixed.
+[[tool.mypy.overrides]]
+module = ["scripts.doctor_ai_context"]
+enable_error_code = [
+    "attr-defined",
+    "index",
+    "arg-type",
+    "call-overload",
+    "assignment",
+    "operator",
+    "no-any-return",
+    "misc",
+    "var-annotated",
+    "union-attr",
+    "no-untyped-def",
+]
+
 [tool.coverage.run]
 source = ["project"]
 branch = true
