@@ -297,7 +297,7 @@ update-deps:
 # changes what the gate reports on a day no commit changed anything. Raise a pin on purpose.
 PIP_AUDIT := pip-audit==2.10.1
 DIFF_COVER := diff-cover==10.6.0
-audit-deps:
+audit-deps: ## Validation | Audit the locked dependencies for known CVEs (pip-audit)
 	@set +e; \
 	requirements=$$(mktemp); \
 	trap 'rm -f "$$requirements"' EXIT; \
