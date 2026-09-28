@@ -616,6 +616,18 @@
     "test_two_processes_that_both_saw_a_title_free_cannot_both_open_it"
    ],
    "mechanism": "direct, db tier: ConflictError from the repository and 409 over HTTP, not a driver error"
+  },
+  {
+   "id": "update_conflict_not_translated",
+   "kind": "invariant",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "                    connection.cursor(row_factory=dict_row) as cursor,\n                    _open_title_taken_is_a_conflict(task.title),\n",
+   "replace": "                    connection.cursor(row_factory=dict_row) as cursor,\n",
+   "breaks": "a rename onto an open task's title answers 500 with a driver error instead of 409; creating one still answers 409",
+   "expect": [
+    "test_only_one_open_task_may_carry_a_title_whatever_its_case"
+   ],
+   "mechanism": "direct, db tier: ConflictError from the repository's update, the path bench3's product left untranslated"
   }
  ],
  "baseline": {

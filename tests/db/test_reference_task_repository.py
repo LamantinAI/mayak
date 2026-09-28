@@ -141,9 +141,10 @@ async def test_every_query_leaves_its_outcome_in_a_span_production_can_see(
     ]
 
 
-# Verify the open-title rule: a second open task conflicts, a closed one frees its title.
-# Fifty newer tasks first, so the one that holds the title is far past the first page — bench2
-# measured a rule checked in the service against one page of the list, and it let this through.
+# Verify the open-title rule: a second open task conflicts, added or renamed onto the title, and a
+# closed one frees it. Fifty newer tasks first, so the one that holds the title is far past the
+# first page — bench2 measured a rule checked in the service against one page of the list, and it
+# let this through. The rename is the path bench3's product left untranslated: a 500.
 async def test_only_one_open_task_may_carry_a_title_whatever_its_case(
     repository: ReferenceTaskRepository,
 ) -> None:
@@ -155,6 +156,12 @@ async def test_only_one_open_task_may_carry_a_title_whatever_its_case(
     for duplicate in (_task(title="plan"), _task(status="in_progress", title="PLAN")):
         with pytest.raises(ConflictError):
             await repository.add(duplicate)
+    other = _task(title="Other")
+    await repository.add(other)
+    with pytest.raises(ConflictError):
+        renamed = replace(other, title="PLAN", updated_at=_NOW)
+        await repository.update(renamed, expected_updated_at=other.updated_at)
+    assert await repository.get(other.id) == other
     closed = replace(first, status="done", updated_at=_NOW)
     await repository.update(closed, expected_updated_at=first.updated_at)
     await repository.add(_task(title="Plan"))

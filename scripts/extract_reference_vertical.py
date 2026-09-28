@@ -52,7 +52,7 @@ SAMPLE_SHA256: dict[str, str] = {
     "project/infrastructure/persistence/reference_task_repository.py": "59eb61963d35dce2de4a23037216ab7d3ccde306749e4c5bbfaa8da6a5f71256",
     "project/infrastructure/api/endpoints/reference_tasks.py": "cf4be1ec16fa1035a351a915600ae627c0e20fa2b8e1ede45a5c851d67845ba9",
     "tests/application/test_reference_task_vertical.py": "a9c3cfdf65b7ea2ff528f8d35cee74b86b5896b25141e5634c8a018eb4c859e1",
-    "tests/db/test_reference_task_repository.py": "a94504ec248f2559951345e964507868d3b10817c80e954bad9b8e5adc7b1d3f",
+    "tests/db/test_reference_task_repository.py": "e742179476867ef93c2e6d498b5b109456071c26ffba8345e4da3c67de8be784",
     "tests/db/test_reference_tasks_api.py": "a52e31eaf49bb24096bbac8368ade29d1261537abc6f85457dcda013c771184c",
     "tests/functional/src/test_reference_tasks_api.py": "6d4ed6eb1f8583483b2737762f0046e5a3fbb807149c59c7689d20f9b63f896b",
 }
