@@ -506,7 +506,12 @@ def build_plan(root: Path) -> Plan | str:
     context_path = root / "docs/project_context.json"
     context = json.loads(context_path.read_text(encoding="utf-8"))
     if context.get("is_template") is not False:
-        return "this is the template (is_template is not false): nothing to take out"
+        # bench3's agent met this line in a project and went on to read the script; name the route.
+        return (
+            "this is the template (is_template is not false): nothing to take out. In a project "
+            "made from it, replace the identity first — .agents/skills/initialize-project, steps "
+            "3-5 — then run `make init-project`"
+        )
     if all(not (root / path).exists() for path in SAMPLE_SHA256) and (root / SCAFFOLD).is_dir():
         return "already done: the reference vertical is in " + SCAFFOLD
 
@@ -557,7 +562,13 @@ def build_plan(root: Path) -> Plan | str:
     for path in TEMPLATE_ONLY:
         target = root / path
         if target.is_dir():
-            deleted.update(str(p.relative_to(root)) for p in target.rglob("*") if p.is_file())
+            # Bytecode the tests left behind goes with the directory, not through `git add`: git
+            # never knew it, and naming it failed the whole staging step (bench3, 2026-09-27).
+            deleted.update(
+                str(p.relative_to(root))
+                for p in target.rglob("*")
+                if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"
+            )
         elif target.is_file():
             deleted.add(path)
 

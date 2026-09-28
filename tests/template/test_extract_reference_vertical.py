@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import py_compile
 import re
 import shutil
 import subprocess
@@ -212,6 +213,35 @@ def test_a_project_has_the_vertical_taken_out_once(
     assert extraction.build_plan(checkout) == (
         "already done: the reference vertical is in " + extraction.SCAFFOLD
     )
+
+
+# bench3 (2026-09-27): a test run had left bytecode in tests/template/__pycache__, the plan named it
+# among the deletions, and `git add` refused the whole list — exit 1, nothing staged.
+@pytest.mark.unit
+def test_bytecode_a_test_run_left_behind_does_not_stop_the_staging(
+    checkout: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    replace_identity(checkout)
+    source = checkout / "tests/template/test_run_mutations.py"
+    py_compile.compile(
+        str(source), cfile=str(source.parent / "__pycache__/test_run_mutations.cpython-313.pyc")
+    )
+
+    assert extraction.main(["--root", str(checkout)]) == 0
+
+    assert "follow-up failed" not in capsys.readouterr().out
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--name-status"],
+        cwd=checkout,
+        env=hermetic_env(),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "D\ttests/template/test_run_mutations.py" in staged.splitlines()
+    assert not (checkout / "tests/template").exists()
+    assert extraction.main(["--root", str(checkout)]) == 0
+    assert "already done" in capsys.readouterr().out
 
 
 # Blank lines an editor added at the end of a shared file are not a line of the project's own; a
