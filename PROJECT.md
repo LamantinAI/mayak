@@ -70,9 +70,9 @@ the project's domain. But it is copying, not invention.
 ## Business Rules
 
 The kernel itself has none. The three below belong to the `reference_task` vertical and are
-here as the shape to copy: an id, one sentence, and the vertical that owns it. The
-machine-readable copies, which the vertical references by id, are in
-`docs/project_context.json`; delete all three along with the example vertical.
+here as the shape to copy: an id, one sentence, and the vertical that owns it. Their
+implementations live in the reference vertical; `docs/project_context.json` does not duplicate
+this rule list. Delete this section along with the example vertical.
 
 | Id | Rule |
 |----|------|

@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr, ValidationError
+from psycopg.conninfo import conninfo_to_dict
 
 from project.core.composition_root import CompositionRoot
 from project.core.config import (
@@ -154,8 +155,13 @@ class TestPostgresSettings:
             port=5432,
         )
         url = str(settings.database_url)
-        # Special chars should be URL-encoded in the resulting URL
-        assert "p@ss:w/rd" not in url or "%40" in url or "%3A" in url
+        assert conninfo_to_dict(url) == {
+            "user": "user",
+            "password": "p@ss:w/rd",
+            "dbname": "testdb",
+            "host": "localhost",
+            "port": "5432",
+        }
 
     # Verify runtime and Alembic can rely on the same PostgreSQL DSN builder.
     @pytest.mark.unit
