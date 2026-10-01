@@ -3,6 +3,7 @@
 
 import pytest
 import os
+from pathlib import Path
 from typing import Any, AsyncGenerator, Generator
 from unittest.mock import patch
 from httpx import AsyncClient, ASGITransport
@@ -52,6 +53,10 @@ class _FixtureSettings(Settings):
         self.llm.model = "test-model"
         self.agent.llm_mode = "mock"
         self.agent.llm_readiness_check_mode = "init"
+        # The shipped prompts, whatever AGENT_PROMPTS_DIR a developer's .env or shell names: a
+        # suite that read it failed a database test on a missing prompt (round-4 finding K12).
+        self.agent.prompts_dir = Path(__file__).resolve().parents[1] / "project" / "prompts"
+        self.agent.system_prompt_name = "example_assistant_prompt.txt"
 
         # Database config
         # Pin the toggle explicitly. Settings read the developer's own .env, so

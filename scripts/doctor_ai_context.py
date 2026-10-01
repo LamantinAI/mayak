@@ -19,7 +19,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Sequence, TypeVar
 
 from validation_support.rendering import render_json
 
@@ -196,12 +196,19 @@ def tool_layers_enabled() -> bool:
 # keyed by the rule_id this module prints. Reachable through `doctor_ai_context.py --rule <id>`.
 _GATE_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
     "gate.lockfile.stale": {
-        "meaning": "uv.lock no longer matches pyproject.toml, so the environment is not reproducible.",
+        "meaning": (
+            "`uv lock --check` failed: uv.lock no longer matches pyproject.toml, or uv itself "
+            "could not run."
+        ),
         "read_first": ["pyproject.toml", "uv.lock"],
         "smallest_command_to_rerun": "uv lock --check",
+        # A cache uv could not initialise reached here too and was told to regenerate the lock
+        # (round-4 finding R23): the advice now depends on what uv said.
         "likely_fix_shape": (
-            "Run `make update-deps` to regenerate uv.lock, then commit it alongside the "
-            "pyproject.toml change that caused the drift."
+            "If uv says the lockfile needs to be updated, run `make update-deps` and commit uv.lock "
+            "with the pyproject.toml change that caused the drift. Any other error — a cache it "
+            "cannot initialise, no network — is uv failing to run: fix that and rerun; the lock "
+            "is not the problem."
         ),
         "next_checks": ["uv lock --check", "make quality-gates"],
         "stop_widening_condition": "Stop widening once `uv lock --check` exits 0.",
@@ -297,6 +304,14 @@ def get_doctor_layer_playbook(rule_id: str) -> dict[str, object] | None:
 # now?". Every validator's getter is asked in turn; in the template,
 # tests/template/test_doctor_ai_context.py parametrises over every rule_id a validator declares, so
 # a new rule without a playbook is red.
+# A playbook's list fields, read from a dict[str, object] the validators declare by hand. A field
+# of another type is a broken playbook and fails as `list(value)` did, not as an empty list.
+def _listed(value: object) -> list[object]:
+    if not isinstance(value, (list, tuple)):
+        raise TypeError(f"a playbook list field holds {type(value).__name__}")
+    return list(value)
+
+
 # Raises KeyError for a rule_id nothing declares.
 def failure_playbook(rule_id: str) -> dict[str, object]:
     for getter in (
@@ -319,10 +334,10 @@ def failure_playbook(rule_id: str) -> dict[str, object]:
         return {
             "rule_id": rule_id,
             "meaning": playbook["meaning"],
-            "smallest_files_to_read": list(playbook["read_first"]),
+            "smallest_files_to_read": _listed(playbook["read_first"]),
             "smallest_command_to_rerun": playbook["smallest_command_to_rerun"],
             "likely_fix_shape": playbook["likely_fix_shape"],
-            "next_checks": list(playbook["next_checks"]),
+            "next_checks": _listed(playbook["next_checks"]),
             "stop_widening_condition": playbook["stop_widening_condition"],
         }
     raise KeyError(f"Unknown failure rule ID: {rule_id}")
@@ -441,7 +456,10 @@ def diagnose_tool_layer(layer: ToolLayer) -> dict[str, object] | None:
 
 # Keep the blocking issues out of a collector's mixed result, filtering by severity —
 # never by rule_id literal, so a warning-severity issue never becomes a blocking layer by accident.
-def _errors_only(issues: Sequence[object]) -> list[object]:
+_Issue = TypeVar("_Issue")
+
+
+def _errors_only(issues: Sequence[_Issue]) -> list[_Issue]:
     return [issue for issue in issues if getattr(issue, "severity", "error") == "error"]
 
 
@@ -673,22 +691,22 @@ def diagnose() -> dict[str, object]:
 
     module_size_issues = collect_module_size_issues(ROOT_DIR)
     if module_size_issues:
-        issue = module_size_issues[0]
+        size_issue = module_size_issues[0]
         return {
             "status": "error",
             "blocking_layer": "module_size",
             "issues": [
                 {
                     "issue_type": "module_size_error",
-                    "rule_id": issue.rule_id,
+                    "rule_id": size_issue.rule_id,
                     "category": "module_size",
-                    "file": issue.path.as_posix(),
-                    "line": issue.line,
+                    "file": size_issue.path.as_posix(),
+                    "line": size_issue.line,
                     # One wording, produced by the issue itself — rebuilding the sentence here
                     # would drift silently the moment the budget grows a second unit.
-                    "message": issue.describe(),
+                    "message": size_issue.describe(),
                     "recommended_next_command": "uv run python scripts/validate_module_sizes.py",
-                    "likely_fix_shape": (get_module_size_playbook(issue.rule_id) or {}).get(
+                    "likely_fix_shape": (get_module_size_playbook(size_issue.rule_id) or {}).get(
                         "likely_fix_shape"
                     ),
                     "stop_widening_condition": (
@@ -717,19 +735,19 @@ def diagnose() -> dict[str, object]:
     all_migration_issues = collect_migration_issues(ROOT_DIR)
     migration_issues = [issue for issue in all_migration_issues if issue.severity == "error"]
     if migration_issues:
-        issue = migration_issues[0]
-        playbook = get_migrations_rule_playbook(issue.rule_id)
+        migration_issue = migration_issues[0]
+        playbook = get_migrations_rule_playbook(migration_issue.rule_id)
         return {
             "status": "error",
             "blocking_layer": "migrations",
             "issues": [
                 _validator_issue_payload(
                     issue_type="migrations_error",
-                    rule_id=issue.rule_id,
+                    rule_id=migration_issue.rule_id,
                     category="migrations",
                     file="alembic/",
                     line=1,
-                    message=f"[{issue.command_name}] {issue.message}",
+                    message=f"[{migration_issue.command_name}] {migration_issue.message}",
                     playbook=playbook,
                 )
             ],
@@ -893,7 +911,10 @@ def main() -> int:
     else:
         print("doctor status: error")
         print(f"blocking_layer: {payload['blocking_layer']}")
-        issue = payload["issues"][0]
+        issues = payload["issues"]
+        # Every error payload built above carries one issue as a dict; say so rather than assume it.
+        assert isinstance(issues, list) and issues and isinstance(issues[0], dict), payload
+        issue = issues[0]
         print(f"message: {issue['message']}")
         # The fix shape is printed above the command on purpose — for every gate
         # layer the recommended command IS the command that just failed.

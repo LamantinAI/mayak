@@ -592,6 +592,16 @@ class TestGeneratedFilesRefuseTheEdit:
     def test_hand_written_sources_are_left_alone(self, name: str) -> None:
         assert self._decision(str(_REPO_ROOT / name)) is None
 
+    # The same file under another spelling passed until 2026-09-28 (round-4 finding K3); a patch
+    # names files relative to the root, Edit and Write absolutely.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "spelling",
+        ["./AGENTS.md", "docs/../AGENTS.md", str(_REPO_ROOT / "docs" / ".." / "CLAUDE.md")],
+    )
+    def test_every_spelling_of_a_generated_path_is_refused(self, spelling: str) -> None:
+        assert self._decision(spelling) == "deny"
+
     @pytest.mark.unit
     def test_an_unreadable_payload_allows_rather_than_blocks(self) -> None:
         # Failing closed here would block every edit in the repository on a machine

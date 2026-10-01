@@ -253,6 +253,16 @@ CUTS: tuple[Cut, ...] = (
         '> below that names one of them points there. "Deleting the reference vertical" is done.\n',
         keep_in_readme=False,
     ),
+    # The job that makes a project from the template has nothing to make in a project: it started
+    # a PostgreSQL service, installed everything and printed "belongs to the template" on every
+    # push of every project (round-4 finding K1, its second half).
+    Cut(
+        ".github/workflows/ci.yml",
+        "  # A project made from this template today: its identity replaced, the reference vertical taken",
+        "        run: make check-product",
+        "",
+        keep_in_readme=False,
+    ),
     # The way by hand, for a project where this script refused. Here it has acted, and the files
     # that section tells an agent to `git rm` are gone already.
     Cut(
@@ -292,6 +302,7 @@ CUT_SHA256: dict[str, str] = {
     "project/infrastructure/persistence/__init__.py: # writes go through psycopg against the shared pool; reference_task_repository.py is the worked": "65e8404cb3529b13c13657d8c32f2dcf7b38c6de1ac7246f73cf93f25341ba60",
     "docs/agent_rules.md: - Copy the `reference_task` vertical. It is the one worked example and it exists to be copied — twelve files plus three wiring edits; `.agents/skills/add-vertical` carries the order and the removal list for when your own vertical replaces it. A project that has replaced it edits this line and nothing else: the wrapper's Quick Start is generated from these bullets.": "b15dfb6c18c33fc2c8ec0593af1f71c590104395618347df5df9ddc7879493df",
     ".agents/skills/add-vertical/SKILL.md: # Add Vertical": "ea123ba5901f1bcc464ff4cb4060688b2793f1870dfead15c1b909435f86c289",
+    ".github/workflows/ci.yml:   # A project made from this template today: its identity replaced, the reference vertical taken": "55b36f3e5e38d563f0a2630cc6834b7073ebc65d1dc97b3b08730aed7278b550",
     ".agents/skills/add-vertical/SKILL.md: ## Deleting the reference vertical": "62015290e767a42e5baa92a5e8141d7bf687760d484323cb6d545bb3b7dfdbab",
 }
 

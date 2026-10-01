@@ -205,6 +205,9 @@ def test_a_project_has_the_vertical_taken_out_once(
     assert not any((checkout / path).exists() for path in shipped)
     assert not (checkout / "tests/template").exists()
     assert _imports_of_the_vertical(checkout) == []
+    # A project has no template to make a project from; the job only cost every push a minute.
+    workflow = (checkout / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    assert ("  product-from-template:" in workflow, "  secret-scan:" in workflow) == (False, True)
     context = json.loads((checkout / "docs/project_context.json").read_text(encoding="utf-8"))
     assert "verticals" not in context
     drop = (checkout / extraction.DROP_MIGRATION).read_text(encoding="utf-8")
