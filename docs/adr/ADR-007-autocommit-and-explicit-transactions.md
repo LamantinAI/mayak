@@ -148,6 +148,16 @@ own code does, which is what the `fetchone()` branch above is for. Either way th
 application layer sees is `ConflictError`, the same shape as the zero-row `RETURNING` above, so the
 API answers 409 rather than showing the client a driver exception as a 500.
 
+Either mechanism holds only on the paths that use it. A constraint sees every statement, but each
+one must translate its violation — an update that meets it untranslated answers 500. `FOR UPDATE`
+sees only the writers that take the lock: a PATCH lengthening a booking moves a weekly total as
+surely as an INSERT adds one, and without the lock and the re-check two concurrent lengthenings each
+read the old total and both pass. A total across rows is exactly the rule no constraint names, so an
+`EXCLUDE` on overlaps beside it does not hold it. Three layers, three jobs: the domain check gives
+the clear error for what one row can know (a start before its end); the constraint, or the check
+under the lock, is the guarantee; a `SELECT` outside the lock before the write is a third copy that
+guarantees nothing the second does not.
+
 Since 2026-09-24 the reference vertical carries the first mechanism, so copying it carries the
 pattern. Its rule — at most one open task per title, compared case-insensitively — is the partial
 unique index `uq_reference_tasks_open_title` (`ON reference_tasks (lower(title)) WHERE status <>

@@ -416,7 +416,9 @@ class TestDocumentedTargetsRunWithoutAPrompt:
         # what an agent is told to run against what it may run without asking. A
         # target that should stay behind a prompt belongs in the exemption tuple below with the
         # reason written down — not silently absent from one of the two lists.
-        exempt_from_pre_approval: tuple[str, ...] = ()
+        # init-project installs dependencies and, once the identity is replaced, takes the
+        # reference vertical out and stages it: a person approves that run.
+        exempt_from_pre_approval: tuple[str, ...] = ("init-project",)
         makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
         settings = json.loads(
             (_REPO_ROOT / ".claude" / "settings.json").read_text(encoding="utf-8")
@@ -589,6 +591,16 @@ class TestGeneratedFilesRefuseTheEdit:
     )
     def test_hand_written_sources_are_left_alone(self, name: str) -> None:
         assert self._decision(str(_REPO_ROOT / name)) is None
+
+    # The same file under another spelling passed until 2026-09-28 (round-4 finding K3); a patch
+    # names files relative to the root, Edit and Write absolutely.
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "spelling",
+        ["./AGENTS.md", "docs/../AGENTS.md", str(_REPO_ROOT / "docs" / ".." / "CLAUDE.md")],
+    )
+    def test_every_spelling_of_a_generated_path_is_refused(self, spelling: str) -> None:
+        assert self._decision(spelling) == "deny"
 
     @pytest.mark.unit
     def test_an_unreadable_payload_allows_rather_than_blocks(self) -> None:
@@ -990,3 +1002,43 @@ class TestTheGateFixesLocallyAndFailsStrictly:
         else:
             # Past the refusal the hook runs the gate, which this throwaway repository has not got.
             assert "running quality gates" in result.stdout
+
+
+# A fake `uv` in place of the real one: behavioural, like the shims above. `set +e` let the recipe
+# run pip-audit over whatever a failed `uv export` had left, and an unpinned `--with pip-audit`
+# resolved a new release on any run — two ways for the audit to answer about a list or a tool
+# nobody chose.
+class TestAuditDepsAuditsOnlyAnExportThatSucceeded:
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("export_status", "audit_status", "audited", "passes"),
+        [(1, 0, False, False), (0, 1, True, False), (0, 0, True, True)],
+    )
+    def test_audit_runs_a_pinned_tool_on_a_whole_export(
+        self, tmp_path: Path, export_status: int, audit_status: int, audited: bool, passes: bool
+    ) -> None:
+        calls = tmp_path / "calls"
+        fake_uv = tmp_path / "uv"
+        fake_uv.write_text(
+            f'#!/bin/sh\necho "$*" >> {shlex.quote(str(calls))}\n'
+            f'case "$1" in export) echo "idna==3.10"; exit {export_status};; '
+            f"run) exit {audit_status};; esac\n",
+            encoding="utf-8",
+        )
+        fake_uv.chmod(0o755)
+
+        result = run(
+            ["make", "-s", "audit-deps", f"UV={fake_uv}"],
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        runs = [
+            line
+            for line in calls.read_text(encoding="utf-8").splitlines()
+            if line.startswith("run ")
+        ]
+        assert (result.returncode == 0) is passes, result.stdout + result.stderr
+        assert bool(runs) is audited
+        assert all("--with pip-audit==" in line for line in runs), runs

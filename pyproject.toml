@@ -178,11 +178,49 @@ disable_error_code = [
     "no-untyped-def",
 ]
 
+# The layer validator is checked in full: its rules are what an agent trusts to hold the layers, and
+# its strict-mode errors (four, 2026-09-28) were typing slack, not schema debt. Re-enable the codes
+# above for one more module the day its own errors are fixed.
+[[tool.mypy.overrides]]
+module = ["scripts.validate_architecture"]
+enable_error_code = [
+    "attr-defined",
+    "index",
+    "arg-type",
+    "call-overload",
+    "assignment",
+    "operator",
+    "no-any-return",
+    "misc",
+    "var-annotated",
+    "union-attr",
+    "no-untyped-def",
+]
+
 # backoff is installed only in the functional-tests image (tests/functional/requirements.txt), so
 # the development venv that runs mypy has no stubs for it and never will.
 [[tool.mypy.overrides]]
 module = ["backoff.*"]
 ignore_missing_imports = true
+
+# The doctor is checked in full: it is what an agent asks after a red gate, and its strict-mode
+# errors (28, 2026-09-28) were a helper typed as returning `object` and one name reused across
+# types — not the schema debt above. Re-enable the codes for one more module once its own are fixed.
+[[tool.mypy.overrides]]
+module = ["scripts.doctor_ai_context"]
+enable_error_code = [
+    "attr-defined",
+    "index",
+    "arg-type",
+    "call-overload",
+    "assignment",
+    "operator",
+    "no-any-return",
+    "misc",
+    "var-annotated",
+    "union-attr",
+    "no-untyped-def",
+]
 
 [tool.coverage.run]
 source = ["project"]

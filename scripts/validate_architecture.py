@@ -4,6 +4,7 @@
 import argparse
 import ast
 import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -349,27 +350,30 @@ def _layer_from_path(path: Path) -> str | None:
     return parts[1]
 
 
-# Resolve an import statement to its absolute dotted name when possible.
+# Resolve an import statement to what it depends on, one pair per imported name.
 # current_module: Dotted module path of the file being validated.
-# Returns: Absolute dotted import targets extracted from the node.
-def _resolve_import_name(
+# Returns: (module, target) pairs, absolute. `import a.b` depends on a.b. `from a import b` depends
+# on a, and on a.b when b is a submodule rather than a name defined in a — syntax cannot tell
+# which, so both are checked. Reading the module alone let `from project import infrastructure`
+# through every layer rule (GPT-6 Astra, 2026-09-27).
+def _resolve_import_names(
     current_module: str,
     node: ast.Import | ast.ImportFrom,
-) -> list[str]:
-    # Import statements already provide absolute module names per alias.
+) -> list[tuple[str, str]]:
     if isinstance(node, ast.Import):
-        return [alias.name for alias in node.names]
+        return [(alias.name, alias.name) for alias in node.names]
 
     # Resolve relative imports against the current module path.
+    module = node.module or ""
     if node.level > 0:
-        current_parts = current_module.split(".")
-        parent_parts = current_parts[:-1]
+        parent_parts = current_module.split(".")[:-1]
         base_parts = parent_parts[: len(parent_parts) - node.level + 1]
-        if node.module:
-            return [".".join([*base_parts, node.module])]
-        return [".".join(base_parts)] if base_parts else []
-
-    return [node.module] if node.module else []
+        module = ".".join([*base_parts, module] if module else base_parts)
+    if not module:
+        return []
+    return [
+        (module, module if alias.name == "*" else f"{module}.{alias.name}") for alias in node.names
+    ]
 
 
 # Check whether an import path matches a banned prefix exactly or as a child module.
@@ -391,9 +395,15 @@ def _is_allowed_import(import_name: str, allowed_prefixes: tuple[str, ...]) -> b
     return any(_matches_prefix(import_name, prefix) for prefix in allowed_prefixes)
 
 
-# Validate a resolved import path against the rules for the current architectural layer.
+# The prefixes a layer rule names, or none.
+def _rule_prefixes(layer_rules: Mapping[str, Sequence[str]], key: str) -> tuple[str, ...]:
+    return tuple(layer_rules.get(key, ()))
+
+
+# Validate one imported name against the rules for the current architectural layer.
+# module: The module the statement names. target: What it takes from it, per _resolve_import_names.
 # Returns: Violation message when the import breaks a boundary.
-def _validate_import(layer: str | None, import_name: str) -> tuple[str, str] | None:
+def _validate_import(layer: str, module: str, target: str) -> tuple[str, str] | None:
     # Match imports against the canonical forbidden prefixes for the current layer.
     layer_rules = _LAYER_RULES.get(layer)
     if layer_rules is None:
@@ -403,24 +413,27 @@ def _validate_import(layer: str | None, import_name: str) -> tuple[str, str] | N
     # the allowlist already rejects everything a blacklist would, and running both would be two
     # copies of one rule, free to drift apart. Only the domain declares one; see the note on
     # _DOMAIN_ALLOWED_PREFIXES for why the other layers cannot.
-    allowed_prefixes = layer_rules.get("runtime_enforced_allowed_imports")
-    if allowed_prefixes and not _is_allowed_import(import_name, allowed_prefixes):
-        layer_name = layer or "unknown"
-        allowed = ", ".join(allowed_prefixes)
+    allowed_prefixes = _rule_prefixes(layer_rules, "runtime_enforced_allowed_imports")
+    if allowed_prefixes:
+        if any(_is_allowed_import(name, allowed_prefixes) for name in (module, target)):
+            return None
+        # `from project import infrastructure` depends on the subpackage, not on `project`.
+        above = any(prefix.startswith(f"{module}.") for prefix in allowed_prefixes)
+        named = target if above else module
         return (
-            f"arch.{layer_name}.import_not_allowed",
+            f"arch.{layer}.import_not_allowed",
             f"{layer.capitalize()} layer may import only the Python standard library and "
-            f"{allowed}; '{import_name}' is neither",
+            f"{', '.join(allowed_prefixes)}; '{named}' is neither",
         )
 
-    for prefix in layer_rules["runtime_enforced_forbidden_imports"]:
-        if _matches_prefix(import_name, prefix):
-            layer_name = layer or "unknown"
-            return (
-                f"arch.{layer_name}.no_forbidden_import",
-                f"{layer.capitalize()} layer must not import "
-                f"'{import_name}' because it depends on forbidden prefix '{prefix}'",
-            )
+    for prefix in _rule_prefixes(layer_rules, "runtime_enforced_forbidden_imports"):
+        for named in dict.fromkeys((module, target)):
+            if _matches_prefix(named, prefix):
+                return (
+                    f"arch.{layer}.no_forbidden_import",
+                    f"{layer.capitalize()} layer must not import "
+                    f"'{named}' because it depends on forbidden prefix '{prefix}'",
+                )
 
     return None
 
@@ -475,18 +488,19 @@ def validate_python_source(path: Path, repo_root: Path) -> list[ArchitectureIssu
     # `importlib.import_module("psycopg")` call in a domain module is caught as surely as a written
     # import is. Collecting only the written kind left the call free of every gate. See validation_support/dynamic_imports.py for the measurement, for why the call's
     # names are resolved against this file's own imports, and for what still escapes.
-    imported: list[tuple[str, int]] = []
+    imported: list[tuple[str, str, int]] = []
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             imported.extend(
-                (name, node.lineno) for name in _resolve_import_name(current_module, node)
+                (module, target, node.lineno)
+                for module, target in _resolve_import_names(current_module, node)
             )
-    imported.extend(dynamic_import_targets(tree))
+    imported.extend((name, name, line) for name, line in dynamic_import_targets(tree))
 
-    for import_name, line in imported:
-        if not import_name:
+    for module, target, line in imported:
+        if not module or layer is None:
             continue
-        violation = _validate_import(layer, import_name)
+        violation = _validate_import(layer, module, target)
         if violation is None:
             continue
         rule_id, message = violation
