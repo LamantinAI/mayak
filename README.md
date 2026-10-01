@@ -65,7 +65,7 @@ make, not inherit.
 
 ## Quick start
 
-You need Python `3.13`, Docker with Compose, and a Unix shell. The runtime minimum and the dev
+You need Python `3.13`, [uv](https://docs.astral.sh/uv/), Docker with Compose, and a Unix shell. The runtime minimum and the dev
 toolchain are the same version — see `docs/adr/ADR-002-python-version-policy.md`.
 
 Press **Use this template** at the top of the repository page. GitHub hands you a repository of
@@ -164,7 +164,7 @@ invoke them by name; both are plain markdown and read fine on their own.
 | `add-vertical` | adding a vertical end to end, and deleting the reference one when yours works |
 
 `.agents/skills/add-vertical/SKILL.md` is worth reading even if you write the code yourself: it lists the
-order of the eleven files, the constraints each validator enforces, and the full sweep for removing
+order of the twelve files, the constraints each validator enforces, and the full sweep for removing
 the example afterwards.
 
 ---
@@ -298,8 +298,8 @@ Notes worth knowing:
   authenticated cross-origin requests. Either list the exact origins this deployment serves, or set
   `SERVER_CORS_ALLOW_CREDENTIALS=false` if the API is public or token-authenticated and never relies
   on cookies.
-- `.env.sample` is the documentation for every variable; a test compares its values against the
-  defaults declared in code, so the two cannot drift.
+- `.env.sample` is the documentation for every variable; a test compares each value against the
+  default the code declares for it, except the placeholders and local conveniences it lists by name.
 
 ---
 
@@ -310,6 +310,7 @@ Notes worth knowing:
 | `docs/agent_rules.md` | the operating contract: where a fact goes, how the kernel is shaped, what each gate enforces |
 | `AGENTS.md` | the operating contract as an agent loads it: Codex directly, Claude Code through the `CLAUDE.md` that imports it — do not edit either directly |
 | `docs/adr/` | why the load-bearing decisions were made, one dated document each |
+| `docs/upgrades.md` | for a service made from an earlier version: what changed in the kernel it inherited, what to port first, how to check |
 | `git grep -n '^# SUMMARY:'` | a one-line summary per module: every Python file opens with one |
 | `PROJECT.md` | what a given project does — the file you rewrite first |
 

@@ -272,6 +272,44 @@ class TestValidateArchitecture:
             for issue in issues
         )
 
+    # Every spelling of one dependency is judged the same. Until 2026-09-28 the validator read only
+    # the module of a `from` import, so `from project import infrastructure` passed the rule that
+    # `import project.infrastructure` failed (GPT-6 Astra's probe, twice).
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("file", "line", "rule_id"),
+        [
+            ("application/m.py", "from project import infrastructure", "no_forbidden_import"),
+            ("application/m.py", "from project import infrastructure as i", "no_forbidden_import"),
+            ("application/m.py", "from .. import infrastructure", "no_forbidden_import"),
+            ("application/__init__.py", "from .. import infrastructure", "no_forbidden_import"),
+            (
+                "infrastructure/m.py",
+                "from project.core import composition_root",
+                "no_forbidden_import",
+            ),
+            ("infrastructure/m.py", "from ..core import lifecycle", "no_forbidden_import"),
+            ("domain/m.py", "from project import infrastructure", "import_not_allowed"),
+            ("domain/m.py", "from pydantic import BaseModel", "import_not_allowed"),
+            ("application/m.py", "from project import domain", None),
+            ("application/m.py", "from .. import domain", None),
+            ("infrastructure/m.py", "from project.core import config", None),
+            ("domain/m.py", "from project import domain", None),
+            ("domain/m.py", "from . import exceptions", None),
+            ("domain/m.py", "from datetime import datetime", None),
+        ],
+    )
+    def test_every_spelling_of_an_import_is_judged_alike(
+        self, tmp_path: Path, file: str, line: str, rule_id: str | None
+    ) -> None:
+        _write_fixture(tmp_path / "project" / file, line + "\n")
+
+        issues = collect_architecture_issues(tmp_path)
+
+        layer = file.split("/")[0]
+        expected = [] if rule_id is None else [f"arch.{layer}.{rule_id}"]
+        assert [issue.rule_id for issue in issues] == expected
+
     # Regression guard: a broken Python file must surface as a structured ArchitectureIssue with rule_id 'arch.syntax_error', not a raw Python traceback.
     @pytest.mark.unit
     def test_validator_emits_syntax_error_issue_on_broken_file(
