@@ -150,6 +150,39 @@ class TestMissingAssertions:
         assert validate_test_module(path) == []
 
     @pytest.mark.unit
+    @pytest.mark.parametrize("body", ["pass", "repo.list.assert_awaited_once()"])
+    @pytest.mark.parametrize(
+        "header",
+        [
+            'def test_smoke(value=f"""{(\n    1 # no-assert-ok: f-string default\n)}"""):',
+            'def test_smoke(value: f"""{(\n    1 # no-assert-ok: f-string annotation\n)}"""):',
+            '@mark(f"""{(\n    1 # no-assert-ok: f-string decorator\n)}""")\ndef test_smoke():',
+            'def test_smoke(value=f"""{f"""{(\n    1 # no-assert-ok: nested f-string\n)}"""}"""):',
+        ],
+    )
+    def test_comments_in_f_string_expressions_cannot_exempt_tests(
+        self, tmp_path: Path, header: str, body: str
+    ) -> None:
+        path = _write_test_module(tmp_path, f"{header}\n    {body}\n")
+
+        expected = (
+            "test.no_assertion" if body == "pass" else "test.call_assertion_without_arguments"
+        )
+        assert [issue.rule_id for issue in validate_test_module(path)] == [expected]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("marker", ["", "# no-assert-ok: must not raise.\n"])
+    def test_parenthesized_decorator_is_tokenized_from_a_complete_module(
+        self, tmp_path: Path, marker: str
+    ) -> None:
+        path = _write_test_module(
+            tmp_path, f"{marker}@(\n    (\n        mark\n    )\n)\ndef test_smoke():\n    pass\n"
+        )
+
+        expected = [] if marker else ["test.no_assertion"]
+        assert [issue.rule_id for issue in validate_test_module(path)] == expected
+
+    @pytest.mark.unit
     def test_body_without_verification_is_reported(self, tmp_path: Path) -> None:
         path = _write_test_module(tmp_path, "def test_nothing() -> None:\n    value = 1 + 1\n")
 

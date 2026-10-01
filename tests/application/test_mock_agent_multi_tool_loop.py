@@ -126,12 +126,9 @@ class TestThreeToolAgentLoopOnMock:
             bound, "place and confirm an order for cust-42"
         )
 
-        # Selection is positional and complete — every bound tool exactly once,
-        # in binding order. Without it, a 3-tool loop is unreachable on the shipped mock: this
-        # list stops at one entry no matter how many tools are bound.
+        # Positional mock selection must visit every bound tool exactly once (ADR-003).
         assert called_in_order == ["lookup_customer", "price_order", "send_confirmation"]
-        # The final call carried no tool call and produced the summary branch —
-        # the loop actually ended instead of hitting the round budget in `_run_agent_loop`.
+        # A summary proves the loop ended before its round budget.
         assert "Tool-assisted summary" in final_answer
         for tool_name in called_in_order:
             assert tool_name in final_answer
@@ -153,20 +150,13 @@ class TestThreeToolAgentLoopOnMock:
 
         assert isinstance(response, AIMessage)
         assert response.tool_calls[0]["name"] == "lookup_customer"
-        # The default is stated, not merely observed to fail. Asserting only that
-        # invoking raises leaves the test green when the default becomes `{}` — a different
-        # behaviour, the same pydantic complaint about the missing `customer_id`.
+        # An empty dict raises too; pin the query-shaped default, not just the schema failure.
         assert response.tool_calls[0]["args"] == {"query": "place an order"}
-        # And that shape is not `LookupArgs`'s (`customer_id`), so it fails this
-        # tool's real schema — the exact failure the override in the test above exists to avoid.
+        # The override is needed because LookupArgs requires customer_id instead of query.
         with pytest.raises(ValidationError, match="customer_id"):
             await _TOOLS[0].ainvoke(response.tool_calls[0]["args"])
 
-    # `ToolMessage.name` is optional, and the shortest hand-written loop omits it. If
-    # selection reads only that field, an unnamed result teaches the mock nothing: it answers with
-    # the first bound tool again, and again, until the caller's own round budget stops it. Found
-    # by an independent review of this branch, not by the loop above, because the loop above
-    # happens to set the name.
+    # ToolMessage.name is optional: unnamed results must advance selection through the call id.
     @pytest.mark.unit
     async def test_the_loop_advances_when_the_tool_result_carries_no_name(self) -> None:
         with patch(

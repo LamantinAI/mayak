@@ -320,7 +320,6 @@ def _verification_strength(
 
 # Ruff moves a def-line comment to the end of a wrapped signature. Read real comments through
 # the signature's logical newline; strings and comments in the body cannot waive verification.
-# Returns: True when the author stated a reason for the missing verification.
 def _carries_opt_out_marker(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     source_lines: list[str],
@@ -329,24 +328,31 @@ def _carries_opt_out_marker(
         (decorator.lineno for decorator in node.decorator_list),
         default=node.lineno,
     )
-    # Walk up through the contiguous comment/decorator block above the
-    # definition, because comments about a test sit above its decorators, and that is
-    # where a reader naturally writes the opt-out reason.
+    # A parenthesized decorator's AST starts inside its expression, below the `@` line.
+    if node.decorator_list:
+        while not source_lines[decorator_start - 1].lstrip().startswith("@"):
+            decorator_start -= 1
+    # Leading opt-outs belong to the contiguous block above the first decorator or definition.
     block_start = decorator_start - 1
     while block_start > 0:
         previous = source_lines[block_start - 1].strip()
         if not previous.startswith(("#", "@")):
             break
         block_start -= 1
-    source = "\n".join(source_lines[block_start : node.end_lineno])
-    definition_line = node.lineno - block_start
-    body_line = node.body[0].lineno - block_start
+    # Whole-module tokens preserve indentation and f-string context across the selected region.
+    source = "\n".join(source_lines)
+    fstring_depth = 0
     for token in tokenize.generate_tokens(StringIO(source).readline):
-        if token.type == tokenize.NEWLINE and token.start[0] >= definition_line:
+        if token.type == tokenize.FSTRING_START:
+            fstring_depth += 1
+        elif token.type == tokenize.FSTRING_END:
+            fstring_depth -= 1
+        if token.type == tokenize.NEWLINE and token.start[0] >= node.lineno:
             break
         if (
             token.type == tokenize.COMMENT
-            and token.start[0] < body_line
+            and not fstring_depth
+            and block_start < token.start[0] < node.body[0].lineno
             and OPT_OUT_MARKER in token.string
         ):
             return True
