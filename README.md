@@ -310,6 +310,7 @@ Notes worth knowing:
 | `docs/agent_rules.md` | the operating contract: where a fact goes, how the kernel is shaped, what each gate enforces |
 | `AGENTS.md` | the operating contract as an agent loads it: Codex directly, Claude Code through the `CLAUDE.md` that imports it — do not edit either directly |
 | `docs/adr/` | why the load-bearing decisions were made, one dated document each |
+| `docs/upgrades.md` | for a service made from an earlier version: what changed in the kernel it inherited, what to port first, how to check |
 | `git grep -n '^# SUMMARY:'` | a one-line summary per module: every Python file opens with one |
 | `PROJECT.md` | what a given project does — the file you rewrite first |
 
