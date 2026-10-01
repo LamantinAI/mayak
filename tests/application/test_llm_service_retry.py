@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_openai import ChatOpenAI
 from openai import (
     APIConnectionError,
     APIStatusError,
@@ -23,6 +24,7 @@ from openai import (
     RateLimitError,
     UnprocessableEntityError,
 )
+from pydantic import SecretStr, ValidationError
 from tenacity import RetryCallState, wait_none
 
 from project.domain.exceptions import ExternalServiceError, UpstreamAuthenticationError
@@ -189,6 +191,36 @@ class TestRetryPolicy:
             await instance._call_llm_with_retry([HumanMessage(content="hi")])
 
         assert instance._bound_llm.ainvoke.await_count == 1
+
+    # Through the real client, not a raised stand-in: ChatOpenAI turns a 200 whose content is an
+    # object into pydantic's ValidationError while building the AIMessage. That was a 500 until
+    # 2026-09-28; it is the provider's broken reply, a 502, and not retried.
+    @pytest.mark.unit
+    async def test_a_reply_whose_content_is_not_text_is_the_providers_error(
+        self, test_settings: FixtureSettings
+    ) -> None:
+        requests: list[httpx.Request] = []
+
+        def reply(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            message = {"role": "assistant", "content": {"text": "hi"}}
+            choice = {"index": 0, "finish_reason": "stop", "message": message}
+            return httpx.Response(200, json={"id": "r", "model": "m", "choices": [choice]})
+
+        instance = _build_instance(test_settings)
+        instance._bound_llm = ChatOpenAI(
+            model="m",
+            api_key=SecretStr("not-a-key"),
+            base_url="https://provider.invalid/v1",
+            max_retries=0,
+            http_async_client=httpx.AsyncClient(transport=httpx.MockTransport(reply)),
+        )
+
+        with pytest.raises(ExternalServiceError) as caught:
+            await instance._call_llm_with_retry([HumanMessage(content="hi")])
+
+        assert isinstance(caught.value.__cause__, ValidationError)
+        assert len(requests) == 1
 
 
 # Mirrors the SDK's own 120s cap and its three header shapes (ms, seconds, HTTP-date).

@@ -52,7 +52,7 @@ SAMPLE_SHA256: dict[str, str] = {
     "project/infrastructure/persistence/reference_task_repository.py": "59eb61963d35dce2de4a23037216ab7d3ccde306749e4c5bbfaa8da6a5f71256",
     "project/infrastructure/api/endpoints/reference_tasks.py": "cf4be1ec16fa1035a351a915600ae627c0e20fa2b8e1ede45a5c851d67845ba9",
     "tests/application/test_reference_task_vertical.py": "a9c3cfdf65b7ea2ff528f8d35cee74b86b5896b25141e5634c8a018eb4c859e1",
-    "tests/db/test_reference_task_repository.py": "a94504ec248f2559951345e964507868d3b10817c80e954bad9b8e5adc7b1d3f",
+    "tests/db/test_reference_task_repository.py": "e742179476867ef93c2e6d498b5b109456071c26ffba8345e4da3c67de8be784",
     "tests/db/test_reference_tasks_api.py": "a52e31eaf49bb24096bbac8368ade29d1261537abc6f85457dcda013c771184c",
     "tests/functional/src/test_reference_tasks_api.py": "6d4ed6eb1f8583483b2737762f0046e5a3fbb807149c59c7689d20f9b63f896b",
 }
@@ -383,6 +383,25 @@ def _tracked_text_files(root: Path) -> list[str]:
     )
 
 
+# What git tracks under `path` — the only deletions `git add` can stage. Bytecode a test run left
+# there (bench3, 2026-09-27), or any other file git never knew, failed the whole staging step when
+# named; the directory is still removed whole. Outside a repository, everything but bytecode.
+def _tracked_under(root: Path, path: str) -> list[str]:
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "--", path],
+            cwd=root,
+            env=hermetic_env(),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.split("\n")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        found = (root / path).rglob("*")
+        return [str(p.relative_to(root)) for p in found if p.is_file() and p.suffix != ".pyc"]
+    return [name for name in listed if name]
+
+
 # Recursive: a vertical kept in a package of its own (project/domain/booking/model.py) is a
 # vertical too, and a search of the top level alone let the extraction go ahead past it.
 def _own_vertical_files(root: Path) -> list[str]:
@@ -506,7 +525,12 @@ def build_plan(root: Path) -> Plan | str:
     context_path = root / "docs/project_context.json"
     context = json.loads(context_path.read_text(encoding="utf-8"))
     if context.get("is_template") is not False:
-        return "this is the template (is_template is not false): nothing to take out"
+        # bench3's agent met this line in a project and went on to read the script; name the route.
+        return (
+            "this is the template (is_template is not false): nothing to take out. In a project "
+            "made from it, replace the identity first — .agents/skills/initialize-project, steps "
+            "3-5 — then run `make init-project`"
+        )
     if all(not (root / path).exists() for path in SAMPLE_SHA256) and (root / SCAFFOLD).is_dir():
         return "already done: the reference vertical is in " + SCAFFOLD
 
@@ -557,7 +581,7 @@ def build_plan(root: Path) -> Plan | str:
     for path in TEMPLATE_ONLY:
         target = root / path
         if target.is_dir():
-            deleted.update(str(p.relative_to(root)) for p in target.rglob("*") if p.is_file())
+            deleted.update(_tracked_under(root, path))
         elif target.is_file():
             deleted.add(path)
 

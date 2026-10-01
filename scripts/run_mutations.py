@@ -43,10 +43,12 @@ REPORT_DIR = ROOT_DIR / "logs" / "mutations"
 # Suffix of the copy a mutated file is restored from if the run dies before its `finally`.
 BACKUP_SUFFIX = ".mutation-backup"
 
-# Ceiling for one tier on one defect; a hang is recorded as a timeout, never as a catch.
+# Ceiling for one tier on one defect; a hang proves nothing either way, so it is inconclusive.
 TIER_TIMEOUT_SECONDS = 900
 
-# A pytest summary line naming a failed or errored test.
+# A pytest summary line naming a failed or errored test. FAILED is a test body that failed —
+# the one outcome that is a catch. ERROR is a fixture, a teardown or a module that would not
+# import, which a Docker daemon that is down produces as readily as a defect does.
 # The Docker tier prints through Compose, which prefixes each line with `tests-1  | ` and
 # colours it, so the prefix and the escape codes are both allowed before FAILED/ERROR.
 _FAILED_LINE = re.compile(r"^(?:\S+\s+\|\s+)?(FAILED|ERROR) (\S+?)(?: - (.*))?$", re.M)
@@ -66,41 +68,48 @@ _WITHOUT_TEMPLATE_TESTS = "--deselect=tests/template/"
 # What one tier did with one version of the code.
 @dataclass
 class TierResult:
-    # "green", "red" or "timeout".
+    # "green"; "red" when test bodies failed and nothing errored; "inconclusive" when anything
+    # errored or nothing was named; "timeout".
     state: str
 
     # Wall-clock duration of the tier.
     seconds: int
 
-    # Test ids pytest reported as FAILED or ERROR, in report order.
+    # Test ids pytest reported as FAILED, in report order.
     failed: list[str] = field(default_factory=list)
 
     # The reason printed next to the first failed test, or the output tail when none was named.
     first_error: str = ""
 
+    # Test ids pytest reported as ERROR, in report order.
+    errored: list[str] = field(default_factory=list)
 
-# Pull the failed test ids and the first failure reason out of a tier's output.
+
+# Pull the failed and errored test ids and the first reason out of a tier's output.
 # output: Combined stdout and stderr of the tier.
-# Returns: Unique test ids in report order, and the first reason given.
-def parse_failed_tests(output: str) -> tuple[list[str], str]:
+# Returns: Unique FAILED ids and unique ERROR ids, each in report order, and the first reason.
+def parse_failed_tests(output: str) -> tuple[list[str], list[str], str]:
     clean = _ANSI.sub("", output)
     failed: list[str] = []
+    errored: list[str] = []
     first_error = ""
     for match in _FAILED_LINE.finditer(clean):
-        test_id = match.group(2)
-        if test_id not in failed:
-            failed.append(test_id)
+        named = failed if match.group(1) == "FAILED" else errored
+        if match.group(2) not in named:
+            named.append(match.group(2))
         if not first_error and match.group(3):
             first_error = match.group(3).strip()[:240]
-    return failed, first_error
+    return failed, errored, first_error
 
 
 # Run one tier's command from the repository root and classify the outcome.
 # command: The tier's argv, e.g. ["make", "test"].
 # Returns: Its state, duration and the tests it named.
-# A red tier that names no test is kept red with the output tail as the reason. That is how
-# a coverage floor, a collection error or an application that never started shows up, and the
-# baseline has to say so rather than credit a test that did not run.
+# A tier that fails with no FAILED test is inconclusive, with the output tail as the reason. That
+# is how a coverage floor, a collection error, a database that never started or a Docker daemon
+# that is down shows up; counting it red credited the defect with a catch no test made. So is one
+# where anything ERRORed beside a FAILED: a database gone mid-run fails a body and errors a
+# fixture at once (GPT-6 Sol, 2026-09-28). No catch of the catalogue's 2026-09-28 run had an ERROR.
 def run_tier(command: Sequence[str]) -> TierResult:
     started = time.monotonic()
     try:
@@ -126,10 +135,11 @@ def run_tier(command: Sequence[str]) -> TierResult:
     output = done.stdout + done.stderr
     if done.returncode == 0:
         return TierResult("green", seconds)
-    failed, first_error = parse_failed_tests(output)
+    failed, errored, first_error = parse_failed_tests(output)
     if not first_error:
         first_error = " ".join(_ANSI.sub("", output)[-400:].split())
-    return TierResult("red", seconds, failed, first_error)
+    state = "red" if failed and not errored else "inconclusive"
+    return TierResult(state, seconds, failed, first_error, errored)
 
 
 # Put back any file a previous run left mutated because it was killed mid-defect.
@@ -182,13 +192,15 @@ def measure_one(entry: dict[str, Any], tiers: dict[str, list[str]]) -> dict[str,
 
 # Name the cheapest tier that caught the defect.
 # results: Result per tier, in tier order.
-# Returns: "caught:<tier>", "missed" or "timeout".
+# Returns: "caught:<tier>", "missed", or "inconclusive:<tier>" for the first tier that could not
+# say — a timeout or a failure without a failed test. Past such a tier a later catch is no longer
+# the cheapest one known, so it is not reported as one.
 def verdict(results: dict[str, TierResult]) -> str:
     for name, result in results.items():
         if result.state == "red":
             return f"caught:{name}"
-    if any(result.state == "timeout" for result in results.values()):
-        return "timeout"
+        if result.state != "green":
+            return f"inconclusive:{name}"
     return "missed"
 
 
@@ -198,8 +210,8 @@ def verdict(results: dict[str, TierResult]) -> str:
 # tiers: Tier names, cheapest first.
 # Returns: Defect id to (baseline verdict, this run's verdict).
 # Ranked by the cheapest tier that catches: a defect that moves from the fast tier to e2e is
-# a loss even though it is still caught. A timeout ranks with a miss — it proves nothing. A
-# defect without a baseline (newly added to the catalogue) cannot regress.
+# a loss even though it is still caught. An inconclusive defect is neither a loss nor a hold — the
+# run names it separately. A defect without a baseline (newly added to the catalogue) cannot regress.
 def regressions(
     baseline: dict[str, Any], observed: dict[str, dict[str, Any]], tiers: list[str]
 ) -> dict[str, tuple[str, str]]:
@@ -211,6 +223,8 @@ def regressions(
     worse: dict[str, tuple[str, str]] = {}
     for defect, item in observed.items():
         before = baseline.get(defect, {}).get("verdict")
+        if item["verdict"].startswith("inconclusive"):
+            continue
         if before is not None and _rank(item["verdict"]) > _rank(before):
             worse[defect] = (before, item["verdict"])
     return worse
@@ -231,7 +245,8 @@ def _raise_interrupt(signum: int, frame: object) -> None:
 # Measure the selected defects and report each against the catalogue's baseline.
 # argv: CLI arguments; None means none.
 # Returns: 0 when measured with no lost catch, 1 when a defect is caught later or not at
-# all compared with the baseline, 2 when the catalogue or the clean code is not fit to measure.
+# all compared with the baseline, 2 when the catalogue or the clean code is not fit to measure,
+# or when any defect's result was inconclusive.
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--catalogue", type=Path, default=DEFAULT_CATALOGUE)
@@ -278,6 +293,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "state": result.state,
                     "seconds": result.seconds,
                     "failed": result.failed,
+                    "errored": result.errored,
                     "first_error": result.first_error,
                 }
                 for name, result in results.items()
@@ -304,7 +320,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         json.dumps({"commit": commit, "results": observed}, ensure_ascii=False, indent=1),
         encoding="utf-8",
     )
-    counts = {"caught:" + name: 0 for name in tiers} | {"missed": 0, "timeout": 0}
+    counts = {"caught:" + name: 0 for name in tiers} | {"missed": 0}
     for item in observed.values():
         counts[item["verdict"]] = counts.get(item["verdict"], 0) + 1
     print("total: " + ", ".join(f"{key} {value}" for key, value in counts.items()))
@@ -317,7 +333,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     worse = regressions(baseline, observed, list(tiers))
     for defect, (before, now) in worse.items():
         print(f"REGRESSION {defect}: {before} -> {now}")
-    if args.record and not worse:
+    inconclusive = [
+        defect for defect, item in observed.items() if item["verdict"].startswith("inconclusive:")
+    ]
+    for defect in inconclusive:
+        print(f"INCONCLUSIVE {defect}: {observed[defect]['verdict']}")
+    # A baseline is what the next run is judged against, so it is written only from a run that
+    # measured everything: no loss, no defect it could not judge, and the clean code green again
+    # at the end — before 2026-09-28 it was written first and the final control read after.
+    unfit = [name for name, result in after.items() if result.state != "green"]
+    if args.record and not worse and not inconclusive and not unfit:
         # The baseline keeps what a later run is compared on — the verdict and the
         # tests each tier named. Durations and error text stay in the report file: they change
         # from run to run and would turn every re-record into noise in the diff.
@@ -326,7 +351,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "verdict": item["verdict"],
                 "caught_by": {
                     name: sorted({_short(test) for test in tier["failed"]})
-                    or ["(red, no test named: " + tier["first_error"][:120] + ")"]
                     for name, tier in item["tiers"].items()
                     if tier["state"] == "red"
                 },
@@ -340,8 +364,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(f"baseline written to {args.catalogue.relative_to(ROOT_DIR)}")
     elif args.record:
-        print("baseline NOT written: the run lost catches the baseline has")
-    if any(result.state != "green" for result in after.values()):
+        why = [
+            "the run lost catches the baseline has" if worse else "",
+            f"{len(inconclusive)} defect(s) inconclusive" if inconclusive else "",
+            f"the clean code is no longer green: {', '.join(unfit)}" if unfit else "",
+        ]
+        print("baseline NOT written: " + "; ".join(reason for reason in why if reason))
+    if inconclusive or unfit:
         return 2
     return 1 if worse else 0
 
