@@ -8,7 +8,9 @@ import argparse
 import ast
 import re
 import sys
+import tokenize
 from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
 from typing import Sequence
 
@@ -89,7 +91,7 @@ _TEST_QUALITY_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
         "suggested_fix": (
             "Add an assertion about the observable outcome. If the test exists only to prove that "
             "a call does not raise, say so explicitly with a "
-            f"'{OPT_OUT_MARKER} <reason>' comment on the def line."
+            f"'{OPT_OUT_MARKER} <reason>' comment above the def or its decorators."
         ),
         "read_first": [
             "the file referenced by the issue",
@@ -146,7 +148,8 @@ _TEST_QUALITY_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
         ),
         "suggested_fix": (
             "Name the arguments: assert_awaited_once_with(limit=7). If the call itself is the whole "
-            f"contract, say so explicitly with a '{OPT_OUT_MARKER} <reason>' comment on the def line."
+            f"contract, say so explicitly with a '{OPT_OUT_MARKER} <reason>' comment above the def "
+            "or its decorators."
         ),
         "read_first": [
             "the file referenced by the issue",
@@ -315,9 +318,8 @@ def _verification_strength(
     return states_expectation, weak_call
 
 
-# Report whether the comment block above a test carries the explicit opt-out marker.
-# source_lines: The module's lines, used to read the block above the definition.
-# Returns: True when the author stated a reason for the missing verification.
+# Ruff moves a def-line comment to the end of a wrapped signature. Read real comments through
+# the signature's logical newline; strings and comments in the body cannot waive verification.
 def _carries_opt_out_marker(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     source_lines: list[str],
@@ -326,16 +328,35 @@ def _carries_opt_out_marker(
         (decorator.lineno for decorator in node.decorator_list),
         default=node.lineno,
     )
-    # Walk up through the contiguous comment/decorator block above the
-    # definition, because comments about a test sit above its decorators, and that is
-    # where a reader naturally writes the opt-out reason.
+    # A parenthesized decorator's AST starts inside its expression, below the `@` line.
+    if node.decorator_list:
+        while not source_lines[decorator_start - 1].lstrip().startswith("@"):
+            decorator_start -= 1
+    # Leading opt-outs belong to the contiguous block above the first decorator or definition.
     block_start = decorator_start - 1
     while block_start > 0:
         previous = source_lines[block_start - 1].strip()
         if not previous.startswith(("#", "@")):
             break
         block_start -= 1
-    return any(OPT_OUT_MARKER in line for line in source_lines[block_start : node.lineno])
+    # Whole-module tokens preserve indentation and f-string context across the selected region.
+    source = "\n".join(source_lines)
+    fstring_depth = 0
+    for token in tokenize.generate_tokens(StringIO(source).readline):
+        if token.type == tokenize.FSTRING_START:
+            fstring_depth += 1
+        elif token.type == tokenize.FSTRING_END:
+            fstring_depth -= 1
+        if token.type == tokenize.NEWLINE and token.start[0] >= node.lineno:
+            break
+        if (
+            token.type == tokenize.COMMENT
+            and not fstring_depth
+            and block_start < token.start[0] < node.body[0].lineno
+            and OPT_OUT_MARKER in token.string
+        ):
+            return True
+    return False
 
 
 # Report whether a function is a pytest fixture rather than a test.

@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import ast
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -96,6 +99,90 @@ class TestConstantAssertions:
 
 class TestMissingAssertions:
     @pytest.mark.unit
+    def test_opt_out_survives_ruff_wrapping_the_signature(self, tmp_path: Path) -> None:
+        path = _write_test_module(
+            tmp_path,
+            "async def test_smoke_with_a_long_signature_and_an_explicit_reason("
+            "resource_that_must_initialize: object) -> None: "
+            "# no-assert-ok: initialization must not raise.\n    pass\n",
+        )
+        original = ast.dump(ast.parse(path.read_text(encoding="utf-8")))
+        assert validate_test_module(path) == []
+
+        subprocess.run(
+            [sys.executable, "-m", "ruff", "format", "--line-length", "100", str(path)],
+            check=True,
+            capture_output=True,
+        )
+
+        formatted = path.read_text(encoding="utf-8")
+        assert "\n) -> None:  # no-assert-ok:" in formatted
+        assert ast.dump(ast.parse(formatted)) == original
+        assert validate_test_module(path) == []
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "def test_smoke(value: str = '# no-assert-ok: not a comment') -> None:\n    pass\n",
+            "def test_smoke(\n    value: str = '# no-assert-ok: not a comment',\n) -> None:\n    pass\n",
+            "def test_smoke(value: '# no-assert-ok: annotation') -> None:\n    pass\n",
+            "@mark('# no-assert-ok: decorator argument')\ndef test_smoke() -> None:\n    pass\n",
+            "def test_smoke() -> None: '# no-assert-ok: inline body'\n",
+            "def test_smoke() -> None: pass  # no-assert-ok: inline body comment\n",
+            "def test_smoke() -> None:\n    # no-assert-ok: body comment\n    pass\n",
+        ],
+    )
+    def test_marker_outside_an_allowed_comment_does_not_exempt_a_test(
+        self, tmp_path: Path, source: str
+    ) -> None:
+        path = _write_test_module(tmp_path, source)
+
+        assert [issue.rule_id for issue in validate_test_module(path)] == ["test.no_assertion"]
+
+    @pytest.mark.unit
+    def test_a_real_comment_inside_the_signature_is_accepted(self, tmp_path: Path) -> None:
+        path = _write_test_module(
+            tmp_path,
+            "def test_smoke(\n    value: object, # no-assert-ok: must not raise.\n) -> None:\n    pass\n",
+        )
+
+        assert validate_test_module(path) == []
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("body", ["pass", "repo.list.assert_awaited_once()"])
+    @pytest.mark.parametrize(
+        "header",
+        [
+            'def test_smoke(value=f"""{(\n    1 # no-assert-ok: f-string default\n)}"""):',
+            'def test_smoke(value: f"""{(\n    1 # no-assert-ok: f-string annotation\n)}"""):',
+            '@mark(f"""{(\n    1 # no-assert-ok: f-string decorator\n)}""")\ndef test_smoke():',
+            'def test_smoke(value=f"""{f"""{(\n    1 # no-assert-ok: nested f-string\n)}"""}"""):',
+        ],
+    )
+    def test_comments_in_f_string_expressions_cannot_exempt_tests(
+        self, tmp_path: Path, header: str, body: str
+    ) -> None:
+        path = _write_test_module(tmp_path, f"{header}\n    {body}\n")
+
+        expected = (
+            "test.no_assertion" if body == "pass" else "test.call_assertion_without_arguments"
+        )
+        assert [issue.rule_id for issue in validate_test_module(path)] == [expected]
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("marker", ["", "# no-assert-ok: must not raise.\n"])
+    def test_parenthesized_decorator_is_tokenized_from_a_complete_module(
+        self, tmp_path: Path, marker: str
+    ) -> None:
+        path = _write_test_module(
+            tmp_path, f"{marker}@(\n    (\n        mark\n    )\n)\ndef test_smoke():\n    pass\n"
+        )
+
+        expected = [] if marker else ["test.no_assertion"]
+        assert [issue.rule_id for issue in validate_test_module(path)] == expected
+
+    @pytest.mark.unit
     def test_body_without_verification_is_reported(self, tmp_path: Path) -> None:
         path = _write_test_module(tmp_path, "def test_nothing() -> None:\n    value = 1 + 1\n")
 
@@ -172,7 +259,7 @@ class TestMissingAssertions:
             tmp_path,
             "import pytest\n\n\n"
             "# no-assert-ok: proves the call does not raise; it returns None.\n"
-            "@pytest.mark.unit\n"
+            "@pytest.mark.unit(\n)\n"
             "def test_smoke() -> None:\n    int('1')\n",
         )
 
