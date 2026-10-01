@@ -58,7 +58,7 @@ lines below, in the same pull request.
 | PR | what goes wrong without it | check your copy | files |
 |---|---|---|---|
 | #31 | one logical call can make up to nine paid provider requests (the SDK's retries inside Tenacity's); `Retry-After` is ignored; a malformed reply reaches the caller raw | `grep -n max_retries project/infrastructure/agents/llm_service_live.py` shows 0 | `project/infrastructure/agents/llm_service_live.py`, `tool_runner.py` |
-| #37 | a 200 whose message content is an object answers 500 instead of 502 | `grep -n ValidationError project/infrastructure/agents/llm_service_live.py` | `project/infrastructure/agents/llm_service_live.py` |
+| #37 | a 200 whose message content is an object answers 500 instead of 502 | `grep -nE '^[[:space:]]+ValidationError,' project/infrastructure/agents/llm_service_live.py` finds it in the catch around `ainvoke`, not a comment | `project/infrastructure/agents/llm_service_live.py` |
 | #23 | the trace shows the model's calls but not which tools it ran or with what | `ls project/infrastructure/agents/tool_runner.py` | `project/infrastructure/agents/tool_runner.py` — before #26 and #31 |
 
 ### 4. Operations
