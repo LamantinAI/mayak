@@ -87,7 +87,7 @@ KERNEL_FILES = {
 _POINTER = f"{SCAFFOLD}/README.md"
 _QUICK_START = (
     "- Copy the `reference_task` vertical. It is the one worked example and it exists to be "
-    "copied — eleven files plus three wiring edits; `.agents/skills/add-vertical` carries the "
+    "copied — twelve files plus three wiring edits; `.agents/skills/add-vertical` carries the "
     "order and the removal list for when your own vertical replaces it. A project that has "
     "replaced it edits this line and nothing else: the wrapper's Quick Start is generated from "
     "these bullets."
@@ -237,7 +237,7 @@ CUTS: tuple[Cut, ...] = (
         _QUICK_START,
         _QUICK_START,
         "- Build a vertical with `.agents/skills/add-vertical`: it carries the order of work, and "
-        f"`{SCAFFOLD}/` holds the reference vertical this project was made from — eleven files plus "
+        f"`{SCAFFOLD}/` holds the reference vertical this project was made from — twelve files plus "
         "three wiring edits — to copy from. This line is this project's to edit: the wrapper's Quick "
         "Start is generated from these bullets.\n",
         keep_in_readme=False,
@@ -290,7 +290,7 @@ CUT_SHA256: dict[str, str] = {
     "project/infrastructure/persistence/orm_models.py: from datetime import datetime": "0da6047c5ab62b685d806fac9973d83e6db326e082942f4e98c98ca95c95e599",
     "project/infrastructure/persistence/orm_models.py: # Alembic reads this metadata; nothing reads the ORM at runtime, because ReferenceTaskRepository speaks raw psycopg. Verticals add their own tables alongside it and delete this one with the rest of the example.": "ac37054fd19d77cc08654e55e4ba5a2938d8f7a25f6d357712e03be906060704",
     "project/infrastructure/persistence/__init__.py: # writes go through psycopg against the shared pool; reference_task_repository.py is the worked": "65e8404cb3529b13c13657d8c32f2dcf7b38c6de1ac7246f73cf93f25341ba60",
-    "docs/agent_rules.md: - Copy the `reference_task` vertical. It is the one worked example and it exists to be copied — eleven files plus three wiring edits; `.agents/skills/add-vertical` carries the order and the removal list for when your own vertical replaces it. A project that has replaced it edits this line and nothing else: the wrapper's Quick Start is generated from these bullets.": "9b7ab18e46dabcc13dfaafab0156bfb41bf50a91b6b422495ec674d218108d48",
+    "docs/agent_rules.md: - Copy the `reference_task` vertical. It is the one worked example and it exists to be copied — twelve files plus three wiring edits; `.agents/skills/add-vertical` carries the order and the removal list for when your own vertical replaces it. A project that has replaced it edits this line and nothing else: the wrapper's Quick Start is generated from these bullets.": "b15dfb6c18c33fc2c8ec0593af1f71c590104395618347df5df9ddc7879493df",
     ".agents/skills/add-vertical/SKILL.md: # Add Vertical": "ea123ba5901f1bcc464ff4cb4060688b2793f1870dfead15c1b909435f86c289",
     ".agents/skills/add-vertical/SKILL.md: ## Deleting the reference vertical": "62015290e767a42e5baa92a5e8141d7bf687760d484323cb6d545bb3b7dfdbab",
 }

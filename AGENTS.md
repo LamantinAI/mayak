@@ -8,7 +8,7 @@ Generated from `docs/agent_rules.md` via `scripts/sync_agent_docs.py`. Do not ed
 
 ## Quick Start
 
-- Copy the `reference_task` vertical. It is the one worked example and it exists to be copied — eleven files plus three wiring edits; `.agents/skills/add-vertical` carries the order and the removal list for when your own vertical replaces it. A project that has replaced it edits this line and nothing else: the wrapper's Quick Start is generated from these bullets.
+- Copy the `reference_task` vertical. It is the one worked example and it exists to be copied — twelve files plus three wiring edits; `.agents/skills/add-vertical` carries the order and the removal list for when your own vertical replaces it. A project that has replaced it edits this line and nothing else: the wrapper's Quick Start is generated from these bullets.
 - If `.env` is missing: `make init-project`. Nothing else creates it, and the app does not start without it. Idempotent — it never overwrites an existing `.env`.
 - `make gate-fast` while editing — format, lint, types with the tests, layer rules, in seconds. `make quality-gates` before committing — its test run includes the db tier, which runs your queries and migrations against a PostgreSQL it starts itself (needs Docker). When the diff touched endpoints, wiring or a migration, `make test-e2e` too: only it runs the built image over HTTP.
 
@@ -21,7 +21,7 @@ Run `make help` for the full grouped command list — it reads the Makefile dire
 
 ## Task Process
 
-- When one command fails three times running, stop editing: write down the assumption you now doubt, ask `uv run python scripts/doctor_ai_context.py --rule <rule_id>` for its playbook, read only the files it names, and change one thing before rerunning.
+- When the same cause fails a third time — the same error, whatever flags or command you changed around it — stop editing: write down the assumption you now doubt; if a gate named a rule ID, ask `uv run python scripts/doctor_ai_context.py --rule <rule_id>` for its playbook and read only the files it names; change one thing before rerunning.
 - Never claim task completion without fresh `make quality-gates` evidence.
 - Use a fresh subagent for independent verification — do not self-verify.
 - A finished task ends as an open pull request, never a merge: branch `task/<ID>` → commit → push → `gh pr create --base main`. No deploy job ships — "done" means open and green.
@@ -29,7 +29,7 @@ Run `make help` for the full grouped command list — it reads the Makefile dire
 
 ## Working Notes
 
-- Every Python file opens with `# SUMMARY:`, so `git grep -n '^# SUMMARY:' -- project` lists what each module is for; `git grep -n <name>` finds a symbol and who uses it.
+- Every Python file opens with `# SUMMARY:`, so `git grep -n '^# SUMMARY:' -- project` lists what each module is for; `git grep -n <name>` finds a symbol and who uses it — run it before naming a test, command or symbol in an answer; a name recalled rather than found is a guess.
 - `PROJECT.md` and `docs/project_context.json` carry the business domain; this file covers only the kernel.
 - If `.env` is missing, run `make init-project` (idempotent) — nothing else creates it. `make run-local`/`make migrate` need reachable PostgreSQL unless `POSTGRES_ENABLED=false`; bring one up with `docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d db`.
 - `make quality-gates` and `make gate-fast` first fix what a machine can — refresh the generated wrappers, format and safe-fix the Python you changed — and name each file they rewrote; `make ci-local`, CI and the pre-commit hook set `STRICT_GENERATED=1 STRICT_RUFF=1` and fail instead (ADR-012). On failure `make quality-gates` runs `make doctor`. A narrow `pytest` run measures no coverage — the floor and the total live in `scripts/run_all_tests.py`'s full run.
@@ -45,7 +45,7 @@ Run `make help` for the full grouped command list — it reads the Makefile dire
 - Dependency direction is `domain -> application -> infrastructure`, enforced by `scripts/validate_architecture.py`: the domain is an allowlist (stdlib plus `project.domain`); application and infrastructure are blacklists. `get_layer_rules()` there gives each rule one of three levels — `runtime_enforced`, `guidance_only`, `not_enforced_in_validator` (unchecked outside the domain) — check which.
 - Four files carry every wiring edit: `project/core/composition_root.py`, `project/core/service_registration.py`, `project/infrastructure/api/router_registration.py`, `project/infrastructure/api/dependencies.py`.
 - The template ships exactly one worked vertical, `reference_task`, meant to be copied — a second would be a duplicate or a guess about your domain. In a project made from the template, `make init-project` has moved it out of `project/` into `.agents/skills/add-vertical/scaffold/`.
-- The kernel ships no business pipeline. LLM access is `project/infrastructure/agents/llm_service.py`; `bind_tools` returns a bound copy — keep the return value. Mock mode replays every bound tool once before the summary — ADR-003. A provider failure becomes a domain error at the adapter boundary — ADR-009. Prompts live in `project/prompts/`; the kernel only checks at startup that the directory and the named file exist — loading them is the vertical's job.
+- The kernel ships no business pipeline. LLM access is `project/infrastructure/agents/llm_service.py`; `bind_tools` returns a bound copy — keep the return value. Mock mode replays every bound tool once before the summary — ADR-003. A provider failure becomes a domain error at the adapter boundary; a request the provider refused stays its own error, a 500 — ADR-009. Prompts live in `project/prompts/`; the kernel only checks at startup that the directory and the named file exist — loading them is the vertical's job.
 - Heavy async resources open in the FastAPI lifespan and close via `cleanup_services()`; `scripts/validate_runtime_ownership.py` guards resource ownership, assignments to `app.state.services`, and env access.
 - `/health/ready` reports every dependency but only some decide the verdict: services always, the database when used (ADR-006), LLM readiness only when `AGENT_LLM_READINESS_CRITICAL=true` (ADR-008, off by default).
 - The Python version policy is ADR-002, its numbers in `pyproject.toml` and `.python-version`. Concurrency across rows and a foreign key's deletion policy are ADR-007.
