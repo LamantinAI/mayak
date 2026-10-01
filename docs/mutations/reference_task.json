@@ -616,10 +616,23 @@
     "test_two_processes_that_both_saw_a_title_free_cannot_both_open_it"
    ],
    "mechanism": "direct, db tier: ConflictError from the repository and 409 over HTTP, not a driver error"
+  },
+  {
+   "id": "update_conflict_not_translated",
+   "kind": "invariant",
+   "file": "project/infrastructure/persistence/reference_task_repository.py",
+   "find": "                    connection.cursor(row_factory=dict_row) as cursor,\n                    _open_title_taken_is_a_conflict(task.title),\n",
+   "replace": "                    connection.cursor(row_factory=dict_row) as cursor,\n",
+   "breaks": "a rename onto an open task's title answers 500 with a driver error instead of 409; creating one still answers 409",
+   "expect": [
+    "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+    "test_only_one_open_task_may_carry_a_title_whatever_its_case"
+   ],
+   "mechanism": "direct, db tier: ConflictError from the repository's update, the path bench3's product left untranslated"
   }
  ],
  "baseline": {
-  "commit": "6a5eca6",
+  "commit": "38ad716",
   "results": {
    "create_blank_title_allowed": {
     "verdict": "caught:fast",
@@ -786,6 +799,7 @@
       "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
       "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
       "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
+      "test_only_one_open_task_may_carry_a_title_whatever_its_case",
       "test_the_list_answers_the_status_it_was_asked_for"
      ],
      "e2e": [
@@ -828,6 +842,7 @@
       "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
       "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
       "test_list_filters_by_status_newest_first_within_the_page",
+      "test_only_one_open_task_may_carry_a_title_whatever_its_case",
       "test_the_list_answers_the_status_it_was_asked_for",
       "test_two_processes_that_both_saw_a_title_free_cannot_both_open_it"
      ],
@@ -847,6 +862,7 @@
       "test_an_update_lands_only_while_the_row_is_the_one_that_was_read",
       "test_each_patch_changes_what_it_sent_and_the_next_one_still_lands",
       "test_list_filters_by_status_newest_first_within_the_page",
+      "test_only_one_open_task_may_carry_a_title_whatever_its_case",
       "test_the_list_answers_the_status_it_was_asked_for"
      ],
      "e2e": [
@@ -896,6 +912,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
+      "test_a_conflict_naming_the_value",
       "test_a_conflict_raised_inside_a_span_carries_no_error_level_and_no_traceback",
       "test_a_domain_error_answered_4xx_is_a_client_error",
       "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
@@ -952,6 +969,7 @@
       "test_missing_pool_is_still_a_fault_when_database_is_enabled",
       "test_readiness_database_failure_message_hides_internal_details",
       "test_readiness_database_unhealthy_still_503_regardless_of_llm_criticality",
+      "test_readiness_names_an_unmigrated_database",
       "test_readiness_returns_503_when_database_is_unavailable"
      ]
     }
@@ -960,6 +978,7 @@
     "verdict": "caught:fast",
     "caught_by": {
      "fast": [
+      "test_an_emptied_version_table_is_not_migrated",
       "test_check_database_reports_unmigrated_schema"
      ]
     }
@@ -1057,6 +1076,15 @@
       "test_a_request_outside_the_rules_answers_422_and_writes_nothing",
       "test_create_refuses_overlong_details_before_writing",
       "test_update_refuses_an_empty_null_or_out_of_bounds_patch_before_writing"
+     ]
+    }
+   },
+   "update_conflict_not_translated": {
+    "verdict": "caught:fast",
+    "caught_by": {
+     "fast": [
+      "test_a_request_that_would_open_a_second_task_with_a_title_answers_409",
+      "test_only_one_open_task_may_carry_a_title_whatever_its_case"
      ]
     }
    }

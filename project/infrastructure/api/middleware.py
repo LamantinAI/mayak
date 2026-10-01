@@ -340,7 +340,17 @@ class AILoggingMiddleware:
                             await too_large(scope, receive, observed_send)
                         else:
                             limited = _limited_receive(receive, self.max_body_bytes)
-                            await self.app(scope, limited, observed_send)
+                            try:
+                                await self.app(scope, limited, observed_send)
+                            except Exception:
+                                # Starlette answers an unhandled error with a 500 from outside
+                                # this middleware, after the span below has closed, so the summary
+                                # never saw a status. Before the response started it will be 500;
+                                # after, the client already has the status that was sent.
+                                if observer.status_code is None:
+                                    observer.status_code = 500
+                                span_ctx.output = observer.as_span_output()
+                                raise
 
                         # Attach response metadata to span output for automatic
                         # logging on span finish. See _ResponseObserver for what response_type and

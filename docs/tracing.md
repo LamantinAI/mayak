@@ -8,13 +8,29 @@ keyboard: `make format-trace ARGS="<logfile>"` (a local file) or `make logs` (a 
 ## Rendering a trace
 
 - `make format-trace ARGS="<logfile>"` renders a local NDJSON file as a compact LLM-friendly text
-  tree. Accepts `--trace <ID>` to filter to one request. Trace summaries are prepended to the log
-  file on application shutdown when deep trace is enabled.
+  tree — only the **last** HTTP trace in it unless given `--all` (every one) or `--trace <ID>`
+  (one request). Trace summaries are prepended to the log file on application shutdown when deep
+  trace is enabled.
 - `make logs` renders the running container's semantic log as a trace tree; `make logs-raw` dumps
   the raw NDJSON under `logs/`, for grepping instead of reading. Both pass `-p $(WORKTREE_PROJECT)`,
   the Compose project `make db-up-worktree` creates, so they read this checkout's own containers and
   not a sibling worktree's. `LINES=N` limits how far back to read; `ARGS="--trace <ID>"` narrows to
   one request.
+
+## Reading the request you just made
+
+Whatever ran after it — the `GET` checking what it created — is the last trace now, and the default
+render shows that one; a line under the tree counting the hidden traces is the only sign. So:
+
+1. Record: the service logs NDJSON to stdout, `mkdir -p logs && make run-local | tee
+   logs/run.ndjson`; for a container, `make logs-raw` once the request is done.
+2. Make the one request you want to read — your own endpoint; the kernel has none to stand in.
+3. `make format-trace ARGS="logs/run.ndjson --all"`, then `--trace <ID>` with the full id — the
+   response's `x-request-id` header or the `trace_id` of its NDJSON lines; the tree prints eight
+   characters of it, and `--trace` matches only the whole.
+
+`ENABLE_FULL_TRACE=true` also writes prompts and completions to `logs/<ts>_pid<PID>.ndjson`. The
+spans do not need it, and what lands there is what users typed — ADR-013.
 
 ## Filtering to real failures
 

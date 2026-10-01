@@ -315,7 +315,8 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                     root_span_id=span_id,
                     duration_ms=duration_ms,
                     outcome=RequestOutcome.SERVER_ERROR,
-                    status_code=None,
+                    # What the owner recorded before re-raising — the HTTP middleware does.
+                    status_code=_extract_status_code(ctx.output),
                     _caller=_caller,
                 )
             raise
