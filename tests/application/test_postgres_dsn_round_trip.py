@@ -27,6 +27,8 @@ from project.core.config_builders import build_postgres_dsn, build_sqlalchemy_po
         ("user", "plain", "127.0.0.1", "literal%3Fdb"),
         ("user", "plain", "localhost", "literal+db"),
         ("user", "plain", "localhost", "normal db"),
+        ("user", "plain", "localhost", "."),
+        ("user", "plain", "localhost", ".."),
     ],
 )
 class TestPostgresDsnRoundTrip:

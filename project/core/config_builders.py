@@ -27,8 +27,10 @@ def build_postgres_dsn(
     encoded_user = quote(user, safe="")
     encoded_password = quote(password, safe="")
     encoded_database = quote(database, safe="")
+    # A path would normalize database names '.' and '..'; query dbname preserves literal names.
     return PostgresDsn(
-        f"postgresql://{encoded_user}:{encoded_password}@{_uri_host(host)}:{port}/{encoded_database}"
+        f"postgresql://{encoded_user}:{encoded_password}@{_uri_host(host)}:{port}/"
+        f"?dbname={encoded_database}"
     )
 
 
