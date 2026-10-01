@@ -8,7 +8,9 @@ import argparse
 import ast
 import re
 import sys
+import tokenize
 from dataclasses import dataclass
+from io import StringIO
 from pathlib import Path
 from typing import Sequence
 
@@ -89,7 +91,7 @@ _TEST_QUALITY_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
         "suggested_fix": (
             "Add an assertion about the observable outcome. If the test exists only to prove that "
             "a call does not raise, say so explicitly with a "
-            f"'{OPT_OUT_MARKER} <reason>' comment on the def line."
+            f"'{OPT_OUT_MARKER} <reason>' comment above the def or its decorators."
         ),
         "read_first": [
             "the file referenced by the issue",
@@ -146,7 +148,8 @@ _TEST_QUALITY_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
         ),
         "suggested_fix": (
             "Name the arguments: assert_awaited_once_with(limit=7). If the call itself is the whole "
-            f"contract, say so explicitly with a '{OPT_OUT_MARKER} <reason>' comment on the def line."
+            f"contract, say so explicitly with a '{OPT_OUT_MARKER} <reason>' comment above the def "
+            "or its decorators."
         ),
         "read_first": [
             "the file referenced by the issue",
@@ -315,8 +318,8 @@ def _verification_strength(
     return states_expectation, weak_call
 
 
-# Report whether the comment block above a test carries the explicit opt-out marker.
-# source_lines: The module's lines, used to read the block above the definition.
+# Ruff moves a def-line comment to the end of a wrapped signature. Read real comments through
+# the signature's logical newline; strings and comments in the body cannot waive verification.
 # Returns: True when the author stated a reason for the missing verification.
 def _carries_opt_out_marker(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
@@ -335,7 +338,19 @@ def _carries_opt_out_marker(
         if not previous.startswith(("#", "@")):
             break
         block_start -= 1
-    return any(OPT_OUT_MARKER in line for line in source_lines[block_start : node.lineno])
+    source = "\n".join(source_lines[block_start : node.end_lineno])
+    definition_line = node.lineno - block_start
+    body_line = node.body[0].lineno - block_start
+    for token in tokenize.generate_tokens(StringIO(source).readline):
+        if token.type == tokenize.NEWLINE and token.start[0] >= definition_line:
+            break
+        if (
+            token.type == tokenize.COMMENT
+            and token.start[0] < body_line
+            and OPT_OUT_MARKER in token.string
+        ):
+            return True
+    return False
 
 
 # Report whether a function is a pytest fixture rather than a test.

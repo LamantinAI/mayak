@@ -1,13 +1,6 @@
 # FILE: tests/application/test_mock_agent_multi_tool_loop.py
-# SUMMARY: The sample ADR-003 promises and the kernel did not ship: a real agent loop over three
-# bound tools with structured arguments (Decimal, a nested object, an enum), driven end to end by
-# LLMService in mock mode, with no key and no network. Copy this file's shape into a vertical.
-#
-# This test could not be written against the shipped mock until it gained real tool-selection:
-# two field builds hit the same wall independently and both wrote their own tool-selection layer
-# on top of `LLMService` to get here — see the NOTE on `_next_uncalled_tool_name` in
-# project/infrastructure/agents/llm_service_mock.py for what was actually broken and how it was
-# measured, and docs/adr/ADR-003-mock-first-llm-mode.md for what mock mode now guarantees.
+# SUMMARY: Copyable LLM loop executing every requested tool with real structured-argument validation.
+# Mock-selection requirements and history: ADR-003 and `_next_uncalled_tool_name` in llm_service_mock.py.
 
 from __future__ import annotations
 
@@ -19,7 +12,7 @@ from decimal import Decimal
 from enum import Enum
 from io import StringIO
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
@@ -31,6 +24,7 @@ from project.core.logging.formatters import NDJSONFormatter
 from project.core.logging.trace_formatter import format_trace_for_llm
 from project.infrastructure.agents import tool_runner
 from project.infrastructure.agents.llm_service import LLMService
+from project.infrastructure.agents.prompt_llm_adapter import SupportsMessageCall
 from project.infrastructure.agents.tool_runner import ToolArgumentsError, run_tool
 from tests.conftest import _FixtureSettings as FixtureSettings
 
@@ -99,50 +93,20 @@ _TOOLS = [
     ),
 ]
 
-# The one thing the mock cannot invent on its own — see the NOTE on `_build_mock_response`
-# in llm_service_mock.py. Written down here, the same way a vertical would write it down for its
-# own tools, and handed to the bound service through `_mock_tool_args`.
+# The mock cannot invent structured arguments; a vertical supplies `_mock_tool_args` (ADR-003).
 _VALID_ARGS_BY_TOOL: dict[str, dict[str, Any]] = {
     "lookup_customer": {"customer_id": "cust-42"},
     "price_order": {"customer_id": "cust-42", "total": {"amount": "129.90", "currency": "USD"}},
     "send_confirmation": {"customer_id": "cust-42", "channel": "email"},
 }
 
-# The arguments safe to show in the trace verbatim: an id and an enum. Anything else a tool takes is
-# recorded as its type and size — see run_tool.
+# Only ids and enums appear verbatim in traces; run_tool records other arguments as type and size.
 _SHOWN = ("customer_id", "channel")
 
 
-# The loop shape a vertical's own agent service runs: call the model, execute whatever
-# tool it asked for against the REAL tool (so args validate against its REAL schema), feed the
-# result back, repeat until the model answers with no further tool call.
-# service: Already bound to `_TOOLS`, in mock mode.
-# Returns tool names called, in order, and the final text answer.
-# Raises AssertionError if the loop does not terminate within one round per bound tool plus one —
-# a runaway loop should fail the test loudly, not hang it or loop silently past the budget.
-async def _run_agent_loop(service: LLMService, prompt: str) -> tuple[list[str], str]:
-    messages: list[BaseMessage] = [HumanMessage(content=prompt)]
-    tools_by_name = {tool.name: tool for tool in _TOOLS}
-    called_in_order: list[str] = []
-
-    for _round in range(len(_TOOLS) + 1):
-        response = await service.call(messages)
-        messages.append(response)
-        if not isinstance(response, AIMessage) or not response.tool_calls:
-            assert isinstance(response.content, str)
-            return called_in_order, response.content
-
-        call = response.tool_calls[0]
-        called_in_order.append(call["name"])
-        # run_tool runs the tool's own pydantic validation on `call["args"]` — this is what
-        # proves the args are schema-valid, not merely well-typed Python — inside an
-        # `agent.tool.<name>` span, so the trace shows which tool ran and how it ended.
-        result = await run_tool(tools_by_name[call["name"]], call["args"], shown=_SHOWN)
-        messages.append(
-            ToolMessage(content=str(result), name=call["name"], tool_call_id=call["id"])
-        )
-
-    raise AssertionError(f"loop did not finalize within {len(_TOOLS) + 1} rounds")
+# Start the same bounded loop over a new conversation; `_drive` also supports follow-up questions.
+async def _run_agent_loop(service: SupportsMessageCall, prompt: str) -> tuple[list[str], str]:
+    return await _drive(service, [HumanMessage(content=prompt)])
 
 
 class TestThreeToolAgentLoopOnMock:
@@ -292,11 +256,10 @@ class TestThreeToolAgentLoopOnMock:
         assert second_calls == first_calls
 
 
-# Run the loop over an existing conversation, appending to it in place.
-# service: Bound service in mock mode.
-# messages: Conversation so far; the last entry is the question.
-# Returns tool names called for this question, and the final answer.
-async def _drive(service: LLMService, messages: list[BaseMessage]) -> tuple[list[str], str]:
+# Copy this bounded loop: append each requested tool's result before asking the model again.
+async def _drive(
+    service: SupportsMessageCall, messages: list[BaseMessage]
+) -> tuple[list[str], str]:
     tools_by_name = {tool.name: tool for tool in _TOOLS}
     called: list[str] = []
     for _round in range(len(_TOOLS) + 1):
@@ -305,13 +268,54 @@ async def _drive(service: LLMService, messages: list[BaseMessage]) -> tuple[list
         if not isinstance(response, AIMessage) or not response.tool_calls:
             assert isinstance(response.content, str)
             return called, response.content
-        call = response.tool_calls[0]
-        called.append(call["name"])
-        result = await run_tool(tools_by_name[call["name"]], call["args"], shown=_SHOWN)
-        messages.append(
-            ToolMessage(content=str(result), name=call["name"], tool_call_id=call["id"])
-        )
+        for call in response.tool_calls:
+            called.append(call["name"])
+            result = await run_tool(tools_by_name[call["name"]], call["args"], shown=_SHOWN)
+            messages.append(
+                ToolMessage(content=str(result), name=call["name"], tool_call_id=call["id"])
+            )
     raise AssertionError("loop did not finalize within its round budget")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("loop", ["new_conversation", "existing_conversation"])
+async def test_every_call_in_one_reply_is_executed_and_returned_to_the_model(loop: str) -> None:
+    batch = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "lookup_customer", "args": {"customer_id": "cust-42"}, "id": "lookup-42"},
+            {"name": "lookup_customer", "args": {"customer_id": "cust-99"}, "id": "lookup-99"},
+            {"name": "price_order", "args": _VALID_ARGS_BY_TOOL["price_order"], "id": "price-42"},
+        ],
+    )
+    received: list[list[BaseMessage]] = []
+
+    async def reply(messages: list[BaseMessage]) -> BaseMessage:
+        # The loops append in place; snapshots prove what the next model call actually received.
+        received.append(list(messages))
+        return batch if len(received) == 1 else AIMessage(content="order checked")
+
+    service = AsyncMock()
+    service.call.side_effect = reply
+    if loop == "new_conversation":
+        called, answer = await _run_agent_loop(service, "check both customers and price the order")
+    else:
+        called, answer = await _drive(
+            service, [HumanMessage(content="check both customers and price the order")]
+        )
+
+    assert called == ["lookup_customer", "lookup_customer", "price_order"]
+    assert answer == "order checked"
+    assert len(received) == 2
+    expected_results = [
+        ToolMessage(content=content, name=name, tool_call_id=call_id)
+        for call_id, name, content in [
+            ("lookup-42", "lookup_customer", "customer cust-42: active"),
+            ("lookup-99", "lookup_customer", "customer cust-99: active"),
+            ("price-42", "price_order", "order for cust-42 priced at 129.90 USD"),
+        ]
+    ]
+    assert received[1] == [*received[0], batch, *expected_results]
 
 
 # What run_tool writes, as the application's own formatter renders it: the NDJSON lines its logger
