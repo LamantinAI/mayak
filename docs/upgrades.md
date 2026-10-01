@@ -14,6 +14,7 @@ and let each row's check tell you whether your copy already has the change. Port
 
 | since | pull requests | what the batch was |
 |---|---|---|
+| 2026-10-01 | #36 (lock refresh), #40 | urllib3 security update; formatter-stable test opt-outs and complete tool-call batches in the copied LLM loop |
 | 2026-09-28 | #36, #37, #38 | fixes the bench3 measurement asked for: agent texts, nine kernel defects, tools |
 | 2026-09-27 | #35 | texts an agent and an operator read, before bench3 |
 | 2026-09-24…26 | #13–#34 | after bench2: a db test tier, a thinner sample, the review rounds' fixes |
@@ -36,6 +37,7 @@ lines below, in the same pull request.
 
 | PR | what goes wrong without it | check your copy | files |
 |---|---|---|---|
+| #36 (lock refresh) | locked urllib3 2.7.0 has three known security advisories and fails the dependency audit | `uv tree --locked --package urllib3` shows 2.8.0 or a newer fixed version; run `make audit-deps` | `uv.lock`: update urllib3 alone with `uv lock --upgrade-package urllib3` |
 | #32 | a PostgreSQL password with `@ % : /` crashes migrations and prints the encoded DSN in the traceback; the config log shows the provider URL whole | `grep -n '%%' alembic/env.py` finds the escape | `alembic/env.py`, `project/core/composition_root.py`, `scripts/validate_secrets.py` |
 | #26 | a rejected request's text — what the client typed — lands in the log of its 409 or 422 | `grep -n describe_rejection project/core/logging/logger.py` | `project/domain/exceptions.py`, `project/core/logging/`, `project/core/pydantic_errors.py`, `project/core/error_utils.py`, `project/infrastructure/api/exception_handlers.py`, `project/infrastructure/agents/tool_runner.py`; ADR-013 |
 | #25 | one 200 MB POST took the process from 138 to 1 655 MB; error responses dropped `WWW-Authenticate`, `Retry-After`, `Allow`; a 500 had no `X-Request-ID`; a failure inside dependency injection answered 400 instead of 500 | `grep -n max_body_bytes project/core/config_settings_core.py` | `project/infrastructure/api/middleware.py`, `exception_handlers.py`, `dependencies.py`, `project/core/config_settings_core.py`, `composition_root.py` |
@@ -57,6 +59,7 @@ lines below, in the same pull request.
 
 | PR | what goes wrong without it | check your copy | files |
 |---|---|---|---|
+| #40 | a loop copied from the sample executes only the first call in a multi-call reply and sends incomplete results to the model | `grep -n 'for call in response.tool_calls' tests/application/test_mock_agent_multi_tool_loop.py`; check loops already copied into your vertical too | `tests/application/test_mock_agent_multi_tool_loop.py`: execute all calls, each with its own result and call ID |
 | #31 | one logical call can make up to nine paid provider requests (the SDK's retries inside Tenacity's); `Retry-After` is ignored; a malformed reply reaches the caller raw | `grep -n max_retries project/infrastructure/agents/llm_service_live.py` shows 0 | `project/infrastructure/agents/llm_service_live.py`, `tool_runner.py` |
 | #37 | a 200 whose message content is an object answers 500 instead of 502 | `grep -n ValidationError project/infrastructure/agents/llm_service_live.py` | `project/infrastructure/agents/llm_service_live.py` |
 | #23 | the trace shows the model's calls but not which tools it ran or with what | `ls project/infrastructure/agents/tool_runner.py` | `project/infrastructure/agents/tool_runner.py` — before #26 and #31 |
@@ -65,6 +68,7 @@ lines below, in the same pull request.
 
 | PR | what goes wrong without it | check your copy | files |
 |---|---|---|---|
+| #40 | Ruff wraps a signature and the test gate loses its allowed opt-out; a marker inside an f-string can waive verification | `grep -n FSTRING_START scripts/validate_test_quality.py` finds the depth guard; a permitted signature comment survives formatting | `scripts/validate_test_quality.py`: read actual comments in context, excluding strings and the body |
 | #37 | the `request.summary` of an unhandled 500 has no status code — the one line an operator filters for | `grep -n 'observer.status_code = 500' project/infrastructure/api/middleware.py` | `middleware.py`, `project/core/logging/logger.py` |
 | #37 | the OpenAPI schema declares a 422 body the service never sends | `curl -s localhost:<port>/openapi.json \| grep -c ErrorEnvelope` | `project/infrastructure/api/exception_handlers.py` |
 | #37 | the layer validator passes `from project import infrastructure` in the application layer | `grep -n _resolve_import_names scripts/validate_architecture.py` | `scripts/validate_architecture.py` |
