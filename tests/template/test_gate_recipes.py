@@ -416,7 +416,9 @@ class TestDocumentedTargetsRunWithoutAPrompt:
         # what an agent is told to run against what it may run without asking. A
         # target that should stay behind a prompt belongs in the exemption tuple below with the
         # reason written down — not silently absent from one of the two lists.
-        exempt_from_pre_approval: tuple[str, ...] = ()
+        # init-project installs dependencies and, once the identity is replaced, takes the
+        # reference vertical out and stages it: a person approves that run.
+        exempt_from_pre_approval: tuple[str, ...] = ("init-project",)
         makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
         settings = json.loads(
             (_REPO_ROOT / ".claude" / "settings.json").read_text(encoding="utf-8")
