@@ -26,7 +26,7 @@
   "api_overview": {
     "base_path": "/",
     "auth_strategy": "none",
-    "notes": "No shared API prefix: each router declares its own, and include_application_routers mounts it at the root. Kernel routes are GET /health/ and GET /health/ready; the shipped reference vertical adds POST /reference-tasks, GET /reference-tasks/{task_id} and GET /reference-tasks, registered only when POSTGRES_ENABLED is true. A project that wants a /api/v1 prefix adds it in router_registration.py and updates this field."
+    "notes": "No shared API prefix: each router declares its own, and include_application_routers mounts it at the root. Kernel routes are GET /health/ and GET /health/ready; the shipped reference vertical adds POST /reference-tasks, GET /reference-tasks/{task_id}, PATCH /reference-tasks/{task_id} and GET /reference-tasks, registered only when POSTGRES_ENABLED is true. A project that wants a /api/v1 prefix adds it in router_registration.py and updates this field."
   },
   "project_decisions": [
     "FastAPI + uvicorn as the HTTP runtime (project/launcher/main.py).",

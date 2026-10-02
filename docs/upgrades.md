@@ -14,6 +14,7 @@ and let each row's check tell you whether your copy already has the change. Port
 
 | since | pull requests | what the batch was |
 |---|---|---|
+| 2026-10-01 | #41 | preserve PostgreSQL connection components through libpq/SQLAlchemy; strengthen the password test and correct project context |
 | 2026-10-01 | #36 (lock refresh), #40 | urllib3 security update; formatter-stable test opt-outs and complete tool-call batches in the copied LLM loop |
 | 2026-09-28 | #36, #37, #38 | fixes the bench3 measurement asked for: agent texts, nine kernel defects, tools |
 | 2026-09-27 | #35 | texts an agent and an operator read, before bench3 |
@@ -47,6 +48,7 @@ lines below, in the same pull request.
 
 | PR | what goes wrong without it | check your copy | files |
 |---|---|---|---|
+| #41 | spaces in user/password become `+`, database punctuation or dot names change the selected database, raw IPv6 is rejected | port and run `uv run pytest -q tests/application/test_postgres_dsn_round_trip.py`; both native consumers must recover the original parameters | `project/core/config_builders.py`, `tests/application/test_config.py`, `tests/application/test_postgres_dsn_round_trip.py`; DSNs now carry the database in the decoded `dbname` query option, not the URL path |
 | #38 | a container refused for its settings (a wildcard CORS origin, a placeholder password) has already migrated the database it shares | in `entrypoint.sh`, `validate_runtime` comes before `alembic upgrade head` | `entrypoint.sh` |
 | #33 | after a database restart every stale pooled connection answers 500; `POSTGRES_POOL_SIZE` of 1–3 crashes startup; a frozen connection hangs readiness; a startup cancelled mid-way leaks the pool | `grep -n 'check=AsyncConnectionPool.check_connection' project/core/composition_root.py` | `project/core/composition_root.py`, `project/core/lifecycle.py`, `project/infrastructure/api/endpoints/health.py` — after #24 |
 | #24 | `/health/ready` answers 200 on a schema that is unmigrated or a migration behind | `grep -n 'not migrated' project/infrastructure/api/endpoints/health.py` | `project/infrastructure/api/endpoints/health.py` |
@@ -86,6 +88,7 @@ an agent pays in turns for text that no longer matches the code.
 
 | PR | what changed | check your copy |
 |---|---|---|
+| #41 | PROJECT no longer refers to removed JSON business-rule copies; API context notes include the existing PATCH route | compare the Business Rules paragraph with `docs/project_context.json`; `api_overview.notes` includes the sample's PATCH endpoint |
 | #36 | add-vertical: test data per query shape, a translator and a lock on every write path, 422 on an unparseable filter; ADR-003 on what mock mode cannot check; ADR-007 on every writer; escalating on the same cause; reading one request's trace | `grep -n 'twelve files' .agents/skills/add-vertical/SKILL.md` |
 | #35 | the add-vertical rule on what an endpoint may import; readiness probe caching in README | `grep -n cached README.md` |
 | #29 | `docs/project_context.json` without the unchecked `verticals` and `business_rules` | `python3 -c "import json; print('verticals' in json.load(open('docs/project_context.json')))"` prints False |
