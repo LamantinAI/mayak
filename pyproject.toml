@@ -1,6 +1,6 @@
 [project]
 name = "mayak"
-version = "1.0.0"
+version = "1.1.0"
 description = "Reusable AI-friendly FastAPI backend template (Mayak)."
 license = "MIT"
 license-files = ["LICENSE"]
