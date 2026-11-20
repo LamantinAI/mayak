@@ -404,13 +404,13 @@ diff-coverage: ## Validation | Test and check coverage of the complete applicati
 	@$(MAKE) --no-print-directory gate-tests
 	@$(MAKE) --no-print-directory diff-coverage-report
 
+VERIFY_DIFF_ARGS = --base "$$DIFF_COMPARE_BRANCH" --uv "$(UV)" --diff-cover "$(DIFF_COVER)"
+
 diff-coverage-report:
-	$(UV) run python -m scripts.verify_change --base "$$DIFF_COMPARE_BRANCH" --coverage-handlers coverage.xml
-	GIT_OPTIONAL_LOCKS=0 $(UV) run --with $(DIFF_COVER) diff-cover coverage.xml \
-		--compare-branch="$$DIFF_COMPARE_BRANCH" --include-untracked --fail-under=80
+	$(UV) run python -m scripts.verify_change $(VERIFY_DIFF_ARGS) --coverage-only
 
 verify: ## Validation | Strict gates, complete diff coverage and applicable Docker E2E
-	$(UV) run python -m scripts.verify_change --base "$$DIFF_COMPARE_BRANCH" $(if $(filter 1,$(E2E)),--e2e)
+	$(UV) run python -m scripts.verify_change $(VERIFY_DIFF_ARGS) $(if $(filter 1,$(E2E)),--e2e)
 
 # Guarantees teardown even if a health probe fails, and fails fast with a clear
 # message if .env is missing (docker compose's own "env file not found" error is

@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import argparse
 import ast
+import json
 import os
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -21,17 +23,12 @@ CONTAINER_INPUTS = {
     ".dockerignore",
     ".env.sample",
     "Dockerfile",
+    "alembic.ini",
     "docker-compose.yml",
     "docker-compose.postgres.yml",
     "entrypoint.sh",
     "pyproject.toml",
     "uv.lock",
-}
-WIRING_INPUTS = {
-    "project/core/service_registration.py",
-    "project/core/composition_root.py",
-    "project/infrastructure/api/dependencies.py",
-    "project/infrastructure/api/router_registration.py",
 }
 
 
@@ -44,23 +41,30 @@ def _git(*arguments: str) -> str:
     )
 
 
+def _paths(*arguments: str) -> set[str]:
+    return set(_git(*arguments, "-z", "--").split("\0")) - {""}
+
+
 def _working_diff(base: str) -> tuple[str, set[str]]:
     commit = _git("rev-parse", "--verify", "--end-of-options", f"{base}^{{commit}}").strip()
     start = _git("merge-base", "HEAD", commit).strip()
-    paths = set(_git("diff", "--no-renames", "--name-only", "-z", start, "--").split("\0"))
-    paths.update(_git("ls-files", "--others", "--exclude-standard", "-z").split("\0"))
-    paths.discard("")
-    return start, paths
+    names = ("diff", "--no-renames", "--name-only")
+    mixed = _paths(*names, "--cached", "HEAD") & _paths(*names)
+    if mixed:
+        raise ValueError(
+            "index and working tree disagree on staged paths: " + ", ".join(sorted(mixed))
+        )
+    return start, _paths(*names, start) | _paths("ls-files", "--others", "--exclude-standard")
+
+
+def _needs_e2e(paths: set[str]) -> bool:
+    return bool(paths & CONTAINER_INPUTS) or any(
+        path.startswith(("alembic/", "project/", "tests/functional/")) for path in paths
+    )
 
 
 def needs_e2e(base: str) -> bool:
-    _, paths = _working_diff(base)
-    return bool(paths & (CONTAINER_INPUTS | WIRING_INPUTS)) or any(
-        path.startswith(
-            ("alembic/", "project/infrastructure/api/", "project/launcher/", "tests/functional/")
-        )
-        for path in paths
-    )
+    return _needs_e2e(_working_diff(base)[1])
 
 
 def _handlers(source: str) -> dict[str, ast.FunctionDef | ast.AsyncFunctionDef]:
@@ -108,44 +112,87 @@ def unexercised_handlers(base: str, report: Path) -> list[str]:
     return missing
 
 
+def _coverage(start: str, paths: set[str], report: Path, uv: str, tool: str) -> int:
+    if not paths:
+        print(
+            "verify: diff-coverage-report: SKIPPED (empty diff; supply a base for a committed change)"
+        )
+        return 0
+    missing = unexercised_handlers(start, report)
+    for handler in missing:
+        print(f"coverage.route_unexercised: {handler}. Run this handler in an HTTP test.")
+    if missing:
+        return 1
+    with TemporaryDirectory(prefix="mayak-coverage-") as directory:
+        receipt = Path(directory) / "diff.json"
+        status = subprocess.call(
+            (
+                uv,
+                "run",
+                "--with",
+                tool,
+                "diff-cover",
+                str(report),
+                "--compare-branch",
+                start,
+                "--include-untracked",
+                "--fail-under",
+                "80",
+                "--format",
+                f"json:{receipt}",
+            ),
+            env=os.environ | {"GIT_OPTIONAL_LOCKS": "0"},
+        )
+        if status:
+            print("verify: diff-coverage-report: FAIL")
+            return status
+        lines = json.loads(receipt.read_text(encoding="utf-8"))["total_num_lines"]
+    if lines:
+        print(f"verify: diff-coverage-report: PASS ({lines} measured lines)")
+    else:
+        print("verify: diff-coverage-report: SKIPPED (no measurable lines)")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", required=True)
     parser.add_argument("--e2e", action="store_true")
-    parser.add_argument("--coverage-handlers", type=Path)
+    parser.add_argument("--coverage-only", action="store_true")
+    parser.add_argument("--uv", default="uv")
+    parser.add_argument("--diff-cover", required=True)
     args = parser.parse_args()
-
-    if args.coverage_handlers:
-        missing = unexercised_handlers(args.base, args.coverage_handlers)
-        for handler in missing:
-            print(f"coverage.route_unexercised: {handler}. Run this handler in an HTTP test.")
-        return int(bool(missing))
-
     try:
-        run_e2e = args.e2e or needs_e2e(args.base)
-    except subprocess.CalledProcessError:
-        print("verify: BLOCKED — no usable Git diff base", file=sys.stderr)
+        start, paths = _working_diff(args.base)
+    except (subprocess.CalledProcessError, ValueError) as error:
+        reason = str(error) if isinstance(error, ValueError) else "no usable Git diff base"
+        print(f"verify: BLOCKED ({reason})", file=sys.stderr)
         return 1
+    print(f"verify: base {args.base} -> {start}; {len(paths)} changed paths", flush=True)
+    report = Path("coverage.xml")
+    if args.coverage_only:
+        return _coverage(start, paths, report, args.uv, args.diff_cover)
 
     env = os.environ | {
         "STRICT_GENERATED": "1",
         "STRICT_RUFF": "1",
         "MAYAK_REQUIRE_MIGRATION_DB": "1",
     }
-    steps = ["quality-gates", "diff-coverage-report"]
-    if run_e2e:
-        steps.append("test-e2e")
-
-    for index, step in enumerate(steps):
-        status = subprocess.call(("make", "--no-print-directory", step), env=env)
-        print(f"verify: {step}: {'PASS' if status == 0 else 'FAIL'}", flush=True)
-        if status:
-            for later in steps[index + 1 :]:
-                print(f"verify: {later}: BLOCKED by {step}")
-            return status
-    if not run_e2e:
-        print("verify: test-e2e: SKIPPED (no endpoint, wiring, migration or container changes)")
-    return 0
+    status = subprocess.call(("make", "--no-print-directory", "quality-gates"), env=env)
+    print(f"verify: quality-gates: {'PASS' if status == 0 else 'FAIL'}", flush=True)
+    if status == 0:
+        status = _coverage(start, paths, report, args.uv, args.diff_cover)
+    if status:
+        print("verify: remaining checks: BLOCKED by an earlier failure")
+        return status
+    if not (args.e2e or _needs_e2e(paths)):
+        print(
+            "verify: test-e2e: SKIPPED (no runtime, migration, container or functional test changes)"
+        )
+        return 0
+    status = subprocess.call(("make", "--no-print-directory", "test-e2e"), env=env)
+    print(f"verify: test-e2e: {'PASS' if status == 0 else 'FAIL'}")
+    return status
 
 
 if __name__ == "__main__":

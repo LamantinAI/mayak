@@ -126,3 +126,57 @@ def test_bootstrap_does_not_forward_an_ambient_database(
     for env in startup_envs:
         assert env["POSTGRES_ENABLED"] == "true"
         assert not {"POSTGRES_HOST", "POSTGRES_PORT", "MAKEFLAGS"} & env.keys()
+
+
+def test_verify_detects_a_business_logic_only_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    service = Path("project/application/quote.py")
+    service.parent.mkdir(parents=True)
+    service.write_text("shipping = 500\n")
+    assert needs_e2e("HEAD")
+
+
+def test_verify_refuses_a_staged_endpoint_even_if_working_copy_matches_head(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scripts.verify_change import _working_diff
+
+    _repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    endpoint = Path("project/infrastructure/api/endpoints/quote.py")
+    endpoint.parent.mkdir(parents=True)
+    endpoint.write_text("status = 200\n")
+    subprocess.run(("git", "add", str(endpoint)), check=True)
+    subprocess.run(
+        (
+            "git",
+            "-c",
+            "user.name=Probe",
+            "-c",
+            "user.email=probe@example.invalid",
+            "commit",
+            "-qm",
+            "baseline",
+        ),
+        check=True,
+    )
+    endpoint.write_text("status = 201\n")
+    subprocess.run(("git", "add", str(endpoint)), check=True)
+    endpoint.write_text("status = 200\n")
+
+    with pytest.raises(ValueError, match="index and working tree disagree"):
+        _working_diff("HEAD")
+
+
+def test_empty_diff_reports_skip_instead_of_coverage_pass(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from scripts.verify_change import _coverage
+
+    assert _coverage("HEAD", set(), tmp_path / "coverage.xml", "uv", "diff-cover") == 0
+    result = capsys.readouterr().out
+    assert "SKIPPED (empty diff" in result
+    assert "PASS" not in result

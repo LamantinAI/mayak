@@ -31,7 +31,7 @@ def _recipe(target: str) -> list[str]:
 
 
 def test_diff_coverage_includes_new_files() -> None:
-    assert "--include-untracked" in " ".join(_recipe("diff-coverage-report"))
+    assert "--coverage-only" in " ".join(_recipe("diff-coverage-report"))
     assert "diff-coverage-report" in " ".join(_recipe("diff-coverage"))
 
 
