@@ -14,6 +14,7 @@ and let each row's check tell you whether your copy already has the change. Port
 
 | since | pull requests | what the batch was |
 |---|---|---|
+| 2026-11-20 | certifi lock refresh | Replace the affected certifi release before rebuilding images. |
 | 2026-10-01 | #41 | preserve PostgreSQL connection components through libpq/SQLAlchemy; strengthen the password test and correct project context |
 | 2026-10-01 | #36 (lock refresh), #40 | urllib3 security update; formatter-stable test opt-outs and complete tool-call batches in the copied LLM loop |
 | 2026-09-28 | #36, #37, #38 | fixes the bench3 measurement asked for: agent texts, nine kernel defects, tools |
@@ -35,6 +36,8 @@ lines below, in the same pull request.
 ## What to port first
 
 ### 1. Security
+
+For PYSEC-2026-4320, run `uv lock --upgrade-package certifi`, then `make audit-deps` and rebuild the application image. The template lock carries certifi 2026.10.23.
 
 | PR | what goes wrong without it | check your copy | files |
 |---|---|---|---|
