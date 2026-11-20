@@ -22,7 +22,7 @@ MYPY_TARGETS = project scripts validation_support alembic tests/functional tests
 # Does this project use a relational store? Asked through the same reader the migration gate
 # uses (scripts/validate_migrations.py::postgres_is_enabled), so there is one implementation of
 # "what POSTGRES_ENABLED means" rather than a second .env parser living in shell.
-POSTGRES_ENABLED_CHECK = $(UV) run python -c "import sys; from scripts.validate_migrations import postgres_is_enabled; sys.exit(0 if postgres_is_enabled() else 1)"
+POSTGRES_ENABLED_VALUE = $(UV) run python -c "from scripts.validate_migrations import postgres_is_enabled; print(str(postgres_is_enabled()).lower())"
 
 # A fresh checkout ships .env with placeholder credentials, so the first `make run-local` used to
 # end in a raw sqlalchemy.exc.OperationalError traceback — the least useful possible answer to
@@ -30,23 +30,11 @@ POSTGRES_ENABLED_CHECK = $(UV) run python -c "import sys; from scripts.validate_
 # reachability probe so both agree on what "the database is up" means.
 POSTGRES_REACHABLE_CHECK = $(UV) run python -c "import sys; from scripts.validate_migrations import _is_database_reachable; sys.exit(0 if _is_database_reachable() else 1)"
 
-# Smoke runs in its own Compose project so its `down -v` cannot delete the volumes of a stack
-# started by hand in this same directory. Compose derives the project name from the directory,
-# which meant `make smoke` and a plain `docker compose up` shared postgres_data and app_logs.
-# Lowercased because Compose rejects uppercase in a project name, and a repository directory
-# may be capitalised (Mayak).
-SMOKE_PROJECT = $(shell echo $(notdir $(CURDIR)) | tr '[:upper:]' '[:lower:]')-smoke
-
-# Smoke publishes on its own host ports. The stack is ephemeral and probed from inside the
-# container, so the mappings exist only to avoid colliding with whatever the developer already
-# runs: a locally running PostgreSQL on 5432 made `make smoke` fail with "port is already
-# allocated" — a failure that says nothing about the service under test. Override on the
-# command line if these are taken too.
-# Folded from the worktree digest below for the same reason the worktree database's port is: two
-# checkouts smoking at once on one machine is ordinary, and a shared literal made the second one
-# fail with "port is already allocated" — a failure that says nothing about the service under test.
-SMOKE_APP_PORT ?= $(shell echo $$(( $(WORKTREE_HASH) % 1000 + 18000 )))
-SMOKE_POSTGRES_PORT ?= $(shell echo $$(( $(WORKTREE_HASH) % 1000 + 15000 )))
+# Smoke always uses its own Compose namespace. Host ports are ephemeral because the probes
+# run inside the app container and a dev database may already be running in this worktree.
+SMOKE_PROJECT = $(WORKTREE_PROJECT)-smoke
+SMOKE_APP_PORT ?= 0
+SMOKE_POSTGRES_PORT ?= 0
 
 # Docker allocates a loopback port on first start. Remember its actual port for subsequent
 # make invocations; keep the developer's .env and explicit shell overrides intact.
@@ -434,9 +422,10 @@ smoke: ## Run | Docker-based health check
 	fi
 	set -eu; \
 	files="-f docker-compose.yml"; \
-	if $(POSTGRES_ENABLED_CHECK); then files="$$files -f docker-compose.postgres.yml"; fi; \
-	: "$${APP_PORT:=$(SMOKE_APP_PORT)}"; export APP_PORT; \
-	: "$${POSTGRES_PORT:=$(SMOKE_POSTGRES_PORT)}"; export POSTGRES_PORT; \
+	enabled="$$($(POSTGRES_ENABLED_VALUE))"; \
+	if [ "$$enabled" = true ]; then files="$$files -f docker-compose.postgres.yml"; fi; \
+	export APP_PORT="$(SMOKE_APP_PORT)" APP_BIND_HOST=127.0.0.1; \
+	export POSTGRES_PORT="$(SMOKE_POSTGRES_PORT)" POSTGRES_BIND_HOST=127.0.0.1; \
 	compose="docker compose -p $(SMOKE_PROJECT) $$files"; \
 	trap 'ec=$$?; $$compose down -v || true; exit $$ec' EXIT; \
 	$$compose up -d --build --wait; \
@@ -447,7 +436,8 @@ smoke: ## Run | Docker-based health check
 # stop make from executing the next line.
 db-up-worktree: ## Run | Start this worktree's PostgreSQL and remember its loopback port
 	@set -eu; \
-	if ! $(POSTGRES_ENABLED_CHECK); then \
+	enabled="$$($(POSTGRES_ENABLED_VALUE))"; \
+	if [ "$$enabled" = false ]; then \
 		echo "POSTGRES_ENABLED=false — this project declares no relational store, nothing to start."; \
 		exit 0; \
 	fi; \
@@ -468,7 +458,8 @@ db-down-worktree: ## Run | Remove this worktree's own database, network and volu
 	rm -f "$(WORKTREE_DB_FILE)"
 
 migrate: ## Run | Apply pending Alembic migrations
-	@if $(POSTGRES_ENABLED_CHECK); then \
+	@set -e; enabled="$$($(POSTGRES_ENABLED_VALUE))"; \
+	if [ "$$enabled" = true ]; then \
 		if $(POSTGRES_REACHABLE_CHECK); then \
 			$(UV) run alembic upgrade head; \
 		else \

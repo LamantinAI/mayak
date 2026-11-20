@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import re
@@ -139,13 +140,15 @@ def bootstrap(root: Path, *, name: str, domain: str, database: str, uv: str) -> 
     context = json.loads(context_path.read_text(encoding="utf-8"))
     extractor = root / "scripts/extract_reference_vertical.py"
     if context.get("is_template") is True:
-        from scripts.extract_reference_vertical import build_plan
-
-        plan = build_plan(root, converting=True)
+        extraction = importlib.import_module("scripts.extract_reference_vertical")
+        plan = extraction.build_plan(root, converting=True)
         if isinstance(plan, str):
             raise ValueError(plan)
         files = _project_files(root, context, name, domain, database)
-        # This is the bootstrap's completion marker. It is also the retry state if locking fails.
+        dirty = _git(root, "diff", "--name-only", "HEAD", "--", *(files.keys() - {".env"}))
+        if dirty:
+            raise ValueError("Bootstrap would replace edited files: " + dirty.replace("\n", ", "))
+        # The metadata written last lets a lock or readiness failure resume as the same product.
         marker = files.pop("docs/project_context.json")
         for path, content in files.items():
             (root / path).write_text(content, encoding="utf-8")
