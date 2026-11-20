@@ -27,7 +27,7 @@ preview_router = APIRouter()
 @preview_router.post("/preview")
 async def preview(body: PreviewRequest) -> PreviewResponse:
     title = body.title.upper() if body.uppercase else body.title.lower()
-    return PreviewResponse(title=title[:body.limit])
+    return PreviewResponse(title=title[: body.limit])
 ```
 
 Keep wire types strict where the distinction matters. Otherwise JSON `true` can become
@@ -69,7 +69,9 @@ pytestmark = pytest.mark.e2e
 
 
 async def test_preview_options_in_image(make_post_request: SendRequest) -> None:
-    preview = await make_post_request("/preview", {"title": "Room A", "limit": 4, "uppercase": True})
+    preview = await make_post_request(
+        "/preview", {"title": "Room A", "limit": 4, "uppercase": True}
+    )
     assert (preview["status"], preview["body"]) == (200, {"title": "ROOM"})
 
     invalid = await make_post_request("/preview", {"title": "Room A", "limit": True})
