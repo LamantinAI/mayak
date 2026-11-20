@@ -286,3 +286,16 @@ def test_every_image_the_functional_stack_builds_is_named_by_its_compose_project
 
     assert keys, "no services read — the file's shape changed; update this reader"
     assert pinned == []
+
+
+def test_local_suite_does_not_inherit_verify_migration_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MAYAK_REQUIRE_MIGRATION_DB", "1")
+    monkeypatch.setenv("POSTGRES_ENABLED", "false")
+
+    (step,) = _build_test_steps(skip_functional=True, functional_only=False)
+
+    assert step.env is not None
+    assert "MAYAK_REQUIRE_MIGRATION_DB" not in step.env
+    assert step.env["POSTGRES_ENABLED"] == "false"

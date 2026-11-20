@@ -143,6 +143,13 @@ def _build_test_steps(
                     f"--cov-fail-under={COVERAGE_FLOOR_PERCENT}",
                 ),
                 cwd=ROOT_DIR,
+                # Verify makes the real migration gate strict. Tests must still be able to
+                # exercise the intentional skip behavior without inheriting that policy.
+                env={
+                    key: value
+                    for key, value in os.environ.items()
+                    if key != "MAYAK_REQUIRE_MIGRATION_DB"
+                },
             )
         )
 
