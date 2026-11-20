@@ -84,3 +84,45 @@ def test_import_coverage_does_not_count_as_running_a_route(
 
     report.write_text(xml.format(body_hits=1))
     assert unexercised_handlers("HEAD", report) == []
+
+
+def test_bootstrap_does_not_forward_an_ambient_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+    from typing import Any
+
+    _repo(tmp_path)
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "project_context.json").write_text(
+        json.dumps(
+            {
+                "project_name": "Room Book",
+                "domain": "Bookings",
+                "database": "postgres",
+                "is_template": False,
+                "template": {},
+            }
+        )
+    )
+    monkeypatch.setenv("POSTGRES_HOST", "external.example.invalid")
+    monkeypatch.setenv("POSTGRES_PORT", "30001")
+    monkeypatch.setenv("MAKEFLAGS", "-- POSTGRES_HOST=external.example.invalid")
+    run = subprocess.run
+    startup_envs: list[dict[str, str]] = []
+
+    def checked_run(command: tuple[str, ...], **kwargs: Any) -> Any:
+        if command[0] == "git":
+            return run(command, **kwargs)
+        if command[1] in {"db-up-worktree", "smoke-local"}:
+            startup_envs.append(kwargs["env"])
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(subprocess, "run", checked_run)
+    bootstrap(tmp_path, name="Room Book", domain="Bookings", database="postgres", uv="uv")
+
+    assert len(startup_envs) == 2
+    for env in startup_envs:
+        assert env["POSTGRES_ENABLED"] == "true"
+        assert not {"POSTGRES_HOST", "POSTGRES_PORT", "MAKEFLAGS"} & env.keys()

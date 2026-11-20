@@ -165,7 +165,14 @@ def bootstrap(root: Path, *, name: str, domain: str, database: str, uv: str) -> 
     subprocess.run(("make", "init-project", "EXTRACT_FLAGS=--no-stage"), cwd=root, check=True)
     if extractor.exists():
         raise ValueError("Reference extraction did not complete. See the diagnostic above.")
-    env = os.environ | {"POSTGRES_ENABLED": "true" if database == "postgres" else "false"}
+    # A developer or CI shell may point at another database. Bootstrap owns a local
+    # database and must migrate that one, including when called from an outer make.
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.startswith("POSTGRES_") and key not in {"MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES"}
+    }
+    env["POSTGRES_ENABLED"] = "true" if database == "postgres" else "false"
     if database == "postgres":
         subprocess.run(("make", "db-up-worktree"), cwd=root, check=True, env=env)
     subprocess.run(("make", "smoke-local"), cwd=root, check=True, env=env)
