@@ -12,7 +12,7 @@ from decimal import Decimal
 from enum import Enum
 from io import StringIO
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
@@ -27,6 +27,7 @@ from project.infrastructure.agents.llm_service import LLMService
 from project.infrastructure.agents.prompt_llm_adapter import SupportsMessageCall
 from project.infrastructure.agents.tool_runner import ToolArgumentsError, run_tool
 from tests.conftest import _FixtureSettings as FixtureSettings
+from tests.support.scripted_llm import ScriptedLLMService
 
 
 # The enum leg of the structured-argument requirement.
@@ -278,15 +279,7 @@ async def test_every_call_in_one_reply_is_executed_and_returned_to_the_model(loo
             {"name": "price_order", "args": _VALID_ARGS_BY_TOOL["price_order"], "id": "price-42"},
         ],
     )
-    received: list[list[BaseMessage]] = []
-
-    async def reply(messages: list[BaseMessage]) -> BaseMessage:
-        # The loops append in place; snapshots prove what the next model call actually received.
-        received.append(list(messages))
-        return batch if len(received) == 1 else AIMessage(content="order checked")
-
-    service = AsyncMock()
-    service.call.side_effect = reply
+    service = ScriptedLLMService([batch, "order checked"])
     if loop == "new_conversation":
         called, answer = await _run_agent_loop(service, "check both customers and price the order")
     else:
@@ -296,7 +289,7 @@ async def test_every_call_in_one_reply_is_executed_and_returned_to_the_model(loo
 
     assert called == ["lookup_customer", "lookup_customer", "price_order"]
     assert answer == "order checked"
-    assert len(received) == 2
+    assert service.call_count == 2
     expected_results = [
         ToolMessage(content=content, name=name, tool_call_id=call_id)
         for call_id, name, content in [
@@ -305,7 +298,20 @@ async def test_every_call_in_one_reply_is_executed_and_returned_to_the_model(loo
             ("price-42", "price_order", "order for cust-42 priced at 129.90 USD"),
         ]
     ]
-    assert received[1] == [*received[0], batch, *expected_results]
+    assert service.received[1] == [*service.received[0], batch, *expected_results]
+
+
+async def test_scripted_tool_replies_cannot_finish_a_loop_past_its_budget() -> None:
+    call = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": "lookup_customer", "args": {"customer_id": "cust-42"}, "id": "lookup"}
+        ],
+    )
+    service = ScriptedLLMService([call] * (len(_TOOLS) + 1))
+    with pytest.raises(AssertionError, match="did not finalize"):
+        await _run_agent_loop(service, "keep looking")
+    assert service.call_count == len(_TOOLS) + 1
 
 
 # What run_tool writes, as the application's own formatter renders it: the NDJSON lines its logger

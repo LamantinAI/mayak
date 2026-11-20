@@ -136,6 +136,12 @@ The full gate includes the **db tier**. It tests queries and schema changes agai
 PostgreSQL. You can set `TEST_DATABASE_URL` to a PostgreSQL test database you control. A stateless
 project skips the db tier. At least one test must execute the body of each new or changed HTTP handler. Docker E2E runs the image and checks the profile's actual readiness.
 Use `make verify E2E=1` to request it for a diff that would otherwise skip it.
+For a committed change, pass `make verify DIFF_COMPARE_BRANCH=<baseline>`. The command names
+the resolved base and labels zero measured lines as skipped. Resolve files that differ between
+the index and working tree before verification. Changes under `project/` select Docker E2E even
+when the HTTP handler stayed the same.
+
+For PostgreSQL scheduling rules, see the [concurrent write recipe](docs/recipes/postgres-concurrency.md).
 
 Edit `docs/agent_rules.md` and run `make refresh-agent-docs` to update the shared agent contract.
 The `initialize-project` and `add-vertical` skills cover setup and feature work.

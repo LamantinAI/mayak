@@ -140,6 +140,11 @@ Two mechanisms reach it, and neither is a bigger version of the token above:
   `_CHECK_NO_OVERLAP` and inserts regardless serialises the two writers and then produces exactly
   the two overlapping rows it was added to prevent — slower, and no safer.
 
+Concurrent exclusion inserts can also deadlock while PostgreSQL checks the index. That transient
+error does not establish an overlap. The [concurrent write recipe](../recipes/postgres-concurrency.md)
+shows a transaction that serializes cooperating writers by parent row and tests both HTTP outcomes.
+It also covers ownership of the shared extension.
+
 The two mechanisms fail differently, and the repository has to expect the right one. With the
 constraint, the database rejects the second writer and psycopg raises `errors.ExclusionViolation`
 or `errors.UniqueViolation`, which the repository catches and re-raises as a domain
