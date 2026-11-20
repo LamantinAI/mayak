@@ -1,22 +1,4 @@
 services:
-  test-db:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    # No host port mapping for stronger test isolation.
-    volumes:
-      - test_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    networks:
-      - test_network
-
   test-app:
     build:
       context: ../../.
@@ -27,16 +9,10 @@ services:
     # (scripts/run_all_tests.py::functional_compose_project).
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    depends_on:
-      test-db:
-        condition: service_healthy
     env_file:
       - .env
     environment:
-      # Override DB host to the isolated test database container. No DATABASE_URL: the application
-      # reads POSTGRES_* directly and never looks for a single connection string.
-      POSTGRES_HOST: test-db
-      # Keep server port explicit for predictable container-to-container access.
+      POSTGRES_ENABLED: ${POSTGRES_ENABLED:-true}
       SERVER_PORT: 8000
     entrypoint: /app/entrypoint.sh
     stop_grace_period: 45s
@@ -58,15 +34,13 @@ services:
     working_dir: /app
     entrypoint: >
       sh -c "cd /app/tests/functional/
-      && python3 utils/wait_for_postgres.py
       && python3 utils/wait_for_api.py
       && pytest -c pytest.ini"
     env_file:
       - .env
     environment:
       # Connection settings for isolated test services.
-      POSTGRES_HOST: test-db
-      POSTGRES_PORT: 5432
+      POSTGRES_ENABLED: ${POSTGRES_ENABLED:-true}
       SERVER_HOST: test-app
       SERVER_PORT: 8000
       # The image is built with `uv sync --no-install-project`, so the project package is present
@@ -87,7 +61,3 @@ services:
 networks:
   test_network:
     driver: bridge
-
-volumes:
-  test_postgres_data:
-    driver: local

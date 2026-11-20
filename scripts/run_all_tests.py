@@ -51,7 +51,18 @@ def functional_compose_project() -> str:
 # job whose db tier has a server of its own, a developer's profile — made test-db under one user
 # while the app, reading the file, logged in as another and exited: product-from-template, 2026-09-24.
 def functional_env() -> dict[str, str]:
-    return {key: value for key, value in os.environ.items() if not key.startswith("POSTGRES_")}
+    from scripts.validate_migrations import postgres_is_enabled
+
+    env = {key: value for key, value in os.environ.items() if not key.startswith("POSTGRES_")}
+    env["POSTGRES_ENABLED"] = "true" if postgres_is_enabled() else "false"
+    return env
+
+
+def _functional_compose(env: Mapping[str, str]) -> tuple[str, ...]:
+    prefix = ("docker", "compose", "-p", functional_compose_project(), "-f", "docker-compose.yml")
+    if env["POSTGRES_ENABLED"] == "true":
+        return (*prefix, "-f", "docker-compose.postgres.yml")
+    return prefix
 
 
 # Immutable command step executed by the canonical test runner.
@@ -136,14 +147,12 @@ def _build_test_steps(
         )
 
     if not skip_functional:
+        env = functional_env()
         steps.append(
             TestStep(
                 name="functional",
                 command=(
-                    "docker",
-                    "compose",
-                    "-p",
-                    functional_compose_project(),
+                    *_functional_compose(env),
                     "up",
                     "--build",
                     "--abort-on-container-exit",
@@ -151,7 +160,7 @@ def _build_test_steps(
                     "tests",
                 ),
                 cwd=FUNCTIONAL_DIR,
-                env=functional_env(),
+                env=env,
             )
         )
 
@@ -247,37 +256,22 @@ def _run_command(step: TestStep) -> None:
     subprocess.run(step.command, cwd=step.cwd, env=step.env, check=True)
 
 
-# Stop and remove the functional Docker Compose stack after the functional suite finishes.
-def _cleanup_functional_stack() -> None:
-    subprocess.run(
-        ("docker", "compose", "-p", functional_compose_project(), "down", "-v"),
-        cwd=FUNCTIONAL_DIR,
-        env=functional_env(),
-        check=False,
-    )
-
-
-# Emit functional Docker Compose logs after a functional suite failure to aid agent debugging.
-def _show_functional_logs() -> None:
-    subprocess.run(
-        ("docker", "compose", "-p", functional_compose_project(), "logs"),
-        cwd=FUNCTIONAL_DIR,
-        env=functional_env(),
-        check=False,
-    )
-
-
-# Execute the functional Docker Compose suite with env bootstrap and guaranteed cleanup.
-# subprocess.CalledProcessError: When the functional suite fails.
 def _run_functional_step(step: TestStep) -> None:
     _ensure_functional_env()
+    assert step.env is not None
+    compose = _functional_compose(step.env)
     try:
         _run_command(step)
     except subprocess.CalledProcessError:
-        _show_functional_logs()
+        subprocess.run((*compose, "logs"), cwd=FUNCTIONAL_DIR, env=step.env, check=False)
         raise
     finally:
-        _cleanup_functional_stack()
+        subprocess.run(
+            (*compose, "down", "-v", "--remove-orphans"),
+            cwd=FUNCTIONAL_DIR,
+            env=step.env,
+            check=False,
+        )
 
 
 # Execute the requested set of Mayak test suites through the canonical runner.

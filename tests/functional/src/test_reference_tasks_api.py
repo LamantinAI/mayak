@@ -4,13 +4,18 @@
 # only this suite sees is the application as it ships — the image, the entrypoint's `alembic
 # upgrade head`, the served routes — so one path through each is enough here.
 
+import os
+
 import pytest
 from psycopg import AsyncConnection
 from psycopg.rows import TupleRow
 
 from utils.helpers import SendRequest
 
-pytestmark = pytest.mark.e2e
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.skipif(os.environ.get("POSTGRES_ENABLED") == "false", reason="PostgreSQL disabled"),
+]
 
 
 async def test_a_task_created_over_http_is_stored_read_back_and_updated(

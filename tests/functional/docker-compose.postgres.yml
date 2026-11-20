@@ -1,0 +1,40 @@
+services:
+  test-db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # No host port mapping for stronger test isolation.
+    volumes:
+      - test_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - test_network
+
+  test-app:
+    depends_on:
+      test-db:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: test-db
+      POSTGRES_PORT: 5432
+
+  tests:
+    entrypoint: >
+      sh -c "cd /app/tests/functional/
+      && python3 utils/wait_for_postgres.py
+      && python3 utils/wait_for_api.py
+      && pytest -c pytest.ini"
+    environment:
+      POSTGRES_HOST: test-db
+      POSTGRES_PORT: 5432
+
+volumes:
+  test_postgres_data:
+    driver: local

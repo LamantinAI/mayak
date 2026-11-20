@@ -1,4 +1,4 @@
-.PHONY: check-product print-generated-paths refresh-generated-unless-strict ruff-fix-unless-strict gate-fast checksum-generated gate-lockfile gate-lint gate-format gate-types gate-tests help logs logs-raw init-project refresh-agent-docs ai-autofix quality-gates quality-gates-steps doctor doctor-json test test-all test-e2e diff-coverage smoke run-local migrate autogenerate-migration format-trace update-deps audit-deps security-scan ci-local db-up-worktree db-down-worktree
+.PHONY: upgrade-check diff-coverage-report bootstrap smoke-local verify install-hooks test-db-down check-product print-generated-paths refresh-generated-unless-strict ruff-fix-unless-strict gate-fast checksum-generated gate-lockfile gate-lint gate-format gate-types gate-tests help logs logs-raw init-project refresh-agent-docs ai-autofix quality-gates quality-gates-steps doctor doctor-json test test-all test-e2e diff-coverage smoke run-local migrate autogenerate-migration format-trace update-deps audit-deps security-scan ci-local db-up-worktree db-down-worktree
 
 # Auto-discover uv; override with UV=/path/to/uv if needed.
 UV := $(shell command -v uv 2>/dev/null || echo /opt/homebrew/bin/uv)
@@ -48,35 +48,18 @@ SMOKE_PROJECT = $(shell echo $(notdir $(CURDIR)) | tr '[:upper:]' '[:lower:]')-s
 SMOKE_APP_PORT ?= $(shell echo $$(( $(WORKTREE_HASH) % 1000 + 18000 )))
 SMOKE_POSTGRES_PORT ?= $(shell echo $$(( $(WORKTREE_HASH) % 1000 + 15000 )))
 
-# A database per worktree — `db-up-worktree` and `db-down-worktree` below. Measured in the field:
-# fifteen git worktrees of one project against a single PostgreSQL container, because two things
-# quietly agree on one socket. `.env.sample` ships POSTGRES_HOST=localhost and
-# POSTGRES_PORT=5432, and scripts/create_env_file.py randomises only the password — by design, a
-# host and a port are not secrets — so every worktree's own .env names the same address. And the
-# advice this Makefile itself prints when the database is unreachable (`docker compose ... up -d
-# db`, under `migrate` below) carries no `-p`, so Compose names the project after the directory and
-# whichever worktree ran it first owns the container everyone else reaches. What that costs is one
-# branch migrating the database and another meeting a revision its own alembic/versions/ has never
-# heard of — reproduced verbatim: `Can't locate revision identified by 'af0035d05498'`.
-#
-# The project name is a function of the worktree's own path, never of anything typed: two agents
-# never have to agree on a name, and the same worktree maps to the same project — and so the same
-# volume — across restarts. `notdir $(CURDIR)` alone, which SMOKE_PROJECT uses, is not enough here:
-# two worktrees under different parents can share a basename, and smoke gets away with that because
-# its stack lives and dies inside one command, while these are meant to run at the same time. The
-# basename stays for whoever reads `docker ps`; the digest is what makes it unique. `wt-` keeps the
-# name starting with a letter, which Compose requires.
+# Docker allocates a loopback port on first start. Remember its actual port for subsequent
+# make invocations; keep the developer's .env and explicit shell overrides intact.
 WORKTREE_HASH := $(shell printf '%s' "$(CURDIR)" | cksum | cut -d' ' -f1)
-WORKTREE_PROJECT := wt-$(shell basename "$(CURDIR)" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-')$(WORKTREE_HASH)
-
-# The published port is folded from the same digest rather than defaulted to one number, because
-# one number is the collision this exists to remove — two worktree databases are meant to be up at
-# once. Folding into 20000-29999 keeps clear of 5432 and 8000 (the app's defaults) and of smoke's
-# 15432/18000. A digest cannot promise the port is free: two paths can fold to the same bucket, or
-# something else may already hold it. That failure is loud — Docker says "port is already
-# allocated" — and the way past it is on the command line:
-#   make db-up-worktree WORKTREE_POSTGRES_PORT=25999
-WORKTREE_POSTGRES_PORT ?= $(shell echo $$(( $(WORKTREE_HASH) % 10000 + 20000 )))
+WORKTREE_PROJECT := wt-$(WORKTREE_HASH)
+WORKTREE_DB_FILE := .mayak-postgres-port
+WORKTREE_DB_PORT := $(shell cat $(WORKTREE_DB_FILE) 2>/dev/null)
+WORKTREE_POSTGRES_PORT ?= 0
+WORKTREE_DB_COMPOSE := docker compose -p $(WORKTREE_PROJECT) -f docker-compose.yml -f docker-compose.postgres.yml
+ifneq ($(strip $(WORKTREE_DB_PORT)),)
+export POSTGRES_PORT ?= $(WORKTREE_DB_PORT)
+export POSTGRES_HOST ?= 127.0.0.1
+endif
 
 # Prints every target carrying a `## Group | description` annotation. The wrapper points here
 # rather than repeating the list, so this and the contract cannot disagree.
@@ -85,6 +68,18 @@ help:
 		| sed -E 's/^([a-z0-9-]+):[^#]*## *([^|]+)\| *(.*)$$/\2\t\1\t\3/' \
 		| sort -t'	' -k1,1 -s \
 		| awk -F'\t' '{ if ($$1 != g) { g = $$1; printf "\n%s\n", g } printf "  make %-24s %s\n", $$2, $$3 }'
+
+bootstrap: export MAYAK_PROJECT_NAME := $(value NAME)
+bootstrap: export MAYAK_PROJECT_DOMAIN := $(value DOMAIN)
+bootstrap: export MAYAK_PROJECT_DB := $(value DB)
+bootstrap: ## Scaffolding | Initialize and check a new service (NAME, DOMAIN, DB=postgres or none)
+	$(UV) run --no-project python -m scripts.bootstrap_project --uv "$(UV)"
+
+install-hooks: ## Scaffolding | Opt in to the repository's Git hooks for all its worktrees
+	git config --local core.hooksPath .githooks
+
+upgrade-check: ## Scaffolding | Inspect provenance and known updates for this service
+	$(UV) run --no-project python -m scripts.check_template_updates
 
 init-project: ## Scaffolding | Install dependencies and create .env (idempotent: never overwrites one)
 	./dev_setup.sh
@@ -104,7 +99,7 @@ init-project: ## Scaffolding | Install dependencies and create .env (idempotent:
 	@# In a project, once the identity is replaced, the reference vertical moves out of the
 	@# application into .agents/skills/add-vertical/scaffold/ — once; the script removes itself.
 	@if [ -f scripts/extract_reference_vertical.py ]; then \
-		$(UV) run python scripts/extract_reference_vertical.py; \
+		$(UV) run python scripts/extract_reference_vertical.py $(EXTRACT_FLAGS); \
 	fi
 	@if [ "$(VERIFY)" = "1" ]; then \
 		$(MAKE) quality-gates; \
@@ -117,7 +112,8 @@ refresh-agent-docs: ## Refresh generated artifacts | Regenerate CLAUDE.md and AG
 # counts the Python it inherits and runs its gates and e2e. A project has no script to run.
 check-product: ## Validation | Make a project from this template and run its gates
 	@if [ -f scripts/check_product_from_template.py ]; then \
-		$(UV) run python scripts/check_product_from_template.py --gates --e2e; \
+		$(UV) run python scripts/check_product_from_template.py --gates --e2e --db postgres && \
+		$(UV) run python scripts/check_product_from_template.py --gates --e2e --db none; \
 	else \
 		echo "check-product belongs to the template; this project was made from it already."; \
 	fi
@@ -195,8 +191,7 @@ gate-fast: ## Validation | Format, lint, types (tests included) and layers in se
 quality-gates: ## Validation | The validation suite — run it before committing
 	@$(MAKE) --no-print-directory refresh-generated-unless-strict
 	@$(MAKE) --no-print-directory ruff-fix-unless-strict
-	@$(MAKE) --no-print-directory quality-gates-steps \
-		|| ($(MAKE) --no-print-directory doctor; exit 1)
+	@$(UV) run python -m scripts.doctor_ai_context --run-quality-gates
 
 # ATTRIBUTE: GENERATED_PATHS
 # Every output of `refresh-agent-docs`, declared once. Two hooks read this list through
@@ -242,22 +237,39 @@ checksum-generated:
 # the `gate-*` targets with MAYAK_DOCTOR_SUBPROCESS=1, and a doctor running inside that process
 # skips its tool layers instead of shelling out again.
 quality-gates-steps:
+	@echo '[mayak-gate] gate-lockfile'
 	@$(MAKE) --no-print-directory gate-lockfile
+	@echo '[mayak-gate] gate-lint'
 	@$(MAKE) --no-print-directory gate-lint
+	@echo '[mayak-gate] gate-format'
 	@$(MAKE) --no-print-directory gate-format
+	@echo '[mayak-gate] gate-types'
 	@$(MAKE) --no-print-directory gate-types
+	@echo '[mayak-gate] validate_cbm'
 	$(UV) run python scripts/validate_cbm.py
+	@echo '[mayak-gate] validate_architecture'
 	$(UV) run python scripts/validate_architecture.py
+	@echo '[mayak-gate] validate_endpoint_wiring'
 	$(UV) run python scripts/validate_endpoint_wiring.py
+	@echo '[mayak-gate] validate_runtime_ownership'
 	$(UV) run python scripts/validate_runtime_ownership.py
+	@echo '[mayak-gate] validate_migrations'
 	$(UV) run python scripts/validate_migrations.py
+	@echo '[mayak-gate] validate_module_sizes'
 	$(UV) run python scripts/validate_module_sizes.py
+	@echo '[mayak-gate] validate_test_quality'
 	$(UV) run python scripts/validate_test_quality.py
+	@echo '[mayak-gate] validate_dependencies'
 	$(UV) run python scripts/validate_dependencies.py
+	@echo '[mayak-gate] validate_repository_metadata'
 	$(UV) run python scripts/validate_repository_metadata.py
+	@echo '[mayak-gate] validate_secrets'
 	$(UV) run python scripts/validate_secrets.py
+	@echo '[mayak-gate] security-scan'
 	@$(MAKE) --no-print-directory security-scan
+	@echo '[mayak-gate] sync_agent_docs'
 	$(UV) run python scripts/sync_agent_docs.py --check
+	@echo '[mayak-gate] gate-tests'
 	@$(MAKE) --no-print-directory gate-tests
 
 # No separate `quality-gates-no-regen` twin of the target above exists for the pre-commit hook to
@@ -359,7 +371,7 @@ ci-local: ## Validation | Everything CI runs, locally: the full gate, the no-Pos
 	@echo "===> 1/6 quality-gates"
 	@STRICT_GENERATED=1 STRICT_RUFF=1 $(MAKE) --no-print-directory quality-gates
 	@echo "===> 2/6 tests and migrations without PostgreSQL"
-	@POSTGRES_ENABLED=false $(MAKE) --no-print-directory gate-tests && POSTGRES_ENABLED=false $(UV) run python scripts/validate_migrations.py
+	@POSTGRES_ENABLED=false $(MAKE) --no-print-directory gate-tests && POSTGRES_ENABLED=false $(UV) run python scripts/validate_migrations.py && POSTGRES_ENABLED=false $(MAKE) --no-print-directory test-e2e
 	@echo "===> 3/6 dependency audit"
 	@$(MAKE) --no-print-directory audit-deps
 	@echo "===> 4/6 diff coverage"
@@ -394,37 +406,21 @@ test-db-down: ## Testing | Stop this checkout's db-tier PostgreSQL
 test-e2e: ## Testing | Functional tests only (Docker)
 	$(UV) run python scripts/run_all_tests.py --functional-only
 
-# Local mirror of the CI diff-coverage job. Runs unit + infrastructure tests
-# with coverage, then checks that newly-changed .py lines (vs origin/main)
-# have ≥80% coverage. Use this before push to catch what CI would catch.
-# Empty diff (no .py changes vs main) returns exit 0 immediately.
-# What "new code" is measured against. origin/main is right once the project has a remote; a
-# checkout created from the template with `git init` has none, and diff-cover then aborts the
-# whole ci-local run with a traceback ending in "Does 'origin/main' exist?" — before the
-# functional lane has run at all. So the default asks git whether origin/main exists and falls
-# back to HEAD, which yields an empty diff and an immediate pass rather than a crash: a fresh
-# project measures nothing until it has a remote, instead of measuring nothing and failing.
-# Override for a branch cut from something else:
-#   make ci-local DIFF_COMPARE_BRANCH=develop
+# The standalone job produces a fresh report. Verify reuses the exact report its full gate
+# just produced. diff-cover includes untracked files without staging them.
 DIFF_COMPARE_BRANCH ?= $(shell git rev-parse --verify --quiet origin/main >/dev/null 2>&1 && echo origin/main || echo HEAD)
+export DIFF_COMPARE_BRANCH
 
-# The warning below exists because this gate silently measured a fraction of a change. diff-cover
-# reads `git diff`, which never sees an untracked file, and a new vertical is mostly untracked
-# files. Measured: 17 lines across 4 files before committing, 176 across 9 after the same commit —
-# the gate that exists to catch uncovered NEW code was blind to almost all of it, and said
-# nothing. `git add` is enough; a commit is not required (verified: `git diff HEAD`
-# lists a staged addition).
-diff-coverage:
-	@untracked=$$(git ls-files --others --exclude-standard -- 'project/*.py'); \
-	if [ -n "$$untracked" ]; then \
-		echo "diff-coverage: WARNING — diff-cover cannot see these new files, so they are NOT measured:"; \
-		echo "$$untracked" | sed 's/^/    /'; \
-		echo "    Run 'git add' on them and re-run; a commit is not needed."; \
-	fi
-	$(UV) run python -m pytest tests/application tests/infrastructure tests/integration tests/db $(wildcard tests/template) \
-		--cov=project --cov-report=xml -q
+diff-coverage: ## Validation | Test and check coverage of the complete application diff
+	@$(MAKE) --no-print-directory gate-tests
+	@$(MAKE) --no-print-directory diff-coverage-report
+
+diff-coverage-report:
 	$(UV) run --with $(DIFF_COVER) diff-cover coverage.xml \
-		--compare-branch=$(DIFF_COMPARE_BRANCH) --fail-under=80
+		--compare-branch="$$DIFF_COMPARE_BRANCH" --include-untracked --fail-under=80
+
+verify: ## Validation | Strict gates, complete diff coverage and applicable Docker E2E
+	$(UV) run python -m scripts.verify_change --base "$$DIFF_COMPARE_BRANCH" $(if $(filter 1,$(E2E)),--e2e)
 
 # Guarantees teardown even if a health probe fails, and fails fast with a clear
 # message if .env is missing (docker compose's own "env file not found" error is
@@ -447,46 +443,29 @@ smoke: ## Run | Docker-based health check
 	$$compose exec -T app sh -c 'curl -fsS "http://localhost:$${SERVER_PORT:-8000}/health/"'; \
 	$$compose exec -T app sh -c 'curl -fsS "http://localhost:$${SERVER_PORT:-8000}/health/ready"'
 
-# Brings up only `db`: the app runs on the host through `make run-local`, which is the shape
-# `migrate` below already points people at. Both compose files are passed even though one service
-# is wanted, because docker-compose.postgres.yml only ADDS to the `app` service declared in the
-# other and carries no image of its own — Compose refuses to read it alone.
-#
-# POSTGRES_PORT is set for this invocation only, overriding whatever the caller's shell exported.
-# That is the opposite of what `smoke` does with `: "$${VAR:=default}"`, and deliberately so: an
-# inherited POSTGRES_PORT is exactly how two worktrees end up agreeing on one database again. The
-# override channel here is the make variable above, which is derived from this worktree.
-db-up-worktree: ## Run | Start a PostgreSQL container belonging to this worktree alone
-	@if [ ! -f .env ]; then \
-		echo ".env not found — run 'make init-project' first"; \
-		exit 2; \
-	fi
-	@if ! $(POSTGRES_ENABLED_CHECK); then \
+# The guard and Compose commands must share a shell. A recipe line exiting zero does not
+# stop make from executing the next line.
+db-up-worktree: ## Run | Start this worktree's PostgreSQL and remember its loopback port
+	@set -eu; \
+	if ! $(POSTGRES_ENABLED_CHECK); then \
 		echo "POSTGRES_ENABLED=false — this project declares no relational store, nothing to start."; \
 		exit 0; \
-	fi
-	@POSTGRES_PORT=$(WORKTREE_POSTGRES_PORT) docker compose -p $(WORKTREE_PROJECT) \
-		-f docker-compose.yml -f docker-compose.postgres.yml up -d --wait db
-	@echo "project $(WORKTREE_PROJECT) is up on port $(WORKTREE_POSTGRES_PORT)"
-	@current=$$(grep -E '^POSTGRES_PORT=' .env | tail -1 | cut -d= -f2); \
-	if [ "$$current" != "$(WORKTREE_POSTGRES_PORT)" ]; then \
-		echo "This worktree's .env still points at port $$current, so the app here would reach"; \
-		echo "whatever is listening there — possibly another worktree's database. Set in .env:"; \
-		echo "  POSTGRES_HOST=localhost"; \
-		echo "  POSTGRES_PORT=$(WORKTREE_POSTGRES_PORT)"; \
-		echo "Nothing rewrites an existing .env for you: init-project is idempotent on purpose."; \
-	fi
+	fi; \
+	if [ ! -f .env ]; then \
+		echo ".env not found — run 'make init-project' first"; exit 2; \
+	fi; \
+	export POSTGRES_PORT="$(WORKTREE_POSTGRES_PORT)" POSTGRES_BIND_HOST=127.0.0.1; \
+	$(WORKTREE_DB_COMPOSE) up -d --wait db; \
+	address="$$($(WORKTREE_DB_COMPOSE) port db 5432)"; \
+	port="$${address##*:}"; \
+	case "$$port" in ''|*[!0-9]*) echo "Cannot read the worktree database port: $$address" >&2; exit 1 ;; esac; \
+	tmp="$$(mktemp $(WORKTREE_DB_FILE).XXXXXX)"; trap 'rm -f "$$tmp"' EXIT; \
+	printf '%s\n' "$$port" > "$$tmp"; mv "$$tmp" "$(WORKTREE_DB_FILE)"; \
+	echo "Worktree database at 127.0.0.1:$$port"
 
-# `down -v` can only reach what Compose namespaced under this project — the container, its network
-# and `$(WORKTREE_PROJECT)_postgres_data`. Never the plain `postgres_data`, and never another
-# worktree's. The volume goes with it on purpose: a worktree's database is thrown away with its
-# branch, and leaving it behind is how the next `db-up-worktree` inherits a schema from a branch
-# that no longer exists. Left alone: .env, the postgres image every worktree wants cached, and the
-# app container and its logs volume, which this never started.
 db-down-worktree: ## Run | Remove this worktree's own database, network and volume
-	@docker compose -p $(WORKTREE_PROJECT) \
-		-f docker-compose.yml -f docker-compose.postgres.yml down -v
-	@echo "removed project $(WORKTREE_PROJECT): container, network and volume"
+	$(WORKTREE_DB_COMPOSE) down -v
+	rm -f "$(WORKTREE_DB_FILE)"
 
 migrate: ## Run | Apply pending Alembic migrations
 	@if $(POSTGRES_ENABLED_CHECK); then \
@@ -495,7 +474,6 @@ migrate: ## Run | Apply pending Alembic migrations
 		else \
 			echo "PostgreSQL is not reachable with the credentials in .env."; \
 			echo "  start one for this checkout alone:  make db-up-worktree"; \
-			echo "  or one shared by every checkout here:  docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d db"; \
 			echo "  or declare this project needs none:  POSTGRES_ENABLED=false in .env"; \
 			exit 1; \
 		fi; \
@@ -507,7 +485,10 @@ migrate: ## Run | Apply pending Alembic migrations
 # checkout cannot serve a green /health/ready against a database with no tables. Same order both
 # ways.
 run-local: migrate ## Run | Migrate, then start the app locally (needs a reachable PostgreSQL unless POSTGRES_ENABLED=false)
-	$(UV) run python -m project.launcher.main
+	SERVER_HOST=127.0.0.1 $(UV) run python -m project.launcher.main
+
+smoke-local: migrate ## Run | Check a short-lived loopback application over HTTP
+	$(UV) run python -m scripts.smoke_local
 
 format-trace: ## Reading a running service | Render a local NDJSON file: ARGS="<logfile>"
 	$(UV) run python -c "from project.core.logging.trace_formatter import _cli; _cli()" $(ARGS)
@@ -536,12 +517,21 @@ format-trace: ## Reading a running service | Render a local NDJSON file: ARGS="<
 # back to the directory-derived name — the exact collision `db-up-worktree`'s comment documents
 # for `up`: two worktrees agree on one name, so this read whichever project owned it, another
 # checkout's container or nothing at all, silently.
-# Started the stack the README way instead? Name that project:
-#   make logs LOGS_PROJECT=$$(basename "$$PWD" | tr '[:upper:]' '[:lower:]')
-LOGS_PROJECT ?= $(WORKTREE_PROJECT)
+# By default select the same Compose project as a plain up. Use LOGS_PROJECT for a custom -p.
+LOGS_PROJECT ?=
+LOGS_COMPOSE = docker compose $(if $(LOGS_PROJECT),-p "$(LOGS_PROJECT)")
+define require-log-container
+container="$$($(LOGS_COMPOSE) ps -aq app)" || exit $$?; \
+if [ -z "$$container" ]; then \
+	echo "No app container for Compose project $(or $(LOGS_PROJECT),in this directory). Set LOGS_PROJECT for a custom project." >&2; \
+	exit 1; \
+fi
+endef
+
 logs: ## Reading a running service | Render the container's semantic log as a trace tree
-	@tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
-	docker compose -p $(LOGS_PROJECT) logs --no-color --no-log-prefix --tail $(or $(LINES),2000) app > "$$tmp" && \
+	@$(require-log-container); \
+	tmp="$$(mktemp)"; trap 'rm -f "$$tmp"' EXIT; \
+	$(LOGS_COMPOSE) logs --no-color --no-log-prefix --tail $(or $(LINES),2000) app > "$$tmp" && \
 	$(UV) run python -c "from project.core.logging.trace_formatter import _cli; _cli()" "$$tmp" $(ARGS)
 
 # Where logs-raw writes. `?=` so an environment variable overrides it — make imports the
@@ -558,8 +548,9 @@ LOGS_DIR ?= logs
 # would print the path of an empty file and exit 0, claiming success.
 logs-raw: ## Reading a running service | Dump the container's raw NDJSON under $(LOGS_DIR)
 	@mkdir -p $(LOGS_DIR)
-	@out="$(LOGS_DIR)/container-$$(date -u +%Y-%m-%dT%H-%M-%S).ndjson"; \
-	docker compose -p $(LOGS_PROJECT) logs --no-color --no-log-prefix --tail $(or $(LINES),2000) app > "$$out" \
+	@$(require-log-container); \
+	out="$(LOGS_DIR)/container-$$(date -u +%Y-%m-%dT%H-%M-%S).ndjson"; \
+	$(LOGS_COMPOSE) logs --no-color --no-log-prefix --tail $(or $(LINES),2000) app > "$$out" \
 		|| { rm -f "$$out"; exit 1; }; \
 	echo "$$out"
 

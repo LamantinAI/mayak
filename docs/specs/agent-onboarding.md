@@ -30,3 +30,22 @@ Update the locked certifi version without a general dependency refresh. A fresh 
 3. An untracked, untested endpoint fails diff verification. A test covering it turns verification green. The Git index is byte-for-byte unchanged by coverage measurement.
 4. Deliberately missing Docker gives a diagnosis with a recovery command, without running the full test suite twice. Template and generated products pass strict gates and profile-appropriate E2E on a Docker-capable host.
 5. Record Linux and macOS checks, and distinguish local E2E evidence from any CI or provider test. For later replicated evaluation, compare fresh Codex and Claude sessions across stateless work, a PostgreSQL feature, a maintenance task and an inherited kernel update. Measure first-pass hidden acceptance, intervention and time. Keep the prompts and rubric versioned.
+
+## Repeatable first-pass benchmark
+
+Use the same task text for Mayak 1.1.0, the candidate revision and a minimal FastAPI baseline.
+Start each run from the assigned snapshot with an empty agent history. Record the model, client,
+snapshot, tool permissions, whether the dependency and image caches were warm, and any human
+intervention. Keep failed and interrupted runs in the denominator.
+
+| Task given to the agent | Acceptance exercised by the evaluator |
+|---|---|
+| Build a stateless service that returns a lowercased room title and rejects an empty title. | Clean start without Docker, correct 200 and 422 bodies, OpenAPI title. Remove validation and confirm a test fails. |
+| Build a PostgreSQL service that creates and reads rooms with case-insensitive unique names. | Migrate from an empty database, verify 201, 200, 409 and 404. Concurrent duplicate inserts yield one success. Remove uniqueness and confirm a test fails. |
+| In a service with bookings, add cancellation. Cancelling again should have no further effect. | Existing routes still work, a second cancellation has stable state, a missing booking is 404. Test against existing rows. |
+| Update the inherited dependency lock for PYSEC-2026-4320. Preserve product identity and business behavior. | Fresh dependency audit, existing HTTP behavior, narrow lock diff and unchanged product identity. |
+
+For each run record first HTTP readiness, minutes to independently accepted diff, intervention
+count, and which injected regressions were caught. The primary score is first-pass acceptance
+without technical intervention. Report results by task and agent, including the count of runs.
+Start with five runs per combination as a pilot. Keep cache reads and reattempts in any cost report.

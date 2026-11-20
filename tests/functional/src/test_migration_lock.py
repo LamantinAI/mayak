@@ -24,7 +24,10 @@ from psycopg import sql
 from settings import postgres_settings
 
 # Marked at module level so `-m e2e` selects it with the rest of the suite.
-pytestmark = pytest.mark.e2e
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.skipif(os.environ.get("POSTGRES_ENABLED") == "false", reason="PostgreSQL disabled"),
+]
 
 # Throwaway database this test migrates from empty, so the race is the first-ever migration.
 # A fresh database, not the suite's own: the collision is over CREATE TABLE alembic_version,

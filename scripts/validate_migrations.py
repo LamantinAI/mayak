@@ -248,25 +248,25 @@ _NOT_VERIFIED_BANNER = "MIGRATIONS NOT VERIFIED"
 # Report whether this project uses a relational store at all.
 # Returns: False when POSTGRES_ENABLED is explicitly disabled in the environment or .env.
 def postgres_is_enabled() -> bool:
-    # Read the same variable the runtime reads, without importing the settings
-    # models — this script must stay runnable when application dependencies are unavailable,
-    # which is also why _is_database_reachable() loads dotenv by hand a few lines below.
-    try:
-        from dotenv import load_dotenv
-
-        load_dotenv(ROOT_DIR / ".env")
-    except ImportError:
-        pass
-    return os.environ.get("POSTGRES_ENABLED", "true").strip().lower() not in {
-        "0",
-        "false",
-        "no",
-    }
+    value = os.environ.get("POSTGRES_ENABLED")
+    if value is None:
+        try:
+            from dotenv import dotenv_values
+        except ImportError:
+            pass
+        else:
+            for path in (ROOT_DIR / ".env", ROOT_DIR / ".env.sample"):
+                value = dotenv_values(path).get("POSTGRES_ENABLED")
+                if value is not None:
+                    break
+    return (value or "true").strip().lower() not in {"0", "false", "no", "off"}
 
 
 # Report whether an unreachable database may downgrade this gate to an informational skip.
 # Returns: False inside CI, where a silent skip would hide a broken revision chain.
 def database_skip_is_allowed() -> bool:
+    if os.environ.get("MAYAK_REQUIRE_MIGRATION_DB") == "1":
+        return False
     # Locally a developer without Postgres should not be blocked. In CI the
     # skip is the whole problem: no job provisioned a database, so the gate never ran and a
     # second alembic head or a dangling down_revision would sail through green.

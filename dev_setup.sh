@@ -1,25 +1,6 @@
 #!/bin/bash
 set -e
 
-# Path to the hooks directory in the repository
-HOOKS_DIR=".githooks"
-
-echo "Setting up git hooks..."
-
-# Check if the .githooks directory exists
-if [ -d "$HOOKS_DIR" ]; then
-    # Make all files in the directory executable
-    chmod +x "$HOOKS_DIR"/*
-
-    # Configure Git to use this directory for hooks
-    git config core.hooksPath "$HOOKS_DIR"
-
-    echo "Success! Git hooks are now active from $HOOKS_DIR."
-else
-    echo "Error: Directory $HOOKS_DIR not found."
-    exit 1
-fi
-
 # .claude/skills/* ships as symlinks into .agents/skills/ (`git ls-files -s
 # .claude/skills` shows mode 120000). A Windows checkout without `core.symlinks` enabled — the
 # default for a non-admin user — materialises each of those as a plain text file containing the

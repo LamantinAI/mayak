@@ -7,6 +7,10 @@ ported by hand, one at a time.
 
 ## Find your version
 
+Current descendants can run `make upgrade-check` for their recorded source tree and applicable
+checks. To check an older project from a current Mayak checkout, run
+`uv run --no-project python -m scripts.check_template_updates --root /path/to/service`.
+
 The first row of **Versions** in *your* copy of this file is the version your service was made
 from. No `docs/upgrades.md` in your copy means it was made before the file arrived (#39): start at #13
 and let each row's check tell you whether your copy already has the change. Port in the order of
@@ -23,6 +27,13 @@ and let each row's check tell you whether your copy already has the change. Port
 
 A pull request to the template that changes what a service inherits adds its row here, and its
 lines below, in the same pull request.
+
+## Agent onboarding and verification
+
+For an existing service, keep its identity, settings and migrations. Port the Makefile targets with
+their runner, tests and Compose changes together. Update the shared agent rules, then regenerate
+the wrappers. Start the isolated local database if the project uses one and run `make verify`.
+The [specification](specs/agent-onboarding.md) describes the behavior to preserve.
 
 ## How to port one change
 

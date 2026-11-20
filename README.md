@@ -65,78 +65,29 @@ make, not inherit.
 
 ## Quick start
 
-You need Python `3.13`, [uv](https://docs.astral.sh/uv/), Docker with Compose, and a Unix shell. The runtime minimum and the dev
-toolchain are the same version — see `docs/adr/ADR-002-python-version-policy.md`.
+Use Python 3.13+ (toolchain `3.13`), [uv](https://docs.astral.sh/uv/), Git and Make. PostgreSQL and Docker end-to-end
+tests use Docker with the Compose plugin.
 
-Press **Use this template** at the top of the repository page. GitHub hands you a repository of
-your own: these files, one first commit that is yours, and no remote pointing back here. That is
-the setup a clone would leave you to do by hand — detach the history, create the repository,
-repoint the remote — and it is the reason the button exists.
+Create a repository with **Use this template** on GitHub, then:
 
-Clone it instead if you only mean to read it. Either way it has to be a git checkout rather than a
-downloaded ZIP: several gates ask git which files are tracked, so without `.git` they fail on a
-repository that is otherwise perfectly healthy.
-
-A related trap on Windows: `.claude/skills/` ships as two symlinks into `.agents/skills/`
-(`git ls-files -s .claude/skills` shows mode `120000`). Without `core.symlinks` enabled — the
-default for a non-admin user — git checks those out as plain text files holding the target path
-instead of the skills themselves, and the agent finds no skill there and says nothing about it.
-`make init-project` now warns when it detects this; the fix is
-`git config core.symlinks true && git checkout -- .claude/skills`, which on Windows needs
-Developer Mode or an elevated shell.
-
-```bash
-make init-project
-```
-
-That installs dependencies and creates `.env` from `.env.sample`, generating a local database
-password as it copies — the sample ships a placeholder that a startup guard refuses, on purpose, so
-copying it verbatim would hand you a container that exits before serving anything. It never
-overwrites an existing `.env`, and it does not start Docker.
-
-Then pick how you want the database. With one:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build
-```
-
-Without one — for a service that needs no relational store — set `POSTGRES_ENABLED=false` in `.env`:
-
-```bash
-POSTGRES_ENABLED=false docker compose up -d --build
-```
-
-The database lives in the `docker-compose.postgres.yml` overlay, so it is attached with a second
-`-f` rather than commented out. A bare `docker compose up` while `POSTGRES_ENABLED=true` starts the
-app without a database, and `entrypoint.sh` exits 1 rather than serving a half-working service.
-
-Once it is up: `http://localhost:8000/docs` for Swagger, `GET /health/` for liveness, and
-`GET /health/ready` for readiness — which always runs and reports the services, LLM and database
-checks, but only services are always critical to the verdict; the LLM check is critical only when
-`AGENT_LLM_READINESS_CRITICAL=true`, and the database only when the project uses one. See
-`docs/adr/ADR-008-readiness-criticality.md`.
-
-`make smoke` does the whole round trip for you: picks the compose files, waits for a healthy
-container, calls both probes, and tears the stack down afterwards.
-
-To run without Docker, start the database first (both files, because `db` lives in the overlay) and
-then the app:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d db
+```sh
+make bootstrap NAME="Room Book" DOMAIN="Manage room bookings" DB=postgres
 make run-local
 ```
 
-`make run-local` migrates before it serves, the same order the Docker image uses.
+For a stateless service pass `DB=none`. Bootstrap generates the product identity, records which
+template tree it came from and moves the example into the scaffold. It creates missing local
+configuration and checks a temporary loopback server. Use `make run-local` for Swagger at
+`http://127.0.0.1:8000/docs` and `/health/ready` for readiness.
 
-That container is shared by every checkout of this repository on the machine: Compose names the
-project after the directory, and each git worktree's own `.env` names the same `localhost:5432`.
-Working in more than one branch at once, use `make db-up-worktree` instead — it starts a database
-under a project name and port derived from this checkout's path, prints the port to put in `.env`,
-and `make db-down-worktree` removes that one and nothing else. Sharing one is what leaves a branch
-facing a database migrated past it, which the gate now reports as `migrations.foreign_revision`.
+For the template itself or an existing service, run `make init-project`. Use `make db-up-worktree`
+when it uses PostgreSQL. This checkout's database port is picked up by `make migrate` and
+`make run-local`. Use `make db-down-worktree` when you want to remove this worktree's database.
 
----
+To test the application image, use `make test-e2e`. For an interactive Docker stack, use
+`docker compose -f docker-compose.yml -f docker-compose.postgres.yml up --build` when PostgreSQL
+is enabled or `docker compose up --build` for the stateless profile. The default host bindings are
+loopback. Git hooks are opt-in via `make install-hooks`.
 
 ## Your first vertical
 
@@ -171,40 +122,24 @@ the example afterwards.
 
 ## Checking your work
 
-Four commands, in order of cost:
-
-```bash
-make gate-fast        # ~1 s  — format, lint, types (tests included) and layers; no Docker
-make quality-gates    # ~25 s — lint, format, types, validators, unit tests and the db tier
-make test-e2e         # ~25 s — the built image over HTTP against a real Postgres in Docker
-make ci-local         # ~75 s — everything the pipeline runs, both database modes included
+```sh
+make gate-fast       # Format, lint, types and layer rules while editing
+make verify          # Strict full gate, complete diff coverage and applicable Docker E2E
+make ci-local        # Local equivalent of the CI jobs, including dependency audit
 ```
 
-In the template, `make ci-local` also runs `make check-product` (~3 min): it makes a throwaway
-project from the checkout, takes the reference vertical out as `make init-project` would, and
-runs that project's gates and e2e — the one check of what a new service starts from.
+`make quality-gates` runs the full gate by itself. Locally it can format changed Python and
+refresh the generated wrappers. The strict checks in `make verify` and CI report any needed
+fixes. If a step fails, its output supplies the diagnosis. `make doctor` is available on its own.
 
-`make gate-fast` is the loop to run while editing, `make quality-gates` the one that says a change
-is done. Both first fix what a machine can — they regenerate the agent wrappers, and format and
-safe-fix the Python you changed — and name every file they rewrote, so a stale wrapper or a
-misplaced space prints a notice instead of a red gate; the pre-commit hook, `ci-local` and CI fail
-on those instead (ADR-012). `make quality-gates` runs `make doctor` itself when something fails —
-the doctor names the blocking layer and prints the shape of the fix rather than a wall of output.
+The full gate includes the **db tier**. It tests queries and schema changes against disposable
+PostgreSQL. You can set `TEST_DATABASE_URL` to a PostgreSQL test database you control. A stateless
+project skips the db tier. Docker E2E runs the image and tests the profile's actual readiness.
+Use `make verify E2E=1` to request it for a diff that would otherwise skip it.
 
-Its test run includes the **db tier** (`tests/db`): repository tests that run their SQL against a
-PostgreSQL the tier starts for this checkout in Docker, in a database created for the session and
-migrated from nothing (`alembic upgrade head`, then `alembic check`). That is where a bad query or a migration that disagrees with the models goes red —
-until 2026-09-24 both were caught only by `make test-e2e` or by a test pinning the query's text.
-Without Docker, point it at a database you control with `TEST_DATABASE_URL`; a project with
-`POSTGRES_ENABLED=false` skips the tier and says so. What it still cannot see: the built image, its
-entrypoint, and HTTP against the running container — a change to endpoints, wiring or a migration
-is finished by `make test-e2e`.
-
-`make ai-autofix` fixes formatting and lint in one pass. Never hand-edit `CLAUDE.md` or
-`AGENTS.md` — both are rewritten from `docs/agent_rules.md`, and a pre-edit hook refuses the write.
-
-The GitHub Actions workflow in `.github/workflows/ci.yml` runs the same ground as `make ci-local`;
-a test keeps the two lists from drifting apart.
+Edit `docs/agent_rules.md` and run `make refresh-agent-docs` to update the shared agent contract.
+The `initialize-project` and `add-vertical` skills cover setup and feature work.
+The [acceptance spec](docs/specs/agent-onboarding.md) defines the template's onboarding checks.
 
 ---
 

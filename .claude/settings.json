@@ -16,6 +16,9 @@
     "allow": [
       "Bash(make ai-autofix)",
       "Bash(make quality-gates)",
+      "Bash(make verify)",
+      "Bash(make smoke-local)",
+      "Bash(make upgrade-check)",
       "Bash(make doctor)",
       "Bash(make doctor-json)",
       "Bash(make diff-coverage)",

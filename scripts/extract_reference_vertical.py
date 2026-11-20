@@ -54,7 +54,7 @@ SAMPLE_SHA256: dict[str, str] = {
     "tests/application/test_reference_task_vertical.py": "a9c3cfdf65b7ea2ff528f8d35cee74b86b5896b25141e5634c8a018eb4c859e1",
     "tests/db/test_reference_task_repository.py": "e742179476867ef93c2e6d498b5b109456071c26ffba8345e4da3c67de8be784",
     "tests/db/test_reference_tasks_api.py": "a52e31eaf49bb24096bbac8368ade29d1261537abc6f85457dcda013c771184c",
-    "tests/functional/src/test_reference_tasks_api.py": "6d4ed6eb1f8583483b2737762f0046e5a3fbb807149c59c7689d20f9b63f896b",
+    "tests/functional/src/test_reference_tasks_api.py": "fa54fafdc5361aedc71c7ee27c0310dfe8fc13a42aa77c3b59ea125ebe56bc5a",
 }
 
 # Files the template needs and a project does not: removed, not kept.
@@ -85,13 +85,7 @@ KERNEL_FILES = {
 }
 
 _POINTER = f"{SCAFFOLD}/README.md"
-_QUICK_START = (
-    "- Copy the `reference_task` vertical. It is the one worked example and it exists to be "
-    "copied — twelve files plus three wiring edits; `.agents/skills/add-vertical` carries the "
-    "order and the removal list for when your own vertical replaces it. A project that has "
-    "replaced it edits this line and nothing else: the wrapper's Quick Start is generated from "
-    "these bullets."
-)
+_QUICK_START = '- **New service.** Create a repository with GitHub’s template action, then run `make bootstrap NAME="Service Name" DOMAIN="What it does" DB=postgres` (or `DB=none`). Bootstrap checks readiness and leaves the result for review.'
 
 
 # Cut the lines from the one equal to `first` through the first later one equal to `last` (or to
@@ -236,10 +230,8 @@ CUTS: tuple[Cut, ...] = (
         "docs/agent_rules.md",
         _QUICK_START,
         _QUICK_START,
-        "- Build a vertical with `.agents/skills/add-vertical`: it carries the order of work, and "
-        f"`{SCAFFOLD}/` holds the reference vertical this project was made from — twelve files plus "
-        "three wiring edits — to copy from. This line is this project's to edit: the wrapper's Quick "
-        "Start is generated from these bullets.\n",
+        "- **Existing service.** Start with `PROJECT.md`. The preserved example is in "
+        f"`{SCAFFOLD}/` if you need to add a PostgreSQL feature.\n",
         keep_in_readme=False,
     ),
     Cut(
@@ -300,7 +292,7 @@ CUT_SHA256: dict[str, str] = {
     "project/infrastructure/persistence/orm_models.py: from datetime import datetime": "0da6047c5ab62b685d806fac9973d83e6db326e082942f4e98c98ca95c95e599",
     "project/infrastructure/persistence/orm_models.py: # Alembic reads this metadata; nothing reads the ORM at runtime, because ReferenceTaskRepository speaks raw psycopg. Verticals add their own tables alongside it and delete this one with the rest of the example.": "ac37054fd19d77cc08654e55e4ba5a2938d8f7a25f6d357712e03be906060704",
     "project/infrastructure/persistence/__init__.py: # writes go through psycopg against the shared pool; reference_task_repository.py is the worked": "65e8404cb3529b13c13657d8c32f2dcf7b38c6de1ac7246f73cf93f25341ba60",
-    "docs/agent_rules.md: - Copy the `reference_task` vertical. It is the one worked example and it exists to be copied — twelve files plus three wiring edits; `.agents/skills/add-vertical` carries the order and the removal list for when your own vertical replaces it. A project that has replaced it edits this line and nothing else: the wrapper's Quick Start is generated from these bullets.": "b15dfb6c18c33fc2c8ec0593af1f71c590104395618347df5df9ddc7879493df",
+    'docs/agent_rules.md: - **New service.** Create a repository with GitHub’s template action, then run `make bootstrap NAME="Service Name" DOMAIN="What it does" DB=postgres` (or `DB=none`). Bootstrap checks readiness and leaves the result for review.': "39a5ce93e62ce55ad01787cfc13564ea983f82cb97785c0708908287b19a152b",
     ".agents/skills/add-vertical/SKILL.md: # Add Vertical": "ea123ba5901f1bcc464ff4cb4060688b2793f1870dfead15c1b909435f86c289",
     ".github/workflows/ci.yml:   # A project made from this template today: its identity replaced, the reference vertical taken": "55b36f3e5e38d563f0a2630cc6834b7073ebc65d1dc97b3b08730aed7278b550",
     ".agents/skills/add-vertical/SKILL.md: ## Deleting the reference vertical": "62015290e767a42e5baa92a5e8141d7bf687760d484323cb6d545bb3b7dfdbab",
@@ -532,10 +524,10 @@ What the vertical added to files every vertical shares, as it stood there.
 
 
 # Everything the extraction would write and delete, or the reason it will not act.
-def build_plan(root: Path) -> Plan | str:
+def build_plan(root: Path, *, converting: bool = False) -> Plan | str:
     context_path = root / "docs/project_context.json"
     context = json.loads(context_path.read_text(encoding="utf-8"))
-    if context.get("is_template") is not False:
+    if not converting and context.get("is_template") is not False:
         # bench3's agent met this line in a project and went on to read the script; name the route.
         return (
             "this is the template (is_template is not false): nothing to take out. In a project "
@@ -546,7 +538,7 @@ def build_plan(root: Path) -> Plan | str:
         return "already done: the reference vertical is in " + SCAFFOLD
 
     reasons: list[str] = []
-    if context.get("project_name") == "Mayak":
+    if not converting and context.get("project_name") == "Mayak":
         reasons.append("docs/project_context.json still names the template (project_name)")
     changed = [
         path
@@ -621,7 +613,7 @@ def build_plan(root: Path) -> Plan | str:
     return plan
 
 
-def apply_plan(root: Path, plan: Plan) -> list[str]:
+def apply_plan(root: Path, plan: Plan, *, stage: bool = True) -> list[str]:
     for relative, text in plan.writes.items():
         target = root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -651,8 +643,11 @@ def apply_plan(root: Path, plan: Plan) -> list[str]:
             *sorted(p for p in plan.writes if p.endswith(".py")),
         ],
         [sys.executable, "scripts/sync_agent_docs.py"],
-        ["git", "add", "-A", "--", *sorted(set(plan.writes) | set(plan.deletes)), "AGENTS.md"],
     )
+    if stage:
+        steps += (
+            ["git", "add", "-A", "--", *sorted(set(plan.writes) | set(plan.deletes)), "AGENTS.md"],
+        )
     for command in steps:
         result = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True)
         if result.returncode != 0:
@@ -666,6 +661,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=ROOT_DIR)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--no-stage", action="store_true")
     parser.add_argument("--print-manifest", action="store_true")
     args = parser.parse_args([] if argv is None else argv)
     root = args.root.resolve()
@@ -690,11 +686,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         for path in plan.deletes:
             print(f"  delete {path}")
         return 0
-    failures = apply_plan(root, plan)
+    failures = apply_plan(root, plan, stage=not args.no_stage)
+    review = (
+        "Review with `git diff`."
+        if args.no_stage
+        else "Review the staged changes with `git diff --cached`."
+    )
     print(
         f"reference vertical taken out: {len(plan.deletes)} files removed, its copy is in "
-        f"{SCAFFOLD}/, {DROP_MIGRATION} drops its table. The changes are staged; review them "
-        "with `git diff --cached`, then run `make quality-gates`."
+        f"{SCAFFOLD}/, {DROP_MIGRATION} drops its table. {review}"
     )
     for failure in failures:
         print(f"  follow-up failed, the changes above stay for you to inspect: {failure}")
