@@ -58,3 +58,29 @@ def test_e2e_selection_includes_untracked_routes_but_ignores_prose(
     assert not needs_e2e("HEAD")
     (scope / "preview.py").write_text("example = 1\n")
     assert needs_e2e("HEAD")
+
+
+def test_import_coverage_does_not_count_as_running_a_route(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scripts.verify_change import unexercised_handlers
+
+    _repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    filename = "infrastructure/api/endpoints/preview.py"
+    route = tmp_path / "project" / filename
+    route.parent.mkdir(parents=True)
+    route.write_text(
+        "router = APIRouter()\n\n@router.get('/preview')\nasync def preview():\n    return 'ok'\n"
+    )
+    report = tmp_path / "coverage.xml"
+    xml = (
+        f'<coverage><packages><classes><class filename="{filename}">'
+        '<lines><line number="1" hits="1"/><line number="4" hits="1"/>'
+        '<line number="5" hits="{body_hits}"/></lines></class></classes></packages></coverage>'
+    )
+    report.write_text(xml.format(body_hits=0))
+    assert unexercised_handlers("HEAD", report) == [f"project/{filename}:4 preview"]
+
+    report.write_text(xml.format(body_hits=1))
+    assert unexercised_handlers("HEAD", report) == []

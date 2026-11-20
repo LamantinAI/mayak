@@ -404,7 +404,8 @@ diff-coverage: ## Validation | Test and check coverage of the complete applicati
 	@$(MAKE) --no-print-directory diff-coverage-report
 
 diff-coverage-report:
-	$(UV) run --with $(DIFF_COVER) diff-cover coverage.xml \
+	$(UV) run python -m scripts.verify_change --base "$$DIFF_COMPARE_BRANCH" --coverage-handlers coverage.xml
+	GIT_OPTIONAL_LOCKS=0 $(UV) run --with $(DIFF_COVER) diff-cover coverage.xml \
 		--compare-branch="$$DIFF_COMPARE_BRANCH" --include-untracked --fail-under=80
 
 verify: ## Validation | Strict gates, complete diff coverage and applicable Docker E2E

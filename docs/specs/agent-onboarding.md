@@ -19,7 +19,7 @@ Update the locked certifi version without a general dependency refresh. A fresh 
 ## 3. Verification and diagnostics
 
 - Keep `make gate-fast` as the edit loop. `make verify` runs the strict full gate, measures coverage across the complete application diff, and runs Docker E2E for changes to endpoints, wiring, migrations or container configuration. Report each check, including a skipped or blocked check.
-- Diff coverage includes staged, unstaged and untracked application Python. It preserves the real Git index. CI keeps its independent quality and coverage jobs.
+- Diff coverage includes staged, unstaged and untracked application Python. It preserves the real Git index and requires every new or edited HTTP handler to run under test. CI keeps its independent quality and coverage jobs.
 - A failed full gate diagnoses the failed run from its captured output, with stable rule IDs where available. A missing Docker daemon or Compose plugin reports the dependency and recovery. `make doctor` remains available as a standalone diagnostic. A logs request with no matching app reports where it looked and fails.
 - The operational guide starts with new service, new feature or fix. Provide short runnable stateless HTTP and mock tool-loop examples. Retain the PostgreSQL reference vertical where it demonstrates persistence and concurrency.
 
