@@ -1,14 +1,7 @@
 # FILE: project/core/logging/trace_tree.py
 # SUMMARY: Parses NDJSON trace events into the SpanNode/LeafEvent tree trace_formatter.py renders.
 #
-# Split out of trace_formatter.py, purely to stay under
-# scripts/validate_module_sizes.py's per-module executable-line budget — validation_support/line_metrics.py
-# used trace_formatter.py as its worked example of a "not genuinely large, mostly comments" file,
-# and that comment now describes a smaller file than the one it names; whoever next edits
-# validation_support/line_metrics.py should re-measure rather than trust the old figure. No behavior moved
-# — trace_formatter.py's public functions call straight through to this module's, and every test
-# that imports from trace_formatter.py still works; SpanNode, LeafEvent, _build_tree and
-# _parse_events are re-exported there unchanged.
+# trace_formatter re-exports its former parser symbols for existing callers.
 
 from __future__ import annotations
 
@@ -33,13 +26,7 @@ class SpanNode:
     # The span.error arrived at WARNING because something not an Exception cut it short —
     # a cancellation — never because it was a routine domain rejection. See client_rejection.
     interrupted: bool = False
-    # The span.error carried `client_rejection: true` — a ConflictError, NotFoundError or
-    # similar raised inside this span that exception_handlers.py answers with a 4xx, not the
-    # application failing. Also WARNING, like `interrupted`, and kept as its own field rather than
-    # inferred from the level so the two are never rendered as the same thing: one means "stopped",
-    # the other means "this is the application working as intended". Mirrors
-    # project.core.logging.logger.span()'s own classification; absent on older logs, which read
-    # as False and keep rendering exactly as they did before this field existed.
+    # WARNING also represents interruption. Old logs have no explicit rejection marker.
     client_rejection: bool = False
     # The span's own `span.start.data.input_params`, captured only for spans named
     # `agent.tool.<name>` — see _TOOL_SPAN_PREFIX below. Empty for every other span; nothing else
@@ -59,15 +46,8 @@ class LeafEvent:
 
 _VENDOR_MARKERS = ("site-packages", "/.venv/", "<frozen ")
 
-# See the convention documented beside project.core.logging.logger.SemanticLogger.span.
-# The compact renderer shows a span's name and duration and nothing about what it did by
-# default; for `db.*` spans that is enough because `output` carries the outcome (`row_found`,
-# `rows_written`, …), but a tool call's interesting fact is what it was CALLED WITH, and that lives
-# in `input_params` on `span.start`, which `_build_tree` otherwise never reads. Scoped to this one
-# prefix rather than to every span: `input_params` on an `http_request` or `db.*` span can hold a
-# full query-string mapping or a SQL parameter list, and rendering those inline in every trace
-# would be the noise trace_formatter.py's own "compact" goal exists to avoid. Imported into
-# trace_formatter.py, which needs the same prefix to decide what to render, not just what to parse.
+# Only tool spans expose selected inputs in the compact tree. DB spans show an outcome;
+# HTTP and DB inputs can contain large query mappings or parameter lists.
 _TOOL_SPAN_PREFIX = "agent.tool."
 
 _LEAF_MARKS = {"critical.": "✗✗", "client_error.": "⚠", "error.": "✗"}
@@ -76,10 +56,7 @@ _LEAF_MARKS = {"critical.": "✗✗", "client_error.": "⚠", "error.": "✗"}
 # traceback_text: Value of the span.error event's exc_traceback field.
 # Returns "path/to/file.py:LINE in func", or None when there is no own frame.
 def _last_own_frame(traceback_text: str | None) -> str | None:
-    # The whole traceback is in the log and none of it reached the reader — the
-    # rendered tree named the exception type and left the location out, so an agent had the word
-    # "KeyError" and 24 frames to grep for. One frame is what it needs: the deepest one that is
-    # not vendored. Twenty-four frames in the measured case, six of them ours.
+    # A trace points to the deepest frame in the service to keep the location actionable.
     if not traceback_text:
         return None
 
@@ -161,21 +138,14 @@ def _parse_events(
     # Filter to target trace
     filtered = [ev for ev in all_events if ev.get("trace_id") == auto_trace_id]
 
-    # Extract header metadata from the trace's first span.start event.
-    # Second place that assumed the root has no parent. It does have one — the
-    # application_lifecycle span — so the method and path never reached the header and every
-    # rendered trace was identified only by a hex id. The first span.start of a filtered trace is
-    # its root by construction: everything above it was dropped for having no trace_id.
+    # The first start event has the request metadata. Its lifecycle parent has no trace ID.
     meta: dict[str, Any] = {"trace_id": auto_trace_id or ""}
     for ev in filtered:
         if ev.get("event_id") == "span.start":
             meta["session_id"] = ev.get("session_id", "")
             meta["user_id"] = ev.get("user_id", "")
             data = ev.get("data", {})
-            # Third mismatch with what the emitter writes. middleware.py nests the
-            # request facts under data.input_params; this read expected them at the top level, so
-            # even a correctly-rooted trace rendered without its method and path. Both spellings
-            # are accepted so a span that logs them flat still works.
+            # Accept both the middleware's nested inputs and the flat format used by older spans.
             params = (
                 data.get("input_params", {}) if isinstance(data.get("input_params"), dict) else {}
             )
@@ -202,11 +172,7 @@ def _build_tree(
         seq = ev.get("seq", 0)
 
         if eid == "span.start" and ev.get("span_name", "").startswith(_TOOL_SPAN_PREFIX):
-            # The only event carrying `input_params`, and it arrives before
-            # span.finish/span.error — this is what creates the node early for a tool span. Every
-            # other span name is left alone here exactly as before this branch existed: no node is
-            # created from a plain span.start, so an unrelated span with no finish or error still
-            # renders as absent rather than as an empty line.
+            # Build tool nodes from the start event to keep inputs even when the call is interrupted.
             sid = ev.get("span_id", "")
             node = spans.get(sid)
             if node is None:
@@ -215,18 +181,9 @@ def _build_tree(
             params = data.get("input_params")
             if isinstance(params, dict):
                 node.input_params = params
-            # A provisional position, overwritten by span.finish/span.error's own
-            # seq once one of those arrives (both always run after span.start). Left at 0 — the
-            # dataclass default — a tool call that never finished would sort before every sibling
-            # regardless of when it actually started, which is worse than an approximate position.
+            # Use the start position until a finish or error records the final position.
             node.seq = seq
-            # And a provisional parent, for the same reason and a worse failure.
-            # span.start carries `parent_span_id` too; taking it only from finish/error left a tool
-            # call that never returned — a hung provider, a killed process, the exact run someone
-            # opens a trace to understand — parentless, which the assembly below reads as a second
-            # root. It then rendered detached from the request that made it AND marked with the
-            # root's own successful outcome. Overwritten by finish/error when either arrives, so
-            # the completed path is unchanged.
+            # Keep an unfinished tool attached to its request. A finish/error can update the parent.
             node.parent_span_id = ev.get("parent_span_id")
 
         elif eid == "span.finish":
@@ -256,14 +213,7 @@ def _build_tree(
             else:
                 node.error = data.get("exception_type", data.get("error_message", "error"))
             node.error_site = _last_own_frame(ev.get("exc_traceback"))
-            # Three different reasons a span ends in span.error, and a reader needs
-            # to tell them apart at a glance rather than by grepping the exception type: the
-            # application's own failure (ERROR, full traceback), an interruption — asyncio
-            # cancellation, Ctrl-C — cut it short (WARNING, `client_rejection` absent), and a
-            # routine domain rejection heading for a 4xx (also WARNING, `client_rejection: true`).
-            # Without `client_rejection`, the two WARNING cases are indistinguishable here: a
-            # routine rejection would render with the same ⊘ "stopped" mark a genuine cancellation
-            # gets — as misleading as the ERROR-plus-traceback treatment it replaces.
+            # WARNING with a rejection marker is a 4xx; unmarked WARNING is an interruption.
             node.interrupted = ev.get("level") == "WARNING" and not node.client_rejection
             node.seq = seq
 
@@ -274,12 +224,7 @@ def _build_tree(
             model = data.get("model", "?")
             dur = ev.get("duration_ms", data.get("duration_ms"))
             ok = data.get("success", True)
-            # `finish_reason == "length"` on an otherwise-successful call means the
-            # provider was cut off mid-answer by an output-token or tool-schema limit — the exact
-            # shape that would otherwise read as a plain ✓ here, because success and finish_reason
-            # are two different facts on the same response and only the first is rendered without
-            # this check. This is the compact-trace half of the fix; log_llm_call carries the same
-            # field (and the WARNING level) into the raw NDJSON itself.
+            # Successful transport can still carry a truncated answer. Mark that outcome separately.
             finish_reason = data.get("finish_reason")
             truncated = bool(ok) and finish_reason == "length"
             mark = "✗" if not ok else ("⚠" if truncated else "✓")
@@ -294,10 +239,7 @@ def _build_tree(
             )
 
         elif eid.startswith(("critical.", "error.", "client_error.")):
-            # These carry the actual cause of a failed request. Without this
-            # branch they were parsed and then silently discarded while the tree still rendered,
-            # so a reader saw a shaped trace with no reason in it. Attach them as leaves so the
-            # exception type and message appear where the failure happened.
+            # Attach the failure detail to the span so the reader can see why the request failed.
             failure = data.get("failure_type") or data.get("error_type") or eid
             exception_type = data.get("exception_type", "")
             detail = (
@@ -312,12 +254,7 @@ def _build_tree(
                     if isinstance(item, dict)
                 )
                 detail = f"{detail}: {named}" if detail else named
-            # A 4xx is the application working — it read a request it could
-            # not serve and said so — so it is marked apart from a failure rather than sharing
-            # the ✗ of one. It is rendered at all because the alternative, silence, is worse: the
-            # rejection's cause was the one thing a reader opened the trace for, and this branch
-            # must match whatever event_id prefix these records actually carry
-            # (`client_error.`) or they are silently parsed and dropped.
+            # Give a routine client rejection a distinct mark and keep its cause visible.
             mark = next(m for prefix, m in _LEAF_MARKS.items() if eid.startswith(prefix))
             head = f"{mark} {failure}"
             if exception_type:
@@ -372,12 +309,7 @@ def _build_tree(
         if node.span_id in leaf_by_span:
             node.children.extend(leaf_by_span[node.span_id])
 
-        # A span whose parent is not in this trace is a root of it. Requiring
-        # parent_span_id to be None made every real log render as "(no spans found)": the
-        # application's http_request span is a child of application_lifecycle, and that parent
-        # carries no trace_id, so _parse_events drops it one step earlier. The span then matched
-        # neither branch and disappeared — no roots, no tree, and prepend_trace_summary returning
-        # False on every shutdown without saying so. Measured on a live NDJSON with four traces.
+        # A missing parent can be the lifecycle span outside this trace. Treat the request as a root.
         if node.parent_span_id is None or node.parent_span_id not in spans:
             roots.append(node)
         else:
@@ -385,9 +317,7 @@ def _build_tree(
 
     roots.sort(key=lambda n: n.seq)
 
-    # Attach orphan leaves — events logged outside any span, which is exactly
-    # where the unhandled-exception record lands: the span has already closed by the time the
-    # framework's exception handler runs. Dropping them hid the cause of every 500.
+    # The exception handler logs outside the closed span. Attach that cause to the request root.
     orphans = [leaf for leaf in leaves if leaf.span_id not in spans]
     if orphans and roots:
         roots[0].children.extend(orphans)
