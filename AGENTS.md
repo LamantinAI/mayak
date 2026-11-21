@@ -17,7 +17,7 @@ Run `make help` for the full grouped command list — it reads the Makefile dire
 ## Task Process
 
 - When the same cause fails a third time — the same error, whatever flags or command you changed around it — stop editing: write down the assumption you now doubt; if a gate named a rule ID, ask `uv run python scripts/doctor_ai_context.py --rule <rule_id>` for its playbook and read only the files it names; change one thing before rerunning.
-- Never claim task completion without fresh `make verify` evidence. Report any blocked checks.
+- Never claim task completion without fresh `make verify` evidence. Quote its final line verbatim and report any blocked checks.
 - Before publishing, confirm that the user requested it and that the remote is the intended destination. Use an independent reviewer when the task calls for one.
 - Prove a defect fix with a test that fails on the old behavior and passes with the fix. A new blocking validator rule ships with one failing example and several correct ones it must pass — earned by a real defect, not symmetry.
 

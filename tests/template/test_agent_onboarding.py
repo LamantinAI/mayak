@@ -80,10 +80,10 @@ def test_import_coverage_does_not_count_as_running_a_route(
         '<line number="5" hits="{body_hits}"/></lines></class></classes></packages></coverage>'
     )
     report.write_text(xml.format(body_hits=0))
-    assert unexercised_handlers("HEAD", report) == [f"project/{filename}:4 preview"]
+    assert unexercised_handlers(report) == (1, [f"project/{filename}:4 preview"])
 
     report.write_text(xml.format(body_hits=1))
-    assert unexercised_handlers("HEAD", report) == []
+    assert unexercised_handlers(report) == (1, [])
 
 
 def test_bootstrap_does_not_forward_an_ambient_database(
@@ -171,12 +171,54 @@ def test_verify_refuses_a_staged_endpoint_even_if_working_copy_matches_head(
         _working_diff("HEAD")
 
 
-def test_empty_diff_reports_skip_instead_of_coverage_pass(
+def test_empty_diff_reports_inapplicable_instead_of_coverage_pass(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from scripts.verify_change import _coverage
 
     assert _coverage("HEAD", set(), tmp_path / "coverage.xml", "uv", "diff-cover") == 0
     result = capsys.readouterr().out
-    assert "SKIPPED (empty diff" in result
+    assert "N/A (no paths changed)" in result
     assert "PASS" not in result
+
+
+def test_clean_project_without_integration_base_runs_routes_and_image(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from scripts import verify_change
+
+    _repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.argv", ["verify_change", "--diff-cover", "diff-cover"])
+    calls: list[str] = []
+
+    def fake_call(command: tuple[str, ...], **kwargs: object) -> int:
+        calls.append(command[-1])
+        return 0
+
+    monkeypatch.setattr(verify_change.subprocess, "call", fake_call)
+    monkeypatch.setattr(verify_change, "unexercised_handlers", lambda report: (2, []))
+
+    assert verify_change.main() == 0
+    assert calls == ["quality-gates", "test-e2e"]
+    output = capsys.readouterr().out
+    assert "routes: PASS (2 of 2" in output
+    assert "diff-coverage: NOT MEASURED" in output
+    assert output.splitlines()[-1] == "verify: PASS — project only; no change was measured"
+
+
+def test_git_default_ref_wins_over_origin_main(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scripts.verify_change import _resolve_base
+
+    _repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    subprocess.run(("git", "update-ref", "refs/remotes/origin/main", "HEAD"), check=True)
+    subprocess.run(("git", "update-ref", "refs/remotes/origin/trunk", "HEAD"), check=True)
+    subprocess.run(
+        ("git", "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk"),
+        check=True,
+    )
+    assert _resolve_base("") == "origin/trunk"
+    assert _resolve_base("HEAD") == "HEAD"

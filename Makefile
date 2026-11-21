@@ -397,7 +397,7 @@ test-e2e: ## Testing | Functional tests only (Docker)
 
 # The standalone job produces a fresh report. Verify reuses the exact report its full gate
 # just produced. diff-cover includes untracked files without staging them.
-DIFF_COMPARE_BRANCH ?= $(shell git rev-parse --verify --quiet origin/main >/dev/null 2>&1 && echo origin/main || echo HEAD)
+DIFF_COMPARE_BRANCH ?=
 export DIFF_COMPARE_BRANCH
 
 diff-coverage: ## Validation | Test and check coverage of the complete application diff
