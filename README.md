@@ -134,7 +134,7 @@ fixes. If a step fails, its output supplies the diagnosis. `make doctor` is avai
 
 The full gate includes the **db tier**. It tests queries and schema changes against disposable
 PostgreSQL. You can set `TEST_DATABASE_URL` to a PostgreSQL test database you control. A stateless
-project skips the db tier. At least one test must execute the body of each new or changed HTTP handler. Docker E2E runs the image and checks the profile's actual readiness.
+project skips the db tier. A host HTTP test must execute the body of every handler. Docker E2E runs separately and lists any product test files in the image. A clean repository without an integration branch still checks routes and the image; pass `DIFF_COMPARE_BRANCH=<starting commit>` to measure committed changes.
 Use `make verify E2E=1` to request it for a diff that would otherwise skip it.
 For a committed change, pass `make verify DIFF_COMPARE_BRANCH=<baseline>`. The command names
 the resolved base and labels zero measured lines as skipped. Resolve files that differ between
