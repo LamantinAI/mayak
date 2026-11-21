@@ -311,16 +311,8 @@ audit-deps: ## Validation | Audit the locked dependencies for known CVEs (pip-au
 # who can act on it. It is a pinned dev dependency, not `--with bandit`: the gate runs this, and an
 # overlay dependency re-resolves against the network every time. The `@` matters too — the doctor
 # reads this target's output and reports its first meaningful line, and an echoed command line is
-# what it would report instead of the finding. `-ll` reports medium severity and above; the three `# nosec B608` markers in
-# the reference repository are load-bearing — without them this exits 1.
-#
-# Called from `quality-gates-steps` above, not only from `ci-local`, so the command an agent
-# actually runs while working — `make quality-gates` — asks bandit too, not only the pipeline.
-# Costs 0.5 s with a warm uv cache. Running bandit only from the pipeline hides findings from the
-# person who can act on them: in the field, an agent had placed a `# nosec B608` on the
-# closing-paren line of a multi-line query instead of the literal's own line. Bandit resolves the
-# marker by physical line, so it suppressed nothing, and the finding was real — but ruff, mypy and
-# every validator here passed, because none of them is bandit.
+# what it would report instead of the finding. `-ll` reports medium severity and above.
+# Keep SQL statements as literals with bound parameters, as in the reference repository.
 security-scan: ## Validation | bandit security scan over project/
 	@$(UV) run bandit -q -r project -ll
 

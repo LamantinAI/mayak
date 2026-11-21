@@ -3,7 +3,7 @@
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, String, Text, func
+from sqlalchemy import DateTime, Index, MetaData, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -11,7 +11,10 @@ from project.domain.reference_task import CLOSED_STATUS, MAX_TITLE_LENGTH
 
 
 class Base(DeclarativeBase):
-    pass
+    # Alembic needs a stable name to generate a reversible drop_constraint operation.
+    metadata = MetaData(
+        naming_convention={"fk": "fk_%(table_name)s_%(column_0_N_name)s_%(referred_table_name)s"}
+    )
 
 
 # Alembic reads this metadata; nothing reads the ORM at runtime, because ReferenceTaskRepository speaks raw psycopg. Verticals add their own tables alongside it and delete this one with the rest of the example.

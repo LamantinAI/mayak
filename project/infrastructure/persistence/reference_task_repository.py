@@ -22,26 +22,20 @@ from project.domain.reference_task import ReferenceTask, normalize_task_id
 # dropped in production — docs/tracing.md, "A database call is a span an operator can see".
 logger = get_logger(__name__)
 
-_COLUMNS = "id, title, details, status, created_at, updated_at"
-
-# bandit flags these f-strings as B608 (SQL built from strings), and the suppression is a claim:
-# the only interpolated value is _COLUMNS above, while every caller value travels as a `%s`
-# parameter bound server-side. A vertical that interpolates a caller-supplied table, column or
-# sort direction has a real injection and must not copy the marker. The marker carries only the
-# rule id — bandit reads words after it as test ids — so its reason lives here, above the code.
-_SELECT_BY_ID = f"SELECT {_COLUMNS} FROM reference_tasks WHERE id = %s"  # nosec B608
-
+# Complete SQL literals let B608 flag interpolation while caller values travel as parameters.
+_SELECT_BY_ID = (
+    "SELECT id, title, details, status, created_at, updated_at FROM reference_tasks WHERE id = %s"
+)
 _SELECT_BY_STATUS = (
-    f"SELECT {_COLUMNS} FROM reference_tasks "  # nosec B608
+    "SELECT id, title, details, status, created_at, updated_at FROM reference_tasks "
     "WHERE status = %s ORDER BY created_at DESC LIMIT %s"
 )
 
-# `AND updated_at = %s` is the point: a write computed from a stale read matches no row instead of
-# erasing the other writer's change. RETURNING makes the write and the read of what was stored one
-# statement, which is what makes the pool's autocommit correct here — ADR-007.
+# The timestamp predicate protects against stale writes. RETURNING reads what was stored in the
+# same statement, which makes the pool's autocommit correct here (ADR-007).
 _UPDATE_BY_ID = (
-    "UPDATE reference_tasks SET title = %s, details = %s, status = %s, updated_at = %s "  # nosec B608
-    f"WHERE id = %s AND updated_at = %s RETURNING {_COLUMNS}"
+    "UPDATE reference_tasks SET title = %s, details = %s, status = %s, updated_at = %s "
+    "WHERE id = %s AND updated_at = %s RETURNING id, title, details, status, created_at, updated_at"
 )
 
 # The unique index that holds "one open task per title", created by migration b5e2c1a9d4f0.

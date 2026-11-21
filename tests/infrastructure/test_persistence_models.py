@@ -82,3 +82,17 @@ class TestForeignKeysDeclareOnDelete:
         # one without `ondelete=`, this goes red instead of waiting for `make test-e2e` to delete a
         # parent row and hit PostgreSQL's own silent default.
         assert _foreign_keys_missing_ondelete(Base.metadata) == []
+
+
+@pytest.mark.unit
+def test_new_foreign_keys_get_names_for_generated_downgrades() -> None:
+    metadata = MetaData(naming_convention=Base.metadata.naming_convention)
+    Table("parent", metadata, Column("id", String, primary_key=True))
+    child = Table(
+        "child",
+        metadata,
+        Column("parent_id", String, ForeignKey("parent.id", ondelete="RESTRICT")),
+    )
+    key = next(iter(child.foreign_keys))
+    assert key.constraint is not None
+    assert key.constraint.name == "fk_child_parent_id_parent"
