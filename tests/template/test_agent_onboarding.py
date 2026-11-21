@@ -222,3 +222,53 @@ def test_git_default_ref_wins_over_origin_main(
     )
     assert _resolve_base("") == "origin/trunk"
     assert _resolve_base("HEAD") == "HEAD"
+
+
+@pytest.mark.parametrize("state", ["clean", "unstaged", "staged", "untracked"])
+def test_verify_reports_the_current_commit_and_actual_uncommitted_paths(
+    state: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from scripts import verify_change
+
+    _repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    tracked = tmp_path / "tracked.py"
+    tracked.write_text("value = 1\n")
+    subprocess.run(("git", "add", str(tracked)), check=True)
+    subprocess.run(
+        (
+            "git",
+            "-c",
+            "user.name=Probe",
+            "-c",
+            "user.email=probe@example.invalid",
+            "commit",
+            "-qm",
+            "tracked",
+        ),
+        check=True,
+    )
+    (tmp_path / ".git" / "info" / "exclude").write_text("coverage.xml\n")
+    (tmp_path / "coverage.xml").write_text("ignored")
+    if state in {"unstaged", "staged"}:
+        tracked.write_text("value = 2\n")
+        if state == "staged":
+            subprocess.run(("git", "add", str(tracked)), check=True)
+    if state == "untracked":
+        (tmp_path / "new.py").write_text("value = 3\n")
+
+    head = subprocess.check_output(("git", "rev-parse", "--short=12", "HEAD"), text=True).strip()
+    monkeypatch.setattr(
+        "sys.argv",
+        ["verify_change", "--base", "HEAD^", "--diff-cover", "diff-cover", "--coverage-only"],
+    )
+    monkeypatch.setattr(verify_change, "_check_routes", lambda report: 0)
+    monkeypatch.setattr(verify_change, "_coverage", lambda *args: 0)
+
+    assert verify_change.main() == 0
+    change = capsys.readouterr().out.splitlines()[0]
+    assert f"...{head};" in change
+    assert change.endswith(f"{int(state != 'clean')} uncommitted")

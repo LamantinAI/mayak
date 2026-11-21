@@ -18,6 +18,7 @@ and let each row's check tell you whether your copy already has the change. Port
 
 | since | pull requests | what the batch was |
 |---|---|---|
+| 1.2.0 | onboarding, worktree database, verification and traces | Use the checklist below to port what the service needs. |
 | 2026-11-20 | certifi lock refresh | Replace the affected certifi release before rebuilding images. |
 | 2026-10-01 | #41 | preserve PostgreSQL connection components through libpq/SQLAlchemy; strengthen the password test and correct project context |
 | 2026-10-01 | #36 (lock refresh), #40 | urllib3 security update; formatter-stable test opt-outs and complete tool-call batches in the copied LLM loop |
@@ -34,6 +35,23 @@ For an existing service, keep its identity, settings and migrations. Port the Ma
 their runner, tests and Compose changes together. Update the shared agent rules, then regenerate
 the wrappers. Start the isolated local database if the project uses one and run `make verify`.
 The [specification](specs/agent-onboarding.md) describes the behavior to preserve.
+
+## Porting the 1.2.0 changes to an existing service
+
+Use [the 1.1.0 to 1.2.0 diff](https://github.com/LamantinAI/mayak/compare/v1.1.0...v1.2.0)
+as the reference. Port changes into your service's own files and keep its identity, application
+code, environment and migration history.
+
+| Change | What to port | How to check |
+|---|---|---|
+| Project-wide verification | In `scripts/verify_change.py`, check all HTTP handlers using host coverage and report the integration base, HEAD and the count of uncommitted paths. Port the corresponding `Makefile`, CI diff base and agent rules. Bring the existing module-size check into `gate-fast`. | Start from a clean commit and run `make verify DIFF_COMPARE_BRANCH=<base>`. The summary reports zero uncommitted paths. A handler already present in the base still fails if no host HTTP test calls it. E2E reports the product test files it ran with. |
+| PostgreSQL worktree settings | Port the common reader in `project/core/config_settings_core.py` and its callers in `alembic/env.py`, `scripts/validate_migrations.py`, `Makefile` and `project/core/composition_root.py`. Preserve explicit connection settings and the service's `.env`. | After `make db-up-worktree`, run `uv run alembic current` directly on the worktree. Confirm its reported port matches the assigned port, and repeat with an explicitly selected disposable DB. |
+| SQL literals and reversible foreign keys | Copy the literal-query pattern from the PostgreSQL scaffold repository into relevant queries and port the foreign-key naming convention from `orm_models.py`. Leave old migration revisions intact. | Run `make security-scan` and `uv run alembic check`. For a newly generated foreign key, check that the downgrade names the key and test it on disposable PostgreSQL. |
+| Short trace IDs and hidden spans | Port `project/core/logging/trace_tree.py` and `trace_formatter.py`. Use the span in `docs/recipes/stateless-http.md` as a safe example for important product decisions. | Run `make format-trace ARGS="<logfile> --trace <short-id>"`. A unique prefix selects one trace. A collision asks for more characters. Hidden spans are counted when the request summary reports them. |
+| Live-only provider imports | In `project/infrastructure/agents/llm_service*.py`, keep provider imports on the live path. Update any tests that patched the former module-level SDK symbol. | Run the LLM tests. In a fresh mock-mode Python process, import and construct the service and check that `openai` and `langchain_openai` are absent from `sys.modules`. Live client construction still imports the SDK during startup. |
+
+After porting, run `make verify DIFF_COMPARE_BRANCH=<your starting commit>`. For a database service,
+also exercise at least one upgrade from an already populated disposable database.
 
 ## How to port one change
 

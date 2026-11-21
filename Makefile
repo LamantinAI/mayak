@@ -160,14 +160,15 @@ ruff-fix-unless-strict:
 		echo "$$changed" | sed 's/^/  /'; \
 	fi
 
-# While editing. The four checks that turned most full gates red, in seconds and without Docker;
+# While editing. The fast checks that turned most full gates red, in seconds and without Docker;
 # a green run finishes nothing — quality-gates, with the tests and the other validators, does.
-gate-fast: ## Validation | Format, lint, types (tests included) and layers in seconds — run it while editing
+gate-fast: ## Validation | Format, lint, types (tests included), layers and module size in seconds — run it while editing
 	@$(MAKE) --no-print-directory ruff-fix-unless-strict
 	@$(MAKE) --no-print-directory gate-format
 	@$(MAKE) --no-print-directory gate-lint
 	@$(MAKE) --no-print-directory gate-types
 	$(UV) run python scripts/validate_architecture.py
+	$(UV) run python scripts/validate_module_sizes.py
 
 # The one command that says a change is done. If the suite ever grows past ~30 s, the answer is
 # test selection from coverage data, not a hand-maintained file→test map that goes stale silently.

@@ -63,7 +63,7 @@ def _resolve_base(explicit: str) -> str | None:
     return None
 
 
-def _working_diff(base: str) -> tuple[str, set[str]]:
+def _working_diff(base: str) -> tuple[str, set[str], set[str]]:
     commit = _git("rev-parse", "--verify", "--end-of-options", f"{base}^{{commit}}").strip()
     start = _git("merge-base", "HEAD", commit).strip()
     names = ("diff", "--no-renames", "--name-only")
@@ -72,7 +72,9 @@ def _working_diff(base: str) -> tuple[str, set[str]]:
         raise ValueError(
             "index and working tree disagree on staged paths: " + ", ".join(sorted(mixed))
         )
-    return start, _paths(*names, start) | _paths("ls-files", "--others", "--exclude-standard")
+    untracked = _paths("ls-files", "--others", "--exclude-standard")
+    local = _paths(*names, "HEAD") | untracked
+    return start, _paths(*names, start) | untracked, local
 
 
 def _needs_e2e(paths: set[str]) -> bool:
@@ -188,7 +190,7 @@ def main() -> int:
         return 1
     base = _resolve_base(args.base)
     try:
-        start, paths = _working_diff(base or head)
+        start, paths, local = _working_diff(base or head)
     except (subprocess.CalledProcessError, ValueError) as error:
         reason = str(error) if isinstance(error, ValueError) else f"unusable diff base {base!r}"
         print(f"verify: BLOCKED ({reason})", file=sys.stderr)
@@ -196,14 +198,14 @@ def main() -> int:
     unknown_change = base is None and not paths
     if unknown_change:
         print(
-            "verify: change: clean tree with no integration branch; "
+            f"verify: change: HEAD {head[:12]}, clean tree with no integration branch; "
             "supply DIFF_COMPARE_BRANCH=<starting commit> to measure committed work",
             flush=True,
         )
     else:
         print(
-            f"verify: change: {base or 'working tree'} ({start[:12]})...{head[:12]} "
-            f"plus local changes; {len(paths)} changed paths",
+            f"verify: change: {base or 'working tree'} ({start[:12]})...{head[:12]}"
+            f"; {len(paths)} changed paths, {len(local)} uncommitted",
             flush=True,
         )
     report = Path("coverage.xml")

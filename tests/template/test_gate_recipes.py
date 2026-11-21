@@ -775,13 +775,14 @@ def test_a_missing_app_is_reported_as_a_failure(target: str, tmp_path: Path) -> 
 # 79–86% of full gates red, and every format or lint failure had one fix.
 class TestTheGateFixesLocallyAndFailsStrictly:
     @pytest.mark.unit
-    def test_the_fast_gate_is_the_four_checks_after_the_fix(self) -> None:
+    def test_the_fast_gate_is_the_five_checks_after_the_fix(self) -> None:
         assert _recipe("gate-fast") == [
             "$(MAKE) --no-print-directory ruff-fix-unless-strict",
             "$(MAKE) --no-print-directory gate-format",
             "$(MAKE) --no-print-directory gate-lint",
             "$(MAKE) --no-print-directory gate-types",
             "$(UV) run python scripts/validate_architecture.py",
+            "$(UV) run python scripts/validate_module_sizes.py",
         ]
 
     @pytest.mark.unit
