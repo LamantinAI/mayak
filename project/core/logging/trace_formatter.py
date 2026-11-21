@@ -142,7 +142,7 @@ def format_trace_for_llm(
 ) -> str:
     events, meta = _parse_events(lines, trace_id)
     if not events:
-        return "(no events found)"
+        return f"({meta.get('selection_error', 'no events found')})"
 
     roots, summary = _build_tree(events)
     if not roots:
@@ -225,6 +225,12 @@ def format_trace_for_llm(
     if summary:
         sdata = summary.get("data", {}) if isinstance(summary.get("data"), dict) else {}
         spans = sdata.get("child_span_count", 0)
+        filtered = sdata.get("filtered_child_span_count", 0)
+        hidden = (
+            f" (+{filtered} below the log level, not written)"
+            if isinstance(filtered, int) and filtered > 0
+            else ""
+        )
         llm_calls = sdata.get("llm_calls", 0)
         errors = sdata.get("error_count", 0)
         status = _summary_status(sdata)
@@ -232,8 +238,11 @@ def format_trace_for_llm(
         if status_code is not None:
             status = f"{status} {status_code}"
         parts.append(
-            f"request.summary: {spans} spans, {llm_calls} llm_calls, {errors} errors → {status}"
+            f"request.summary: {spans} spans{hidden}, {llm_calls} llm_calls, {errors} errors → {status}"
         )
+
+        if hidden:
+            parts.append("  Use level=logging.INFO for an important span you need in this trace.")
 
     return "\n".join(parts)
 

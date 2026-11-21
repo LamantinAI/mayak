@@ -7,8 +7,14 @@ Bootstrap with `DB=none`. For an endpoint with no service dependencies, add a ro
 # FILE: project/infrastructure/api/endpoints/preview.py
 # SUMMARY: Validate and normalize a title without storage.
 
+import logging
+
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
+
+from project.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class PreviewRequest(BaseModel):
@@ -26,9 +32,18 @@ preview_router = APIRouter()
 
 @preview_router.post("/preview")
 async def preview(body: PreviewRequest) -> PreviewResponse:
-    title = body.title.upper() if body.uppercase else body.title.lower()
-    return PreviewResponse(title=title[: body.limit])
+    with logger.span(
+        "preview.normalize",
+        level=logging.INFO,
+        input_params={"limit": body.limit, "uppercase": body.uppercase},
+    ) as span:
+        title = body.title.upper() if body.uppercase else body.title.lower()
+        span.output["truncated"] = len(title) > body.limit
+        return PreviewResponse(title=title[: body.limit])
 ```
+
+Read the request with `make format-trace ARGS="<logfile> --trace <request-id>"`.
+Keep the submitted title outside the trace.
 
 Keep wire types strict where the distinction matters. Otherwise JSON `true` can become
 an integer or `"false"` can become a boolean before domain validation.

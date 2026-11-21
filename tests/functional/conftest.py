@@ -83,10 +83,19 @@ async def http_client() -> AsyncGenerator[httpx.AsyncClient, None]:
 @pytest_asyncio.fixture(scope="function", loop_scope="function")
 async def make_post_request(http_client: httpx.AsyncClient) -> SendRequest:
     async def inner(
-        path: str, data: dict[str, Any] = {}, headers: dict[str, str] = {}
+        path: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        *,
+        json: dict[str, Any] | None = None,
     ) -> ApiResponse:
         url = test_settings.service_url + path
-        response = await http_client.post(url, json=data, headers=headers)
+        if data is not None and json is not None:
+            raise TypeError("pass either data or json")
+        payload = json if json is not None else data
+        response = await http_client.post(
+            url, json={} if payload is None else payload, headers=headers
+        )
         body = (
             response.json()
             if response.content

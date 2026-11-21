@@ -124,7 +124,7 @@ def _parse_events(
         except (json.JSONDecodeError, ValueError):
             continue
         tid = ev.get("trace_id")
-        if not tid:
+        if not isinstance(tid, str) or not tid:
             continue
 
         # Auto-detect: track the last trace that has an http_request span.start
@@ -138,6 +138,25 @@ def _parse_events(
     if auto_trace_id is None and all_events:
         # Fallback: use the last trace_id seen
         auto_trace_id = all_events[-1].get("trace_id")
+
+    if trace_id is not None:
+        trace_ids = list(dict.fromkeys(ev["trace_id"] for ev in all_events))
+        if trace_id not in trace_ids:
+            matches = [candidate for candidate in trace_ids if candidate.startswith(trace_id)]
+            if len(matches) == 1:
+                auto_trace_id = matches[0]
+            elif matches:
+                candidates = ", ".join(
+                    candidate[: max(8, len(trace_id) + 1)] for candidate in matches
+                )
+                return [], {
+                    "selection_error": f"{len(matches)} traces start with {trace_id}: "
+                    f"{candidates} — give more characters"
+                }
+            else:
+                return [], {
+                    "selection_error": f"no trace {trace_id} in this log ({len(trace_ids)} traces)"
+                }
 
     # Filter to target trace
     filtered = [ev for ev in all_events if ev.get("trace_id") == auto_trace_id]

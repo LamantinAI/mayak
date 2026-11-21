@@ -166,6 +166,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
     #   showed neither. The renderer shows this span's `input_params` inline: see
     #   trace_formatter.py's `_TOOL_SPAN_PREFIX` and the NOTE beside it.
     # Context manager for execution tracing with automatic timing, hierarchy, and request summary events.
+    # Read one request with `make format-trace ARGS="<logfile> --trace <request-id>"`.
     # root: Start a new trace root, ignoring whatever span is ambient. See below.
     @contextmanager
     def span(
