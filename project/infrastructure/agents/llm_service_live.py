@@ -1,28 +1,14 @@
 # FILE: project/infrastructure/agents/llm_service_live.py
 # SUMMARY: Live-provider mixin for LLMService covering client initialization and retryable provider calls.
 
+from __future__ import annotations
 import email.utils
 import json
 import time
 from contextlib import suppress
-from typing import Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage, SystemMessage
-from langchain_openai import ChatOpenAI
-from openai import (
-    APIConnectionError,
-    APITimeoutError,
-    BadRequestError,
-    InternalServerError,
-    OpenAIError,
-    PermissionDeniedError,
-    RateLimitError,
-    UnprocessableEntityError,
-)
-from openai import AuthenticationError as OpenAIAuthenticationError
-from openai import ConflictError as OpenAIConflictError
-from openai import NotFoundError as OpenAINotFoundError
 from tenacity import (
     AsyncRetrying,
     RetryCallState,
@@ -37,6 +23,9 @@ from project.core.config import Settings
 from project.core.logging import SemanticLogger
 from project.core.logging.redaction import redact_secrets
 from project.domain.exceptions import ExternalServiceError, UpstreamAuthenticationError
+
+if TYPE_CHECKING:
+    from langchain_core.language_models.chat_models import BaseChatModel
 
 
 # So the hot-path cost stays zero when full trace is disabled.
@@ -127,6 +116,9 @@ class LLMServiceLiveMixin:
             )
             return
 
+        # Mock boot does not need to import the provider SDK.
+        from langchain_openai import ChatOpenAI
+
         # Create ChatOpenAI instance with resolved settings.
         llm_kwargs: dict[str, Any] = {
             "model": effective_model,
@@ -159,6 +151,20 @@ class LLMServiceLiveMixin:
         self: _LLMServiceLiveContract,
         messages: list[BaseMessage],
     ) -> BaseMessage:
+        from openai import (
+            APIConnectionError,
+            APITimeoutError,
+            BadRequestError,
+            InternalServerError,
+            OpenAIError,
+            PermissionDeniedError,
+            RateLimitError,
+            UnprocessableEntityError,
+        )
+        from openai import AuthenticationError as OpenAIAuthenticationError
+        from openai import ConflictError as OpenAIConflictError
+        from openai import NotFoundError as OpenAINotFoundError
+
         # Check if the live provider is initialized.
         runnable = self._bound_llm
         if runnable is None:

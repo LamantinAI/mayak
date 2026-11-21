@@ -1,10 +1,10 @@
 # FILE: project/infrastructure/agents/llm_service.py
 # SUMMARY: Public LLM service facade composing live-provider, mock-mode, and readiness subsystems.
 
+from __future__ import annotations
 import copy
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
-from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_core.tools import InjectedToolArg
 from langchain_core.utils.function_calling import convert_to_openai_tool
@@ -17,6 +17,9 @@ from project.infrastructure.agents.llm_service_mock import LLMServiceMockMixin
 from project.infrastructure.agents.llm_service_readiness import (
     LLMServiceReadinessMixin,
 )
+
+if TYPE_CHECKING:
+    from langchain_core.language_models.chat_models import BaseChatModel
 
 
 class SupportsAsyncInvoke(Protocol):
