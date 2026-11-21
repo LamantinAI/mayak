@@ -39,8 +39,13 @@ class ScriptedLLMExhausted(RuntimeError):
     pass
 
 
+ScriptedReply = str | ScriptedToolCall | AIMessage
+
+
 # position: 1-based call number, used only for a default tool-call id.
-def _as_message(reply: str | ScriptedToolCall, position: int) -> BaseMessage:
+def _as_message(reply: ScriptedReply, position: int) -> BaseMessage:
+    if isinstance(reply, AIMessage):
+        return reply.model_copy(deep=True)
     if isinstance(reply, ScriptedToolCall):
         return AIMessage(
             content="",
@@ -63,8 +68,8 @@ def _as_message(reply: str | ScriptedToolCall, position: int) -> BaseMessage:
 class ScriptedLLMService:
     # Nothing is read from it until the first call.
     # script: Replies, one per call, in order.
-    def __init__(self, script: Sequence[str | ScriptedToolCall]) -> None:
-        self._script: list[str | ScriptedToolCall] = list(script)
+    def __init__(self, script: Sequence[ScriptedReply]) -> None:
+        self._script: list[ScriptedReply] = list(script)
         self._position = 0
 
         # Every message list this was called with, in order — so a test can assert what

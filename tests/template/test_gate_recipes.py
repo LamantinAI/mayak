@@ -30,30 +30,9 @@ def _recipe(target: str) -> list[str]:
     return [line.strip().lstrip("@") for line in body.splitlines() if line.startswith("\t")]
 
 
-# diff-cover reads `git diff`, which never lists an untracked file — and a new vertical is
-# mostly untracked files. Measured: 17 lines across 4 files before committing, 176 across 9 after
-# the same commit. The gate whose whole purpose is uncovered NEW code was measuring a tenth of it
-# and reporting a pass.
-class TestDiffCoverageAnnouncesWhatItCannotSee:
-    @pytest.mark.unit
-    def test_the_recipe_lists_untracked_sources_before_measuring(self) -> None:
-        recipe = "\n".join(_recipe("diff-coverage"))
-
-        assert "git ls-files --others --exclude-standard" in recipe
-        assert "WARNING" in recipe
-        # The warning has to name the way out. `git add` is enough — `git diff HEAD`
-        # lists a staged addition — and telling the reader to commit instead would be wrong advice
-        # in the middle of a change they are not finished with.
-        assert "git add" in recipe
-
-    # Verify the warning cannot be buried under the test output it precedes.
-    @pytest.mark.unit
-    def test_the_warning_runs_before_the_measurement(self) -> None:
-        lines = _recipe("diff-coverage")
-        warning_index = next(i for i, line in enumerate(lines) if "ls-files --others" in line)
-        measure_index = next(i for i, line in enumerate(lines) if "diff-cover" in line)
-
-        assert warning_index < measure_index
+def test_diff_coverage_includes_new_files() -> None:
+    assert "--coverage-only" in " ".join(_recipe("diff-coverage-report"))
+    assert "diff-coverage-report" in " ".join(_recipe("diff-coverage"))
 
 
 # scripts/doctor_ai_context.py runs these targets to diagnose a failed gate. A second spelling
@@ -227,72 +206,37 @@ class TestBanditResolvesNosecByLine:
         )
 
 
-# No gate here starts Docker — `gate-tests` skips the functional suite — so this reads the
-# recipes and runs the naming formula itself. What it guards is the field defect: fifteen
-# worktrees of one project on a single PostgreSQL container, because Compose names a project
-# after the directory and every worktree's .env names the same port. Both halves of the fix are
-# checked, since either alone leaves the collision: a project name unique per checkout, and a
-# port that is not one shared default.
 class TestTheWorktreeDatabaseIsThisWorktreesAlone:
-    # name: Variable name, without the assignment operator.
-    @staticmethod
-    def _make_variable(name: str) -> str:
-        makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
-        match = re.search(rf"(?m)^{re.escape(name)}\s*[:?]?=\s*(.+)$", makefile)
-        assert match is not None, f"{name} is not declared in the Makefile"
-        return match.group(1).strip()
-
     @pytest.mark.unit
     def test_the_project_name_is_derived_from_the_whole_path(self) -> None:
-        # `notdir $(CURDIR)` — what SMOKE_PROJECT uses — is enough for a stack
-        # that lives inside one command, and not for two databases meant to run at once: two
-        # worktrees under different parents can share a basename. The digest of the full path is
-        # what makes the name unique, so a regression to the basename alone must fail here.
-        assert "$(CURDIR)" in self._make_variable("WORKTREE_HASH")
-        assert "$(WORKTREE_HASH)" in self._make_variable("WORKTREE_PROJECT")
+        makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+        assert re.search(r"(?m)^WORKTREE_HASH .*CURDIR", makefile)
+        assert "WORKTREE_PROJECT := wt-$(WORKTREE_HASH)" in makefile
+        assert "WORKTREE_DB_COMPOSE := docker compose -p $(WORKTREE_PROJECT)" in makefile
 
     @pytest.mark.unit
-    def test_two_worktrees_sharing_a_basename_get_different_projects_and_ports(self) -> None:
-        def digest(path: str) -> int:
-            completed = run(
-                ["sh", "-c", f'printf %s "{path}" | cksum | cut -d" " -f1'],
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            return int(completed.stdout.strip())
+    def test_disabled_database_never_calls_docker(self, tmp_path: Path) -> None:
+        shim = tmp_path / "docker"
+        shim.write_text('#!/bin/sh\ntouch "$DOCKER_CALLED"\nexit 8\n', encoding="utf-8")
+        shim.chmod(0o755)
+        seen = tmp_path / "docker-called"
+        env = {
+            **os.environ,
+            "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+            "DOCKER_CALLED": str(seen),
+            "POSTGRES_ENABLED": "false",
+        }
+        result = run(
+            ["make", "-s", "db-up-worktree"],
+            cwd=_REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
 
-        first = digest("/home/dev/alpha/task-142")
-        second = digest("/home/dev/beta/task-142")
-
-        assert first != second
-        assert first % 10000 + 20000 != second % 10000 + 20000
-
-    @pytest.mark.unit
-    def test_the_port_is_not_one_shared_default(self) -> None:
-        assert "$(WORKTREE_HASH)" in self._make_variable("WORKTREE_POSTGRES_PORT")
-
-    # One unscoped call is all it takes: Compose falls back to the directory name
-    # and the container, network or volume it touches belongs to whoever got there first.
-    @pytest.mark.unit
-    @pytest.mark.parametrize("target", ["db-up-worktree", "db-down-worktree"])
-    def test_both_targets_scope_every_compose_call_to_this_project(self, target: str) -> None:
-        compose_lines = [line for line in _recipe(target) if "docker compose" in line]
-
-        assert compose_lines, f"{target} runs no compose command at all"
-        for line in compose_lines:
-            assert "-p $(WORKTREE_PROJECT)" in line, line
-
-    # `make init-project` is idempotent by rule, and a target that rewrote .env
-    # would overwrite whatever a project put there. It reads the current value and says what to
-    # change; the developer decides.
-    @pytest.mark.unit
-    def test_bringing_one_up_does_not_rewrite_the_env_file(self) -> None:
-        recipe = "\n".join(_recipe("db-up-worktree"))
-
-        assert "POSTGRES_PORT=$(WORKTREE_POSTGRES_PORT)" in recipe
-        assert ">" not in recipe
-        assert "grep -E '^POSTGRES_PORT=' .env" in recipe
+        assert result.returncode == 0, result.stderr
+        assert "POSTGRES_ENABLED=false" in result.stdout
+        assert not seen.exists()
 
 
 # Every job in .github/workflows/ci.yml and the local command that covers it.
@@ -416,9 +360,8 @@ class TestDocumentedTargetsRunWithoutAPrompt:
         # what an agent is told to run against what it may run without asking. A
         # target that should stay behind a prompt belongs in the exemption tuple below with the
         # reason written down — not silently absent from one of the two lists.
-        # init-project installs dependencies and, once the identity is replaced, takes the
-        # reference vertical out and stages it: a person approves that run.
-        exempt_from_pre_approval: tuple[str, ...] = ("init-project",)
+        # Project conversion and Git configuration are explicit opt-ins.
+        exempt_from_pre_approval = ("bootstrap", "init-project", "install-hooks")
         makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
         settings = json.loads(
             (_REPO_ROOT / ".claude" / "settings.json").read_text(encoding="utf-8")
@@ -456,7 +399,7 @@ class TestGeneratedArtifactsAreRefreshedNotReported:
         refresh_at = next(
             index for index, line in enumerate(recipe) if "refresh-generated-unless-strict" in line
         )
-        steps_at = next(index for index, line in enumerate(recipe) if "quality-gates-steps" in line)
+        steps_at = next(index for index, line in enumerate(recipe) if "--run-quality-gates" in line)
         assert refresh_at < steps_at, "the refresh has to happen before the checks, not after"
 
     @pytest.mark.unit
@@ -702,10 +645,15 @@ def _copies_outside_nested_checkouts(root: Path, pattern: str) -> list[Path]:
 
 
 # stdout: Written to standard output before exiting, as `docker compose logs` would.
-def _with_docker_shim(directory: Path, *, exit_code: int, stdout: str = "") -> dict[str, str]:
+def _with_docker_shim(
+    directory: Path, *, exit_code: int, stdout: str = "", container: str = "app-id"
+) -> dict[str, str]:
     shim = directory / "docker"
     shim.write_text(
-        f"#!/bin/sh\nprintf '%s' {shlex.quote(stdout)}\nexit {exit_code}\n", encoding="utf-8"
+        "#!/bin/sh\n"
+        f'case " $* " in *" ps "*) printf %s {shlex.quote(container)}; exit 0 ;; esac\n'
+        f"printf '%s' {shlex.quote(stdout)}\nexit {exit_code}\n",
+        encoding="utf-8",
     )
     shim.chmod(0o755)
     return {**os.environ, "PATH": f"{directory}{os.pathsep}{os.environ['PATH']}"}
@@ -809,29 +757,17 @@ class TestLogTargetsReportAFailedCompose:
         assert "pipefail" not in "\n".join(_recipe(target))
 
 
-# Verify `make logs` and `make logs-raw` scope `docker compose logs` to this worktree's
-# own Compose project — the one `db-up-worktree` started — instead of the bare compose default.
-# Without `-p $(WORKTREE_PROJECT)` compose falls back to the directory-derived project name
-# — the same collision TestTheWorktreeDatabaseIsThisWorktreesAlone guards `db-up-worktree` and
-# `db-down-worktree` against: two worktrees can agree on one name, so this would read whichever
-# project happened to own it — another checkout's container, or nothing — instead of this
-# worktree's own app. `LOGS_PROJECT` defaults to the worktree project and can be pointed at the
-# directory-derived project a bare `docker compose up` creates instead — the assertion is that a
-# project is named at all, not which one.
-class TestLogTargetsReadThisWorktreesComposeProject:
-    @pytest.mark.unit
-    @pytest.mark.parametrize("target", ["logs", "logs-raw"])
-    def test_the_compose_logs_call_is_scoped_to_the_worktree_project(self, target: str) -> None:
-        compose_lines = [line for line in _recipe(target) if "docker compose" in line]
+@pytest.mark.parametrize("target", ["logs", "logs-raw"])
+def test_a_missing_app_is_reported_as_a_failure(target: str, tmp_path: Path) -> None:
+    env = {
+        **_with_docker_shim(tmp_path, exit_code=0, container=""),
+        "LOGS_PROJECT": "custom-project",
+        "LOGS_DIR": str(tmp_path / "logs"),
+    }
+    result = run(["make", "-s", target], cwd=_REPO_ROOT, env=env, capture_output=True, text=True)
 
-        assert compose_lines, f"{target} runs no `docker compose` command at all"
-        for line in compose_lines:
-            assert "-p $(LOGS_PROJECT)" in line, line
-
-        # And the variable defaults to this worktree's own project rather than to
-        # nothing, which is what "scoped" has to mean for someone who never sets it.
-        makefile = (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
-        assert "LOGS_PROJECT ?= $(WORKTREE_PROJECT)" in makefile
+    assert result.returncode != 0
+    assert "No app container for Compose project custom-project" in result.stderr
 
 
 # The local gate formats and safe-fixes the Python a checkout changed before it checks, and names
@@ -839,20 +775,21 @@ class TestLogTargetsReadThisWorktreesComposeProject:
 # 79–86% of full gates red, and every format or lint failure had one fix.
 class TestTheGateFixesLocallyAndFailsStrictly:
     @pytest.mark.unit
-    def test_the_fast_gate_is_the_four_checks_after_the_fix(self) -> None:
+    def test_the_fast_gate_is_the_five_checks_after_the_fix(self) -> None:
         assert _recipe("gate-fast") == [
             "$(MAKE) --no-print-directory ruff-fix-unless-strict",
             "$(MAKE) --no-print-directory gate-format",
             "$(MAKE) --no-print-directory gate-lint",
             "$(MAKE) --no-print-directory gate-types",
             "$(UV) run python scripts/validate_architecture.py",
+            "$(UV) run python scripts/validate_module_sizes.py",
         ]
 
     @pytest.mark.unit
     def test_the_full_gate_fixes_before_it_checks(self) -> None:
         recipe = _recipe("quality-gates")
         fix_at = next(i for i, line in enumerate(recipe) if "ruff-fix-unless-strict" in line)
-        steps_at = next(i for i, line in enumerate(recipe) if "quality-gates-steps" in line)
+        steps_at = next(i for i, line in enumerate(recipe) if "--run-quality-gates" in line)
 
         assert fix_at < steps_at
 

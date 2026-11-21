@@ -1,9 +1,11 @@
 # FILE: tests/functional/conftest.py
 # SUMMARY: Pytest fixtures for functional E2E tests providing database connections, HTTP clients, and request helpers.
 
+import os
 from typing import Any, AsyncGenerator
 
 import httpx
+import pytest
 import pytest_asyncio
 from psycopg import AsyncConnection
 from psycopg.rows import TupleRow
@@ -46,7 +48,15 @@ async def _truncate_application_tables(connection: AsyncConnection[TupleRow]) ->
         await connection.execute(f"TRUNCATE TABLE {table} CASCADE;")
 
 
-@pytest_asyncio.fixture(scope="function", loop_scope="session", autouse=True)
+@pytest.fixture(autouse=True)
+def enable_database_cleanup(request: pytest.FixtureRequest) -> None:
+    # A stateless image has no database container. Select the async fixture from the
+    # synchronous setup phase so pytest can initialize its session loop before the test.
+    if os.environ.get("POSTGRES_ENABLED") != "false":
+        request.getfixturevalue("clean_database")
+
+
+@pytest_asyncio.fixture(scope="function", loop_scope="session")
 async def clean_database(
     postgres_connection: AsyncConnection[TupleRow],
 ) -> AsyncGenerator[None, None]:
@@ -73,10 +83,19 @@ async def http_client() -> AsyncGenerator[httpx.AsyncClient, None]:
 @pytest_asyncio.fixture(scope="function", loop_scope="function")
 async def make_post_request(http_client: httpx.AsyncClient) -> SendRequest:
     async def inner(
-        path: str, data: dict[str, Any] = {}, headers: dict[str, str] = {}
+        path: str,
+        data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        *,
+        json: dict[str, Any] | None = None,
     ) -> ApiResponse:
         url = test_settings.service_url + path
-        response = await http_client.post(url, json=data, headers=headers)
+        if data is not None and json is not None:
+            raise TypeError("pass either data or json")
+        payload = json if json is not None else data
+        response = await http_client.post(
+            url, json={} if payload is None else payload, headers=headers
+        )
         body = (
             response.json()
             if response.content

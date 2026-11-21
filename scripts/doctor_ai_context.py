@@ -393,7 +393,11 @@ def _first_meaningful_line(output: str, fallback: str) -> str:
         if (stripped := line.strip())
         and not stripped.startswith("make[")
         and not stripped.startswith("make:")
+        and not re.search(r"\b\w+Warning:", stripped)
     ]
+    for candidate in candidates:
+        if candidate.startswith(("ERROR ", "FAILED ")) and " - " in candidate:
+            return candidate
     for candidate in candidates:
         if _DIAGNOSTIC_LINE.match(candidate):
             return candidate
@@ -427,7 +431,27 @@ def diagnose_tool_layer(layer: ToolLayer) -> dict[str, object] | None:
     )
     if completed.returncode == 0:
         return None
+    return _tool_failure(layer, completed.stdout + completed.stderr, completed.returncode)
+
+
+def _tool_failure(layer: ToolLayer, output: str, status: int) -> dict[str, object]:
     playbook = get_doctor_layer_playbook(layer.rule_id) or {}
+    message = _first_meaningful_line(output, f"make {layer.make_target} exited with {status}")
+    fix = playbook.get("likely_fix_shape")
+    if layer == TESTS_LAYER:
+        for line in output.splitlines():
+            if "The db tier could not start its PostgreSQL" in line:
+                message = line.strip()
+                fix = (
+                    "Start Docker with its Compose plugin, or set TEST_DATABASE_URL to a "
+                    "disposable PostgreSQL test database. Use POSTGRES_ENABLED=false for "
+                    "a service without a database."
+                )
+                break
+            if "The db tier cannot reach PostgreSQL" in line:
+                message = line.strip()
+                fix = "Check TEST_DATABASE_URL against the disposable test database."
+                break
     return {
         "status": "error",
         "blocking_layer": layer.name,
@@ -438,16 +462,13 @@ def diagnose_tool_layer(layer: ToolLayer) -> dict[str, object] | None:
                 "category": "gate",
                 "file": layer.file,
                 "line": 1,
-                "message": _first_meaningful_line(
-                    completed.stdout + completed.stderr,
-                    f"make {layer.make_target} exited with {completed.returncode}",
-                ),
+                "message": message,
                 "recommended_next_command": str(
                     playbook.get("smallest_command_to_rerun", f"make {layer.make_target}")
                 ),
                 # The recommended command for a gate layer is the gate itself — the one that just
                 # failed. What actually moves the diff forward lives in likely_fix_shape.
-                "likely_fix_shape": playbook.get("likely_fix_shape"),
+                "likely_fix_shape": fix,
                 "stop_widening_condition": str(playbook.get("stop_widening_condition", "")),
             }
         ],
@@ -876,6 +897,40 @@ def _print_rule(rule_id: str, as_json: bool) -> int:
     return 0
 
 
+def run_quality_gates() -> int:
+    """Stream each step and diagnose the failed output without rerunning it."""
+    steps = {layer.make_target: layer for layer in (*TOOL_LAYERS, SECURITY_LAYER, TESTS_LAYER)}
+    step = "quality-gates-steps"
+    lines: list[str] = []
+    with subprocess.Popen(
+        ("make", "--no-print-directory", "quality-gates-steps"),
+        cwd=ROOT_DIR,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    ) as process:
+        assert process.stdout is not None
+        for line in process.stdout:
+            print(line, end="", flush=True)
+            if line.startswith("[mayak-gate] "):
+                step = line.removeprefix("[mayak-gate] ").strip()
+                lines.clear()
+            else:
+                lines.append(line)
+        status = process.wait()
+    if status:
+        print(f"quality-gates: FAIL ({step})")
+        layer = steps.get(step)
+        if layer is not None:
+            issue = _tool_failure(layer, "".join(lines), status)["issues"]
+            assert isinstance(issue, list) and issue and isinstance(issue[0], dict)
+            print(f"message: {issue[0]['message']}")
+            if issue[0]["likely_fix_shape"]:
+                print(f"fix: {issue[0]['likely_fix_shape']}")
+            print(f"next: {issue[0]['recommended_next_command']}")
+    return status
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Diagnose the first blocking quality-gates layer without mutating the repository."
@@ -884,7 +939,10 @@ def main() -> int:
     parser.add_argument(
         "--rule", metavar="RULE_ID", help="Print the playbook for one rule_id; run no gate."
     )
+    parser.add_argument("--run-quality-gates", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.run_quality_gates:
+        return run_quality_gates()
     if args.rule:
         return _print_rule(args.rule, args.json)
 

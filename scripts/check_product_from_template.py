@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 # FILE: check_product_from_template.py
 # SUMMARY: Build a throwaway project from this checkout the way a new service is made, and check it.
-# Copies the tracked files into a temporary directory, replaces the template's identity where the
-# gates look for it, runs scripts/extract_reference_vertical.py as `make init-project` would, and
-# counts what a project inherits: non-empty lines of Python, the scaffold included — renaming a file
-# would not make a clone smaller. With --gates it runs `make quality-gates` there, with --e2e
-# `make test-e2e` too; that is what proves a project made today starts green. Template CI runs it
-# on every pull request; a project has no use for it, so extraction removes it.
-#
-#   uv run python scripts/check_product_from_template.py                 # extract and count
-#   uv run python scripts/check_product_from_template.py --gates --e2e   # what CI runs
+# Copies the checkout into a fresh Git repository, runs the documented bootstrap, and counts the
+# inherited Python. With --gates and --e2e it also verifies the resulting product. Template CI
+# exercises both database profiles. A descendant has no use for this script, so extraction removes it.
 
 from __future__ import annotations
 
@@ -127,6 +121,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--e2e", action="store_true", help="run make test-e2e in the project")
     parser.add_argument("--limit", type=int, default=DEFAULT_LINE_LIMIT)
+    parser.add_argument("--db", choices=("postgres", "none"), default="none")
     parser.add_argument("--keep", action="store_true", help="leave the project directory behind")
     args = parser.parse_args([] if argv is None else argv)
 
@@ -136,19 +131,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         copy_checkout(ROOT_DIR, project)
         before = count_python_lines(project)
-        replace_identity(project)
-        extraction = subprocess.run(
-            [sys.executable, "scripts/extract_reference_vertical.py"],
-            cwd=project,
-            env=hermetic_env(),
-            capture_output=True,
-            text=True,
+        env = {
+            k: v
+            for k, v in hermetic_env().items()
+            if k not in {"VIRTUAL_ENV", "TEST_DATABASE_URL"} and not k.startswith("POSTGRES_")
+        }
+        env |= {"STRICT_RUFF": "1", "STRICT_GENERATED": "1"}
+        _run(
+            ["make", "bootstrap", f"NAME={PROBE_NAME}", f"DOMAIN={PROBE_DOMAIN}", f"DB={args.db}"],
+            project,
+            env,
         )
-        print(extraction.stdout.strip())
-        if extraction.returncode != 0 or "taken out" not in extraction.stdout:
-            print(extraction.stderr.strip())
-            print("FAIL: the reference vertical was not taken out")
-            return 1
         leftovers = subprocess.run(
             [
                 "git",
@@ -174,27 +167,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"FAIL: a project made from this template carries {after} lines, over {args.limit}"
             )
             return 1
-        if args.gates or args.e2e:
-            # STRICT_RUFF: the extraction's own output has to pass unfixed — a local gate would
-            # quietly format what it left behind and prove nothing about it.
-            env = {k: v for k, v in hermetic_env().items() if k != "VIRTUAL_ENV"}
-            env["STRICT_RUFF"] = "1"
-            _run(["uv", "sync", "--frozen"], project, env)
-            shutil.copy(project / ".env.sample", project / ".env")
-            if args.gates:
-                _run(["make", "quality-gates"], project, env)
-                print("make quality-gates: green in the project")
-            if args.e2e:
-                _run(["make", "test-e2e"], project, env)
-                print("make test-e2e: green in the project")
+        if args.gates:
+            _run(["make", "quality-gates"], project, env)
+            print(f"make quality-gates: PASS on DB={args.db}")
+        if args.e2e:
+            _run(["make", "test-e2e"], project, env)
+            print(f"make test-e2e: PASS on DB={args.db}")
         return 0
     finally:
         if args.keep:
             print(f"project left at {project}")
         else:
-            subprocess.run(
-                ["make", "test-db-down"], cwd=project, env=hermetic_env(), capture_output=True
-            )
+            if args.db == "postgres":
+                for target in ("test-db-down", "db-down-worktree"):
+                    subprocess.run(
+                        ["make", target], cwd=project, env=hermetic_env(), capture_output=True
+                    )
             shutil.rmtree(workspace, ignore_errors=True)
 
 

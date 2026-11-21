@@ -18,14 +18,14 @@ fi
 # origin, a placeholder password — had already migrated the database it shares (round-4 finding
 # R7). Settings only: no application is built.
 echo "Checking the configuration..."
-if ! python -c "from project.core.config import get_settings; get_settings().validate_runtime()"; then
+if ! postgres_enabled=$(python -c "from project.core.config import get_settings; settings = get_settings(); settings.validate_runtime(); print(str(settings.postgres.enabled).lower())"); then
     echo "ERROR: the configuration was refused (the reason is above); nothing was migrated."
     exit 1
 fi
 
 # A project that declared POSTGRES_ENABLED=false has no relational store, so there is nothing
 # to migrate. Without this branch the container exits 1 before the application is ever reached.
-if [ "${POSTGRES_ENABLED:-true}" = "false" ]; then
+if [ "$postgres_enabled" = "false" ]; then
     echo "POSTGRES_ENABLED=false — skipping database migrations."
 else
     echo "Running database migrations..."

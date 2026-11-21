@@ -49,13 +49,8 @@ def _extract_status_code(output: LogPayload) -> Optional[int]:
     return raw if isinstance(raw, int) else None
 
 
-# This exists because a boolean `success` lied. Starlette turns every handled exception into a
-# Response inside ExceptionMiddleware, which sits *below* the logging middleware, so the span never
-# sees the exception and reported success for 404, 409, 422 and — the case that mattered — 502 from a
-# failing upstream. Only unhandled exceptions reached the except branch. Classifying by status code
-# instead of by "did an exception escape" is what makes `server_error` mean what a reader assumes.
-# Spans with no status code (startup, background work) stay OK: absence of an HTTP result is not a
-# failure, and an outcome of SERVER_ERROR there would be the same lie in the other direction.
+# Starlette handles exceptions below the logging middleware. Classify HTTP outcomes by
+# status because handled 4xx and 502 never escape the span. Non-HTTP spans have no status.
 def classify_request_outcome(status_code: Optional[int]) -> RequestOutcome:
     # Treat a missing status as a non-HTTP span, which never fails on its own.
     if status_code is None or status_code < 400:
@@ -166,6 +161,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
     #   showed neither. The renderer shows this span's `input_params` inline: see
     #   trace_formatter.py's `_TOOL_SPAN_PREFIX` and the NOTE beside it.
     # Context manager for execution tracing with automatic timing, hierarchy, and request summary events.
+    # Read one request with `make format-trace ARGS="<logfile> --trace <request-id>"`.
     # root: Start a new trace root, ignoring whatever span is ambient. See below.
     @contextmanager
     def span(
@@ -178,38 +174,16 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
         **metadata: LogValue,
     ) -> Generator[SpanContext, None, None]:
         parent_span_id, _ = get_current_span()
-        # `root=True` says "this span begins a trace" rather than "this span happens
-        # to have no parent". The distinction is load-bearing. The launcher opens
-        # `application_lifecycle` around the whole of `uvicorn.run`, and asyncio copies that context
-        # into every request task, so `http_request` inherited a parent and was never root — which
-        # silently turned off three things at once: request.summary was not emitted for any request
-        # (it fires for root spans only), the span dropped to DEBUG and vanished from a production
-        # log at INFO, and every concurrent request mutated one process-wide counter dict instead of
-        # its own. Measured on a live container: seven requests, zero summaries, and a final
-        # `duration_ms` equal to process uptime. Declaring root-ness at the call site fixes all
-        # three, and unlike uvicorn's `reset_contextvars` flag it also holds under ASGITransport,
-        # under any other ASGI server, and in tests.
+        # Request tasks inherit the launcher's lifecycle span. An explicit root gives each request
+        # INFO lifecycle events, a summary and its own counters across ASGI servers and tests.
         if root:
             parent_span_id = None
         is_root_span = parent_span_id is None
         span_level = (
             level if level is not None else (logging.INFO if is_root_span else logging.DEBUG)
         )
-        # Decide once whether the start/finish pair will survive the level filter,
-        # and skip building it when it will not. A child span logs at DEBUG, so in production — where
-        # the level sits at INFO — both events were assembled in full and then dropped by `logging`.
-        # Measured on this machine: a child span cost 7918 ns, of which 3668 ns was the two discarded
-        # `log_event` calls and 948 ns the stack walk feeding them. That is what made wrapping every
-        # repository method in a span too expensive to prescribe. Stats, timing, context and the
-        # error branch stay outside the guard: `error_count` and the ERROR-level `span.error` event
-        # are read by the root span's summary, which production does emit.
-        #
-        # `child_span_count` is counted below rather than up front, where each branch knows whether
-        # it wrote anything, and what the filter swallowed is reported separately rather than
-        # folded in — counting a filtered child the same as a real one would make the summary say
-        # things the log cannot show, such as `spans=3` over a tree with no children in it, with no
-        # way to tell a suppressed span from a miscount. "Nothing happened" and "something happened
-        # at a level you are not reading" are different answers.
+        # Avoid building a filtered DEBUG start/finish pair. Keep context, timing and errors because
+        # a root's summary still counts visible spans, filtered spans and errors separately.
         emit_lifecycle = self.isEnabledFor(span_level)
         _caller = self._resolve_caller() if emit_lifecycle else None
         start_ns = time.perf_counter_ns()
@@ -248,12 +222,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
             ctx.error_id = error_id
             error_id_token = set_current_error_id(error_id)
             rejection = is_client_rejection(error)
-            # A routine 409 is not an error in the count either. Levels alone were
-            # fixed first and the counter was left behind, so `request.summary` still reported
-            # error_count=1 and `make format-trace` still printed `errors=1` for a request the
-            # same trace calls a client_error — the healthy service reading as a failing one,
-            # one field further down. The span.error record survives at WARNING with
-            # client_rejection=True; what stops is calling it a failure twice.
+            # A rejection is handled traffic. Emit it at WARNING without raising the error count.
             if not rejection:
                 increment_span_stat("error_count")
             if not is_root_span:
@@ -262,25 +231,12 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                 increment_span_stat("child_span_count")
 
             already_logged = getattr(error, "_logged_with_traceback", False)
-            # A span whose lifecycle events were filtered out never paid for the
-            # stack walk, so resolve the caller here. `_resolve_caller` skips both the logging
-            # package and contextlib, and @contextmanager re-enters this frame through
-            # contextlib.__exit__ — so it lands on the same external frame it would have at entry.
-            # tests/application/test_logging_api.py pins that.
+            # Resolve the same external caller lazily when start and finish events were filtered.
             if _caller is None:
                 _caller = self._resolve_caller()
 
-            # A ConflictError raised by a repository span, a NotFoundError from an
-            # application-layer span checking a precondition — these are the application working
-            # as designed, not a real failure, so they log at WARNING with no traceback.
-            # exception_handlers.py answers the identical exception 409/404/422/401 a moment
-            # later, also at WARNING with none, because it IS this application working, not
-            # failing; judging both records the same way keeps them from disagreeing, which would
-            # otherwise make the ERROR-level, traceback-carrying record read as the incident.
-            # is_client_rejection is the function exception_handlers.py itself asks a moment
-            # later, kept beside the exception hierarchy in project.domain.exceptions so this call
-            # site and that one cannot drift apart — TestBothCallSitesJudgeAlike pins that they
-            # answer alike.
+            # Share rejection classification with the HTTP handler so a routine 4xx stays at WARNING
+            # and carries a safe field description instead of a traceback.
             event_level = logging.WARNING if rejection else logging.ERROR
             write_traceback = not rejection and not already_logged
             self.log_event(
@@ -299,10 +255,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                 # A rejection's text is the client's to read, not the log's — ADR-013.
                 error_message=describe_rejection(error) if rejection else str(error),
                 exception_type=type(error).__name__,
-                # An explicit field rather than leaving trace_formatter.py to infer
-                # this from the level alone — WARNING already means "an interruption" there
-                # (_emit_interrupted_span), and reusing that mark for a routine domain rejection
-                # would have rendered a 409 with the "cut short" symbol a cancelled request gets.
+                # WARNING also carries interruptions. The explicit marker keeps their trace symbols distinct.
                 client_rejection=rejection,
             )
 
@@ -321,21 +274,9 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                 )
             raise
         except BaseException as interruption:
-            # asyncio.CancelledError, KeyboardInterrupt and SystemExit are not
-            # Exceptions, so the branch above never sees them, and without this branch neither
-            # would the log. A request cancelled by uvicorn's graceful-shutdown timeout (30 s, set
-            # in project/launcher/main.py) would emit span.start and nothing else: no span.error,
-            # no span.finish, no request.summary. The trace tree is built from finish and error
-            # events alone, so the request would be missing from it entirely. Measured with a fake
-            # log_event: ['span.start'] against ['span.start', 'span.error', 'request.summary']
-            # for a RuntimeError in the same harness.
+            # Interruptions bypass Exception and need their own end event and root summary.
             duration_ms = (time.perf_counter_ns() - start_ns) / 1e6
-            # An Exception raised while logging must not replace the
-            # interruption. A handler already closing at shutdown would otherwise turn a
-            # CancelledError into its own error through __context__, and uvicorn would see a
-            # failed task instead of a cancelled one. The log line is the one that gets dropped.
-            # A second BaseException from inside the logger — a second Ctrl-C landing exactly
-            # here — is not caught, and does replace the first; that one is the newer signal.
+            # Preserve the interruption when logging fails during shutdown. A newer signal still escapes.
             with contextlib.suppress(Exception):
                 self._emit_interrupted_span(
                     name=name,
@@ -371,12 +312,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                 if not is_root_span:
                     increment_span_stat("child_span_count")
             elif not is_root_span:
-                # Counted here rather than at open, so that each span is counted
-                # exactly once and in one counter. Counting the filter at open was speculative: a
-                # filtered span that then raised or was cancelled had its span.error written
-                # anyway — those are emitted whatever the span's own level — and was counted a
-                # second time in the error branch, so one span reported `spans=1, filtered=1` and
-                # a reader saw two.
+                # Count a filtered span only at completion. An error or cancellation still writes an event.
                 increment_span_stat("filtered_child_span_count")
 
             if is_root_span:
@@ -396,11 +332,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
                 reset_span_stats(stats_token)
             reset_span(span_token, name_token)
 
-    # Write the span.error and, for a root span, the request.summary that an interruption
-    # would otherwise skip.
-    # interruption: Named in the event, never traced.
-    # _caller: Resolved at span entry when lifecycle events were
-    # enabled, and here otherwise — the same lazy rule as the Exception branch.
+    # End interrupted spans with an error event and, for a root, its request summary.
     def _emit_interrupted_span(
         self,
         *,
@@ -415,10 +347,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
     ) -> None:
         if _caller is None:
             _caller = self._resolve_caller()
-        # The same event_id as a failure, so the trace tree — which reads
-        # span.finish and span.error and nothing else — shows the span with its exception type.
-        # At WARNING and without a traceback: a CancelledError's frames say nothing a reader can
-        # act on, and the ERROR level is reserved for the application's own failures.
+        # Keep interrupted spans in the tree at WARNING. The traceback adds no useful failure site.
         self.log_event(
             EventType.ISSUE_WARNING,
             f"Span interrupted: {name} ({type(interruption).__name__})",
@@ -462,10 +391,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
         # Collect span stats and build summary payload.
         stats = get_span_stats() or {}
         child_span_count = stats.get("child_span_count", 0)
-        # What the level filter swallowed is reported next to what it kept, never
-        # folded into it. `spans=` now counts what a reader can actually find in the tree, and
-        # `filtered=` tells them the rest happened at a level they are not reading — a
-        # different fact from "nothing else happened".
+        # Count spans the reader can find separately from spans that were filtered.
         filtered_child_span_count = stats.get("filtered_child_span_count", 0)
         error_count = stats.get("error_count", 0)
 
@@ -487,11 +413,7 @@ class SemanticLogger(SemanticLoggerEventsMixin, logging.LoggerAdapter):
         )
 
         payload: LogPayload = {
-            # The span's name belongs in the payload, not only inside the prose of
-            # `msg`. Until requests emitted their own summaries there was exactly one of these per
-            # process and the question never came up; now a log holds one per request plus the
-            # lifecycle one, and a reader filtering `event_id == "request.summary"` has to be able
-            # to tell them apart without parsing a sentence.
+            # A log contains request and lifecycle summaries. Name the span in machine-readable data.
             "span_name": name,
             "root_span_id": root_span_id,
             "duration_ms": round(duration_ms, 3),

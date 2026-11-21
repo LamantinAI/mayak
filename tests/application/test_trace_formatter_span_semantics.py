@@ -410,3 +410,25 @@ class TestATruncatedLLMCallIsVisibleInline:
 
         assert "✓" in llm_line
         assert "finish_reason" not in llm_line
+
+
+@pytest.mark.unit
+def test_short_trace_id_resolves_only_a_unique_trace_and_shows_filtered_spans() -> None:
+    lines = [
+        _http_root_start(),
+        _http_root_finish(),
+        _line(
+            trace_id=_TRACE_ID,
+            event_id="request.summary",
+            data={"status_code": 200, "filtered_child_span_count": 1},
+        ),
+    ]
+    rendered = format_trace_for_llm(lines, trace_id=_TRACE_ID[:8])
+    assert rendered == format_trace_for_llm(lines, trace_id=_TRACE_ID)
+    assert "+1 below the log level" in rendered
+    assert "no trace missing" in format_trace_for_llm(lines, trace_id="missing")
+
+    collision = _http_root_start().replace(_TRACE_ID, "eeeeeeee6666")
+    ambiguity = format_trace_for_llm([*lines, collision], trace_id=_TRACE_ID[:8])
+    assert "2 traces start with" in ambiguity
+    assert "give more characters" in ambiguity

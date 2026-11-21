@@ -120,6 +120,8 @@ celerybeat.pid
 .env
 .venv/
 .env.local_dev
+.mayak-postgres-port
+.mayak-postgres-port.*
 env/
 venv/
 ENV/

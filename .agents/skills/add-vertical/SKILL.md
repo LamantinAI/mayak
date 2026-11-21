@@ -12,7 +12,11 @@ validation_command: make quality-gates
 # Add Vertical
 
 This repository ships one worked vertical, `reference_task`, purely to be copied. Read its files
-before writing your own — every constraint below is already satisfied in them.
+before writing a PostgreSQL feature.
+
+- For a stateless endpoint, use [Stateless HTTP](../../../docs/recipes/stateless-http.md).
+- For a tool-using model adapter, use [Mock tool loop](../../../docs/recipes/mock-tool-loop.md).
+- For SQL, continue with the worked vertical below.
 
 ## The twelve files of a vertical
 
@@ -62,7 +66,7 @@ next file supplies; it formats what you changed. `make quality-gates` once the s
 3. **A running database, brought to head, before you autogenerate:**
 
    ```bash
-   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d db
+   make db-up-worktree
    make migrate
    make autogenerate-migration MSG="add <name>"
    ```
@@ -106,7 +110,7 @@ next file supplies; it formats what you changed. `make quality-gates` once the s
    typed alias defined in `dependencies.py`. `service_registration.py` and `router_registration.py`
    belong here too — the next step's `TestWiring` builds the application from both.
 7. Unit tests.
-8. `make quality-gates`, then `make test-e2e`.
+8. `make verify`.
 
 ## Two branches, one migration history
 

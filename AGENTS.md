@@ -8,34 +8,27 @@ Generated from `docs/agent_rules.md` via `scripts/sync_agent_docs.py`. Do not ed
 
 ## Quick Start
 
-- Copy the `reference_task` vertical. It is the one worked example and it exists to be copied — twelve files plus three wiring edits; `.agents/skills/add-vertical` carries the order and the removal list for when your own vertical replaces it. A project that has replaced it edits this line and nothing else: the wrapper's Quick Start is generated from these bullets.
-- If `.env` is missing: `make init-project`. Nothing else creates it, and the app does not start without it. Idempotent — it never overwrites an existing `.env`.
-- `make gate-fast` while editing — format, lint, types with the tests, layer rules, in seconds. `make quality-gates` before committing — its test run includes the db tier, which runs your queries and migrations against a PostgreSQL it starts itself (needs Docker). When the diff touched endpoints, wiring or a migration, `make test-e2e` too: only it runs the built image over HTTP.
-
-Running the service needs one more decision: the shipped `.env` points at PostgreSQL with
-placeholder credentials, so `make run-local` fails until either a database is up
-(`docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d db`) or the
-project declares it needs none (`POSTGRES_ENABLED=false` in `.env`).
+- **New service.** Create a repository with GitHub’s template action, then run `make bootstrap NAME="Service Name" DOMAIN="What it does" DB=postgres` (or `DB=none`). Bootstrap checks readiness and leaves the result for review.
+- **New feature.** Start with `.agents/skills/add-vertical`. For PostgreSQL, copy the twelve files and shared wiring of the reference vertical. For smaller changes, use the stateless or mock LLM recipe.
+- **Fix or continue a service.** Read `PROJECT.md`, run `make init-project` if needed, then `make db-up-worktree` when the service uses PostgreSQL. Use `make gate-fast` while editing and `make verify` before handoff.
 
 Run `make help` for the full grouped command list — it reads the Makefile directly.
 
 ## Task Process
 
 - When the same cause fails a third time — the same error, whatever flags or command you changed around it — stop editing: write down the assumption you now doubt; if a gate named a rule ID, ask `uv run python scripts/doctor_ai_context.py --rule <rule_id>` for its playbook and read only the files it names; change one thing before rerunning.
-- Never claim task completion without fresh `make quality-gates` evidence.
-- Use a fresh subagent for independent verification — do not self-verify.
-- A finished task ends as an open pull request, never a merge: branch `task/<ID>` → commit → push → `gh pr create --base main`. No deploy job ships — "done" means open and green.
-- A fixed defect is proved by one test in the same pull request, failing on the defective code for the stated reason and passing once fixed — not by a test, an ADR, and a wrapper bullet all at once. A new blocking validator rule ships with one failing example and several correct ones it must pass — earned by a real defect, not symmetry.
+- Never claim task completion without fresh `make verify` evidence. Quote its final line verbatim and report any blocked checks.
+- Before publishing, confirm that the user requested it and that the remote is the intended destination. Use an independent reviewer when the task calls for one.
+- Prove a defect fix with a test that fails on the old behavior and passes with the fix. A new blocking validator rule ships with one failing example and several correct ones it must pass — earned by a real defect, not symmetry.
 
 ## Working Notes
 
 - Every Python file opens with `# SUMMARY:`, so `git grep -n '^# SUMMARY:' -- project` lists what each module is for; `git grep -n <name>` finds a symbol and who uses it — run it before naming a test, command or symbol in an answer; a name recalled rather than found is a guess.
 - `PROJECT.md` and `docs/project_context.json` carry the business domain; this file covers only the kernel.
-- If `.env` is missing, run `make init-project` (idempotent) — nothing else creates it. `make run-local`/`make migrate` need reachable PostgreSQL unless `POSTGRES_ENABLED=false`; bring one up with `docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d db`.
-- `make quality-gates` and `make gate-fast` first fix what a machine can — refresh the generated wrappers, format and safe-fix the Python you changed — and name each file they rewrote; `make ci-local`, CI and the pre-commit hook set `STRICT_GENERATED=1 STRICT_RUFF=1` and fail instead (ADR-012). On failure `make quality-gates` runs `make doctor`. A narrow `pytest` run measures no coverage — the floor and the total live in `scripts/run_all_tests.py`'s full run.
+- `make db-up-worktree` remembers its loopback port. Use `make run-local` to migrate and serve, or `make smoke-local` for a disposable HTTP probe.
+- `make gate-fast` formats changed Python, then checks lint, types, layers and module size. Full `make quality-gates` also refreshes agent docs and runs tests. `make verify` checks without auto-fixes, reports a resolved baseline, adds diff coverage and selects Docker E2E for runtime changes. Pass `DIFF_COMPARE_BRANCH` to verify a committed change against its prior snapshot.
 - A query is verified by a test that runs it: repository tests go in `tests/db`, which `make test` runs against a real PostgreSQL database created for the session and migrated from nothing (`alembic upgrade head`, then `alembic check`), emptying every table before each test. A mocked pool proves only what its author imagined. See ADR-010.
 - A write to a generated path is refused by `.agents/hooks/pre-edit-guard.sh`, naming the file — the list is `make print-generated-paths`, shared with the pre-commit hook and both agents.
-- Finish with `make quality-gates`, and with `make test-e2e` as well when the diff touched endpoints, wiring, or a migration — the image, its entrypoint's migration run and HTTP against the running container are what e2e alone exercises.
 - Read a trace with `make format-trace ARGS="<logfile>"` or `make logs` (a running container); see `docs/tracing.md` for span names, outcome filtering, and two silent-failure traps.
 - Repeatable workflows belong in a versioned skill under `.agents/skills/`, not in this file.
 - `AGENTS.md` and `CLAUDE.md` are generated and must not be edited directly. Edit `docs/agent_rules.md` instead, then run `make refresh-agent-docs`.

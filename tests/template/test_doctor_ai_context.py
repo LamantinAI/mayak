@@ -350,7 +350,8 @@ class TestGateLayersAreModelled:
         for line in recipe.splitlines():
             if not line.startswith("\t"):
                 continue
-            steps.append(line.strip().lstrip("@"))
+            if "[mayak-gate]" not in line:
+                steps.append(line.strip().lstrip("@"))
         return steps
 
     @pytest.mark.unit
@@ -765,3 +766,18 @@ class TestRulePlaybooks:
 
         assert exit_code == 2
         assert "Unknown failure rule ID: cbm.no_such" in capsys.readouterr().err
+
+
+def test_recorded_db_tier_failure_outranks_a_pytest_warning() -> None:
+    from scripts.doctor_ai_context import TESTS_LAYER, _tool_failure
+
+    output = (
+        "tests/conftest.py:8: StarletteDeprecationWarning: check the HTTP client\n"
+        "The db tier could not start its PostgreSQL (docker compose -p test-db):\n"
+        "Cannot connect to the Docker daemon\n"
+    )
+    issues = _tool_failure(TESTS_LAYER, output, 2)["issues"]
+
+    assert isinstance(issues, list) and isinstance(issues[0], dict)
+    assert "could not start its PostgreSQL" in issues[0]["message"]
+    assert "TEST_DATABASE_URL" in issues[0]["likely_fix_shape"]

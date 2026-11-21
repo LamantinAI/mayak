@@ -248,25 +248,25 @@ _NOT_VERIFIED_BANNER = "MIGRATIONS NOT VERIFIED"
 # Report whether this project uses a relational store at all.
 # Returns: False when POSTGRES_ENABLED is explicitly disabled in the environment or .env.
 def postgres_is_enabled() -> bool:
-    # Read the same variable the runtime reads, without importing the settings
-    # models — this script must stay runnable when application dependencies are unavailable,
-    # which is also why _is_database_reachable() loads dotenv by hand a few lines below.
-    try:
-        from dotenv import load_dotenv
-
-        load_dotenv(ROOT_DIR / ".env")
-    except ImportError:
-        pass
-    return os.environ.get("POSTGRES_ENABLED", "true").strip().lower() not in {
-        "0",
-        "false",
-        "no",
-    }
+    value = os.environ.get("POSTGRES_ENABLED")
+    if value is None:
+        try:
+            from dotenv import dotenv_values
+        except ImportError:
+            pass
+        else:
+            for path in (ROOT_DIR / ".env", ROOT_DIR / ".env.sample"):
+                value = dotenv_values(path).get("POSTGRES_ENABLED")
+                if value is not None:
+                    break
+    return (value or "true").strip().lower() not in {"0", "false", "no", "off"}
 
 
 # Report whether an unreachable database may downgrade this gate to an informational skip.
 # Returns: False inside CI, where a silent skip would hide a broken revision chain.
 def database_skip_is_allowed() -> bool:
+    if os.environ.get("MAYAK_REQUIRE_MIGRATION_DB") == "1":
+        return False
     # Locally a developer without Postgres should not be blocked. In CI the
     # skip is the whole problem: no job provisioned a database, so the gate never ran and a
     # second alembic head or a dangling down_revision would sail through green.
@@ -318,41 +318,17 @@ def get_migrations_rule_playbook(rule_id: str) -> dict[str, object] | None:
 # Check whether the PostgreSQL database is reachable using psycopg.
 # Returns: True when the database accepts connections, False otherwise.
 def _is_database_reachable() -> bool:
-    # Load .env so that POSTGRES_* variables are available.
-    try:
-        from dotenv import load_dotenv
+    from project.core.config import PostgresSettings
 
-        load_dotenv(ROOT_DIR / ".env")
-    except ImportError:
-        pass
-
-    host = os.environ.get("POSTGRES_HOST", "localhost")
-    port = os.environ.get("POSTGRES_PORT", "5432")
-    user = os.environ.get("POSTGRES_USER", "")
-    password = os.environ.get("POSTGRES_PASSWORD", "")
-    db = os.environ.get("POSTGRES_DB", "")
-
-    # No user at all means there is nothing to try; an unconfigured checkout gets
-    # its answer without waiting for a TCP timeout. The placeholder value itself is NOT a reason
-    # to answer no: the functional stack creates its database with exactly the name
-    # `your_postgres_user` — compose passes POSTGRES_USER straight to the postgres image — so
-    # short-circuiting on that value would report the one environment in this repository that HAS
-    # a database as having none, skipping the migration gate there too.
-    if not user:
+    settings = PostgresSettings(_env_file=ROOT_DIR / ".env")  # type: ignore[call-arg]
+    if not settings.enabled or "user" not in settings.model_fields_set:
         return False
 
     # Try a lightweight TCP+auth check via psycopg.
     try:
         import psycopg  # noqa: WPS433
 
-        with psycopg.connect(
-            host=host,
-            port=int(port),
-            user=user,
-            password=password,
-            dbname=db,
-            connect_timeout=3,
-        ):
+        with psycopg.connect(str(settings.database_url), connect_timeout=3):
             return True
     except Exception:
         return False
@@ -416,27 +392,15 @@ def _revision_ids(script_location: Path = ROOT_DIR / "alembic") -> set[str]:
 # connection that dies between the reachability probe and this read must not be reported as a
 # foreign revision. The real failure then surfaces where it always did, in `alembic upgrade`.
 def _stamped_revision_ids() -> set[str]:
-    try:
-        from dotenv import load_dotenv
+    from project.core.config import PostgresSettings
 
-        load_dotenv(ROOT_DIR / ".env")
-    except ImportError:
-        pass
-
-    user = os.environ.get("POSTGRES_USER", "")
-    if not user:
+    settings = PostgresSettings(_env_file=ROOT_DIR / ".env")  # type: ignore[call-arg]
+    if not settings.enabled or "user" not in settings.model_fields_set:
         return set()
     try:
         import psycopg
 
-        with psycopg.connect(
-            host=os.environ.get("POSTGRES_HOST", "localhost"),
-            port=int(os.environ.get("POSTGRES_PORT", "5432")),
-            user=user,
-            password=os.environ.get("POSTGRES_PASSWORD", ""),
-            dbname=os.environ.get("POSTGRES_DB", ""),
-            connect_timeout=3,
-        ) as connection:
+        with psycopg.connect(str(settings.database_url), connect_timeout=3) as connection:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT version_num FROM alembic_version")
                 return {str(row[0]) for row in cursor.fetchall()}

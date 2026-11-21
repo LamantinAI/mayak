@@ -1,10 +1,6 @@
 # FILE: project/core/logging/trace_formatter.py
 # SUMMARY: NDJSON-to-text tree transformer for LLM-friendly trace visualization.
-# The parsing side — SpanNode, LeafEvent, _parse_events, _build_tree — lives in
-# project.core.logging.trace_tree, split out to stay under scripts/validate_module_sizes.py's
-# per-module budget; see that module's own header for why. Every name below is re-exported at
-# the same spot so an existing `from project.core.logging.trace_formatter import SpanNode` (or
-# `_build_tree`, for a test reaching past the public API) keeps working.
+# Re-export the parser names so older imports still work.
 
 from __future__ import annotations
 
@@ -21,10 +17,7 @@ from project.core.logging.trace_tree import (
     _TOOL_SPAN_PREFIX,
 )
 
-# request.summary outcomes that are not the application failing.
-# A 4xx belongs here. Counting it as a failure put the ✗ of a 500 on a validation error and
-# reported a healthy log as one with errors in it — the confusion the WARNING level and the
-# `client_error.` event prefix exist to remove, one layer further out.
+# Routine outcomes include 4xx; reserve the failed marker for server-side faults.
 _ROUTINE_STATUSES = frozenset(
     {RequestOutcome.OK.value.upper(), "UNKNOWN", RequestOutcome.CLIENT_ERROR.value.upper()}
 )
@@ -36,13 +29,7 @@ _ROUTINE_STATUSES = frozenset(
 _MAX_ARG_CHARS = 80
 
 
-# Returns the value with its line breaks escaped, cut to _MAX_ARG_CHARS with the remaining
-# length stated, so the reader knows something was cut and by how much.
-# Escaping comes before cutting, and it is not cosmetic. This renderer draws a tree
-# with box-drawing characters, one node per line, and a tool argument is attacker-reachable input —
-# a prompt, a pasted page, a search query. A value containing "\n└── db.thing.delete ✓" printed
-# raw becomes a second physical line that reads exactly like a span that never happened. A trace
-# that can be forged is worse than no trace, for the same reason a trace that can lie is.
+# Escape line breaks before clipping so a model argument cannot look like a second tree node.
 def _clipped(value: str) -> str:
     flattened = value.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r")
     if len(flattened) <= _MAX_ARG_CHARS:
@@ -54,10 +41,7 @@ def _render_span_line(node: SpanNode) -> str:
     sid = f"[{node.span_id[:8]}] " if node.span_id else ""
     dur = f"({node.duration_ms}ms)" if node.duration_ms is not None else ""
     if node.error:
-        # Three marks, not two: ⊘ for a span that was stopped, ⚠ for one that
-        # raised a routine domain rejection heading for a 4xx, ✗ for one that actually failed.
-        # Collapsing the first two into one mark put a cancelled request next to a 500 with
-        # nothing to tell them apart; collapsing the last two put a duplicate-name 409 there too.
+        # Mark interruptions and client rejections separately from server failures.
         if node.interrupted:
             mark = "⊘"
         elif node.client_rejection:
@@ -76,11 +60,7 @@ def _render_span_line(node: SpanNode) -> str:
                 out_parts.append(f'{k}="{v}"')
         suffix = f" → {', '.join(out_parts)}" if out_parts else ""
 
-    # agent.tool.* is the one span whose call arguments belong in the compact
-    # view — see _TOOL_SPAN_PREFIX. Same scalars-only rule as `output` above, for the same reason:
-    # this renderer is "compact" by design, and a list or nested dict argument would defeat that.
-    # A string is capped for the same reason: a tool argument is routinely a document, a prompt or
-    # a pasted page, and one of those printed whole turns a tree meant to be skimmed into a wall.
+    # Compact tool arguments show scalars only; clip strings to keep the tree readable.
     args_suffix = ""
     if node.name.startswith(_TOOL_SPAN_PREFIX) and node.input_params:
         arg_parts = []
@@ -142,23 +122,17 @@ def format_trace_for_llm(
 ) -> str:
     events, meta = _parse_events(lines, trace_id)
     if not events:
-        return "(no events found)"
+        return f"({meta.get('selection_error', 'no events found')})"
 
     roots, summary = _build_tree(events)
     if not roots:
         return "(no spans found)"
 
-    # A request can fail without the root span raising: the framework catches the
-    # exception outside the span, so span.finish is emitted normally and only the summary and the
-    # critical record know it went wrong. Deciding the root mark from span.error alone printed a
-    # ✓ on top of a 500.
+    # The framework can handle a failure outside the span. Use its events and summary too.
     summary_data = (
         summary.get("data", {}) if summary and isinstance(summary.get("data"), dict) else {}
     )
-    # A cancelled request is neither a success nor the application's failure.
-    # Its span.error arrives at WARNING and its summary says `cancelled`; counting either as a
-    # failure put the ✗ of a 500 on a request the server was told to stop — the confusion the
-    # WARNING level exists to avoid.
+    # Cancellation is distinct from a server failure.
     cancelled_status = RequestOutcome.CANCELLED.value.upper()
     summary_status = _summary_status(summary_data)
     trace_failed = any(
@@ -188,15 +162,9 @@ def format_trace_for_llm(
         # Root span line (no connector prefix)
         sid = f"[{root.span_id[:8]}] " if root.span_id else ""
         dur = f"({root.duration_ms}ms)" if root.duration_ms is not None else ""
-        # Child spans render their error text via _render_span_line; the root
-        # printed a bare ✗ and swallowed it, so a failed request showed the mark and nothing else.
+        # The root needs its own rendering without a connector, including the error and location.
         if root.error:
-            # Same three-way mark as _render_span_line — see the comment there.
-            # A root does not reach this branch for an HTTP request's own 4xx (ExceptionMiddleware
-            # answers it below AILoggingMiddleware, so the span never sees the exception; that
-            # case is the `elif trace_failed` branch below instead), but a non-HTTP root — a
-            # background job's own span — can raise a domain rejection directly, and this keeps
-            # that case consistent with every nested one.
+            # A non-HTTP root can raise a domain rejection directly. Keep the child-span semantics.
             if root.interrupted:
                 root_mark = "⊘"
             elif root.client_rejection:
@@ -204,10 +172,7 @@ def format_trace_for_llm(
             else:
                 root_mark = "✗"
             mark = f" {root_mark} {root.error}"
-            # The root is where a failed request's exception lands, so this is the
-            # one line that must carry the location. Duplicated from _render_span_line rather than
-            # shared because the root has no connector prefix — the same reason the error text
-            # itself was missing here until it was added by hand.
+            # Root failures carry their actionable location.
             if root.error_site:
                 mark = f"{mark} at {root.error_site}"
         elif trace_failed:
@@ -225,6 +190,12 @@ def format_trace_for_llm(
     if summary:
         sdata = summary.get("data", {}) if isinstance(summary.get("data"), dict) else {}
         spans = sdata.get("child_span_count", 0)
+        filtered = sdata.get("filtered_child_span_count", 0)
+        hidden = (
+            f" (+{filtered} below the log level, not written)"
+            if isinstance(filtered, int) and filtered > 0
+            else ""
+        )
         llm_calls = sdata.get("llm_calls", 0)
         errors = sdata.get("error_count", 0)
         status = _summary_status(sdata)
@@ -232,8 +203,11 @@ def format_trace_for_llm(
         if status_code is not None:
             status = f"{status} {status_code}"
         parts.append(
-            f"request.summary: {spans} spans, {llm_calls} llm_calls, {errors} errors → {status}"
+            f"request.summary: {spans} spans{hidden}, {llm_calls} llm_calls, {errors} errors → {status}"
         )
+
+        if hidden:
+            parts.append("  Use level=logging.INFO for an important span you need in this trace.")
 
     return "\n".join(parts)
 
@@ -303,12 +277,7 @@ def trace_inventory(lines: Iterable[str]) -> tuple[list[str], set[str], set[str]
             trace_ids.append(tid)
             seen.add(tid)
 
-        # The same split as format_trace_for_llm: a span.error at WARNING is
-        # either an interruption or a routine domain rejection, and neither is a failure — a
-        # summary saying `cancelled` is not one either. A trace that both failed and was cancelled
-        # counts as failed — the failure is the older, more useful fact. `client_rejection` is
-        # what tells the two WARNING cases apart; missing on older logs, which read as an
-        # interruption exactly as they did before this field existed.
+        # Rejection and interruption share WARNING. A recorded failure takes precedence.
         if eid == "span.error":
             error_data = ev.get("data", {}) if isinstance(ev.get("data"), dict) else {}
             if ev.get("level") == "WARNING":
@@ -323,9 +292,7 @@ def trace_inventory(lines: Iterable[str]) -> tuple[list[str], set[str], set[str]
             status = _summary_status(data)
             if status == cancelled_status:
                 cancelled.add(tid)
-            # The same split as format_trace_for_llm, one line further out:
-            # a 4xx is the application working, so a note saying "3 traces, 1 with errors"
-            # must not be counting requests a client got wrong.
+            # A client rejection belongs outside the failure count.
             elif status not in _ROUTINE_STATUSES:
                 failed.add(tid)
 
@@ -338,9 +305,7 @@ def render_inventory_note(
     shown_trace_id: str,
     cancelled: set[str] | None = None,
 ) -> str:
-    # The default view renders one trace — the last HTTP one. A failure in any
-    # earlier request was therefore invisible, and a reader who saw a green tree concluded the
-    # run was fine. Say out loud what is being hidden.
+    # Explain which earlier traces the default selection hides.
     hidden = [tid for tid in trace_ids if tid != shown_trace_id]
     if not hidden:
         return ""
@@ -424,10 +389,7 @@ def _cli() -> None:
     else:
         lines = sys.stdin.readlines()
 
-    # Distinguish "nothing matched" from "nothing was NDJSON at all". Piping
-    # `docker compose logs` without --no-log-prefix feeds every line through prefixed with the
-    # service name; the parser then skips all of them, and a bare "(no events found)" would read
-    # as "the service logged nothing" instead of naming the actual cause.
+    # Docker Compose prefixes can hide every JSON line. Explain the input issue explicitly.
     if lines and not any(line.lstrip().startswith("{") for line in lines):
         print(
             f"(no NDJSON found in {len(lines)} input line(s) — every line was skipped. "
@@ -442,8 +404,7 @@ def _cli() -> None:
     _, meta = _parse_events(lines, args.trace)
     print(format_trace_for_llm(lines, trace_id=args.trace))
 
-    # Tell the reader what this view leaves out. Without it the default render of
-    # a green last request reads as "the whole run was fine" even when an earlier one failed.
+    # Earlier failures should remain discoverable from a green last trace.
     trace_ids, failed, cancelled = trace_inventory(lines)
     note = render_inventory_note(trace_ids, failed, meta.get("trace_id", ""), cancelled)
     if note:

@@ -1,88 +1,26 @@
 ---
 name: initialize-project
-description: Use this skill when asked to initialize, bootstrap, or set up a repository created from the Mayak template so local development is ready. Trigger it for requests like "initialize the project", "bootstrap this repo", "set up the project locally", or "prepare the repo for work".
+description: Bootstrap a new backend from the Mayak template, or set up local development in an existing backend.
 triggers: [init, bootstrap, setup, initialize]
 minimal_read_set:
   - AGENTS.md
   - docs/project_context.json
-validation_command: make quality-gates
+validation_command: make verify
 ---
 
-# Initialize Project
+# Initialize a service
 
-One-shot bootstrap of a checkout: install the toolchain, then replace the template's identity with
-this service's own. The second half is the part that gets skipped, and the cost lands later — an
-OpenAPI page titled "Mayak API" in production, or `uv lock --check` failing in a gate that has
-nothing to do with what you were changing.
+For a repository created from the template, choose the name, business domain and database mode:
 
-## When to use it
+```sh
+make bootstrap NAME="Room Book" DOMAIN="Manage room bookings" DB=postgres
+```
 
-- The user asks to initialize or bootstrap the repository.
-- The user wants local development setup.
-- The user wants `.env` created from `.env.sample` without overwriting an existing file.
+Use `DB=none` for a stateless service. The command sets product identity and provenance, installs
+locked dependencies, creates missing local configuration, removes the sample routes and checks
+HTTP readiness. PostgreSQL uses this worktree's loopback port. You can rerun the same command
+after correcting an environment problem. Keep a dedicated copy for template development.
 
-## Workflow
-
-1. `make init-project`. It runs `./dev_setup.sh` (dependencies, git hooks, `.env` from
-   `.env.sample` only if absent). It is idempotent — an existing `.env` is never overwritten.
-2. Decide whether this repository **is** the template or a project built from it. If it is the
-   template, stop here. Everything below assumes it is a new service.
-3. Replace the identity in all six places below.
-4. `make update-deps` — this is `uv lock`, and it is what makes step 3's `pyproject.toml` rename
-   real. Skipping it leaves `uv.lock` naming the template package, and `uv lock --check` — the
-   first line of `make quality-gates` — fails on a file you did not touch.
-5. `make init-project` again. With `is_template: false` it now takes the reference vertical out of
-   the application, once: its files move to `.agents/skills/add-vertical/scaffold/` (same relative
-   paths — read them there before writing your first vertical), their lines in the shared wiring
-   files are cut, a migration dropping its table is appended, and the template's own tool tests
-   (`tests/template/`) and mutation catalogue go. The changes are staged for `git diff --cached`.
-   It refuses, and changes nothing, while `project_name` still names the template, while a file of
-   the vertical differs from what the template shipped, or once a vertical of your own exists —
-   then follow "Deleting the reference vertical" in `.agents/skills/add-vertical` by hand.
-6. Decide whether this project needs a relational store. If it does not — a vector-search-only or
-   stateless service — set `POSTGRES_ENABLED=false` in `.env` and say so in the `postgres` entry of
-   `docs/project_context.json`. The kernel then starts without a connection pool, runs no
-   migrations, and stops reporting the database as a critical readiness check. Leaving the default
-   `true` keeps PostgreSQL required, which is right for most services. See
-   `docs/adr/ADR-006-optional-postgres.md`.
-7. `make quality-gates`, then continue with `.agents/skills/add-vertical` for the first feature.
-
-## The six places the template's identity lives
-
-| # | Where | What to change | What notices if you don't |
-|---|-------|----------------|---------------------------|
-| 1 | `docs/project_context.json` | `project_name`, `domain`, and `is_template: false` | `validate_repository_metadata.py` — `project_context.template_identity_not_replaced`. The only one that fails a gate on its own. |
-| 2 | `pyproject.toml` | `name` and `description` | `uv lock --check`, but only after step 4 above regenerates the lockfile. |
-| 3 | `.env` and `.env.sample` | `APP_NAME` | Nothing. It becomes the OpenAPI title at runtime — `f"{settings.project.name} API"` in `composition_root.py`. |
-| 4 | `project/core/config_settings_core.py` | the `default=` of `ProjectSettings.name` | `tests/application/test_config.py::test_default_values`, which compares it with #1. It is the fallback when `APP_NAME` is unset, so a deployment without that variable would otherwise serve the template's name. |
-| 5 | `PROJECT.md` | the whole business description — name, what the service does, its glossary | Nothing. It is what the next agent reads to learn what this project is. |
-| 6 | `README.md` | more than the name — see below | Nothing. |
-
-`tests/functional/.env.sample` carries `APP_NAME` too; change it with #3.
-
-**Row 6 is a rewrite, not a rename, and it is the only one that takes longer than a minute.**
-`git grep -n <template name> README.md` finds three lines; renaming those three leaves a README
-that calls your service a template, tells the reader it ships one vertical to copy, lists what it
-deliberately does not include, and counts how many services have been built on it. All of that is
-written about the template and none of it contains the name, so no grep surfaces it. What a project
-needs in its place is short: what the service does, its routes, and how to run it — the Quick start,
-Checking your work, Reading a running service and Environment configuration sections carry over
-unchanged. Budget fifteen minutes and write it after the first vertical exists, when there is
-something true to say. Three tests read this file, so keep the phrase `Python 3.13+` with `3.13` in
-backticks, the `| \`KEY\` | ... | \`value\` |` shape of the environment tables, and every skill name
-in backticks.
-
-Kernel files that mention Mayak in their own docstrings — `scripts/`, ADRs — are
-naming the template they came from. Leave them alone.
-
-`project/__init__.py`'s SUMMARY and the temporary file `make audit-deps` writes are deliberately
-absent from this list: carrying a name that can go stale was the defect, and both are generic now.
-A project is free to name itself in its own prompt file and in code comments; only the fallback
-default in #4 is pinned, by `tests/application/test_config.py::test_default_values`.
-
-## Expected output
-
-- Dependencies installed, git hooks configured, `.env` present.
-- `docs/project_context.json` describing this service, with `is_template: false`.
-- `uv.lock` and the generated artifacts regenerated.
-- `make quality-gates` green.
+For an existing service, run `make init-project`, then `make db-up-worktree` if it uses PostgreSQL.
+Alembic and the launcher read this checkout's assigned port unless you explicitly select another database through the environment.
+Use `make run-local` to serve it. Before handoff, run `make verify DIFF_COMPARE_BRANCH=<starting commit>` to measure committed changes and quote its final line.

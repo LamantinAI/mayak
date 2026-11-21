@@ -106,7 +106,7 @@ class TestRetryPolicy:
         instance = _RetryHarness.__new__(_RetryHarness)
         instance._settings = test_settings
         instance._logger = MagicMock()
-        with patch.object(live_module, "ChatOpenAI") as client:
+        with patch("langchain_openai.ChatOpenAI") as client:
             instance._initialize_llm()
         kwargs = client.call_args.kwargs
         assert kwargs["max_retries"] == 0
@@ -426,3 +426,35 @@ class TestFinishReasonReachesTheLog:
 
         kwargs = instance._logger.log_llm_call.call_args.kwargs
         assert kwargs["finish_reason"] is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("mode", ["mock", "live"])
+def test_provider_sdk_loads_on_live_start_only(mode: str) -> None:
+    import os
+    import subprocess
+    import sys
+
+    code = """
+import sys
+from project.core import composition_root
+from project.infrastructure.agents.llm_service import LLMService
+
+assert "openai" not in sys.modules and "langchain_openai" not in sys.modules
+LLMService()
+expected = sys.argv[1] == "live"
+assert ("openai" in sys.modules) is expected
+assert ("langchain_openai" in sys.modules) is expected
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code, mode],
+        env=os.environ
+        | {
+            "AGENT_LLM_MODE": mode,
+            "OPENAI_COMPATIBLE_API_KEY": "fixture",
+            "OPENAI_COMPATIBLE_BASE_URL": "http://127.0.0.1:1/v1",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr

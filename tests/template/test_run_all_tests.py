@@ -25,7 +25,7 @@ from scripts.run_all_tests import (
 
 # A shell exporting POSTGRES_USER made Compose create test-db under that user while the app read
 # another from tests/functional/.env and exited. The functional step's process — here a Python
-# one standing in for Compose — must not see the shell's POSTGRES_* at all.
+# one standing in for Compose — receives the database toggle and uses only the fixture's credentials.
 @pytest.mark.unit
 def test_the_functional_stack_takes_no_postgres_setting_from_the_shell(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -41,7 +41,7 @@ def test_the_functional_stack_takes_no_postgres_setting_from_the_shell(
 
     _run_command(dataclasses.replace(functional, command=(sys.executable, "-c", probe)))
 
-    assert seen.read_text(encoding="utf-8") == ""
+    assert seen.read_text(encoding="utf-8") == "POSTGRES_ENABLED"
 
 
 class TestRunAllTests:
@@ -286,3 +286,16 @@ def test_every_image_the_functional_stack_builds_is_named_by_its_compose_project
 
     assert keys, "no services read — the file's shape changed; update this reader"
     assert pinned == []
+
+
+def test_local_suite_does_not_inherit_verify_migration_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MAYAK_REQUIRE_MIGRATION_DB", "1")
+    monkeypatch.setenv("POSTGRES_ENABLED", "false")
+
+    (step,) = _build_test_steps(skip_functional=True, functional_only=False)
+
+    assert step.env is not None
+    assert "MAYAK_REQUIRE_MIGRATION_DB" not in step.env
+    assert step.env["POSTGRES_ENABLED"] == "false"

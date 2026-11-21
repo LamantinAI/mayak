@@ -60,6 +60,8 @@ class CompositionRoot:
                         if settings.llm.base_url
                         else None,
                         "db_host": settings.postgres.host,
+                        "db_port": settings.postgres.port,
+                        "db_connection_source": settings.postgres.connection_source,
                         "server_host": settings.server.host,
                         "server_port": settings.server.port,
                         "cors_origins": settings.server.cors_origins,

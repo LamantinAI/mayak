@@ -35,7 +35,7 @@ services:
     # unhealthy on a configuration that works. APP_PORT stays separate — it is the host side, and
     # two checkouts of the same project need different host ports with the same SERVER_PORT.
     ports:
-      - "${APP_PORT:-8000}:${SERVER_PORT:-8000}"
+      - "${APP_BIND_HOST:-127.0.0.1}:${APP_PORT:-8000}:${SERVER_PORT:-8000}"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:${SERVER_PORT:-8000}/health/"]
       interval: 10s

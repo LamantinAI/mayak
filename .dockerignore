@@ -98,3 +98,5 @@ Makefile
 pytest.ini
 dev_setup.sh
 docker-compose.postgres.yml
+
+.mayak-postgres-port*

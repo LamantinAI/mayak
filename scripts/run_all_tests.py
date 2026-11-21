@@ -32,29 +32,29 @@ FUNCTIONAL_ENV_FILE = FUNCTIONAL_DIR / ".env"
 COVERAGE_FLOOR_PERCENT = 60
 
 
-# Name the functional stack's Compose project after this checkout, not its directory.
-# Returns: A Compose-legal project name unique to this worktree.
-# Compose defaults to naming a project after the directory it runs in, which for every
-# checkout of this repository is `functional` — so two worktrees running `make test-e2e` at once
-# share containers, a volume and a database, and the second one's `down -v` removes the first's
-# stack mid-run. Same defect the Makefile's own db-up-worktree exists for, and the same fix: a
-# digest of this checkout's absolute path. Kept in step with the Makefile by name and by shape,
-# not by a shared implementation — a python script and a make recipe cannot import each other.
+# Compose otherwise names every checkout's stack 'functional'; teardown can remove another's.
 def functional_compose_project() -> str:
     digest = zlib.crc32(str(ROOT_DIR).encode("utf-8"))
     return f"functional-{digest}"
 
 
-# The environment the functional stack's Compose commands run in: this one without POSTGRES_*.
-# The stack takes its credentials from tests/functional/.env alone, but Compose interpolates
-# ${POSTGRES_USER} and the rest from the shell before that file, so a shell exporting them — a CI
-# job whose db tier has a server of its own, a developer's profile — made test-db under one user
-# while the app, reading the file, logged in as another and exited: product-from-template, 2026-09-24.
+# Shell POSTGRES_* values override Compose's functional env file and can break its login.
 def functional_env() -> dict[str, str]:
-    return {key: value for key, value in os.environ.items() if not key.startswith("POSTGRES_")}
+    from scripts.validate_migrations import postgres_is_enabled
+
+    env = {key: value for key, value in os.environ.items() if not key.startswith("POSTGRES_")}
+    env["POSTGRES_ENABLED"] = "true" if postgres_is_enabled() else "false"
+    return env
 
 
-# Immutable command step executed by the canonical test runner.
+def _functional_compose(env: Mapping[str, str]) -> tuple[str, ...]:
+    prefix = ("docker", "compose", "-p", functional_compose_project(), "-f", "docker-compose.yml")
+    if env["POSTGRES_ENABLED"] == "true":
+        return (*prefix, "-f", "docker-compose.postgres.yml")
+    return prefix
+
+
+# Commands are kept as argv so no shell quoting is needed.
 @dataclass(frozen=True)
 class TestStep:
     # Human-readable label shown before executing the step.
@@ -70,8 +70,7 @@ class TestStep:
     env: Mapping[str, str] | None = None
 
 
-# Parse CLI arguments controlling which test suites are executed.
-# argv: Optional CLI argument list used by tests or the default process argv.
+# Allow direct calls from template tests with explicit arguments.
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run Mayak test suites through one canonical entrypoint."
@@ -90,10 +89,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
-# Build the ordered list of test runner steps for the requested execution mode.
-# skip_functional: Whether the functional Docker-based suite should be skipped.
-# functional_only: Whether only the functional Docker-based suite should be executed.
-# Returns: Ordered runnable test steps.
+# Put local pytest before the image check when both suites are selected.
 def _build_test_steps(
     skip_functional: bool,
     functional_only: bool,
@@ -120,30 +116,29 @@ def _build_test_steps(
                     # it along with the reference vertical.
                     *(["tests/template"] if (ROOT_DIR / "tests" / "template").is_dir() else []),
                     "-q",
-                    # Coverage is asked for here rather than in pytest.ini's addopts, which reach
-                    # every pytest invocation: `uv run pytest tests/one_file.py` measured the
-                    # whole of project/ against a suite that ran three tests, printed a
-                    # fifty-line table on every run, and — with the floor there too — exited red
-                    # while every test passed. Only the full run can be held to a total, and it
-                    # prints the total and the floor in one line; the per-file table is
-                    # `uv run coverage report -m` after it. The XML is for diff-cover.
+                    # A global floor belongs on the full run. Narrow pytest runs shouldn't inherit it.
                     "--cov=project",
                     "--cov-report=xml",
                     f"--cov-fail-under={COVERAGE_FLOOR_PERCENT}",
                 ),
                 cwd=ROOT_DIR,
+                # Verify makes the real migration gate strict. Tests must still be able to
+                # exercise the intentional skip behavior without inheriting that policy.
+                env={
+                    key: value
+                    for key, value in os.environ.items()
+                    if key != "MAYAK_REQUIRE_MIGRATION_DB"
+                },
             )
         )
 
     if not skip_functional:
+        env = functional_env()
         steps.append(
             TestStep(
                 name="functional",
                 command=(
-                    "docker",
-                    "compose",
-                    "-p",
-                    functional_compose_project(),
+                    *_functional_compose(env),
                     "up",
                     "--build",
                     "--abort-on-container-exit",
@@ -151,7 +146,7 @@ def _build_test_steps(
                     "tests",
                 ),
                 cwd=FUNCTIONAL_DIR,
-                env=functional_env(),
+                env=env,
             )
         )
 
@@ -164,13 +159,7 @@ def _emit(message: str) -> None:
     sys.stdout.flush()
 
 
-# Report the sample keys a local env file is missing or answers differently.
-# sample: Keys and defaults the committed sample declares.
-# current: Keys the local, git-ignored env file carries.
-# Returns: Sorted sample keys absent from `current` or holding a different value.
-# Asymmetric on purpose. A key the local file ADDS is a deliberate override and is not
-# drift; a key the sample gained, or a default it changed, is — the local file is generated once
-# and then never compared again, so it keeps answering with last month's value.
+# Warn when sample keys change; allow extra local keys as deliberate overrides.
 def env_sample_drift(
     sample: Mapping[str, str | None], current: Mapping[str, str | None]
 ) -> list[str]:
@@ -179,15 +168,7 @@ def env_sample_drift(
     )
 
 
-# Read an env file into a mapping, tolerating comments, blanks, quotes and `export`.
-# path: File to read; a missing file reads as empty.
-# Returns: Key to value, with `export ` dropped and surrounding quotes stripped.
-# Hand-rolled rather than `dotenv_values` because this runner is the one script that must
-# work before the project's environment is installed. The syntax it needs to understand is the
-# syntax docker compose reads: KEY=value, `#` comments, optional quotes — plus two conventions
-# that would otherwise be reported as drift on every run: a leading `export ` (so the file can be
-# sourced by a shell) and a trailing comment after an unquoted value. `=` inside a value is kept,
-# because `partition` splits on the first one only.
+# Parse Compose's simple env syntax without requiring dotenv before dependencies are installed.
 def _parse_env_file(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
@@ -211,11 +192,7 @@ def _parse_env_file(path: Path) -> dict[str, str]:
     return values
 
 
-# Name the stale keys of tests/functional/.env before Docker Compose reads it.
-# A warning, not a failure: the local file is allowed to differ (a port taken by another
-# stack, a password someone changed), and this runner has no way to tell a deliberate override
-# from a forgotten one. What it can do is say which keys differ BEFORE the containers start, so a
-# suite that fails two layers down inside Docker is not the first anyone hears of it.
+# Report drift before the stack starts while allowing deliberate local overrides.
 def _warn_on_functional_env_drift() -> None:
     drifted = env_sample_drift(
         _parse_env_file(FUNCTIONAL_ENV_SAMPLE), _parse_env_file(FUNCTIONAL_ENV_FILE)
@@ -247,37 +224,22 @@ def _run_command(step: TestStep) -> None:
     subprocess.run(step.command, cwd=step.cwd, env=step.env, check=True)
 
 
-# Stop and remove the functional Docker Compose stack after the functional suite finishes.
-def _cleanup_functional_stack() -> None:
-    subprocess.run(
-        ("docker", "compose", "-p", functional_compose_project(), "down", "-v"),
-        cwd=FUNCTIONAL_DIR,
-        env=functional_env(),
-        check=False,
-    )
-
-
-# Emit functional Docker Compose logs after a functional suite failure to aid agent debugging.
-def _show_functional_logs() -> None:
-    subprocess.run(
-        ("docker", "compose", "-p", functional_compose_project(), "logs"),
-        cwd=FUNCTIONAL_DIR,
-        env=functional_env(),
-        check=False,
-    )
-
-
-# Execute the functional Docker Compose suite with env bootstrap and guaranteed cleanup.
-# subprocess.CalledProcessError: When the functional suite fails.
 def _run_functional_step(step: TestStep) -> None:
     _ensure_functional_env()
+    assert step.env is not None
+    compose = _functional_compose(step.env)
     try:
         _run_command(step)
     except subprocess.CalledProcessError:
-        _show_functional_logs()
+        subprocess.run((*compose, "logs"), cwd=FUNCTIONAL_DIR, env=step.env, check=False)
         raise
     finally:
-        _cleanup_functional_stack()
+        subprocess.run(
+            (*compose, "down", "-v", "--remove-orphans"),
+            cwd=FUNCTIONAL_DIR,
+            env=step.env,
+            check=False,
+        )
 
 
 # Execute the requested set of Mayak test suites through the canonical runner.

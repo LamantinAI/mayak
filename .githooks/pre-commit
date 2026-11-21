@@ -30,7 +30,12 @@ fi
 # regenerate the same artifacts a second time for nothing. Python it does not fix: STRICT_RUFF=1,
 # because a file the gate rewrote here would be checked and then left out of the commit.
 echo "--- Pre-commit: running quality gates ---"
-STRICT_RUFF=1 make quality-gates
+(
+  # Git invokes hooks with worktree-scoped index and repository variables. The suite opens
+  # other repositories and must discover each from its own directory.
+  unset $(git rev-parse --local-env-vars)
+  STRICT_RUFF=1 make quality-gates
+)
 
 # Auto-stage refreshed generated files.
 # A hand-kept copy of the list here would be exactly what drifts silently: missing even one output

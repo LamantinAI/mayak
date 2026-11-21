@@ -1,11 +1,11 @@
 # FILE: project/infrastructure/agents/llm_service_readiness.py
 # SUMMARY: Readiness mixin for LLMService covering provider probes and safe health responses.
 
+from __future__ import annotations
 import asyncio
 import time
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
-from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
 from project.core.config import Settings
@@ -40,6 +40,9 @@ _LLM_PROVIDER_PROBE_FAILED_MESSAGE = "LLM provider probe failed"
 # the common interval), and 5 minutes (86,400 / 300 = 288 calls/day) is far cheaper but makes the
 # recovery-detection lag above worse than the k8s coupling this cache is meant to soften, not worsen.
 _PROBE_CACHE_TTL_SECONDS = 30.0
+
+if TYPE_CHECKING:
+    from langchain_core.language_models.chat_models import BaseChatModel
 
 
 class _LLMServiceReadinessContract(Protocol):

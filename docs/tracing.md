@@ -25,9 +25,9 @@ render shows that one; a line under the tree counting the hidden traces is the o
 1. Record: the service logs NDJSON to stdout, `mkdir -p logs && make run-local | tee
    logs/run.ndjson`; for a container, `make logs-raw` once the request is done.
 2. Make the one request you want to read — your own endpoint; the kernel has none to stand in.
-3. `make format-trace ARGS="logs/run.ndjson --all"`, then `--trace <ID>` with the full id — the
+3. `make format-trace ARGS="logs/run.ndjson --all"`, then `--trace <ID>` with the full id or its unique prefix — the
    response's `x-request-id` header or the `trace_id` of its NDJSON lines; the tree prints eight
-   characters of it, and `--trace` matches only the whole.
+   characters of it. Supply more characters if the prefix matches multiple traces.
 
 `ENABLE_FULL_TRACE=true` also writes prompts and completions to `logs/<ts>_pid<PID>.ndjson`. The
 spans do not need it, and what lands there is what users typed — ADR-013.
