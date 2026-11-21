@@ -37,18 +37,12 @@ SMOKE_APP_PORT ?= 0
 SMOKE_POSTGRES_PORT ?= 0
 
 # Docker allocates a loopback port on first start. Remember its actual port for subsequent
-# make invocations. A selected worktree database takes precedence over ambient shell values;
-# explicitly supplied make command-line settings can still select a different target.
+# processes. PostgresSettings reads the saved port unless explicit connection settings win.
 WORKTREE_HASH := $(shell printf '%s' "$(CURDIR)" | cksum | cut -d' ' -f1)
 WORKTREE_PROJECT := wt-$(WORKTREE_HASH)
 WORKTREE_DB_FILE := .mayak-postgres-port
-WORKTREE_DB_PORT := $(shell cat $(WORKTREE_DB_FILE) 2>/dev/null)
 WORKTREE_POSTGRES_PORT ?= 0
 WORKTREE_DB_COMPOSE := docker compose -p $(WORKTREE_PROJECT) -f docker-compose.yml -f docker-compose.postgres.yml
-ifneq ($(strip $(WORKTREE_DB_PORT)),)
-export POSTGRES_PORT := $(WORKTREE_DB_PORT)
-export POSTGRES_HOST := 127.0.0.1
-endif
 
 # Prints every target carrying a `## Group | description` annotation. The wrapper points here
 # rather than repeating the list, so this and the contract cannot disagree.

@@ -616,3 +616,55 @@ class TestAppVersionFollowsTheManifest:
         monkeypatch.setattr("project.core.config_runtime._PYPROJECT_PATH", manifest)
 
         assert _declared_app_version() == _UNKNOWN_APP_VERSION
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("dotenv_host", "explicit_field", "expected"),
+    [
+        ("localhost", None, ("127.0.0.1", 35432, "worktree")),
+        ("db.test", None, ("db.test", 5432, "configuration")),
+        ("localhost", "PORT", ("localhost", 6432, "explicit settings")),
+        ("localhost", "USER", ("localhost", 5432, "explicit settings")),
+        ("localhost", "HOST", ("db.test", 5432, "explicit settings")),
+        ("localhost", "PASSWORD", ("localhost", 5432, "explicit settings")),
+        ("localhost", "DB", ("localhost", 5432, "explicit settings")),
+    ],
+)
+def test_postgres_worktree_never_overrides_an_explicit_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dotenv_host: str,
+    explicit_field: str | None,
+    expected: tuple[str, int, str],
+) -> None:
+    overrides = {
+        "HOST": "db.test",
+        "PORT": "6432",
+        "USER": "fixture",
+        "PASSWORD": "fixture",
+        "DB": "fixture",
+        "ENABLED": "true",
+    }
+    for key in overrides:
+        monkeypatch.delenv(f"POSTGRES_{key}", raising=False)
+    if explicit_field:
+        monkeypatch.setenv(f"POSTGRES_{explicit_field}", overrides[explicit_field])
+    dotenv = tmp_path / ".env"
+    contents = f"POSTGRES_HOST={dotenv_host}\nPOSTGRES_PORT=5432\n"
+    dotenv.write_text(contents)
+    (tmp_path / ".mayak-postgres-port").write_text("35432\n")
+    settings = PostgresSettings(_env_file=dotenv)  # type: ignore[call-arg]
+    assert (settings.host, settings.port, settings.connection_source) == expected
+    assert dotenv.read_text() == contents
+
+
+@pytest.mark.unit
+def test_bad_worktree_port_cannot_redirect_to_a_default_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for key in ("HOST", "PORT", "USER", "PASSWORD", "DB", "ENABLED"):
+        monkeypatch.delenv(f"POSTGRES_{key}", raising=False)
+    (tmp_path / ".mayak-postgres-port").write_text("65536")
+    with pytest.raises(ValueError, match=r"mayak-postgres-port; run make db-up-worktree"):
+        PostgresSettings(_env_file=tmp_path / ".env")  # type: ignore[call-arg]

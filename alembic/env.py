@@ -6,18 +6,15 @@ import logging
 import time
 import zlib
 from logging.config import fileConfig
+from pathlib import Path
 import os
 import sys
 from sqlalchemy import engine_from_config, pool, text
 from alembic import context
-from dotenv import load_dotenv
 
 # Add project root to sys.path for model access
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, project_root)
-
-# Load environment variables from .env file
-load_dotenv(os.path.join(project_root, ".env"))
 
 from project.core.config import PostgresSettings
 from project.infrastructure.persistence.orm_models import Base
@@ -36,7 +33,7 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 # Construct the database URL through the shared runtime settings model.
-postgres_settings = PostgresSettings()
+postgres_settings = PostgresSettings(_env_file=Path(project_root) / ".env")  # type: ignore[call-arg]
 
 # ConfigParser treats URL escapes such as %40 as interpolation markers.
 config.set_main_option(
@@ -74,7 +71,12 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    _migration_logger.info("Starting online migrations")
+    _migration_logger.info(
+        "Starting online migrations on %s:%s (%s)",
+        postgres_settings.host,
+        postgres_settings.port,
+        postgres_settings.connection_source,
+    )
     _start = time.perf_counter()
 
     connectable = engine_from_config(

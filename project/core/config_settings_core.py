@@ -1,7 +1,8 @@
 # FILE: project/core/config_settings_core.py
 # SUMMARY: Core Pydantic settings models for project, LLM, server, and PostgreSQL configuration.
 
-from typing import Optional
+from pathlib import Path
+from typing import Any, Literal, Optional
 
 from pydantic import (
     AnyHttpUrl,
@@ -10,7 +11,13 @@ from pydantic import (
     SecretStr,
     field_validator,
 )
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic.fields import FieldInfo
+from pydantic_settings import (
+    BaseSettings,
+    DotEnvSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 from project.core.config_builders import (
     build_postgres_dsn,
@@ -148,6 +155,53 @@ class ServerSettings(BaseSettings):
         return normalized
 
 
+_POSTGRES_TARGET_FIELDS = frozenset({"host", "port", "user", "password", "db"})
+_LOOPBACK_DATABASE_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
+
+
+def _worktree_database_source(
+    explicit: dict[str, Any], dotenv: DotEnvSettingsSource
+) -> dict[str, Any]:
+    if _POSTGRES_TARGET_FIELDS.intersection(explicit):
+        return {"connection_source": "explicit settings"}
+    if dotenv.env_file is None or not isinstance(dotenv.env_file, (str, Path)):
+        return {}
+    configured = dotenv()
+    if explicit.get("enabled", configured.get("enabled", "true")) in (False, "false", "0"):
+        return {}
+    if configured.get("host", "localhost") not in _LOOPBACK_DATABASE_HOSTS:
+        return {}
+    marker = Path(dotenv.env_file).parent / ".mayak-postgres-port"
+    try:
+        text = marker.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return {}
+    except (OSError, UnicodeError) as error:
+        raise ValueError(f"Cannot read {marker}; run make db-up-worktree") from error
+    if not text.isascii() or not text.isdecimal() or len(text) > 5 or not 1 <= int(text) <= 65535:
+        raise ValueError(f"Invalid port in {marker}; run make db-up-worktree")
+    return {"host": "127.0.0.1", "port": int(text), "connection_source": "worktree"}
+
+
+class _WorktreeDatabaseSettings(PydanticBaseSettingsSource):
+    def __init__(
+        self,
+        settings_cls: type[BaseSettings],
+        dotenv: PydanticBaseSettingsSource,
+    ) -> None:
+        super().__init__(settings_cls)
+        self._dotenv = dotenv
+
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
+        # PostgreSQL target selection uses the whole address and credentials together.
+        return None, field_name, False
+
+    def __call__(self) -> dict[str, Any]:
+        if not isinstance(self._dotenv, DotEnvSettingsSource):
+            return {}
+        return _worktree_database_source(self.current_state, self._dotenv)
+
+
 class PostgresSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -156,6 +210,29 @@ class PostgresSettings(BaseSettings):
         extra="ignore",
         env_prefix="POSTGRES_",
     )
+
+    connection_source: Literal["configuration", "explicit settings", "worktree"] = Field(
+        default="configuration", exclude=True
+    )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # Make, Alembic and the application share the same target selection. A copied .env
+        # cannot carry another worktree's assigned port into this checkout.
+        return (
+            init_settings,
+            env_settings,
+            _WorktreeDatabaseSettings(settings_cls, dotenv_settings),
+            dotenv_settings,
+            file_secret_settings,
+        )
 
     # Upper bound on connections in the shared AsyncConnectionPool.
     # Lives under PostgresSettings, not the agent settings class, so anyone tuning the database
