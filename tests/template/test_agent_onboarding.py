@@ -204,6 +204,7 @@ def test_clean_project_without_integration_base_runs_routes_and_image(
     output = capsys.readouterr().out
     assert "routes: PASS (2 of 2" in output
     assert "diff-coverage: NOT MEASURED" in output
+    assert "verify: scope: project only (clean tree, no base)" in output.splitlines()
     assert output.splitlines()[-1] == "verify: PASS — project only; no change was measured"
 
 
@@ -272,3 +273,119 @@ def test_verify_reports_the_current_commit_and_actual_uncommitted_paths(
     change = capsys.readouterr().out.splitlines()[0]
     assert f"...{head};" in change
     assert change.endswith(f"{int(state != 'clean')} uncommitted")
+
+
+def _commit_all(message: str) -> str:
+    subprocess.run(("git", "add", "-A"), check=True)
+    identity = ("-c", "user.name=Probe", "-c", "user.email=probe@example.invalid")
+    subprocess.run(("git", *identity, "commit", "-qm", message), check=True)
+    return subprocess.check_output(("git", "rev-parse", "HEAD"), text=True).strip()
+
+
+def _verify(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], *arguments: str
+) -> tuple[list[str], list[str]]:
+    from scripts import verify_change
+
+    calls: list[str] = []
+
+    def fake_call(command: tuple[str, ...], **kwargs: object) -> int:
+        calls.append(command[-1])
+        return 0
+
+    monkeypatch.setattr("sys.argv", ["verify_change", "--diff-cover", "diff-cover", *arguments])
+    monkeypatch.setattr(verify_change.subprocess, "call", fake_call)
+    monkeypatch.setattr(verify_change, "unexercised_handlers", lambda report: (2, []))
+    monkeypatch.setattr(verify_change, "_coverage", lambda *args: 0)
+    assert verify_change.main() == 0
+    return calls, capsys.readouterr().out.splitlines()
+
+
+# Measured on 1.2.0: a checkout without an integration branch whose code change was already
+# committed reported only its uncommitted README.md, built no image, and still ended with
+# `verify: PASS — project and change`, the line AGENTS.md tells an agent to quote at handoff.
+@pytest.fixture
+def committed_then_prose(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    _repo(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".git" / "info" / "exclude").write_text("coverage.xml\n")
+    start = subprocess.check_output(("git", "rev-parse", "HEAD"), text=True).strip()
+    Path("project").mkdir()
+    Path("project/a.py").write_text("value = 1\n")
+    _commit_all("code")
+    Path("README.md").write_text("prose\n")
+    return start
+
+
+def test_verify_without_a_base_says_commits_were_not_measured(
+    committed_then_prose: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls, lines = _verify(monkeypatch, capsys)
+
+    assert calls == ["quality-gates"]
+    assert "verify: scope: uncommitted paths only (no base); commits are not measured" in lines
+    assert "commits were not examined" in next(line for line in lines if "test-e2e" in line)
+    assert "verify: full handoff: make verify DIFF_COMPARE_BRANCH=<starting commit>" in lines
+    assert (
+        lines[-1] == "verify: PASS — project and uncommitted paths only; commits were not measured"
+    )
+    assert not any("project and change" in line for line in lines)
+
+
+@pytest.mark.parametrize("source", ["explicit", "auto"])
+def test_verify_with_a_base_measures_the_committed_change(
+    source: str,
+    committed_then_prose: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    if source == "auto":
+        subprocess.run(("git", "update-ref", "refs/remotes/origin/main", committed_then_prose))
+    arguments = ("--base", committed_then_prose) if source == "explicit" else ()
+    calls, lines = _verify(monkeypatch, capsys, *arguments)
+
+    assert calls == ["quality-gates", "test-e2e"]
+    assert lines[0].endswith("2 changed paths, 1 uncommitted")
+    base = committed_then_prose if source == "explicit" else "origin/main"
+    assert f"verify: scope: change since {base} ({source} base)" in lines
+    assert lines[-1] == "verify: PASS — project and change"
+
+
+def test_verify_with_a_base_on_a_clean_tree_measures_the_commits(
+    committed_then_prose: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    Path("README.md").unlink()
+    calls, lines = _verify(monkeypatch, capsys, "--base", committed_then_prose)
+
+    assert calls == ["quality-gates", "test-e2e"]
+    assert lines[0].endswith("1 changed paths, 0 uncommitted")
+    assert lines[-1] == "verify: PASS — project and change"
+
+
+def test_verify_without_a_base_still_builds_for_an_uncommitted_code_change(
+    committed_then_prose: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    Path("project/a.py").write_text("value = 2\n")
+    calls, lines = _verify(monkeypatch, capsys)
+
+    assert calls == ["quality-gates", "test-e2e"]
+    assert (
+        lines[-1] == "verify: PASS — project and uncommitted paths only; commits were not measured"
+    )
+
+
+def test_verify_coverage_only_reports_its_scope(
+    committed_then_prose: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls, lines = _verify(monkeypatch, capsys, "--coverage-only")
+
+    assert calls == []
+    assert lines[1] == "verify: scope: uncommitted paths only (no base); commits are not measured"

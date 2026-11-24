@@ -97,5 +97,8 @@ async def test_preview_options_in_image(make_post_request: SendRequest) -> None:
 
 Use `make smoke-local` to check the running service and `make verify` to exercise the working
 change. For a committed change, pass `DIFF_COMPARE_BRANCH=<baseline>` to reproduce coverage and
-E2E selection. If business rules grow, put them in an application service and use the typed
+E2E selection. Its `verify: scope:` line names the area: the change since an explicit or an
+automatically found base, the project alone on a clean tree, or only the uncommitted paths when
+no base exists; the last says commits were not measured and prints the full handoff command,
+`make verify DIFF_COMPARE_BRANCH=<starting commit>`. If business rules grow, put them in an application service and use the typed
 dependency and registry shape from the vertical skill.
