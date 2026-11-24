@@ -112,6 +112,8 @@ next file supplies; it formats what you changed. `make quality-gates` once the s
 7. Unit tests.
 8. `make verify`.
 
+Describe what the new vertical does for the product only in `PROJECT.md`.
+
 ## Two branches, one migration history
 
 Two branches that each add a migration off the same parent produce two files naming the same

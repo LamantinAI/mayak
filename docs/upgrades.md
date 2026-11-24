@@ -3,7 +3,8 @@
 For the owner of a service made from this template before its latest changes: what changed in the
 kernel the service inherited, what breaks without it, and how to check whether your copy has it.
 Nothing here updates a service by itself — a service has edited the shared files, so each change is
-ported by hand, one at a time.
+ported by hand, one at a time. A file the service never changed is taken whole from the target
+version; **Port by tree diff** below shows how to establish which files those are.
 
 ## Find your version
 
@@ -18,6 +19,7 @@ and let each row's check tell you whether your copy already has the change. Port
 
 | since | pull requests | what the batch was |
 |---|---|---|
+| 1.2.1 | strict migration advice, verify scope, handoff rule, tree-diff porting | Port by tree diff below; `scripts/` files a service never changed are replaced whole. |
 | 1.2.0 | onboarding, worktree database, verification and traces | Use the checklist below to port what the service needs. |
 | 2026-11-20 | certifi lock refresh | Replace the affected certifi release before rebuilding images. |
 | 2026-10-01 | #41 | preserve PostgreSQL connection components through libpq/SQLAlchemy; strengthen the password test and correct project context |
@@ -39,8 +41,9 @@ The [specification](specs/agent-onboarding.md) describes the behavior to preserv
 ## Porting the 1.2.0 changes to an existing service
 
 Use [the 1.1.0 to 1.2.0 diff](https://github.com/LamantinAI/mayak/compare/v1.1.0...v1.2.0)
-as the reference. Port changes into your service's own files and keep its identity, application
-code, environment and migration history.
+as the reference; locally, `git -C <mayak> diff --name-status v1.1.0 v1.2.0` lists the same
+paths. Port changes into your service's own files and keep its identity, application code,
+environment and migration history.
 
 | Change | What to port | How to check |
 |---|---|---|
@@ -52,6 +55,30 @@ code, environment and migration history.
 
 After porting, run `make verify DIFF_COMPARE_BRANCH=<your starting commit>`. For a database service,
 also exercise at least one upgrade from an already populated disposable database.
+
+## Port by tree diff
+
+Needs a local Mayak clone with history and its tags; no network.
+
+1. **Find the source tree.** `template.source_tree` in your `docs/project_context.json`;
+   `make upgrade-check` prints the same value.
+2. **List the paths.** `git diff` accepts a tree object, so no commit has to be found:
+   `git -C <mayak> diff --name-status <source_tree> <target tag>`.
+3. **Sort each path.**
+   - Absent from the service and part of the template's tooling or the reference vertical: skip.
+   - Unchanged by the service — `git hash-object <path>` equals
+     `git -C <mayak> rev-parse <source_tree>:<path>`: take the target tag's file whole.
+   - Changed by the service: port by hand against
+     `git -C <mayak> diff <source_tree> <target tag> -- <path>`, keeping the service's own lines.
+   - `pyproject.toml` and `uv.lock`, when the template's diff is only its own version number: skip.
+4. **Finish.** `make refresh-agent-docs`; record the new `version` and `source_tree`
+   (`git -C <mayak> rev-parse '<target tag>^{tree}'`) in `template`; run
+   `make verify DIFF_COMPARE_BRANCH=<commit before the port>`; for a database service, upgrade one
+   already populated disposable database.
+5. **Fallback.** No `template` block, or `git -C <mayak> cat-file -e '<source_tree>^{tree}'` fails:
+   fetch Mayak's full history first (`git fetch --unshallow --tags`). If the tree is still missing,
+   follow **How to port one change** and **What to port first**: each row's check says whether
+   your copy has the change.
 
 ## How to port one change
 

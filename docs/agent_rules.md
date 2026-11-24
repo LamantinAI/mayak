@@ -19,7 +19,7 @@ Task process:
 
 Working notes:
 - Every Python file opens with `# SUMMARY:`, so `git grep -n '^# SUMMARY:' -- project` lists what each module is for; `git grep -n <name>` finds a symbol and who uses it — run it before naming a test, command or symbol in an answer; a name recalled rather than found is a guess.
-- `PROJECT.md` and `docs/project_context.json` carry the business domain; this file covers only the kernel.
+- `PROJECT.md` is the current description of the product; update it when behavior changes. `README.md` covers running the service and points there. `docs/project_context.json` is required metadata — identity, integrations, template provenance: keep it valid, do not restate the product in it. This file covers only the kernel.
 - `make db-up-worktree` remembers its loopback port. Use `make run-local` to migrate and serve, or `make smoke-local` for a disposable HTTP probe.
 - `make gate-fast` formats changed Python, then checks lint, types, layers and module size. Full `make quality-gates` also refreshes agent docs and runs tests. `make verify` checks without auto-fixes, reports its scope, adds diff coverage and selects Docker E2E for runtime changes. Pass `DIFF_COMPARE_BRANCH` to verify a committed change against its prior snapshot.
 - A query is verified by a test that runs it: repository tests go in `tests/db`, which `make test` runs against a real PostgreSQL database created for the session and migrated from nothing (`alembic upgrade head`, then `alembic check`), emptying every table before each test. A mocked pool proves only what its author imagined. See ADR-010.

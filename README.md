@@ -258,7 +258,8 @@ Notes worth knowing:
 | `docs/adr/` | why the load-bearing decisions were made, one dated document each |
 | `docs/upgrades.md` | for a service made from an earlier version: what changed in the kernel it inherited, what to port first, how to check |
 | `git grep -n '^# SUMMARY:'` | a one-line summary per module: every Python file opens with one |
-| `PROJECT.md` | what a given project does — the file you rewrite first |
+| `PROJECT.md` | the current description of the product — the file you rewrite first |
+| `docs/project_context.json` | required metadata and template provenance; not a second description |
 
 Comments in the code carry the reasoning: where a decision was hard, the file says what was tried and
 why the obvious alternative was rejected. Those comments are the channel that reaches a reader who
