@@ -307,6 +307,18 @@ def _cut_key(cut: Cut) -> str:
 class Plan:
     writes: dict[str, str] = field(default_factory=dict)
     deletes: list[str] = field(default_factory=list)
+    # Tool leftovers git ignores under TEMPLATE_ONLY: removed with it, never staged.
+    generated: list[str] = field(default_factory=list)
+
+
+# What a tool run leaves there and nobody writes by hand. Any other file git ignores may be the
+# project's own (a .env, notes kept out of git): it stops the extraction like other local work.
+_GENERATED_DIRS = frozenset({"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"})
+
+
+def _generated(relative: str) -> bool:
+    path = Path(relative)
+    return path.suffix in {".pyc", ".pyo"} or not _GENERATED_DIRS.isdisjoint(path.parts[:-1])
 
 
 # Git's own variables left out. Inside a hook git exports GIT_DIR and GIT_INDEX_FILE, and a git
@@ -387,8 +399,8 @@ def _tracked_text_files(root: Path) -> list[str]:
 
 
 # What git tracks under `path` — the only deletions `git add` can stage. Bytecode a test run left
-# there (bench3, 2026-09-27), or any other file git never knew, failed the whole staging step when
-# named; the directory is still removed whole. Outside a repository, everything but bytecode.
+# there (bench3, 2026-09-27) failed the whole staging step when named, so it goes in
+# Plan.generated. Outside a repository, every file that is not a tool's leftover.
 def _tracked_under(root: Path, path: str) -> list[str]:
     try:
         listed = subprocess.run(
@@ -400,9 +412,38 @@ def _tracked_under(root: Path, path: str) -> list[str]:
             check=True,
         ).stdout.split("\n")
     except (subprocess.CalledProcessError, FileNotFoundError):
-        found = (root / path).rglob("*")
-        return [str(p.relative_to(root)) for p in found if p.is_file() and p.suffix != ".pyc"]
+        found = (str(p.relative_to(root)) for p in (root / path).rglob("*") if p.is_file())
+        return [name for name in found if not _generated(name)]
     return [name for name in listed if name]
+
+
+# Under TEMPLATE_ONLY: (local work deleting would lose, tool leftovers git ignores). Local work is a
+# file git does not know, an uncommitted or staged edit, an ignored file that is not a leftover; a
+# file the project deleted is not. Until 1.3.1 the directories went whole, and with them a test or a
+# note no plan had named. Outside a repository nothing tells local work apart: leftovers only.
+def _template_only_state(root: Path) -> tuple[list[str], list[str]]:
+    command = ["git", "status", "--porcelain", "-z", "--no-renames", "--untracked-files=all"]
+    try:
+        status = subprocess.run(
+            [*command, "--ignored", "--", *TEMPLATE_ONLY],
+            cwd=root,
+            env=hermetic_env(),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        found = (p for path in TEMPLATE_ONLY for p in (root / path).rglob("*") if p.is_file())
+        return [], sorted(n for n in (str(p.relative_to(root)) for p in found) if _generated(n))
+    local: list[str] = []
+    generated: list[str] = []
+    for entry in filter(None, status.split("\0")):
+        code, name = entry[:2], entry[3:]
+        if code == "!!" and _generated(name):
+            generated.append(name)
+        elif code.strip(" D"):
+            local.append(name)
+    return sorted(local), sorted(generated)
 
 
 # Recursive: a vertical kept in a package of its own (project/domain/booking/model.py) is a
@@ -552,6 +593,13 @@ def build_plan(root: Path, *, converting: bool = False) -> Plan | str:
     own = _own_vertical_files(root)
     if own:
         reasons.append("the project already has files of its own vertical: " + ", ".join(own))
+    local, generated = _template_only_state(root)
+    if local:
+        reasons.append(
+            "the template's own paths, which the extraction deletes, hold local work git has not "
+            "committed: " + ", ".join(local) + ". Commit it, move it elsewhere or delete it, then "
+            "run again"
+        )
     if reasons:
         return "; ".join(reasons)
 
@@ -610,29 +658,41 @@ def build_plan(root: Path, *, converting: bool = False) -> Plan | str:
     plan.writes[DROP_MIGRATION] = _drop_migration()
     plan.writes.update(edited)
     plan.deletes = sorted(deleted)
+    plan.generated = generated
     return plan
 
 
+# Deletes only what the plan names, then the directories that leaves empty: a file that appeared
+# after the plan was made keeps its directory and is reported, never removed unseen.
 def apply_plan(root: Path, plan: Plan, *, stage: bool = True) -> list[str]:
     for relative, text in plan.writes.items():
         target = root / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
-    for relative in plan.deletes:
+    for relative in (*plan.deletes, *plan.generated):
         (root / relative).unlink(missing_ok=True)
+    failures: list[str] = []
     for directory in TEMPLATE_ONLY:
         target = root / directory
-        if target.is_dir():
-            for leftover in sorted(target.rglob("*"), reverse=True):
-                leftover.rmdir() if leftover.is_dir() else leftover.unlink()
-            target.rmdir()
+        if not target.is_dir():
+            continue
+        for emptied in [
+            *sorted((p for p in target.rglob("*") if p.is_dir()), reverse=True),
+            target,
+        ]:
+            try:
+                emptied.rmdir()
+            except OSError:
+                failures.append(
+                    f"{emptied.relative_to(root)} kept: holds files the plan did not name"
+                )
+                break
     # The project's own modules first. An editable install puts the checkout the interpreter was
     # installed from on sys.path, so run against a copy — by the tests, by check-product — a
     # generator imported the template's modules and rewrote the template's files, leaving the
     # copy's stale: measured on 2026-09-24.
     env = hermetic_env()
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(root), env.get("PYTHONPATH")]))
-    failures: list[str] = []
     steps = (
         [
             sys.executable,
@@ -685,6 +745,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  write  {path}")
         for path in plan.deletes:
             print(f"  delete {path}")
+        print(f"  and {len(plan.generated)} tool leftovers git ignores there (bytecode, caches)")
         return 0
     failures = apply_plan(root, plan, stage=not args.no_stage)
     review = (

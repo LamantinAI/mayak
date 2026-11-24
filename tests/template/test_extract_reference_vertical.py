@@ -219,10 +219,10 @@ def test_a_project_has_the_vertical_taken_out_once(
 
 
 # bench3 (2026-09-27): a test run had left bytecode in tests/template/__pycache__, the plan named it
-# among the deletions, and `git add` refused the whole list — exit 1, nothing staged. Any file git
-# never knew did the same (GPT-6 Sol, 2026-09-28).
+# among the deletions, and `git add` refused the whole list — exit 1, nothing staged. Tool leftovers
+# are planned apart from the staged deletions, and what goes is exactly what the plan names.
 @pytest.mark.unit
-def test_files_git_never_knew_do_not_stop_the_staging(
+def test_tool_leftovers_do_not_stop_the_staging_and_the_plan_is_what_goes(
     checkout: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     replace_identity(checkout)
@@ -230,11 +230,19 @@ def test_files_git_never_knew_do_not_stop_the_staging(
     py_compile.compile(
         str(source), cfile=str(source.parent / "__pycache__/test_run_mutations.cpython-313.pyc")
     )
-    (source.parent / "local-note.txt").write_text("not tracked\n", encoding="utf-8")
+    (checkout / "tests/template/.pytest_cache/v/cache").mkdir(parents=True)
+    (checkout / "tests/template/.pytest_cache/v/cache/nodeids").write_text("[]\n", encoding="utf-8")
+    plan = extraction.build_plan(checkout)
+    assert isinstance(plan, extraction.Plan), plan
+    assert extraction.main(["--root", str(checkout), "--dry-run"]) == 0
+    assert "and 2 tool leftovers git ignores" in capsys.readouterr().out
+    before = set(_files(checkout))
 
     assert extraction.main(["--root", str(checkout)]) == 0
 
     assert "follow-up failed" not in capsys.readouterr().out
+    assert before - set(_files(checkout)) == {*plan.deletes, *plan.generated}
+    assert len(plan.generated) == 2
     staged = subprocess.run(
         ["git", "diff", "--cached", "--name-status"],
         cwd=checkout,
@@ -247,6 +255,23 @@ def test_files_git_never_knew_do_not_stop_the_staging(
     assert not (checkout / "tests/template").exists()
     assert extraction.main(["--root", str(checkout)]) == 0
     assert "already done" in capsys.readouterr().out
+
+
+# A file the project deleted from the template's paths is no work to keep, and a file of its own
+# outside them is none of the extraction's business: neither stops it, and the second stays.
+@pytest.mark.unit
+def test_deleted_template_files_and_work_elsewhere_do_not_stop_it(
+    checkout: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    replace_identity(checkout)
+    (checkout / "tests/template/test_run_mutations.py").unlink()
+    (checkout / "scratch.md").write_text("mine\n", encoding="utf-8")
+
+    assert extraction.main(["--root", str(checkout)]) == 0
+
+    assert "reference vertical taken out" in capsys.readouterr().out
+    assert (checkout / "scratch.md").read_text(encoding="utf-8") == "mine\n"
+    assert not (checkout / "tests/template").exists()
 
 
 # Blank lines an editor added at the end of a shared file are not a line of the project's own; a
@@ -310,6 +335,48 @@ def _add_a_line_of_its_own_to_a_shared_file(root: Path) -> None:
     )
 
 
+def _git_in(root: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args], cwd=root, env=hermetic_env(), capture_output=True, text=True, check=True
+    ).stdout
+
+
+# Local work in the paths the extraction deletes. Until 1.3.1 they went whole: the plan named what
+# git tracked, the deletion took everything, and an edit no commit held was gone without a word.
+def _note_in_the_template_tests(root: Path) -> None:
+    replace_identity(root)
+    (root / "tests/template/local-note.txt").write_text("not tracked\n", encoding="utf-8")
+
+
+def _note_in_the_mutation_catalogue(root: Path) -> None:
+    replace_identity(root)
+    (root / "docs/mutations/ideas.md").write_text("not tracked\n", encoding="utf-8")
+
+
+def _uncommitted_edit_of_a_template_test(root: Path) -> None:
+    replace_identity(root)
+    with (root / "tests/template/test_run_mutations.py").open("a", encoding="utf-8") as test:
+        test.write("\n# started on it\n")
+
+
+def _staged_new_template_test(root: Path) -> None:
+    replace_identity(root)
+    (root / "tests/template/test_mine.py").write_text("# staged\n", encoding="utf-8")
+    _git_in(root, "add", "tests/template/test_mine.py")
+
+
+def _uncommitted_edit_of_the_mutation_runner(root: Path) -> None:
+    replace_identity(root)
+    with (root / "scripts/run_mutations.py").open("a", encoding="utf-8") as runner:
+        runner.write("\n# started on it\n")
+
+
+# Ignored is not disposable: a log or an env file kept out of git is still the project's own.
+def _ignored_file_of_its_own(root: Path) -> None:
+    replace_identity(root)
+    (root / "docs/mutations/run.log").write_text("kept out of git\n", encoding="utf-8")
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(
     ("prepare", "reason"),
@@ -319,6 +386,12 @@ def _add_a_line_of_its_own_to_a_shared_file(root: Path) -> None:
         (_add_a_vertical_of_its_own, "files of its own vertical"),
         (_add_a_nested_vertical_of_its_own, "project/domain/booking/model.py"),
         (_add_a_line_of_its_own_to_a_shared_file, "project/core/service_registration.py"),
+        (_note_in_the_template_tests, "tests/template/local-note.txt"),
+        (_note_in_the_mutation_catalogue, "docs/mutations/ideas.md"),
+        (_uncommitted_edit_of_a_template_test, "tests/template/test_run_mutations.py"),
+        (_staged_new_template_test, "tests/template/test_mine.py"),
+        (_uncommitted_edit_of_the_mutation_runner, "scripts/run_mutations.py"),
+        (_ignored_file_of_its_own, "docs/mutations/run.log"),
     ],
     ids=[
         "identity-not-replaced",
@@ -326,6 +399,12 @@ def _add_a_line_of_its_own_to_a_shared_file(root: Path) -> None:
         "own-vertical",
         "own-vertical-in-a-package",
         "own-line-in-a-shared-file",
+        "untracked-note-in-tests-template",
+        "untracked-note-in-docs-mutations",
+        "uncommitted-edit-of-a-template-test",
+        "staged-new-template-test",
+        "uncommitted-edit-of-the-mutation-runner",
+        "ignored-file-of-its-own",
     ],
 )
 def test_it_refuses_and_changes_nothing_when_it_would_take_a_projects_work(
@@ -335,9 +414,26 @@ def test_it_refuses_and_changes_nothing_when_it_would_take_a_projects_work(
     reason: str,
 ) -> None:
     prepare(checkout)
-    before = _files(checkout)
+    before = _files(checkout), _git_in(checkout, "ls-files", "--stage")
 
+    assert extraction.main(["--root", str(checkout), "--dry-run"]) == 0
     assert extraction.main(["--root", str(checkout)]) == 0
 
+    assert (_files(checkout), _git_in(checkout, "ls-files", "--stage")) == before
+    dry_run, applied = capsys.readouterr().out.strip().split("\n")
+    assert dry_run == applied and reason in applied
+
+
+# Bootstrap asks the same plan before it writes the identity, so the refusal names the file and
+# nothing — identity, .env, the note — has changed.
+@pytest.mark.unit
+def test_bootstrap_stops_on_local_work_before_writing_anything(checkout: Path) -> None:
+    from scripts.bootstrap_project import bootstrap
+
+    (checkout / "tests/template/local-note.txt").write_text("not tracked\n", encoding="utf-8")
+    before = _files(checkout)
+
+    with pytest.raises(ValueError, match="tests/template/local-note.txt"):
+        bootstrap(checkout, name="Room Book", domain="Bookings", database="none", uv="uv")
+
     assert _files(checkout) == before
-    assert reason in capsys.readouterr().out
