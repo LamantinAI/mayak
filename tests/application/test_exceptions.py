@@ -10,6 +10,7 @@ from project.domain.exceptions import (
     ConflictError,
     ExternalServiceError,
     AuthenticationError,
+    ForbiddenError,
 )
 
 
@@ -22,6 +23,7 @@ class TestExceptionHierarchy:
             ConflictError,
             ExternalServiceError,
             AuthenticationError,
+            ForbiddenError,
         ]
         for exc_class in exceptions:
             assert issubclass(exc_class, ProjectError), (
@@ -40,6 +42,7 @@ class TestExceptionHierarchy:
             ConflictError("conflict"),
             ExternalServiceError("external fail"),
             AuthenticationError("auth fail"),
+            ForbiddenError(),
         ]
         for exc in exceptions:
             try:
@@ -63,6 +66,7 @@ class TestExceptionHierarchy:
             ConflictError: "Already exists",
             ExternalServiceError: "Service unavailable",
             AuthenticationError: "Unauthorized",
+            ForbiddenError: "Not yours to change",
         }
         for exc_class, message in cases.items():
             exc = exc_class(message)

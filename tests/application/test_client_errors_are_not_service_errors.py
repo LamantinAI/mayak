@@ -14,7 +14,7 @@ import logging
 from typing import Any
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from httpx import AsyncClient
 from pydantic import BaseModel
 
@@ -22,6 +22,7 @@ from project.domain.exceptions import (
     AuthenticationError,
     ConflictError,
     ExternalServiceError,
+    ForbiddenError,
     NotFoundError,
     ProjectError,
     UpstreamAuthenticationError,
@@ -67,6 +68,9 @@ class TestAClientErrorReadsAsOne:
             (NotFoundError("missing"), 404),
             (ValidationError("bad input"), 422),
             (ConflictError("duplicate name"), 409),
+            (AuthenticationError("sign in first"), 401),
+            (ForbiddenError(), 403),
+            (ProjectError("plain"), 400),
         ],
     )
     async def test_a_domain_error_answered_4xx_is_a_client_error(
@@ -122,6 +126,44 @@ class TestAClientErrorReadsAsOne:
         issues = [event for event in _events_from(log_capture) if "error" in event[0]]
         assert issues, "a rejected body was not recorded at all"
         assert all(event_id.startswith("client_error.") for event_id, _ in issues), issues
+
+
+# The application layer refuses an operation without importing FastAPI: ForbiddenError answers 403
+# in the envelope every ProjectError uses, with a message that names nothing unless the raiser
+# writes one. An HTTPException(403) raised by a route keeps its own envelope type.
+class TestAForbiddenErrorIsA403:
+    @pytest.mark.integration
+    async def test_the_default_refusal_names_nothing(
+        self, fastapi_app: FastAPI, async_client: AsyncClient
+    ) -> None:
+        _wire_raising_route(fastapi_app, "/__test_forbidden_default", ForbiddenError())
+
+        response = await async_client.get("/__test_forbidden_default")
+
+        assert response.status_code == 403
+        assert response.json() == {
+            "error": {
+                "type": "ProjectError",
+                "message": "You do not have permission to perform this action",
+                "status_code": 403,
+            }
+        }
+
+    @pytest.mark.integration
+    async def test_a_route_raising_http_403_is_unchanged(
+        self, fastapi_app: FastAPI, async_client: AsyncClient
+    ) -> None:
+        async def _raise() -> None:
+            raise HTTPException(403, "not yours")
+
+        fastapi_app.add_api_route("/__test_http_403", _raise, methods=["GET"])
+
+        response = await async_client.get("/__test_http_403")
+
+        assert response.status_code == 403
+        assert response.json() == {
+            "error": {"type": "HTTPException", "message": "not yours", "status_code": 403}
+        }
 
 
 # The hole the class above did not cover: exception_handlers.py judges 4xx-vs-5xx
@@ -215,6 +257,7 @@ class TestBothCallSitesJudgeAlike:
             NotFoundError("missing"),
             ConflictError("duplicate"),
             AuthenticationError("denied"),
+            ForbiddenError(),
             ExternalServiceError("upstream down"),
             UpstreamAuthenticationError("upstream key rejected"),
         ],

@@ -34,6 +34,16 @@ class AuthenticationError(ProjectError):
     pass
 
 
+# The caller is known and may not do this — the handler answers it with 403, where
+# AuthenticationError (who are you?) answers 401. Raised by the application layer, which cannot
+# import FastAPI's HTTPException; how a service decides who may do what stays its own. Its message
+# reaches the client verbatim like the other 4xx, so the default says nothing about the resource:
+# a message naming what exists tells a caller what it may not see.
+class ForbiddenError(ProjectError):
+    def __init__(self, message: str = "You do not have permission to perform this action") -> None:
+        super().__init__(message)
+
+
 # Raised when an upstream provider refuses the credentials this service presents — either
 # because it does not accept them at all, or because they do not carry the access being asked for.
 # A subclass of ExternalServiceError, so it answers 502 with the generic upstream message,

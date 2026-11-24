@@ -27,6 +27,7 @@ from project.domain.exceptions import (
     ConflictError,
     ExternalServiceError,
     AuthenticationError,
+    ForbiddenError,
 )
 
 logger = get_logger(__name__)
@@ -55,6 +56,8 @@ def _project_error_status(exc: ProjectError) -> int:
         return int(status.HTTP_502_BAD_GATEWAY)
     if isinstance(exc, AuthenticationError):
         return int(status.HTTP_401_UNAUTHORIZED)
+    if isinstance(exc, ForbiddenError):
+        return int(status.HTTP_403_FORBIDDEN)
     return int(status.HTTP_400_BAD_REQUEST)
 
 

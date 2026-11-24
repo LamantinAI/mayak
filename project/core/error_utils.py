@@ -8,6 +8,7 @@ from project.domain.exceptions import (
     AuthenticationError,
     ConflictError,
     ExternalServiceError,
+    ForbiddenError,
     NotFoundError,
     ProjectError,
     ValidationError,
@@ -24,7 +25,7 @@ def is_client_safe_project_error(error: ProjectError) -> bool:
     # Allow only domain-safe validation and state errors to expose their message.
     return isinstance(
         error,
-        (ValidationError, NotFoundError, ConflictError, AuthenticationError),
+        (ValidationError, NotFoundError, ConflictError, AuthenticationError, ForbiddenError),
     )
 
 

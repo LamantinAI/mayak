@@ -17,7 +17,7 @@ from pydantic import BaseModel, field_validator
 
 from project.core.logging import get_logger
 from project.core.logging.formatters import NDJSONFormatter
-from project.domain.exceptions import ConflictError, ValidationError
+from project.domain.exceptions import ConflictError, ForbiddenError, ValidationError
 
 _VALUE = "Synthetic-Private-Value-7731"
 
@@ -88,6 +88,23 @@ class TestARejectionKeepsTheValueOutOfTheLog:
         assert _VALUE in body
         assert _VALUE not in log
         assert "ValidationError on status" in log
+
+    # A refusal raised by the application layer, inside its own span, the way a service checks
+    # ownership: the client reads the reason, the log only that a ForbiddenError happened.
+    @pytest.mark.unit
+    async def test_a_refusal_naming_the_value(self, fastapi_app: FastAPI) -> None:
+        async def _approve() -> None:
+            with _repository_logger.span("service.probe.approve", level=logging.INFO):
+                raise ForbiddenError(f"only the owner of {_VALUE} may approve it")
+
+        fastapi_app.add_api_route("/__approve", _approve, methods=["POST"])
+
+        status, body, log = await _request(fastapi_app, "POST", "/__approve")
+
+        assert status == 403
+        assert _VALUE in body
+        assert _VALUE not in log
+        assert "ForbiddenError" in log
 
     @pytest.mark.unit
     async def test_a_field_check_quoting_the_value(self, fastapi_app: FastAPI) -> None:
