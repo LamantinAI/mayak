@@ -14,6 +14,8 @@ from project.core.logging.trace_tree import (
     SpanNode,
     _build_tree,
     _parse_events,
+    _trace_events,
+    _trace_meta,
     _TOOL_SPAN_PREFIX,
 )
 
@@ -123,7 +125,11 @@ def format_trace_for_llm(
     events, meta = _parse_events(lines, trace_id)
     if not events:
         return f"({meta.get('selection_error', 'no events found')})"
+    return _format_events(events, meta)
 
+
+# The text of one trace from its already parsed events and their _trace_meta.
+def _format_events(events: list[dict[str, Any]], meta: dict[str, Any]) -> str:
     roots, summary = _build_tree(events)
     if not roots:
         return "(no spans found)"
@@ -212,39 +218,24 @@ def format_trace_for_llm(
     return "\n".join(parts)
 
 
+# Every line parsed once and grouped by trace. Each trace used to re-parse the whole file — lines ×
+# (traces + 1) json.loads calls, 18.6 s for 800 traces — which the shutdown summary
+# (ENABLE_FULL_TRACE) has to finish inside the container's 45 s stop grace.
 def format_all_traces_for_llm(lines: Iterable[str]) -> str:
-    # Collect all events and discover distinct HTTP trace IDs (ordered by appearance).
-    all_events: list[dict[str, Any]] = []
-    http_trace_ids: list[str] = []
-    seen_traces: set[str] = set()
-
-    for raw in lines:
-        raw = raw.strip()
-        if not raw:
-            continue
-        try:
-            ev = json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        tid = ev.get("trace_id")
-        if not tid:
-            continue
-        all_events.append(ev)
-
-        eid = ev.get("event_id", "")
-        if eid == "span.start" and ev.get("span_name") == "http_request" and tid not in seen_traces:
-            http_trace_ids.append(tid)
-            seen_traces.add(tid)
+    by_trace: dict[str, list[dict[str, Any]]] = {}
+    http_trace_ids: dict[str, None] = {}
+    for ev in _trace_events(lines):
+        tid = ev["trace_id"]
+        by_trace.setdefault(tid, []).append(ev)
+        if ev.get("event_id") == "span.start" and ev.get("span_name") == "http_request":
+            http_trace_ids.setdefault(tid)
 
     if not http_trace_ids:
         return "(no HTTP traces found)"
 
-    # Cache lines as strings for reuse
-    cached_lines = [json.dumps(ev) for ev in all_events]
-
     sections: list[str] = []
     for tid in http_trace_ids:
-        tree = format_trace_for_llm(cached_lines, trace_id=tid)
+        tree = _format_events(by_trace[tid], _trace_meta(tid, by_trace[tid]))
         if tree and not tree.startswith("(no"):
             sections.append(tree)
 

@@ -2,7 +2,9 @@
 # SUMMARY: Endpoint tests for liveness and readiness health contracts.
 
 import asyncio
+import contextlib
 import time
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -43,6 +45,126 @@ async def test_readiness_budget_survives_resistant_cancel(monkeypatch: pytest.Mo
         assert time.monotonic() - started < 0.1
     finally:
         release.set()
+
+
+# psycopg at the driver boundary: the real _run_db_probe borrows from the application's own pool,
+# and each borrow waits `delay` before alembic_version answers this code's heads — or `error`.
+class _SlowDriver:
+    def __init__(self, delay: float, error: Exception | None = None) -> None:
+        self.delay, self.error = delay, error
+        self.borrows = self.cancelled = 0
+
+    @contextlib.asynccontextmanager
+    async def connection(self) -> AsyncIterator[AsyncMock]:
+        self.borrows += 1
+        try:
+            await asyncio.sleep(self.delay)
+        except asyncio.CancelledError:
+            self.cancelled += 1
+            raise
+        if self.error is not None:
+            raise self.error
+        yield _mock_pool_with_schema(_heads())[0]
+
+
+@pytest.fixture
+def slow_driver(fastapi_app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> _SlowDriver:
+    driver = _SlowDriver(delay=0.03)
+    monkeypatch.setattr(fastapi_app.state.services["db_pool"], "connection", driver.connection)
+    return driver
+
+
+# Concurrent checks of one database used to get an instant 503 "timed out" while the first probe
+# ran: orchestrator, balancer and monitor landing in the same 30 ms evicted a healthy replica.
+@pytest.mark.unit
+@pytest.mark.parametrize("callers", [2, 5])
+async def test_concurrent_readiness_checks_share_one_probe(
+    async_client: AsyncClient, slow_driver: _SlowDriver, callers: int
+) -> None:
+    responses = await asyncio.gather(*(async_client.get("/health/ready") for _ in range(callers)))
+
+    assert [r.status_code for r in responses] == [200] * callers
+    assert len({r.json()["checks"]["database"]["response_time_ms"] for r in responses}) == 1
+    assert slow_driver.borrows == 1
+
+
+@pytest.mark.unit
+async def test_readiness_joining_a_running_probe_gets_its_verdict(
+    async_client: AsyncClient, slow_driver: _SlowDriver
+) -> None:
+    slow_driver.delay = 0.3
+    first = asyncio.create_task(async_client.get("/health/ready"))
+    await asyncio.sleep(0.1)
+    second = await async_client.get("/health/ready")
+
+    assert second.status_code == 200 and (await first).status_code == 200
+    assert second.json()["checks"]["database"]["response_time_ms"] >= 300
+    assert slow_driver.borrows == 1
+
+
+# A client that hangs up must not take the shared probe with it.
+@pytest.mark.unit
+async def test_cancelled_readiness_request_leaves_the_probe_to_the_others(
+    async_client: AsyncClient, slow_driver: _SlowDriver
+) -> None:
+    slow_driver.delay = 0.2
+    first = asyncio.create_task(async_client.get("/health/ready"))
+    await asyncio.sleep(0.05)
+    second = asyncio.create_task(async_client.get("/health/ready"))
+    await asyncio.sleep(0.05)
+    first.cancel()
+
+    assert (await second).status_code == 200
+    assert (slow_driver.borrows, slow_driver.cancelled) == (1, 0)
+
+
+# Past its deadline a probe answers everyone "timed out" no later than that deadline — a joiner gets
+# what is left of the budget, not a fresh one — and the deadline cancels it with no request waiting.
+@pytest.mark.unit
+async def test_readiness_probe_deadline_bounds_joiners_and_cancels_unattended(
+    async_client: AsyncClient, slow_driver: _SlowDriver, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from project.infrastructure.api.endpoints import health
+
+    monkeypatch.setattr(health, "READINESS_DB_TIMEOUT_SECONDS", 0.6)
+    slow_driver.delay = 5.0
+    first = asyncio.create_task(async_client.get("/health/ready"))
+    await asyncio.sleep(0.3)
+    started = time.monotonic()
+    second = await async_client.get("/health/ready")
+
+    assert time.monotonic() - started < 0.5
+    for response in (second, await first):
+        assert response.status_code == 503
+        assert response.json()["checks"]["database"]["message"] == "Database check timed out"
+    assert (slow_driver.borrows, slow_driver.cancelled) == (1, 1)
+
+    unattended = asyncio.create_task(async_client.get("/health/ready"))
+    await asyncio.sleep(0.05)
+    unattended.cancel()
+    await asyncio.sleep(0.65)
+    assert (slow_driver.borrows, slow_driver.cancelled) == (2, 2)
+    assert not health._active_db_probes
+
+    slow_driver.delay = 0.01
+    assert (await async_client.get("/health/ready")).status_code == 200
+    assert slow_driver.borrows == 3
+
+
+@pytest.mark.unit
+async def test_failed_shared_probe_hides_its_error_from_every_caller(
+    async_client: AsyncClient, slow_driver: _SlowDriver
+) -> None:
+    dsn = "postgres://svc:hunter2@db"  # allow-secret: fixture proving the DSN never reaches the client
+    slow_driver.error = OSError(f"connection to {dsn} refused")
+
+    responses = await asyncio.gather(*(async_client.get("/health/ready") for _ in range(2)))
+
+    for response in responses:
+        assert response.status_code == 503
+        assert response.json()["checks"]["database"]["message"] == "Database connection failed"
+        assert "hunter2" not in response.text
+    assert slow_driver.borrows == 1
 
 
 # Build a connection pool double whose alembic_version answers the given revisions — None for no

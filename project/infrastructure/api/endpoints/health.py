@@ -47,10 +47,13 @@ _MIGRATIONS_DIR = Path(__file__).resolve().parents[4] / "alembic"
 # so a half-open TCP connection cannot stall the probe past k8s timeoutSeconds.
 READINESS_DB_TIMEOUT_SECONDS = 2.0
 
-# psycopg cancellation can itself hang on a dead server; cap probes to one per pool. A stuck
-# probe ends when the DB answers again or the pool's keepalive/tcp_user_timeout (composition_root)
-# drops the socket — until then, staying unhealthy is correct.
-_active_db_probes: dict[int, asyncio.Task[tuple[float, frozenset[str] | None]]] = {}
+# One probe per pool, with the loop-clock deadline it was started with. Callers that arrive while
+# it runs share it until that deadline instead of being refused — concurrent kubelet, balancer and
+# monitor checks used to get an instant false "timed out". psycopg cancellation can itself hang on
+# a dead server, so a probe past its deadline still blocks a second one: it ends when the DB answers
+# again or the pool's keepalive/tcp_user_timeout (composition_root) drops the socket — until then,
+# staying unhealthy is correct.
+_active_db_probes: dict[int, tuple[asyncio.Task[tuple[float, frozenset[str] | None]], float]] = {}
 
 _LLM_HEALTH_UNAVAILABLE_MESSAGE = "LLM service is unavailable"
 
@@ -109,31 +112,31 @@ async def _check_database(pool: AsyncConnectionPool[Any]) -> dict[str, Any]:
 
     # asyncio.wait_for cancels the awaiting coroutine on timeout, but a cancelled psycopg
     # call can itself hang on a dead server — the cancellation is awaited, and that await
-    # never returns. Tracking the task in _active_db_probes and using asyncio.wait instead
-    # lets this function return on the timeout without ever awaiting that cancellation.
+    # never returns. asyncio.wait never awaits it, and never cancels the shared probe when one
+    # caller's request is cancelled: only the probe's own deadline timer cancels it.
     key = id(pool)
-    previous = _active_db_probes.get(key)
-    if previous is not None and not previous.done():
-        return {
-            "status": "unhealthy",
-            "message": _DATABASE_TIMEOUT_MESSAGE,
-            "timeout_seconds": READINESS_DB_TIMEOUT_SECONDS,
-            "response_time_ms": None,
-        }
-    probe = asyncio.create_task(_run_db_probe(pool))
-    _active_db_probes[key] = probe
+    loop = asyncio.get_running_loop()
+    active = _active_db_probes.get(key)
+    if active is not None and not active[0].done():
+        probe, deadline = active
+    else:
+        deadline = loop.time() + READINESS_DB_TIMEOUT_SECONDS
+        probe = asyncio.create_task(_run_db_probe(pool))
+        _active_db_probes[key] = (probe, deadline)
+        timer = loop.call_at(deadline, probe.cancel)
 
-    def settled(task: asyncio.Task[tuple[float, frozenset[str] | None]]) -> None:
-        if _active_db_probes.get(key) is task:
-            _active_db_probes.pop(key, None)
-        if not task.cancelled():
-            task.exception()
+        def settled(task: asyncio.Task[tuple[float, frozenset[str] | None]]) -> None:
+            timer.cancel()
+            if _active_db_probes.get(key, (None,))[0] is task:
+                _active_db_probes.pop(key, None)
+            if not task.cancelled():
+                task.exception()
 
-    probe.add_done_callback(settled)
+        probe.add_done_callback(settled)
     try:
-        done, _ = await asyncio.wait({probe}, timeout=READINESS_DB_TIMEOUT_SECONDS)
-        if not done:
-            probe.cancel()
+        # Past the deadline the wait is zero: a stuck probe answers "timed out" at once.
+        done, _ = await asyncio.wait({probe}, timeout=max(deadline - loop.time(), 0.0))
+        if not done or probe.cancelled():
             raise asyncio.TimeoutError
         response_time_ms, revisions = probe.result()
         latency = round(response_time_ms, 2)
@@ -198,9 +201,6 @@ async def _check_database(pool: AsyncConnectionPool[Any]) -> dict[str, Any]:
             "message": _DATABASE_HEALTH_FAILURE_MESSAGE,
             "response_time_ms": None,
         }
-    finally:
-        if not probe.done():
-            probe.cancel()
 
 
 async def _check_llm_service(request: Request) -> dict[str, Any]:

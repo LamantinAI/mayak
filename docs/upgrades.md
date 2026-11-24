@@ -19,6 +19,7 @@ and let each row's check tell you whether your copy already has the change. Port
 
 | since | pull requests | what the batch was |
 |---|---|---|
+| 1.3.1 | shared readiness probe, single-parse trace view, migration-lock test checks its own database, extraction keeps local work | **Porting the 1.3.1 changes** below; `health.py`, `trace_formatter.py`, `trace_tree.py` and `test_migration_lock.py` are replaced whole when the service never changed them. |
 | 1.3.0 | `ForbiddenError` answered 403, line classifier fix, three recipe rules | **Porting the 1.3.0 changes** below; `validation_support/line_metrics.py` is replaced whole when the service never changed it. |
 | 1.2.1 | strict migration advice, verify scope, handoff rule, tree-diff porting | Port by tree diff below; `scripts/` files a service never changed are replaced whole. |
 | 1.2.0 | onboarding, worktree database, verification and traces | Use the checklist below to port what the service needs. |
@@ -31,6 +32,21 @@ and let each row's check tell you whether your copy already has the change. Port
 
 A pull request to the template that changes what a service inherits adds its row here, and its
 lines below, in the same pull request.
+
+## Porting the 1.3.1 changes
+
+The reference is `git -C <mayak> diff v1.3.0 v1.3.1`; **Port by tree diff** below sorts its paths.
+No table, setting, endpoint, response shape or command changes, and nothing has to be configured.
+Three of the four fixes are in files a service inherited; the fourth is template tooling.
+
+| Change | What to port | How to check |
+|---|---|---|
+| Concurrent `/health/ready` calls got an instant 503 "Database check timed out" while the first probe of the same pool ran, and a cancelled request cancelled the probe | `project/infrastructure/api/endpoints/health.py`, whole when the service never changed it; otherwise `_active_db_probes` and the probe block of `_check_database`. Port the new readiness tests of `tests/application/test_health_endpoints.py`. | `grep -n "call_at(deadline" project/infrastructure/api/endpoints/health.py`; two `/health/ready` requests at once both answer 200 and borrow one connection. |
+| `make format-trace ARGS="<file> --all"`, `make logs ARGS=--all` and the shutdown summary (`ENABLE_FULL_TRACE=true`) re-parsed the whole log once per trace | `project/core/logging/trace_formatter.py` and `project/core/logging/trace_tree.py`, whole when the service never changed them, and the new tests at the end of `tests/application/test_trace_formatter_failure_visibility.py` | `grep -n "def _trace_events" project/core/logging/trace_tree.py`; the output of both views is byte-identical to 1.3.0. |
+| The functional migration-lock test checked the suite's database instead of the probe it migrated | `tests/functional/src/test_migration_lock.py`, whole when the service never changed it | `grep -n "_recorded_revisions" tests/functional/src/test_migration_lock.py`; `make test-e2e` on `DB=postgres` runs both of its tests. |
+
+The extraction's refusal on local work in the template's paths (`scripts/extract_reference_vertical.py`)
+belongs to the template's own tooling, which a service made from it no longer has.
 
 ## Porting the 1.3.0 changes
 
