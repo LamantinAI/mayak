@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 
 # ==================== DATA STRUCTURES ====================
@@ -84,6 +84,21 @@ def _last_own_frame(traceback_text: str | None) -> str | None:
 # ==================== PARSING ====================
 
 
+# Each line parsed once, for every reader: an event is a JSON object with a non-empty string
+# trace_id; blank, broken and trace-less lines are skipped.
+def _trace_events(lines: Iterable[str]) -> Iterator[dict[str, Any]]:
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            ev = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(ev, dict) and isinstance(ev.get("trace_id"), str) and ev["trace_id"]:
+            yield ev
+
+
 # Returns (filtered_events, trace_meta) where trace_meta has header info.
 def _parse_events(
     lines: Iterable[str],
@@ -92,18 +107,8 @@ def _parse_events(
     all_events: list[dict[str, Any]] = []
     auto_trace_id: str | None = trace_id
 
-    for raw in lines:
-        raw = raw.strip()
-        if not raw:
-            continue
-        try:
-            ev = json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        tid = ev.get("trace_id")
-        if not isinstance(tid, str) or not tid:
-            continue
-
+    for ev in _trace_events(lines):
+        tid = ev["trace_id"]
         # Auto-detect: track the last trace that has an http_request span.start
         if trace_id is None:
             eid = ev.get("event_id", "")
@@ -137,9 +142,13 @@ def _parse_events(
 
     # Filter to target trace
     filtered = [ev for ev in all_events if ev.get("trace_id") == auto_trace_id]
+    return filtered, _trace_meta(auto_trace_id or "", filtered)
 
+
+# The header facts of one trace's events — one place for the single and the all-traces view.
+def _trace_meta(trace_id: str, filtered: list[dict[str, Any]]) -> dict[str, Any]:
     # The first start event has the request metadata. Its lifecycle parent has no trace ID.
-    meta: dict[str, Any] = {"trace_id": auto_trace_id or ""}
+    meta: dict[str, Any] = {"trace_id": trace_id}
     for ev in filtered:
         if ev.get("event_id") == "span.start":
             meta["session_id"] = ev.get("session_id", "")
@@ -152,8 +161,7 @@ def _parse_events(
             meta["method"] = data.get("method") or params.get("method", "")
             meta["path"] = data.get("path") or params.get("path", "")
             break
-
-    return filtered, meta
+    return meta
 
 
 # ==================== TREE BUILDING ====================

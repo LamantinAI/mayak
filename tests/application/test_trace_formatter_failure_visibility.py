@@ -354,3 +354,127 @@ class TestARejectionIsShownAndIsNotAFailure:
         assert trace_ids == [_REJECTED_TRACE, _OK_TRACE]
         assert failed == set()
         assert cancelled == set()
+
+
+# Five lines per trace: the request, one hidden-below-the-level tool span inside it, its summary.
+def _uniform_log(traces: int) -> list[str]:
+    lines: list[str] = []
+    for n in range(traces):
+        tid, root, tool = f"{n:08x}-uniform", f"r{n}", f"t{n}"
+        common: dict[str, Any] = {"trace_id": tid, "parent_span_id": None}
+        lines += [
+            _line(**common, event_id="span.start", span_id=root, span_name="http_request"),
+            _line(
+                **{**common, "parent_span_id": root},
+                event_id="span.start",
+                span_id=tool,
+                span_name="agent.tool.lookup",
+                data={"input_params": {"query": f"q{n}"}},
+            ),
+            _line(
+                **{**common, "parent_span_id": root},
+                event_id="span.finish",
+                span_id=tool,
+                span_name="agent.tool.lookup",
+                duration_ms=1.0,
+            ),
+            _line(
+                **common,
+                event_id="span.finish",
+                span_id=root,
+                span_name="http_request",
+                duration_ms=2.0,
+            ),
+            _line(
+                **common,
+                event_id="request.summary",
+                data={
+                    "child_span_count": 1,
+                    "filtered_child_span_count": 1,
+                    "outcome": "ok",
+                    "status_code": 200,
+                },
+            ),
+        ]
+    return lines
+
+
+def _count_json_loads(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    calls = [0]
+    real = json.loads
+
+    def counting(*args: Any, **kwargs: Any) -> Any:
+        calls[0] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(json, "loads", counting)
+    return calls
+
+
+# Each trace used to re-parse the whole file: lines × (traces + 1) parses, 8 200 for these 200
+# lines, four times as many when the traces double. One parse per line, whatever the count.
+@pytest.mark.unit
+@pytest.mark.parametrize("traces", [40, 80])
+def test_all_traces_parse_each_line_once(monkeypatch: pytest.MonkeyPatch, traces: int) -> None:
+    lines = _uniform_log(traces)
+    calls = _count_json_loads(monkeypatch)
+
+    rendered = format_all_traces_for_llm(lines)
+
+    assert calls[0] <= len(lines)
+    assert rendered.count("\n\n---\n\n") == traces - 1
+
+
+# The all-traces view is the single view of each HTTP trace, in order of its first request start,
+# joined — interleaved traces, failures, cancellations, rejections, legacy summaries and hidden
+# spans included, with blank, broken and trace-less lines skipped.
+@pytest.mark.unit
+def test_all_traces_is_the_single_view_of_each_joined() -> None:
+    rejected, cancelled = _log_with_rejected_then_ok()[:4], _log_with_cancelled_then_ok()[:3]
+    legacy = [
+        line.replace(_FAILED_TRACE, "eeeeeeee5555").replace(
+            '"outcome": "failed"', '"success": false'
+        )
+        for line in _log_with_failed_then_ok()[:4]
+    ]
+    interleaved = [line for pair in zip(rejected, cancelled) for line in pair] + rejected[3:]
+    noise = ["", "{broken", _line(seq=0, event_id="startup", msg="no trace"), "   "]
+    lines = noise + interleaved + legacy + _uniform_log(2) + _log_with_failed_then_ok()
+
+    singles = [format_trace_for_llm(lines, trace_id=tid) for tid in trace_inventory(lines)[0]]
+
+    assert len(singles) == 7 and "FAILED (legacy)" in singles[2]
+    assert format_all_traces_for_llm(lines) == "\n\n---\n\n".join(singles)
+
+
+# A request start whose trace_id is not a string used to stop the whole view with TypeError, and a
+# JSON line that is not an object with AttributeError; both are skipped like a broken line.
+@pytest.mark.unit
+def test_all_traces_skips_events_that_are_not_trace_events() -> None:
+    odd = [_line(trace_id=7, event_id="span.start", span_id="x", span_name="http_request"), "[1]"]
+
+    rendered = format_all_traces_for_llm(odd + _log_with_failed_then_ok())
+
+    assert rendered == format_all_traces_for_llm(_log_with_failed_then_ok())
+    assert _FAILED_TRACE[:8] in rendered and _OK_TRACE[:8] in rendered
+
+
+@pytest.mark.unit
+def test_shutdown_summary_parses_once_and_keeps_the_raw_lines(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from project.core.logging.trace_formatter import prepend_trace_summary
+
+    lines = [line + "\n" for line in _uniform_log(400)]
+    log = tmp_path / "app.ndjson"
+    log.write_text("".join(lines), encoding="utf-8")
+    expected = format_all_traces_for_llm(lines).split("\n")
+    calls = _count_json_loads(monkeypatch)
+
+    assert prepend_trace_summary(str(log)) is True
+
+    assert calls[0] <= len(lines)
+    written = log.read_text(encoding="utf-8").splitlines(keepends=True)
+    header = [f"# {line}\n" for line in expected]
+    assert written[2 : 2 + len(header)] == header
+    assert written[-len(lines) :] == lines
