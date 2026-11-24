@@ -19,6 +19,7 @@ from typing import AsyncGenerator
 import psycopg
 import pytest
 import pytest_asyncio
+from alembic.script import ScriptDirectory
 from psycopg import sql
 
 from settings import postgres_settings
@@ -91,6 +92,34 @@ async def _run_alembic_upgrade(database: str) -> tuple[int, str]:
     return process.returncode or 0, output.decode(errors="replace")
 
 
+# The revisions `database` records, empty when nothing migrated it. The name goes to the driver
+# beside the suite's DSN, never edited into its text: the shared builder carries it as ?dbname=, so
+# the replace of "/<db>" this used before matched nothing and read the suite's own database, at head
+# whether or not the probe was migrated (1.3.1). current_database() proves which one answered.
+async def _recorded_revisions(database: str) -> frozenset[str]:
+    connection = await psycopg.AsyncConnection.connect(
+        postgres_settings.database_url, dbname=database, autocommit=True
+    )
+    try:
+        cursor = await connection.execute(
+            "SELECT current_database(), to_regclass('alembic_version') IS NOT NULL"
+        )
+        row = await cursor.fetchone()
+        assert row is not None and row[0] == database, f"connected to {row}, not {database}"
+        if not row[1]:
+            return frozenset()
+        cursor = await connection.execute("SELECT version_num FROM alembic_version")
+        return frozenset(str(found[0]) for found in await cursor.fetchall())
+    finally:
+        await connection.close()
+
+
+# The check below is only as good as this: a probe nobody migrated must read as unmigrated.
+@pytest.mark.asyncio
+async def test_an_unmigrated_probe_records_no_revision(probe_database: str) -> None:
+    assert await _recorded_revisions(probe_database) == frozenset()
+
+
 # Verify the advisory lock serialises concurrent migrations instead of letting one crash.
 @pytest.mark.asyncio
 async def test_two_processes_migrating_at_once_both_succeed(probe_database: str) -> None:
@@ -106,16 +135,7 @@ async def test_two_processes_migrating_at_once_both_succeed(probe_database: str)
         f"exit {code}:\n{output}" for code, output in results if code != 0
     )
 
-    # Succeeding is not enough — the schema has to be at head afterwards. A lock
-    # that made both processes skip the work quietly would satisfy the assertion above.
-    connection = await psycopg.AsyncConnection.connect(
-        postgres_settings.database_url.replace(f"/{postgres_settings.db}", f"/{probe_database}"),
-        autocommit=True,
-    )
-    try:
-        cursor = await connection.execute("SELECT count(*) FROM alembic_version")
-        row = await cursor.fetchone()
-    finally:
-        await connection.close()
-
-    assert row is not None and row[0] == 1
+    # Succeeding is not enough — the probe has to be at this image's heads afterwards. A lock that
+    # made both processes skip the work quietly would satisfy the assertion above.
+    heads = frozenset(ScriptDirectory("/app/alembic").get_heads())
+    assert heads and await _recorded_revisions(probe_database) == heads
