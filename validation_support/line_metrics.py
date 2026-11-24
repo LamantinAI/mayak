@@ -108,10 +108,24 @@ def decode_source(data: bytes) -> tuple[str | None, str]:
         return None, f"UnicodeDecodeError while reading source: {error.reason}"
 
 
+# Normalise line endings to `\n` and split the source the way Python's tokenizer does.
+# str.splitlines() also breaks at \f, \v, \x1c-\x1e, \x85, U+2028 and U+2029, which the tokenizer
+# keeps inside a line: one of them in a comment or a string shifted every label after it by a row.
+# Measured on 1.2.1: `# c\n\f\nx = 1  # inline\n# d\n` labelled the statement a comment and the
+# last comment code. CRLF and a lone CR end a line in both, so they are folded into `\n` first.
+# Returns: The normalised source and its physical lines without terminators.
+def split_physical_lines(source: str) -> tuple[str, list[str]]:
+    normalised = source.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalised.split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    return normalised, lines
+
+
 # Label every physical line of a module as code, comment, docstring, or blank.
 # Returns: Per-line labels (index 0 is line 1), the analysis status, and a detail string.
 def classify_lines(source: str) -> tuple[list[str], str, str]:
-    lines = source.splitlines()
+    source, lines = split_physical_lines(source)
     labels = [LINE_BLANK if not line.strip() else LINE_CODE for line in lines]
     if not lines:
         return labels, STATUS_OK, ""
@@ -153,7 +167,8 @@ def compute_module_metrics(data: bytes) -> ModuleMetrics:
         )
 
     labels, status, detail = classify_lines(source)
-    raw_lines = len(source.splitlines())
+    source, lines = split_physical_lines(source)
+    raw_lines = len(lines)
 
     # When the tokenizer refused the file, comment detection is unreliable, so the
     # budget falls back to raw lines. A file the tools cannot read must not slip under the limit

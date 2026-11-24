@@ -84,7 +84,9 @@ next file supplies; it formats what you changed. `make quality-gates` once the s
    table emptied. A mock of the pool proves only what its author imagined. Judge a query by the
    rows it returns, on data chosen so a wrong one shows: rows inserted in the reverse of the
    expected order, a page one smaller than the matches, and for each filter a second row that
-   differs only in the filtered column — another parent row at the same moment included. With two
+   differs only in the filtered column — another parent row at the same moment included. A list
+   test stores more rows than one page holds and follows the cursor or offset to the next page:
+   every row once, none repeated, none skipped; data that fits one page proves nothing. With two
    constraints on one table, the repository's own test names the one that refused
    (`pytest.raises(ConflictError, match=...)`): a bare 409 passes whichever fired. Wrap each method in
    `with logger.span("db.<name>.<op>", ...)` and put the outcome in `span.output` (a row count, a
@@ -106,10 +108,14 @@ next file supplies; it formats what you changed. `make quality-gates` once the s
    two-process test in `tests/db/test_reference_task_repository.py`. A rule no constraint can
    name — a total across rows, such as a weekly ceiling — takes `FOR UPDATE` and a re-check on
    every path that writes, update included: "Where the single-row token does not reach" in the same ADR.
+   A refusal about this caller — the row is someone else's — raises `ForbiddenError` from the
+   service, answered 403 in the usual envelope; who may do what is the vertical's to decide.
 6. **The endpoint and all three wiring files in the same step.** The endpoint's last import is the
    typed alias defined in `dependencies.py`. `service_registration.py` and `router_registration.py`
    belong here too — the next step's `TestWiring` builds the application from both.
-7. Unit tests.
+7. Unit tests. A rule that reads the date gets it as an argument or from an injected clock, and
+   its test names a fixed moment (`date(2026, 1, 31)`), never today's: two products made from this
+   template shipped tests that went red once the calendar moved on.
 8. `make verify`.
 
 Describe what the new vertical does for the product only in `PROJECT.md`.

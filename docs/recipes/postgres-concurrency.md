@@ -18,6 +18,16 @@ database constraints for other writers. When several resources are locked, acqui
 stable order. Use bounded retries for transient deadlocks only when it is safe to replay the
 whole transaction after rollback. A deadlock alone does not establish a booking conflict.
 
+Lock with one statement and read with the next. A `SELECT ... JOIN ... FOR UPDATE` that waited for
+another writer re-checks the new version of the locked row against the joined rows as its own
+snapshot saw them; when that writer changed the join, the row drops out and the query returns
+nothing. In a product made from this template a lookup shaped that way answered 404 to 38 of 40
+concurrent HTTP requests that should have got 409. When the operation allows it, lock the parent by
+its key alone (`SELECT id FROM items WHERE id = %s FOR UPDATE`), then read what the decision needs
+with a separate statement in the same transaction: under READ COMMITTED a new statement sees what
+the other writer committed. Test it with a second connection that holds the lock while the first
+request waits.
+
 ## Upgrade an existing database
 
 - Provision `btree_gist` before using equality with GiST. Alembic autogeneration does not add

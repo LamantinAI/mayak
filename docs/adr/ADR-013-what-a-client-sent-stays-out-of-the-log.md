@@ -61,5 +61,5 @@ Each is recorded as it is, and a vertical should know it:
 ## Reproduce
 
 `tests/application/test_user_values_stay_out_of_logs.py` sends a synthetic value through a 409, a
-domain 422, a field check's 422 and an `HTTPException` 404, and reads the NDJSON the project's
+domain 422, a `ForbiddenError` 403, a field check's 422 and an `HTTPException` 404, and reads the NDJSON the project's
 loggers write: the value is in each response and in no record.

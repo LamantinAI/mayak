@@ -2,8 +2,8 @@
 # FILE: check_product_from_template.py
 # SUMMARY: Build a throwaway project from this checkout the way a new service is made, and check it.
 # Copies the checkout into a fresh Git repository, runs the documented bootstrap, and counts the
-# inherited Python. With --gates and --e2e it also verifies the resulting product. Template CI
-# exercises both database profiles. A descendant has no use for this script, so extraction removes it.
+# inherited lines of Python code. With --gates and --e2e it also verifies the resulting product.
+# Template CI exercises both database profiles. A descendant has no use for this script, so extraction removes it.
 
 from __future__ import annotations
 
@@ -18,15 +18,20 @@ import tempfile
 from pathlib import Path
 from typing import Sequence
 
+from validation_support.line_metrics import STATUS_OK, measure_path
+
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-# The ceiling on non-empty Python lines a project inherits: the post-bench2 plan's 19-21 thousand,
-# reached once the navigation maps and their query tool left the product (step 7). Raised to 22 000
-# by the owner on 2026-09-28: the product stood at 20 983, and the fixes bench3 asked for (the
-# layer validator, provider errors, the 500's status, the sample's update conflict) add code a
-# project inherits. bench3 found no link between this count and what an agent pays; it is a brake on
-# the diff, not a goal.
-DEFAULT_LINE_LIMIT = 22_000
+# The ceiling on lines of Python code a project inherits, counted by
+# validation_support/line_metrics.py like the module budget: a comment, a docstring or a blank
+# line costs nothing, a statement carrying a trailing comment costs one. Until 1.3.0 this counted
+# every non-empty line against 22 000 (set by the owner on 2026-09-28 at 20 983), so the cheapest
+# way back under it was deleting explanations. Re-measured in code lines on 2026-11-24: a project
+# made from v1.2.1 carries 17 910 under both DB=postgres and DB=none (21 957 non-empty), and
+# 22 000 non-empty stood for about 17 945. The new ceiling keeps about 3 % over that base, less
+# than the owner's 2026-09-28 margin; the measurement is in docs/releases/1.3.0.md. It is a brake
+# on the diff, not a goal: bench3 found no link between this count and what an agent pays.
+DEFAULT_LINE_LIMIT = 18_500
 
 PROBE_NAME = "Harbor Probe"
 PROBE_DOMAIN = "Berth bookings for a small marina — a throwaway project made to check the template."
@@ -105,13 +110,23 @@ def replace_identity(root: Path) -> None:
     settings_path.write_text(renamed, encoding="utf-8")
 
 
-def count_python_lines(root: Path) -> int:
-    total = 0
-    for path in root.rglob("*.py"):
+# Lines of code in every Python file of the tree, and the non-empty lines the count used before
+# 1.3.0, printed beside it so a report can be compared with an older one. A file the classifier cannot read
+# stops the check naming it: falling back to its raw length, as the module budget may, would charge
+# comments here again, and skipping it would let code through uncounted.
+def count_python_lines(root: Path) -> tuple[int, int]:
+    code = non_empty = 0
+    for path in sorted(root.rglob("*.py")):
         if ".venv" in path.parts or "node_modules" in path.parts:
             continue
-        total += sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
-    return total
+        metrics = measure_path(path)
+        if metrics.status != STATUS_OK:
+            raise SystemExit(
+                f"cannot measure {path.relative_to(root)}: {metrics.status}, {metrics.detail}"
+            )
+        code += metrics.code_lines
+        non_empty += metrics.raw_lines - metrics.blank_lines
+    return code, non_empty
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -120,7 +135,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--gates", action="store_true", help="run make quality-gates in the project"
     )
     parser.add_argument("--e2e", action="store_true", help="run make test-e2e in the project")
-    parser.add_argument("--limit", type=int, default=DEFAULT_LINE_LIMIT)
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=DEFAULT_LINE_LIMIT,
+        help="most lines of Python code a project may carry; comments and docstrings are free",
+    )
     parser.add_argument("--db", choices=("postgres", "none"), default="none")
     parser.add_argument("--keep", action="store_true", help="leave the project directory behind")
     args = parser.parse_args([] if argv is None else argv)
@@ -130,7 +150,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     project.mkdir()
     try:
         copy_checkout(ROOT_DIR, project)
-        before = count_python_lines(project)
+        before, before_non_empty = count_python_lines(project)
         env = {
             k: v
             for k, v in hermetic_env().items()
@@ -160,11 +180,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         if leftovers:
             print("FAIL: these files still import the reference vertical: " + ", ".join(leftovers))
             return 1
-        after = count_python_lines(project)
-        print(f"non-empty lines of Python: template {before}, project {after} (limit {args.limit})")
+        after, after_non_empty = count_python_lines(project)
+        print(
+            f"lines of Python code: template {before}, project {after} (limit {args.limit}); "
+            f"non-empty, the unit before 1.3.0: template {before_non_empty}, "
+            f"project {after_non_empty}"
+        )
         if after > args.limit:
             print(
-                f"FAIL: a project made from this template carries {after} lines, over {args.limit}"
+                f"FAIL: a project made from this template carries {after} lines of code, "
+                f"over {args.limit}"
             )
             return 1
         if args.gates:

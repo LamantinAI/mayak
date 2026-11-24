@@ -19,6 +19,7 @@ and let each row's check tell you whether your copy already has the change. Port
 
 | since | pull requests | what the batch was |
 |---|---|---|
+| 1.3.0 | `ForbiddenError` answered 403, line classifier fix, three recipe rules | **Porting the 1.3.0 changes** below; `validation_support/line_metrics.py` is replaced whole when the service never changed it. |
 | 1.2.1 | strict migration advice, verify scope, handoff rule, tree-diff porting | Port by tree diff below; `scripts/` files a service never changed are replaced whole. |
 | 1.2.0 | onboarding, worktree database, verification and traces | Use the checklist below to port what the service needs. |
 | 2026-11-20 | certifi lock refresh | Replace the affected certifi release before rebuilding images. |
@@ -30,6 +31,20 @@ and let each row's check tell you whether your copy already has the change. Port
 
 A pull request to the template that changes what a service inherits adds its row here, and its
 lines below, in the same pull request.
+
+## Porting the 1.3.0 changes
+
+The reference is `git -C <mayak> diff v1.2.1 v1.3.0`; **Port by tree diff** below sorts its paths.
+No table, setting or existing endpoint changes, and nothing has to be configured.
+
+| Change | What to port | How to check |
+|---|---|---|
+| The application layer refuses an operation with 403 | Add `ForbiddenError` to `project/domain/exceptions.py`, its `HTTP_403_FORBIDDEN` branch to `_project_error_status` in `project/infrastructure/api/exception_handlers.py`, and the class to `is_client_safe_project_error` in `project/core/error_utils.py`. A service that wrote its own 403 class or handler keeps one of them: raise the kernel's class and delete the copy, or make its own a subclass of `ForbiddenError` and drop its handler. | `grep -n "class ForbiddenError" project/domain/exceptions.py`. Port the 403 cases of `tests/application/test_client_errors_are_not_service_errors.py` and `test_user_values_stay_out_of_logs.py` and run them: 403 in the `ProjectError` envelope, a WARNING under `client_error.*`, the message absent from the log. An `HTTPException(403)` still answers in its own envelope. |
+| The module-size check mislabels every line after a form feed, U+0085 or U+2028 | `validation_support/line_metrics.py`, whole when the service never changed it | `grep -n split_physical_lines validation_support/line_metrics.py`; `make gate-fast` |
+| Three rules for tests and locking | Steps 4, 5 and 7 of `.agents/skills/add-vertical/SKILL.md`; the paragraph on locking before a `JOIN` in `docs/recipes/postgres-concurrency.md` | `grep -n "Lock with one statement" docs/recipes/postgres-concurrency.md` |
+
+The new unit of `make check-product` — lines of code instead of non-empty lines — belongs to the
+template's own tooling, which a service does not have.
 
 ## Agent onboarding and verification
 
