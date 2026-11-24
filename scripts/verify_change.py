@@ -208,6 +208,18 @@ def main() -> int:
             f"; {len(paths)} changed paths, {len(local)} uncommitted",
             flush=True,
         )
+    # Without a base only the uncommitted paths are in scope, and a final line identical to a
+    # full run's let an agent quote it for committed work nobody measured. The starting commit
+    # is not guessed: a whole project left uncommitted on a snapshot and work already committed
+    # look the same from here, so only the person handing off can name it.
+    only_local = base is None and bool(paths)
+    if base is None:
+        scope = "project only (clean tree, no base)"
+        if paths:
+            scope = "uncommitted paths only (no base); commits are not measured"
+    else:
+        scope = f"change since {base} ({'explicit' if args.base else 'auto'} base)"
+    print(f"verify: scope: {scope}", flush=True)
     report = Path("coverage.xml")
     env = os.environ | {
         "STRICT_GENERATED": "1",
@@ -244,7 +256,14 @@ def main() -> int:
         )
         print(f"verify: test-e2e: PASS (product test files: {', '.join(product) or 'none'})")
     else:
-        print("verify: test-e2e: N/A (no runtime, migration, container or functional test changes)")
+        where = " in the uncommitted paths; commits were not examined" if only_local else ""
+        print(
+            f"verify: test-e2e: N/A (no runtime, migration, container or functional test changes{where})"
+        )
+    if only_local:
+        print("verify: full handoff: make verify DIFF_COMPARE_BRANCH=<starting commit>")
+        print("verify: PASS — project and uncommitted paths only; commits were not measured")
+        return 0
     scope = "project only; no change was measured" if not paths else "project and change"
     print(f"verify: PASS — {scope}")
     return 0

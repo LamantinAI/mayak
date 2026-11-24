@@ -136,10 +136,15 @@ The full gate includes the **db tier**. It tests queries and schema changes agai
 PostgreSQL. You can set `TEST_DATABASE_URL` to a PostgreSQL test database you control. A stateless
 project skips the db tier. A host HTTP test must execute the body of every handler. Docker E2E runs separately and lists any product test files in the image. A clean repository without an integration branch still checks routes and the image; pass `DIFF_COMPARE_BRANCH=<starting commit>` to measure committed changes.
 Use `make verify E2E=1` to request it for a diff that would otherwise skip it.
-For a committed change, pass `make verify DIFF_COMPARE_BRANCH=<baseline>`. The command names
-the resolved base and labels zero measured lines as skipped. Resolve files that differ between
-the index and working tree before verification. Changes under `project/` select Docker E2E even
-when the HTTP handler stayed the same.
+For a committed change, pass `make verify DIFF_COMPARE_BRANCH=<baseline>`. The command labels
+zero measured lines as skipped, and its `verify: scope:` line names what it measured:
+`change since <ref> (explicit base)` for the branch you passed; `change since <ref> (auto base)`
+for `origin/HEAD`, `origin/main` or `origin/master`; `project only (clean tree, no base)` for a
+clean checkout with neither; `uncommitted paths only (no base)` when only the working tree was
+measured, which ends with `project and uncommitted paths only; commits were not measured` and
+prints the full handoff command, `make verify DIFF_COMPARE_BRANCH=<starting commit>`. Resolve
+files that differ between the index and working tree before verification. Changes under
+`project/` select Docker E2E even when the HTTP handler stayed the same.
 
 For PostgreSQL scheduling rules, see the [concurrent write recipe](docs/recipes/postgres-concurrency.md).
 
@@ -253,7 +258,8 @@ Notes worth knowing:
 | `docs/adr/` | why the load-bearing decisions were made, one dated document each |
 | `docs/upgrades.md` | for a service made from an earlier version: what changed in the kernel it inherited, what to port first, how to check |
 | `git grep -n '^# SUMMARY:'` | a one-line summary per module: every Python file opens with one |
-| `PROJECT.md` | what a given project does — the file you rewrite first |
+| `PROJECT.md` | the current description of the product — the file you rewrite first |
+| `docs/project_context.json` | required metadata and template provenance; not a second description |
 
 Comments in the code carry the reasoning: where a decision was hard, the file says what was tried and
 why the obvious alternative was rejected. Those comments are the channel that reaches a reader who

@@ -54,7 +54,8 @@ Two shapes were rejected:
 - `POSTGRES_ENABLED` is deliberately **not** `MIGRATIONS_ALLOW_SKIP`. The latter is the emergency
   hatch for "the database is temporarily unreachable" and stays an error-suppressor; this flag
   describes the project's composition. One switch covering both would hide a real outage behind a
-  design choice.
+  design choice. The hatch relaxes only the strictness CI brings; under `make verify` and
+  `--require-database` it changes nothing.
 - `sqlalchemy`, `alembic` and `psycopg` are still installed unconditionally. Moving them to
   extras needs conditional imports in three modules and is a separate decision.
 - A bare `docker compose up` now starts the application without a database. The database lives in

@@ -30,9 +30,7 @@ def main() -> int:
     makefile = (root / "Makefile").read_text(encoding="utf-8")
     if "\nverify:" not in makefile:
         print("ACTION: port the onboarding and verification changes described in docs/upgrades.md.")
-    print(
-        "Mayak 1.2.0: use the feature-by-feature porting checks in the current template's docs/upgrades.md."
-    )
+    print("Next: follow 'Port by tree diff' in the current template's docs/upgrades.md.")
     return 0
 
 

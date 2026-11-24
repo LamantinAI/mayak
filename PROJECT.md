@@ -3,7 +3,8 @@
 > This file describes **WHAT** the project does (business domain).
 > `AGENTS.md` describes **HOW** the kernel works (technical structure).
 >
-> The machine-readable counterpart lives in `docs/project_context.json`.
+> `docs/project_context.json` holds required metadata and template provenance, not a second copy
+> of this description; update this file when behavior changes.
 
 ## Project Name
 

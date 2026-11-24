@@ -23,4 +23,4 @@ after correcting an environment problem. Keep a dedicated copy for template deve
 
 For an existing service, run `make init-project`, then `make db-up-worktree` if it uses PostgreSQL.
 Alembic and the launcher read this checkout's assigned port unless you explicitly select another database through the environment.
-Use `make run-local` to serve it. Before handoff, run `make verify DIFF_COMPARE_BRANCH=<starting commit>` to measure committed changes and quote its final line.
+Use `make run-local` to serve it. Before handoff, run `make verify DIFF_COMPARE_BRANCH=<starting commit>` to measure committed changes and quote its `verify: scope:` line and final line.
