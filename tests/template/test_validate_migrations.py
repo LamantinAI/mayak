@@ -152,7 +152,7 @@ class TestValidateMigrations:
         output = capsys.readouterr().out
 
         assert exit_code == 1
-        assert "requires it" in output
+        assert "migrations.database_required" in output
 
     @pytest.mark.unit
     def test_ci_skip_can_be_opted_back_in(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -658,3 +658,107 @@ class TestADatabaseAheadOfThisBranch:
         assert playbook is not None
         assert "make db-up-worktree" in str(playbook["suggested_fix"])
         assert "git fetch" in str(playbook["suggested_fix"])
+
+
+# Verify a strict run without a database names a move that can make it pass where it runs.
+# Measured on 1.2.0 in the LotTrail and Shelfmark benchmarks: every session that worked with
+# the database met this failure under `make verify`, and its message offered
+# MIGRATIONS_ALLOW_SKIP=1, which that strict mode ignores, so following it failed again.
+class TestAStrictRunWithoutADatabase:
+    @pytest.fixture
+    def checkout(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+        import scripts.validate_migrations as validate_migrations
+
+        for name in list(os.environ):
+            if name.startswith("POSTGRES_") or name in {"CI", "MIGRATIONS_ALLOW_SKIP"}:
+                monkeypatch.delenv(name)
+        monkeypatch.setenv("POSTGRES_ENABLED", "true")
+        monkeypatch.setenv("MAYAK_REQUIRE_MIGRATION_DB", "1")
+        monkeypatch.setattr(validate_migrations, "ROOT_DIR", tmp_path)
+        monkeypatch.setattr(validate_migrations, "_is_database_reachable", lambda: False)
+        (tmp_path / ".env").write_text("POSTGRES_USER=probe_user\nPOSTGRES_PASSWORD=probe_secret\n")
+        return tmp_path
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("allow_skip", [None, "1"])
+    def test_a_local_checkout_is_told_to_start_its_own_database(
+        self,
+        checkout: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        allow_skip: str | None,
+    ) -> None:
+        if allow_skip is not None:
+            monkeypatch.setenv("MIGRATIONS_ALLOW_SKIP", allow_skip)
+
+        exit_code = main()
+        output = capsys.readouterr().out
+
+        assert exit_code == 1
+        assert "migrations.database_required" in output
+        assert "make db-up-worktree" in output
+        assert "--require-database" in output
+        assert "MIGRATIONS_ALLOW_SKIP" not in output
+        assert "Inspect the failing Alembic" not in output
+        assert "probe_user" not in output and "probe_secret" not in output
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "environment",
+        [
+            {"POSTGRES_HOST": "db.invalid"},
+            {"CI": "true", "MAYAK_REQUIRE_MIGRATION_DB": ""},
+        ],
+    )
+    def test_an_explicit_target_is_not_sent_to_the_worktree_database(
+        self,
+        checkout: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        environment: dict[str, str],
+    ) -> None:
+        for name, value in environment.items():
+            monkeypatch.setenv(name, value)
+
+        exit_code = main()
+        output = capsys.readouterr().out
+
+        assert exit_code == 1
+        assert "The target is set explicitly" in output
+        assert "make db-up-worktree" not in output
+
+    @pytest.mark.unit
+    def test_a_checkout_without_settings_is_told_to_create_them_first(
+        self, checkout: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (checkout / ".env").unlink()
+
+        exit_code = main()
+        output = capsys.readouterr().out
+
+        assert exit_code == 1
+        assert 0 <= output.index("make init-project") < output.index("make db-up-worktree")
+
+    @pytest.mark.unit
+    def test_json_and_playbook_agree_with_the_printed_advice(
+        self, checkout: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        import json
+
+        exit_code = main(["--json"])
+        payload = json.loads(capsys.readouterr().out)
+        issue = payload["issues"][0]
+        playbook = get_migrations_rule_playbook("migrations.database_required")
+
+        assert exit_code == 1
+        assert payload["status"] == "error"
+        assert (issue["rule_id"], issue["returncode"]) == ("migrations.database_required", 1)
+        assert "\n" not in issue["message"] and "make db-up-worktree" in issue["message"]
+        assert playbook is not None
+        # doctor_ai_context prints likely_fix_shape, not suggested_fix; both name the move.
+        assert "make db-up-worktree" in str(playbook["suggested_fix"])
+        assert "make db-up-worktree" in str(playbook["likely_fix_shape"])
+        assert playbook["smallest_command_to_rerun"] == (
+            "uv run python scripts/validate_migrations.py --require-database"
+        )
+        assert "docker compose" not in " ".join(str(value) for value in playbook.values())

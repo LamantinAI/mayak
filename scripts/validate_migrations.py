@@ -158,24 +158,24 @@ _MIGRATIONS_RULE_PLAYBOOKS: dict[str, dict[str, object]] = {
     },
     "migrations.database_required": {
         "meaning": (
-            "Alembic could not connect to the configured database while the validator was "
-            "required to actually verify migrations (CI, or --require-database). Skipping here "
-            "would let a broken revision chain reach main with a green pipeline."
+            "Alembic could not connect while this run had to verify migrations: under `make "
+            "verify`, with --require-database, or with CI=true. MIGRATIONS_ALLOW_SKIP=1 relaxes "
+            "only CI; under the other two it changes nothing. Skipping here would let a broken "
+            "revision chain reach main with a green pipeline."
         ),
         "suggested_fix": (
-            "Provision Postgres for this run — a `services: postgres` block in the CI job, or "
-            "`docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d db` locally — and rerun the validator."
+            "For this checkout, `make db-up-worktree` (after `make init-project` without a .env) "
+            "and rerun. For a CI job, add a Postgres service to it; for a target set explicitly "
+            "through POSTGRES_*, start or fix that database."
         ),
-        "read_first": [
-            ".github/workflows/ci.yml",
-            "docker-compose.yml",
-        ],
-        "smallest_command_to_rerun": "uv run python scripts/validate_migrations.py",
+        "read_first": [".env", "Makefile", ".github/workflows/ci.yml"],
+        "smallest_command_to_rerun": "uv run python scripts/validate_migrations.py --require-database",
         "likely_fix_shape": (
-            "Add or repair the Postgres service and the POSTGRES_* environment for this job."
+            "Start the database this run points at: `make db-up-worktree` for this checkout; "
+            "for CI, add or repair the job's Postgres service and its POSTGRES_* environment."
         ),
         "next_checks": [
-            "uv run python scripts/validate_migrations.py",
+            "uv run python scripts/validate_migrations.py --require-database",
         ],
         "stop_widening_condition": (
             "Stop once the validator actually runs `alembic upgrade head` and `alembic check`."
@@ -273,6 +273,27 @@ def database_skip_is_allowed() -> bool:
     if os.environ.get(_SKIP_OPT_OUT_ENV, "").strip().lower() in {"1", "true", "yes"}:
         return True
     return os.environ.get("CI", "").strip().lower() not in {"1", "true", "yes"}
+
+
+_REQUIRED_REASON = "PostgreSQL is not reachable and this run must verify migrations."
+
+
+# Name the one move that can make a strict run pass where it runs. Never the skip switch: until
+# 1.2.1 this advised MIGRATIONS_ALLOW_SKIP=1, which `make verify` and --require-database ignore
+# (database_skip_is_allowed), so every agent that followed it failed the same way again.
+def _database_required_action() -> str:
+    from project.core.config import PostgresSettings
+
+    settings = PostgresSettings(_env_file=ROOT_DIR / ".env")  # type: ignore[call-arg]
+    in_ci = os.environ.get("CI", "").strip().lower() in {"1", "true", "yes"}
+    if in_ci or settings.connection_source == "explicit settings":
+        return (
+            "The target is set explicitly (POSTGRES_* in the environment or CI): start or fix "
+            "that database for this job. The worktree database is not used here."
+        )
+    if "user" not in settings.model_fields_set:
+        return "No connection settings: make init-project, then make db-up-worktree, then rerun."
+    return "Start this checkout's own database: make db-up-worktree, then rerun."
 
 
 # Immutable descriptor for a single Alembic validation step.
@@ -534,6 +555,11 @@ def _remediation_messages(command_name: str) -> list[str]:
             "database with `make db-up-worktree`. Recreating the shared one destroys the schema "
             "another branch migrated.",
         ]
+    if command_name == "precheck":
+        return [
+            "Rerun this gate alone: uv run python scripts/validate_migrations.py --require-database",
+            "Playbook: uv run python scripts/doctor_ai_context.py --rule migrations.database_required",
+        ]
     return [
         "Inspect the failing Alembic command output and correct the migration state before retrying."
     ]
@@ -602,11 +628,7 @@ def collect_migration_issues(
                 MigrationIssue(
                     rule_id="migrations.database_required",
                     command_name="precheck",
-                    message=(
-                        "Database is not reachable, but this run requires it — migrations were "
-                        "not verified. Provision Postgres for this job or set "
-                        f"{_SKIP_OPT_OUT_ENV}=1 to accept an unverified run."
-                    ),
+                    message=f"{_REQUIRED_REASON} {_database_required_action()}",
                     returncode=1,
                     severity="error",
                 )
@@ -697,8 +719,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--require-database",
         action="store_true",
         help=(
-            "Fail instead of skipping when the database is unreachable. Implied when CI=true; "
-            f"override with {_SKIP_OPT_OUT_ENV}=1."
+            "Fail instead of skipping when the database is unreachable. Implied when CI=true, "
+            f"where {_SKIP_OPT_OUT_ENV}=1 restores the skip; nothing overrides this flag."
         ),
     )
     # Default to an empty argv when called directly from tests so that
@@ -752,7 +774,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return max(issue.returncode for issue in issues) or 1
 
     for issue in issues:
-        _emit(f"{issue.command_name} failed: {issue.message}")
+        if issue.rule_id == "migrations.database_required":
+            _emit(f"{issue.rule_id}: {_REQUIRED_REASON}")
+            _emit(issue.message.removeprefix(_REQUIRED_REASON).strip())
+        else:
+            _emit(f"{issue.command_name} failed: {issue.message}")
         for message in _remediation_messages(issue.command_name):
             _emit(message)
     return max(issue.returncode for issue in issues) or 1
