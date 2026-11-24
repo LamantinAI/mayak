@@ -12,7 +12,8 @@ Start here:
 
 Task process:
 - When the same cause fails a third time — the same error, whatever flags or command you changed around it — stop editing: write down the assumption you now doubt; if a gate named a rule ID, ask `uv run python scripts/doctor_ai_context.py --rule <rule_id>` for its playbook and read only the files it names; change one thing before rerunning.
-- Never claim task completion without fresh `make verify` evidence. Quote its final line verbatim and report any blocked checks.
+- Never claim task completion without fresh `make verify` evidence. Quote its `verify: scope:` line and its final line verbatim and report any blocked checks. A final line that says `uncommitted paths only` or `project only` does not cover committed work: rerun with `DIFF_COMPARE_BRANCH=<starting commit>`.
+- Hand off behavior, not a summary. For changed behavior state what the user does, what was expected and what you observed, and the command or test that shows it. For a removal also state what is gone and what still works. An existing check may be that evidence. A documentation-only change needs none of this.
 - Before publishing, confirm that the user requested it and that the remote is the intended destination. Use an independent reviewer when the task calls for one.
 - Prove a defect fix with a test that fails on the old behavior and passes with the fix. A new blocking validator rule ships with one failing example and several correct ones it must pass — earned by a real defect, not symmetry.
 
@@ -20,7 +21,7 @@ Working notes:
 - Every Python file opens with `# SUMMARY:`, so `git grep -n '^# SUMMARY:' -- project` lists what each module is for; `git grep -n <name>` finds a symbol and who uses it — run it before naming a test, command or symbol in an answer; a name recalled rather than found is a guess.
 - `PROJECT.md` and `docs/project_context.json` carry the business domain; this file covers only the kernel.
 - `make db-up-worktree` remembers its loopback port. Use `make run-local` to migrate and serve, or `make smoke-local` for a disposable HTTP probe.
-- `make gate-fast` formats changed Python, then checks lint, types, layers and module size. Full `make quality-gates` also refreshes agent docs and runs tests. `make verify` checks without auto-fixes, reports a resolved baseline, adds diff coverage and selects Docker E2E for runtime changes. Pass `DIFF_COMPARE_BRANCH` to verify a committed change against its prior snapshot.
+- `make gate-fast` formats changed Python, then checks lint, types, layers and module size. Full `make quality-gates` also refreshes agent docs and runs tests. `make verify` checks without auto-fixes, reports its scope, adds diff coverage and selects Docker E2E for runtime changes. Pass `DIFF_COMPARE_BRANCH` to verify a committed change against its prior snapshot.
 - A query is verified by a test that runs it: repository tests go in `tests/db`, which `make test` runs against a real PostgreSQL database created for the session and migrated from nothing (`alembic upgrade head`, then `alembic check`), emptying every table before each test. A mocked pool proves only what its author imagined. See ADR-010.
 - A write to a generated path is refused by `.agents/hooks/pre-edit-guard.sh`, naming the file — the list is `make print-generated-paths`, shared with the pre-commit hook and both agents.
 - Read a trace with `make format-trace ARGS="<logfile>"` or `make logs` (a running container); see `docs/tracing.md` for span names, outcome filtering, and two silent-failure traps.
