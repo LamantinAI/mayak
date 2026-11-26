@@ -19,7 +19,7 @@ and let each row's check tell you whether your copy already has the change. Port
 
 | since | pull requests | what the batch was |
 |---|---|---|
-| next patch (after 1.3.1) | test discovery from `tests/`, bootstrap migrates its own database, extraction overwrites and deletes nothing of the project's | **Porting the changes after 1.3.1** below; `scripts/run_all_tests.py` and `scripts/bootstrap_project.py` are replaced whole when the service never changed them. |
+| 1.3.2 | test discovery from `tests/`, bootstrap migrates its own database, extraction overwrites and deletes nothing of the project's | **Porting the 1.3.2 changes** below; `scripts/run_all_tests.py` and `scripts/bootstrap_project.py` are replaced whole when the service never changed them. |
 | 1.3.1 | shared readiness probe, single-parse trace view, migration-lock test checks its own database, extraction keeps local work | **Porting the 1.3.1 changes** below; `health.py`, `trace_formatter.py`, `trace_tree.py` and `test_migration_lock.py` are replaced whole when the service never changed them. |
 | 1.3.0 | `ForbiddenError` answered 403, line classifier fix, three recipe rules | **Porting the 1.3.0 changes** below; `validation_support/line_metrics.py` is replaced whole when the service never changed it. |
 | 1.2.1 | strict migration advice, verify scope, handoff rule, tree-diff porting | Port by tree diff below; `scripts/` files a service never changed are replaced whole. |
@@ -34,9 +34,9 @@ and let each row's check tell you whether your copy already has the change. Port
 A pull request to the template that changes what a service inherits adds its row here, and its
 lines below, in the same pull request.
 
-## Porting the changes after 1.3.1
+## Porting the 1.3.2 changes
 
-The reference is `git -C <mayak> diff v1.3.1 <this version>`. No table, setting, endpoint, response
+The reference is `git -C <mayak> diff v1.3.1 v1.3.2`. No table, setting, endpoint, response
 shape or `make` target changes, and nothing has to be configured.
 
 | Change | What to port | How to check |
