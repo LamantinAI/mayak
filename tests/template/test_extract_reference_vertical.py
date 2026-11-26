@@ -13,6 +13,7 @@ import py_compile
 import re
 import shutil
 import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -377,6 +378,70 @@ def _ignored_file_of_its_own(root: Path) -> None:
     (root / "docs/mutations/run.log").write_text("kept out of git\n", encoding="utf-8")
 
 
+def _commit(root: Path, *paths: str) -> None:
+    _git_in(root, "add", "--", *paths)
+    _git_in(
+        root,
+        "-c",
+        "user.name=probe",
+        "-c",
+        "user.email=probe@example.invalid",
+        "commit",
+        "-qm",
+        "own",
+    )
+
+
+# Committed is not the template's either. Until 1.3.2 the deletions were what `git ls-files` listed
+# under the template's paths, so a commit made a project's note one of them: gone, exit 0.
+def _committed_note_in_the_template_tests(root: Path) -> None:
+    replace_identity(root)
+    (root / "tests/template/product-notes.md").write_text("ours\n", encoding="utf-8")
+    _commit(root, "tests/template/product-notes.md")
+
+
+def _committed_edit_of_a_template_test(root: Path) -> None:
+    replace_identity(root)
+    with (root / "tests/template/test_run_mutations.py").open("a", encoding="utf-8") as test:
+        test.write("\n# kept for the project\n")
+    _commit(root, "tests/template/test_run_mutations.py")
+
+
+def _committed_edit_of_the_product_check(root: Path) -> None:
+    replace_identity(root)
+    with (root / "scripts/check_product_from_template.py").open("a", encoding="utf-8") as script:
+        script.write("\n# kept for the project\n")
+    _commit(root, "scripts/check_product_from_template.py")
+
+
+def _committed_edit_of_the_extractor(root: Path) -> None:
+    replace_identity(root)
+    with (root / extraction.SELF).open("a", encoding="utf-8") as stream:
+        stream.write("\n# Product-specific extraction convention.\n")
+    _commit(root, extraction.SELF)
+
+
+# A draft where the extraction puts the scaffold's README: v1.3.1 wrote its own over it, exit 0.
+def _draft_in_the_scaffold(root: Path) -> None:
+    replace_identity(root)
+    readme = root / extraction.SCAFFOLD / "README.md"
+    readme.parent.mkdir(parents=True)
+    readme.write_text("Keep this draft byte for byte.\n", encoding="utf-8")
+
+
+def _different_copy_in_the_scaffold(root: Path) -> None:
+    replace_identity(root)
+    copy = root / extraction.SCAFFOLD / "project/domain/reference_task.py"
+    copy.parent.mkdir(parents=True)
+    copy.write_text("# my own version\n", encoding="utf-8")
+    _commit(root, f"{extraction.SCAFFOLD}/project/domain/reference_task.py")
+
+
+def _a_file_where_the_scaffold_directory_goes(root: Path) -> None:
+    replace_identity(root)
+    (root / extraction.SCAFFOLD).write_text("notes\n", encoding="utf-8")
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(
     ("prepare", "reason"),
@@ -392,6 +457,28 @@ def _ignored_file_of_its_own(root: Path) -> None:
         (_staged_new_template_test, "tests/template/test_mine.py"),
         (_uncommitted_edit_of_the_mutation_runner, "scripts/run_mutations.py"),
         (_ignored_file_of_its_own, "docs/mutations/run.log"),
+        (
+            _committed_note_in_the_template_tests,
+            "did not ship, committed or not: tests/template/product-notes.md",
+        ),
+        (
+            _committed_edit_of_a_template_test,
+            "differ from what it shipped, committed or not: tests/template/test_run_mutations.py",
+        ),
+        (_committed_edit_of_the_product_check, "scripts/check_product_from_template.py"),
+        (_committed_edit_of_the_extractor, extraction.SELF),
+        (
+            _draft_in_the_scaffold,
+            f"{extraction.SCAFFOLD}/README.md (create: a different file is there)",
+        ),
+        (
+            _different_copy_in_the_scaffold,
+            f"{extraction.SCAFFOLD}/project/domain/reference_task.py (create: a different file is there)",
+        ),
+        (
+            _a_file_where_the_scaffold_directory_goes,
+            f"(create: {extraction.SCAFFOLD} is not a directory)",
+        ),
     ],
     ids=[
         "identity-not-replaced",
@@ -405,6 +492,13 @@ def _ignored_file_of_its_own(root: Path) -> None:
         "staged-new-template-test",
         "uncommitted-edit-of-the-mutation-runner",
         "ignored-file-of-its-own",
+        "committed-note-in-tests-template",
+        "committed-edit-of-a-template-test",
+        "committed-edit-of-a-template-script",
+        "committed-edit-of-the-extractor",
+        "draft-in-the-scaffold-readme",
+        "different-copy-in-the-scaffold",
+        "file-where-the-scaffold-directory-goes",
     ],
 )
 def test_it_refuses_and_changes_nothing_when_it_would_take_a_projects_work(
@@ -426,14 +520,123 @@ def test_it_refuses_and_changes_nothing_when_it_would_take_a_projects_work(
 
 # Bootstrap asks the same plan before it writes the identity, so the refusal names the file and
 # nothing — identity, .env, the note — has changed.
+def _untracked_note(root: Path) -> str:
+    (root / "tests/template/local-note.txt").write_text("not tracked\n", encoding="utf-8")
+    return "tests/template/local-note.txt"
+
+
+def _committed_note(root: Path) -> str:
+    (root / "tests/template/product-notes.md").write_text("ours\n", encoding="utf-8")
+    _commit(root, "tests/template/product-notes.md")
+    return "tests/template/product-notes.md"
+
+
+def _scaffold_draft(root: Path) -> str:
+    readme = root / extraction.SCAFFOLD / "README.md"
+    readme.parent.mkdir(parents=True)
+    readme.write_text("Keep this draft byte for byte.\n", encoding="utf-8")
+    return f"{extraction.SCAFFOLD}/README.md"
+
+
 @pytest.mark.unit
-def test_bootstrap_stops_on_local_work_before_writing_anything(checkout: Path) -> None:
+@pytest.mark.parametrize(
+    "prepare",
+    [_untracked_note, _committed_note, _scaffold_draft],
+    ids=["untracked-note", "committed-note", "scaffold-draft"],
+)
+def test_bootstrap_stops_on_local_work_before_writing_anything(
+    checkout: Path, prepare: Callable[[Path], str]
+) -> None:
     from scripts.bootstrap_project import bootstrap
 
-    (checkout / "tests/template/local-note.txt").write_text("not tracked\n", encoding="utf-8")
-    before = _files(checkout)
+    path = prepare(checkout)
+    before = _files(checkout), _git_in(checkout, "ls-files", "--stage")
 
-    with pytest.raises(ValueError, match="tests/template/local-note.txt"):
+    with pytest.raises(ValueError, match=re.escape(path)):
         bootstrap(checkout, name="Room Book", domain="Bookings", database="none", uv="uv")
 
-    assert _files(checkout) == before
+    assert (_files(checkout), _git_in(checkout, "ls-files", "--stage")) == before
+
+
+# A path that already holds exactly what the extraction would put there is a step done, not a
+# conflict: the extraction goes ahead and the file is as it was.
+@pytest.mark.unit
+def test_a_destination_already_holding_the_same_bytes_does_not_stop_it(
+    checkout: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    replace_identity(checkout)
+    copy = checkout / extraction.SCAFFOLD / "project/domain/reference_task.py"
+    copy.parent.mkdir(parents=True)
+    shipped = (checkout / "project/domain/reference_task.py").read_bytes()
+    copy.write_bytes(shipped)
+    _commit(checkout, f"{extraction.SCAFFOLD}/project/domain/reference_task.py")
+
+    migration = checkout / extraction.DROP_MIGRATION
+    migration.write_text(extraction._drop_migration(), encoding="utf-8")
+    assert extraction.main(["--root", str(checkout)]) == 0
+
+    assert "reference vertical taken out" in capsys.readouterr().out
+    assert copy.read_bytes() == shipped
+    assert not (checkout / "project/domain/reference_task.py").exists()
+
+
+# Checked when planned and again before the first write: a file that turns up in between is kept,
+# and nothing of the plan is applied.
+@pytest.mark.unit
+def test_a_file_that_appears_after_the_plan_is_kept_and_nothing_is_written(checkout: Path) -> None:
+    replace_identity(checkout)
+    plan = extraction.build_plan(checkout)
+    assert isinstance(plan, extraction.Plan), plan
+    readme = checkout / extraction.SCAFFOLD / "README.md"
+    readme.parent.mkdir(parents=True)
+    readme.write_text("arrived late\n", encoding="utf-8")
+    before = _files(checkout), _git_in(checkout, "ls-files", "--stage")
+
+    with pytest.raises(ValueError, match=re.escape(f"{extraction.SCAFFOLD}/README.md")):
+        extraction.apply_plan(checkout, plan)
+
+    assert (_files(checkout), _git_in(checkout, "ls-files", "--stage")) == before
+
+
+# Stale, every project refuses — "files the template did not ship" or "differ from what it shipped"
+# — over an edit the template made itself. Regenerate with `--print-manifest` in the same commit.
+@pytest.mark.unit
+def test_the_template_only_manifest_is_what_the_template_ships() -> None:
+    assert extraction.template_only_digests(_REPO_ROOT) == extraction.TEMPLATE_ONLY_SHA256
+
+
+# The proof that outlives tests/template: in a project after the extraction, the test runner it
+# keeps collects a test in a directory the template never had, and leaves tests/functional to
+# Docker. Collection only — the red-then-green run of such a test is checked outside, by a full
+# `make verify` in a product, which this suite cannot run from inside its own verify.
+@pytest.mark.unit
+def test_a_projects_runner_collects_a_test_directory_of_its_own(
+    checkout: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    replace_identity(checkout)
+    assert extraction.main(["--root", str(checkout)]) == 0
+    assert "reference vertical taken out" in capsys.readouterr().out
+    canary = checkout / "tests/domain/test_product_version_canary.py"
+    canary.parent.mkdir()
+    canary.write_text("def test_product_version_canary() -> None:\n    assert False\n")
+
+    collected = subprocess.run(
+        [sys.executable, "scripts/run_all_tests.py", "--skip-functional"],
+        cwd=checkout,
+        env={
+            key: value
+            for key, value in hermetic_env().items()
+            if not key.startswith("COV_CORE_") and key != "PYTEST_ADDOPTS"
+        }
+        | {"PYTEST_ADDOPTS": "--collect-only"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert collected.returncode == 0, collected.stdout[-2000:] + collected.stderr[-2000:]
+    nodes = [line for line in collected.stdout.splitlines() if "::" in line]
+    assert "tests/domain/test_product_version_canary.py::test_product_version_canary" in nodes
+    assert len(nodes) == len(set(nodes))
+    assert not [node for node in nodes if node.startswith(("tests/functional", "tests/template"))]
+    assert any(node.startswith("tests/application/") for node in nodes)

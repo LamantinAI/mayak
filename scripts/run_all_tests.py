@@ -100,21 +100,17 @@ def _build_test_steps(
         steps.append(
             TestStep(
                 name="local-suites",
+                # No test paths: pytest collects from pytest.ini's `testpaths = tests`, minus its
+                # `--ignore=tests/functional`, so a suite directory added under tests/ runs without
+                # editing this list. Until 1.3.2 the directories were named here, and a project's
+                # new tests/domain passed verify while a failing test sat in it uncollected: the
+                # template's check of the list lived in tests/template, which a project does not
+                # keep. The db tier still runs in this fast suite — it starts its own PostgreSQL
+                # (tests/db/stack.py) and its conftest deselects it when POSTGRES_ENABLED=false.
                 command=(
                     sys.executable,
                     "-m",
                     "pytest",
-                    "tests/application",
-                    "tests/infrastructure",
-                    "tests/integration",
-                    # The db tier runs here, in the fast suite, not with the Docker
-                    # functional stack: it starts its own PostgreSQL (tests/db/stack.py) and is
-                    # deselected by its conftest when POSTGRES_ENABLED=false. See tests/db/conftest.py.
-                    "tests/db",
-                    # The template's own tools are tested only where the template is built: a
-                    # project made from it has no tests/template, and `make init-project` removes
-                    # it along with the reference vertical.
-                    *(["tests/template"] if (ROOT_DIR / "tests" / "template").is_dir() else []),
                     "-q",
                     # A global floor belongs on the full run. Narrow pytest runs shouldn't inherit it.
                     "--cov=project",

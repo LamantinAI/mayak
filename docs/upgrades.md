@@ -19,6 +19,7 @@ and let each row's check tell you whether your copy already has the change. Port
 
 | since | pull requests | what the batch was |
 |---|---|---|
+| 1.3.2 | test discovery from `tests/`, bootstrap migrates its own database, extraction overwrites and deletes nothing of the project's | **Porting the 1.3.2 changes** below; `scripts/run_all_tests.py` and `scripts/bootstrap_project.py` are replaced whole when the service never changed them. |
 | 1.3.1 | shared readiness probe, single-parse trace view, migration-lock test checks its own database, extraction keeps local work | **Porting the 1.3.1 changes** below; `health.py`, `trace_formatter.py`, `trace_tree.py` and `test_migration_lock.py` are replaced whole when the service never changed them. |
 | 1.3.0 | `ForbiddenError` answered 403, line classifier fix, three recipe rules | **Porting the 1.3.0 changes** below; `validation_support/line_metrics.py` is replaced whole when the service never changed it. |
 | 1.2.1 | strict migration advice, verify scope, handoff rule, tree-diff porting | Port by tree diff below; `scripts/` files a service never changed are replaced whole. |
@@ -32,6 +33,20 @@ and let each row's check tell you whether your copy already has the change. Port
 
 A pull request to the template that changes what a service inherits adds its row here, and its
 lines below, in the same pull request.
+
+## Porting the 1.3.2 changes
+
+The reference is `git -C <mayak> diff v1.3.1 v1.3.2`. No table, setting, endpoint, response
+shape or `make` target changes, and nothing has to be configured.
+
+| Change | What to port | How to check |
+|---|---|---|
+| `make test`, `make gate-tests` and the host part of `make verify` ran a fixed list of `tests/` directories, so a failing test in a directory the service added (`tests/domain/`) passed verify | `scripts/run_all_tests.py`, whole when the service never changed it; otherwise drop the directory arguments of the local step so pytest collects from `pytest.ini`'s `testpaths = tests`. **Every existing service needs this one.** | Put a failing test in a new directory, e.g. `tests/domain/test_canary.py` with `assert False`: `make verify DIFF_COMPARE_BRANCH=HEAD` fails and names it; fix the assertion and it passes. |
+| `make bootstrap ... DB=postgres` migrated the database `.env` named, not the one it started, whenever `POSTGRES_HOST` there was not a host the settings loader knows as loopback (`localhost.` was enough) | `scripts/bootstrap_project.py`, whole when the service never changed it. Matters only for a service that still has it and may run it again. | `grep -n "_start_worktree_database" scripts/bootstrap_project.py`; bootstrap prints `bootstrap: using this worktree's database at 127.0.0.1:<port>`. |
+
+The extraction's new guards — it overwrites no file in the scaffold and deletes only files the
+template shipped unchanged, as listed in `TEMPLATE_ONLY_SHA256` — belong to the template's own
+tooling (`scripts/extract_reference_vertical.py`), which a service made from it no longer has.
 
 ## Porting the 1.3.1 changes
 
