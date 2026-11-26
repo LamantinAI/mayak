@@ -68,7 +68,7 @@ TEMPLATE_ONLY = (
     "scripts/extract_reference_vertical.py",
 )
 
-# This script is template-only too, and goes last; a digest of itself cannot be written into it.
+# The extractor also needs protection when a product commits edits to it.
 SELF = "scripts/extract_reference_vertical.py"
 
 # Every file under TEMPLATE_ONLY the template ships, with its digest: the only files the extraction
@@ -81,11 +81,12 @@ SELF = "scripts/extract_reference_vertical.py"
 TEMPLATE_ONLY_SHA256: dict[str, str] = {
     "docs/mutations/reference_task.json": "87fde1370e37eb60dc0e076341aded2d383ce21421191d80d5f4b265bada23f8",
     "scripts/check_product_from_template.py": "35cfa1f27f2649be0eebedfcc4689032f5ae558b6a3473f919a31211deab86b4",
+    "scripts/extract_reference_vertical.py": "6820311678848897e52f442d846ab656c09681297bef864e44a61dc8ad32e534",
     "scripts/run_mutations.py": "3ce90ff6906daff31c69115f19a9f9707df1ee22e9999e6e1468f5e13d12de71",
     "tests/template/test_agent_onboarding.py": "d0804469addaebf1b276a34508f2cabd701ee6b50bf434185df19c5e95c69cc0",
     "tests/template/test_create_env_file.py": "070a36a2c576bed235fe17ced50656fae4a173b59d109b0ebf961849500a4cd2",
     "tests/template/test_doctor_ai_context.py": "0b5888edd08358fa77147667a6f5f2ebc93942e805ef2f25a8122d7d7c467a4d",
-    "tests/template/test_extract_reference_vertical.py": "ab1a02fee82f49be7a547eb2147cd598c98f06a37c0e112b42c3af2f30509bde",
+    "tests/template/test_extract_reference_vertical.py": "f1b0c500e7ed364be6a836adc7abc2bed65d68e72c8aafbea126d0aa6ba72c32",
     "tests/template/test_gate_recipes.py": "12f538fddb03c38fcae5a98517411832939c7f3ae3877c0c15958bd8af4829ba",
     "tests/template/test_optional_postgres_tooling.py": "efe50706fb2b2883da8aef28bb28868bfcaeb6c64d209371d4a15528ccee2f61",
     "tests/template/test_product_line_count.py": "81c2fe58d852aa1fd3187c8ba13d4d864ba16d5493b80f1173967e3557ef69b0",
@@ -442,17 +443,31 @@ def _tracked_text_files(root: Path) -> list[str]:
     )
 
 
-# Every file now on disk under TEMPLATE_ONLY but this script, tracked or not, tool leftovers aside:
+# Every file now on disk under TEMPLATE_ONLY including this script, tracked or not, tool leftovers aside:
 # what the extraction has to account for there before it deletes anything.
 def _template_only_files(root: Path) -> list[str]:
     found: list[str] = []
     for path in TEMPLATE_ONLY:
         target = root / path
         if target.is_dir() and not target.is_symlink():
-            found += [p.relative_to(root).as_posix() for p in target.rglob("*") if not p.is_dir()]
+            found += [
+                p.relative_to(root).as_posix()
+                for p in target.rglob("*")
+                if p.is_symlink() or not p.is_dir()
+            ]
         elif target.exists() or target.is_symlink():
             found.append(path)
-    return sorted(name for name in found if name != SELF and not _generated(name))
+    return sorted(name for name in found if not _generated(name))
+
+
+def _template_only_digest(root: Path, name: str) -> str:
+    path = root / name
+    if name != SELF:
+        return _digest(path)
+    # Hash the source including its manifest, masking only its own digest slot.
+    # After refreshing other manifest entries, rerun --print-manifest for this entry.
+    slot = f'    "{SELF}": "{TEMPLATE_ONLY_SHA256[SELF]}",'.encode()
+    return hashlib.sha256(path.read_bytes().replace(slot, b"<self digest>", 1)).hexdigest()
 
 
 # TEMPLATE_ONLY_SHA256 as `root` ships it: what git lists there, ignored files left out, so a
@@ -480,7 +495,7 @@ def template_only_digests(root: Path) -> dict[str, str]:
     except (subprocess.CalledProcessError, FileNotFoundError):
         listed = set(_template_only_files(root))
     return {
-        name: _digest(root / name)
+        name: _template_only_digest(root, name)
         for name in _template_only_files(root)
         if name in listed and (root / name).is_file()
     }
@@ -552,7 +567,7 @@ def _own_vertical_files(root: Path) -> list[str]:
                 found.append(relative)
     for path in sorted((root / "alembic/versions").glob("*.py")):
         relative = f"alembic/versions/{path.name}"
-        if relative not in SAMPLE_REVISIONS:
+        if relative not in SAMPLE_REVISIONS and relative != DROP_MIGRATION:
             found.append(relative)
     return found
 
@@ -709,7 +724,11 @@ def build_plan(root: Path, *, converting: bool = False) -> Plan | str:
     edited_shipped = [
         name
         for name in present
-        if name in TEMPLATE_ONLY_SHA256 and _digest(root / name) != TEMPLATE_ONLY_SHA256[name]
+        if name in TEMPLATE_ONLY_SHA256
+        and (
+            (root / name).is_symlink()
+            or _template_only_digest(root, name) != TEMPLATE_ONLY_SHA256[name]
+        )
     ]
     if edited_shipped:
         reasons.append(
@@ -749,8 +768,6 @@ def build_plan(root: Path, *, converting: bool = False) -> Plan | str:
     # there (bench3, 2026-09-27) failed the whole staging step when named, so it goes in
     # Plan.generated, never here.
     deleted = set(SAMPLE_SHA256) | {name for name in present if name in TEMPLATE_ONLY_SHA256}
-    if (root / SELF).is_file():
-        deleted.add(SELF)
 
     # Every mention of a moved file now names its copy, so a reference stays one that resolves.
     # Not in tests: a path there is as often fixture text — a recorded traceback, a log line — as a
@@ -812,7 +829,15 @@ def apply_plan(root: Path, plan: Plan, *, stage: bool = True) -> list[str]:
         if _state(target) == hashlib.sha256(text.encode("utf-8")).hexdigest():
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(text, encoding="utf-8")
+        if relative.startswith(SCAFFOLD + "/") or relative == DROP_MIGRATION:
+            # A file may have appeared after the plan was checked. Never truncate a destination.
+            try:
+                with target.open("x", encoding="utf-8") as stream:
+                    stream.write(text)
+            except FileExistsError as exc:
+                raise ValueError(f"{relative} changed during extraction; file kept") from exc
+        else:
+            target.write_text(text, encoding="utf-8")
     for relative in (*plan.deletes, *plan.generated):
         (root / relative).unlink(missing_ok=True)
     failures: list[str] = []

@@ -414,6 +414,13 @@ def _committed_edit_of_the_product_check(root: Path) -> None:
     _commit(root, "scripts/check_product_from_template.py")
 
 
+def _committed_edit_of_the_extractor(root: Path) -> None:
+    replace_identity(root)
+    with (root / extraction.SELF).open("a", encoding="utf-8") as stream:
+        stream.write("\n# Product-specific extraction convention.\n")
+    _commit(root, extraction.SELF)
+
+
 # A draft where the extraction puts the scaffold's README: v1.3.1 wrote its own over it, exit 0.
 def _draft_in_the_scaffold(root: Path) -> None:
     replace_identity(root)
@@ -459,6 +466,7 @@ def _a_file_where_the_scaffold_directory_goes(root: Path) -> None:
             "differ from what it shipped, committed or not: tests/template/test_run_mutations.py",
         ),
         (_committed_edit_of_the_product_check, "scripts/check_product_from_template.py"),
+        (_committed_edit_of_the_extractor, extraction.SELF),
         (
             _draft_in_the_scaffold,
             f"{extraction.SCAFFOLD}/README.md (create: a different file is there)",
@@ -487,6 +495,7 @@ def _a_file_where_the_scaffold_directory_goes(root: Path) -> None:
         "committed-note-in-tests-template",
         "committed-edit-of-a-template-test",
         "committed-edit-of-a-template-script",
+        "committed-edit-of-the-extractor",
         "draft-in-the-scaffold-readme",
         "different-copy-in-the-scaffold",
         "file-where-the-scaffold-directory-goes",
@@ -562,6 +571,8 @@ def test_a_destination_already_holding_the_same_bytes_does_not_stop_it(
     copy.write_bytes(shipped)
     _commit(checkout, f"{extraction.SCAFFOLD}/project/domain/reference_task.py")
 
+    migration = checkout / extraction.DROP_MIGRATION
+    migration.write_text(extraction._drop_migration(), encoding="utf-8")
     assert extraction.main(["--root", str(checkout)]) == 0
 
     assert "reference vertical taken out" in capsys.readouterr().out
