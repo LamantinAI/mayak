@@ -18,6 +18,8 @@ from scripts.run_all_tests import _parse_env_file
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_REPOSITORY = "https://github.com/LamantinAI/mayak"
+# Where `make db-up-worktree` records the loopback port Docker assigned (Makefile: WORKTREE_DB_FILE).
+WORKTREE_PORT_FILE = ".mayak-postgres-port"
 
 
 def _git(root: Path, *args: str, check: bool = True) -> str:
@@ -174,9 +176,48 @@ def bootstrap(root: Path, *, name: str, domain: str, database: str, uv: str) -> 
     }
     env["POSTGRES_ENABLED"] = "true" if database == "postgres" else "false"
     if database == "postgres":
-        subprocess.run(("make", "db-up-worktree"), cwd=root, check=True, env=env)
+        env = env | _start_worktree_database(root, env)
     subprocess.run(("make", "smoke-local"), cwd=root, check=True, env=env)
     print("Ready. Read the matching feature path in AGENTS.md, then run make verify.")
+
+
+# Start this worktree's PostgreSQL and return the target every later step must use: the loopback
+# port the start just wrote, passed explicitly. Leaving the choice to the settings loader was not
+# enough: it applies the worktree port only when .env names a host it knows as loopback, so a
+# .env with POSTGRES_HOST=localhost. (or any host of its own) took the reachability probe, Alembic
+# and the smoke server to that database instead — v1.3.1 migrated a database it did not start,
+# dropped a table holding a row there and printed Ready. Explicit host and port win over .env in
+# PostgresSettings, and the name and credentials still come from .env, as the container's did.
+# .env itself is left as it is: POSTGRES_HOST and POSTGRES_PORT there stay for everyday commands.
+def _start_worktree_database(root: Path, env: dict[str, str]) -> dict[str, str]:
+    marker = root / WORKTREE_PORT_FILE
+    before = _marker_identity(marker)
+    subprocess.run(("make", "db-up-worktree"), cwd=root, check=True, env=env)
+    # A marker this start did not write is another start's port: refuse before migrating.
+    if _marker_identity(marker) in {before, None}:
+        raise ValueError(
+            f"make db-up-worktree did not record a port in {WORKTREE_PORT_FILE}; nothing was migrated"
+        )
+    text = marker.read_text(encoding="utf-8", errors="replace").strip()
+    # The same rule PostgresSettings applies to the marker; this script runs before the
+    # project's dependencies are installed, so it cannot import that one.
+    if not (text.isascii() and text.isdecimal() and len(text) <= 5 and 1 <= int(text) <= 65535):
+        raise ValueError(
+            f"make db-up-worktree recorded an invalid port in {WORKTREE_PORT_FILE}; nothing was migrated"
+        )
+    print(
+        f"bootstrap: using this worktree's database at 127.0.0.1:{text} (make db-up-worktree)",
+        flush=True,
+    )
+    return {"POSTGRES_HOST": "127.0.0.1", "POSTGRES_PORT": text}
+
+
+def _marker_identity(marker: Path) -> tuple[int, int] | None:
+    try:
+        status = marker.stat()
+    except FileNotFoundError:
+        return None
+    return status.st_ino, status.st_mtime_ns
 
 
 def main() -> int:

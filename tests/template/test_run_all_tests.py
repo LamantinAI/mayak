@@ -78,22 +78,60 @@ class TestRunAllTests:
 
         assert [step.name for step in steps] == ["local-suites"]
 
-    def test_local_step_runs_every_non_functional_suite(self) -> None:
-        # tests/integration shipped for months without being listed here, so no
-        # local gate ever ran it. Discovering the directories instead of repeating the list is
-        # what makes the next added suite fail loudly rather than sit unexecuted.
-        steps = _build_test_steps(skip_functional=True, functional_only=False)
-        argv = steps[0].command
-
-        suites = sorted(
-            path.name
-            for path in (ROOT_DIR / "tests").iterdir()
-            if path.is_dir() and path.name != "functional" and any(path.glob("test_*.py"))
+    # What the local step does, not how its argv looks: run on a real directory with this
+    # checkout's pytest.ini, it runs a test straight under tests/ and one in a nested package no
+    # list names, each once, and leaves tests/functional to the Docker step. Until 1.3.2 the step
+    # named its directories, this suite checked the list, and a project — which has no
+    # tests/template — passed verify with a failing test in its new tests/domain.
+    @pytest.mark.unit
+    def test_the_local_step_runs_a_failing_test_in_a_directory_nobody_listed(
+        self, tmp_path: Path
+    ) -> None:
+        (local,) = _build_test_steps(skip_functional=True, functional_only=False)
+        (tmp_path / "pytest.ini").write_bytes((ROOT_DIR / "pytest.ini").read_bytes())
+        (tmp_path / "project").mkdir()
+        (tmp_path / "project/__init__.py").write_text("VERSION = '0.1.0'\n", encoding="utf-8")
+        canary = tmp_path / "tests/domain/rules/test_version_canary.py"
+        canary.parent.mkdir(parents=True)
+        (tmp_path / "tests/domain/__init__.py").write_text("", encoding="utf-8")
+        (tmp_path / "tests/domain/rules/__init__.py").write_text("", encoding="utf-8")
+        (tmp_path / "tests/test_top_level.py").write_text(
+            "from project import VERSION\n\n\ndef test_top_level() -> None:\n    assert VERSION\n",
+            encoding="utf-8",
         )
+        (tmp_path / "tests/functional").mkdir()
+        (tmp_path / "tests/functional/test_docker_only.py").write_text(
+            "def test_docker_only() -> None:\n    raise AssertionError('ran outside Docker')\n",
+            encoding="utf-8",
+        )
+        canary_text = (
+            "from project import VERSION\n\n\ndef test_version_canary() -> None:\n"
+            "    assert VERSION == {!r}\n"
+        )
+        # Neither this run's addopts nor its coverage session may reach the measured run.
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if key != "PYTEST_ADDOPTS" and not key.startswith("COV_CORE_")
+        }
 
-        assert suites, "no suite directories found under tests/ — this discovery is broken"
-        for suite in suites:
-            assert f"tests/{suite}" in argv, f"tests/{suite} is never run by the local step"
+        def run() -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                local.command, cwd=tmp_path, env=env, capture_output=True, text=True, check=False
+            )
+
+        canary.write_text(canary_text.format("deliberately-wrong"), encoding="utf-8")
+        red = run()
+        canary.write_text(canary_text.format("0.1.0"), encoding="utf-8")
+        green = run()
+
+        assert red.returncode == 1, red.stdout[-2000:]
+        node = "tests/domain/rules/test_version_canary.py::test_version_canary"
+        assert f"FAILED {node}" in red.stdout
+        assert "1 failed, 1 passed" in red.stdout
+        assert green.returncode == 0, green.stdout[-2000:]
+        assert "2 passed" in green.stdout
+        assert "test_docker_only" not in red.stdout + green.stdout
 
     def test_build_test_steps_can_run_only_functional(self) -> None:
         steps = _build_test_steps(skip_functional=False, functional_only=True)

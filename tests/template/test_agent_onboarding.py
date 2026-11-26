@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -86,46 +88,157 @@ def test_import_coverage_does_not_count_as_running_a_route(
     assert unexercised_handlers(report) == (1, [])
 
 
-def test_bootstrap_does_not_forward_an_ambient_database(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _existing_product(root: Path, database: str) -> None:
     import json
-    from typing import Any
 
-    _repo(tmp_path)
-    docs = tmp_path / "docs"
+    _repo(root)
+    docs = root / "docs"
     docs.mkdir()
     (docs / "project_context.json").write_text(
         json.dumps(
             {
                 "project_name": "Room Book",
                 "domain": "Bookings",
-                "database": "postgres",
+                "database": database,
                 "is_template": False,
                 "template": {},
             }
         )
     )
-    monkeypatch.setenv("POSTGRES_HOST", "external.example.invalid")
-    monkeypatch.setenv("POSTGRES_PORT", "30001")
-    monkeypatch.setenv("MAKEFLAGS", "-- POSTGRES_HOST=external.example.invalid")
-    run = subprocess.run
-    startup_envs: list[dict[str, str]] = []
 
-    def checked_run(command: tuple[str, ...], **kwargs: Any) -> Any:
+
+# Bootstrap's steps after the identity, recorded instead of run: the command and the environment
+# each make received. `start` stands in for what `make db-up-worktree` does to the port marker.
+def _record_startup(
+    monkeypatch: pytest.MonkeyPatch, start: Callable[[Path], None]
+) -> list[tuple[str, dict[str, str]]]:
+    run = subprocess.run
+    calls: list[tuple[str, dict[str, str]]] = []
+
+    def recorded(command: tuple[str, ...], **kwargs: Any) -> Any:
         if command[0] == "git":
             return run(command, **kwargs)
-        if command[1] in {"db-up-worktree", "smoke-local"}:
-            startup_envs.append(kwargs["env"])
+        calls.append((command[1], dict(kwargs.get("env") or {})))
+        if command[1] == "db-up-worktree":
+            start(kwargs["cwd"])
         return subprocess.CompletedProcess(command, 0)
 
-    monkeypatch.setattr(subprocess, "run", checked_run)
+    monkeypatch.setattr(subprocess, "run", recorded)
+    return calls
+
+
+def _outer_shell_names_another_database(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("POSTGRES_HOST", "external.example.invalid")
+    monkeypatch.setenv("POSTGRES_PORT", "30001")
+    monkeypatch.setenv("POSTGRES_DB", "theirs")
+    monkeypatch.setenv("MAKEFLAGS", "-- POSTGRES_HOST=external.example.invalid")
+
+
+def _assign_port(port: str) -> Callable[[Path], None]:
+    def start(root: Path) -> None:
+        marker = root / ".mayak-postgres-port"
+        replacement = root / ".mayak-postgres-port.new"
+        replacement.write_text(port + "\n", encoding="utf-8")
+        replacement.replace(marker)
+
+    return start
+
+
+# The shell's database and the parent make's overrides reach no step; the smoke step — the
+# reachability probe, Alembic and the HTTP server under it — is handed exactly the loopback port
+# the start just recorded. v1.3.1 handed it nothing, and the settings loader went back to the
+# address .env named whenever that was not a host it knew as loopback.
+def test_bootstrap_hands_the_smoke_step_the_port_the_start_confirmed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _existing_product(tmp_path, "postgres")
+    (tmp_path / ".mayak-postgres-port").write_text("40001\n", encoding="utf-8")
+    _outer_shell_names_another_database(monkeypatch)
+    calls = _record_startup(monkeypatch, _assign_port("40123"))
+
     bootstrap(tmp_path, name="Room Book", domain="Bookings", database="postgres", uv="uv")
 
-    assert len(startup_envs) == 2
-    for env in startup_envs:
-        assert env["POSTGRES_ENABLED"] == "true"
-        assert not {"POSTGRES_HOST", "POSTGRES_PORT", "MAKEFLAGS"} & env.keys()
+    (_, init), (_, start), (_, smoke) = calls
+    assert [name for name, _ in calls] == ["init-project", "db-up-worktree", "smoke-local"]
+    assert not {"POSTGRES_HOST", "POSTGRES_PORT", "POSTGRES_DB", "MAKEFLAGS"} & start.keys()
+    assert start["POSTGRES_ENABLED"] == "true"
+    postgres = {key: value for key, value in smoke.items() if key.startswith("POSTGRES_")}
+    assert postgres == {
+        "POSTGRES_ENABLED": "true",
+        "POSTGRES_HOST": "127.0.0.1",
+        "POSTGRES_PORT": "40123",
+    }
+    assert "MAKEFLAGS" not in smoke
+
+
+def _record_nothing(root: Path) -> None:
+    pass
+
+
+def _record_garbage(root: Path) -> None:
+    _assign_port("5432; drop")(root)
+
+
+def _record_port_zero(root: Path) -> None:
+    _assign_port("0")(root)
+
+
+# A start that left no fresh, valid port stops bootstrap before anything migrates: the port a
+# previous start recorded may belong to a database that is gone or to another one.
+@pytest.mark.parametrize(
+    ("start", "reason"),
+    [
+        (_record_nothing, "did not record a port"),
+        (_record_garbage, "invalid port"),
+        (_record_port_zero, "invalid port"),
+    ],
+    ids=["stale-marker", "not-a-number", "port-zero"],
+)
+def test_bootstrap_refuses_a_port_the_start_did_not_confirm(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    start: Callable[[Path], None],
+    reason: str,
+) -> None:
+    _existing_product(tmp_path, "postgres")
+    (tmp_path / ".mayak-postgres-port").write_text("40001\n", encoding="utf-8")
+    _outer_shell_names_another_database(monkeypatch)
+    calls = _record_startup(monkeypatch, start)
+
+    with pytest.raises(ValueError, match=reason):
+        bootstrap(tmp_path, name="Room Book", domain="Bookings", database="postgres", uv="uv")
+
+    assert [name for name, _ in calls] == ["init-project", "db-up-worktree"]
+
+
+def test_bootstrap_stops_when_the_database_does_not_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _existing_product(tmp_path, "postgres")
+
+    def fail(root: Path) -> None:
+        raise subprocess.CalledProcessError(2, ("make", "db-up-worktree"))
+
+    calls = _record_startup(monkeypatch, fail)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        bootstrap(tmp_path, name="Room Book", domain="Bookings", database="postgres", uv="uv")
+
+    assert [name for name, _ in calls] == ["init-project", "db-up-worktree"]
+
+
+def test_bootstrap_without_a_database_starts_none_and_names_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _existing_product(tmp_path, "none")
+    _outer_shell_names_another_database(monkeypatch)
+    calls = _record_startup(monkeypatch, _record_nothing)
+
+    bootstrap(tmp_path, name="Room Book", domain="Bookings", database="none", uv="uv")
+
+    assert [name for name, _ in calls] == ["init-project", "smoke-local"]
+    postgres = {key: value for key, value in calls[1][1].items() if key.startswith("POSTGRES_")}
+    assert postgres == {"POSTGRES_ENABLED": "false"}
 
 
 def test_verify_detects_a_business_logic_only_change(

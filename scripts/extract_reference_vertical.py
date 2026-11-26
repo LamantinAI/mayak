@@ -10,7 +10,9 @@
 # this is right whether or not a database already ran the vertical's revisions — every mention of a
 # moved path is pointed at its copy, the template's own tools (tests/template, the mutation
 # catalogue and its runner, this script) go, and the generated docs are rebuilt. Every edit is
-# computed and checked before the first file is written.
+# computed and checked before the first file is written: a path it creates must be free or already
+# hold the same bytes, and it deletes only files the template shipped, unchanged, as listed in
+# TEMPLATE_ONLY_SHA256. Bootstrap asks the same plan before it writes the identity.
 #
 #   uv run python scripts/extract_reference_vertical.py            # what init-project runs
 #   uv run python scripts/extract_reference_vertical.py --dry-run  # say what would change
@@ -65,6 +67,45 @@ TEMPLATE_ONLY = (
     "scripts/check_product_from_template.py",
     "scripts/extract_reference_vertical.py",
 )
+
+# This script is template-only too, and goes last; a digest of itself cannot be written into it.
+SELF = "scripts/extract_reference_vertical.py"
+
+# Every file under TEMPLATE_ONLY the template ships, with its digest: the only files the extraction
+# deletes there. Until 1.3.2 it deleted what `git ls-files` listed, and a project's own commit is
+# listed as readily as the template's — a note committed in tests/template went with it, exit 0.
+# A repository made with GitHub's template button has its own first commit and no Mayak tag, so
+# ownership cannot be read from history; this list travels with the files. A file found there that
+# is not in it, or one in it whose bytes differ, stops the extraction. Regenerate with
+# --print-manifest after editing any of them; tests/template fails while it is stale.
+TEMPLATE_ONLY_SHA256: dict[str, str] = {
+    "docs/mutations/reference_task.json": "87fde1370e37eb60dc0e076341aded2d383ce21421191d80d5f4b265bada23f8",
+    "scripts/check_product_from_template.py": "35cfa1f27f2649be0eebedfcc4689032f5ae558b6a3473f919a31211deab86b4",
+    "scripts/run_mutations.py": "3ce90ff6906daff31c69115f19a9f9707df1ee22e9999e6e1468f5e13d12de71",
+    "tests/template/test_agent_onboarding.py": "d0804469addaebf1b276a34508f2cabd701ee6b50bf434185df19c5e95c69cc0",
+    "tests/template/test_create_env_file.py": "070a36a2c576bed235fe17ced50656fae4a173b59d109b0ebf961849500a4cd2",
+    "tests/template/test_doctor_ai_context.py": "0b5888edd08358fa77147667a6f5f2ebc93942e805ef2f25a8122d7d7c467a4d",
+    "tests/template/test_extract_reference_vertical.py": "ab1a02fee82f49be7a547eb2147cd598c98f06a37c0e112b42c3af2f30509bde",
+    "tests/template/test_gate_recipes.py": "12f538fddb03c38fcae5a98517411832939c7f3ae3877c0c15958bd8af4829ba",
+    "tests/template/test_optional_postgres_tooling.py": "efe50706fb2b2883da8aef28bb28868bfcaeb6c64d209371d4a15528ccee2f61",
+    "tests/template/test_product_line_count.py": "81c2fe58d852aa1fd3187c8ba13d4d864ba16d5493b80f1173967e3557ef69b0",
+    "tests/template/test_run_all_tests.py": "d6de51619ee8f7e9b259392f702ef2b8eabddcd5078ee76f7c94b1dbfac34254",
+    "tests/template/test_run_mutations.py": "d6c53e6d464027b1ebb13c1cd4a9a9e6bee49e020fb6dcca6af7bc66e7b9c0e8",
+    "tests/template/test_skill_texts_match_reality.py": "0420cfc872f133cff67a8d8996c13270aaaceec606a6de4e12c0987bbb109738",
+    "tests/template/test_sync_agent_docs.py": "c2625e2c9654d0dbffcc604e44f49ea1718fd3cf7a493c5479bd21b53e3311b6",
+    "tests/template/test_template_neutrality.py": "3da43661a83a0a220891bfdd8e0f27445ff23021e4e0916ffe0decd213420221",
+    "tests/template/test_validate_architecture.py": "692538f49552b0372f730102bd63c7b771299a0273d3e6477c452624a3dac560",
+    "tests/template/test_validate_cbm.py": "9f795ca6b3fea0efbcfc4a336a925b981e013d74ec5c32f9ab4779dbc1426997",
+    "tests/template/test_validate_dependencies.py": "969bc7b858c7b22e0390017e0b7c1f1d92a592f6f1233c7f8ce68e81ecc5df57",
+    "tests/template/test_validate_endpoint_wiring.py": "3927886f1f7f4952b6f1a31e5e62f95524e08ace3d14b172a6923211ae326122",
+    "tests/template/test_validate_migrations.py": "99bcbebd7f1211123bcaaf6d9aa9c8b5f69003f34d3e5b0d9619ebdcc3063925",
+    "tests/template/test_validate_module_sizes.py": "9170f4ba8c1d00cbd0fe19178d61e15a5716ee36cbf254abc220e63fdd951b3a",
+    "tests/template/test_validate_repository_metadata.py": "62d4466021142087d9336929cdc970af7734188ebf1ada3b8e1ab0ef6063991b",
+    "tests/template/test_validate_runtime_ownership.py": "6b5dd1c70fcd25b0fd62e175a904ed61f0e165b61cdd80afb763501aa549c1e2",
+    "tests/template/test_validate_secrets.py": "3ffd5e701066ac6f47fea7e2fa560c2a80a0adb651bec0a18489db335f0c2674",
+    "tests/template/test_validate_test_quality.py": "aec440fbfa42e237c39af516287e558982aba1639ca08569c505ed05e970cce8",
+    "tests/template/test_validator_error_contract.py": "8c978439e040d46ff25eaa6b04cbf652afdebf266a853dbc429eef68159ffb5d",
+}
 
 SAMPLE_REVISIONS = (
     "alembic/versions/001_initial_reference_tasks_schema.py",
@@ -309,6 +350,9 @@ class Plan:
     deletes: list[str] = field(default_factory=list)
     # Tool leftovers git ignores under TEMPLATE_ONLY: removed with it, never staged.
     generated: list[str] = field(default_factory=list)
+    # What every written or deleted path held when the plan was made: a digest, or None for a path
+    # that was free. apply_plan writes nothing unless all of them still hold it.
+    expect: dict[str, str | None] = field(default_factory=dict)
 
 
 # What a tool run leaves there and nobody writes by hand. Any other file git ignores may be the
@@ -398,23 +442,73 @@ def _tracked_text_files(root: Path) -> list[str]:
     )
 
 
-# What git tracks under `path` — the only deletions `git add` can stage. Bytecode a test run left
-# there (bench3, 2026-09-27) failed the whole staging step when named, so it goes in
-# Plan.generated. Outside a repository, every file that is not a tool's leftover.
-def _tracked_under(root: Path, path: str) -> list[str]:
+# Every file now on disk under TEMPLATE_ONLY but this script, tracked or not, tool leftovers aside:
+# what the extraction has to account for there before it deletes anything.
+def _template_only_files(root: Path) -> list[str]:
+    found: list[str] = []
+    for path in TEMPLATE_ONLY:
+        target = root / path
+        if target.is_dir() and not target.is_symlink():
+            found += [p.relative_to(root).as_posix() for p in target.rglob("*") if not p.is_dir()]
+        elif target.exists() or target.is_symlink():
+            found.append(path)
+    return sorted(name for name in found if name != SELF and not _generated(name))
+
+
+# TEMPLATE_ONLY_SHA256 as `root` ships it: what git lists there, ignored files left out, so a
+# leftover of the template author's own does not enter the list. Outside a repository, the disk.
+def template_only_digests(root: Path) -> dict[str, str]:
     try:
-        listed = subprocess.run(
-            ["git", "ls-files", "--", path],
-            cwd=root,
-            env=hermetic_env(),
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.split("\n")
+        listed = set(
+            subprocess.run(
+                [
+                    "git",
+                    "ls-files",
+                    "--cached",
+                    "--others",
+                    "--exclude-standard",
+                    "--",
+                    *TEMPLATE_ONLY,
+                ],
+                cwd=root,
+                env=hermetic_env(),
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.split("\n")
+        )
     except (subprocess.CalledProcessError, FileNotFoundError):
-        found = (str(p.relative_to(root)) for p in (root / path).rglob("*") if p.is_file())
-        return [name for name in found if not _generated(name)]
-    return [name for name in listed if name]
+        listed = set(_template_only_files(root))
+    return {
+        name: _digest(root / name)
+        for name in _template_only_files(root)
+        if name in listed and (root / name).is_file()
+    }
+
+
+# What a path holds, as Plan.expect records it: the digest of a regular file, None when nothing is
+# there, and a marker for anything else — a directory, a link — that no write may replace.
+def _state(target: Path) -> str | None:
+    if target.is_symlink() or (target.exists() and not target.is_file()):
+        return "not a regular file"
+    return _digest(target) if target.exists() else None
+
+
+# Why a new file cannot be put at `relative`, or None when the path is free or already holds
+# exactly `text` — a step done before is done. Nothing in the way is overwritten: a draft an agent
+# kept in the scaffold's README went under the extraction's own until 1.3.2, exit 0.
+def _destination_problem(root: Path, relative: str, text: str) -> str | None:
+    for parent in reversed(Path(relative).parents[:-1]):
+        held = root / parent
+        if held.is_symlink() or (held.exists() and not held.is_dir()):
+            return f"{relative} (create: {parent.as_posix()} is not a directory)"
+    target = root / relative
+    state = _state(target)
+    if state is None or state == hashlib.sha256(text.encode("utf-8")).hexdigest():
+        return None
+    if state == "not a regular file":
+        return f"{relative} (create: something other than a file is there)"
+    return f"{relative} (create: a different file is there)"
 
 
 # Under TEMPLATE_ONLY: (local work deleting would lose, tool leftovers git ignores). Local work is a
@@ -597,8 +691,31 @@ def build_plan(root: Path, *, converting: bool = False) -> Plan | str:
     if local:
         reasons.append(
             "the template's own paths, which the extraction deletes, hold local work git has not "
-            "committed: " + ", ".join(local) + ". Commit it, move it elsewhere or delete it, then "
-            "run again"
+            "committed: "
+            + ", ".join(local)
+            + ". Move it out of those paths, restore or delete it, "
+            "then run again"
+        )
+    present = [name for name in _template_only_files(root) if name not in local]
+    unshipped = [name for name in present if name not in TEMPLATE_ONLY_SHA256]
+    if unshipped:
+        reasons.append(
+            "the template's own paths, which the extraction deletes, hold files the template did "
+            "not ship, committed or not: "
+            + ", ".join(unshipped)
+            + ". They are the project's: move "
+            "them out of those paths, then run again"
+        )
+    edited_shipped = [
+        name
+        for name in present
+        if name in TEMPLATE_ONLY_SHA256 and _digest(root / name) != TEMPLATE_ONLY_SHA256[name]
+    ]
+    if edited_shipped:
+        reasons.append(
+            "files the template ships in its own paths, which the extraction deletes, differ from "
+            "what it shipped, committed or not: " + ", ".join(edited_shipped) + ". Keep the "
+            "change outside those paths or restore the file, then run again"
         )
     if reasons:
         return "; ".join(reasons)
@@ -628,13 +745,12 @@ def build_plan(root: Path, *, converting: bool = False) -> Plan | str:
 
     edited["docs/project_context.json"] = _project_context(_read(root, "docs/project_context.json"))
 
-    deleted = set(SAMPLE_SHA256)
-    for path in TEMPLATE_ONLY:
-        target = root / path
-        if target.is_dir():
-            deleted.update(_tracked_under(root, path))
-        elif target.is_file():
-            deleted.add(path)
+    # A shipped file the project already deleted is skipped, as before. Bytecode a test run left
+    # there (bench3, 2026-09-27) failed the whole staging step when named, so it goes in
+    # Plan.generated, never here.
+    deleted = set(SAMPLE_SHA256) | {name for name in present if name in TEMPLATE_ONLY_SHA256}
+    if (root / SELF).is_file():
+        deleted.add(SELF)
 
     # Every mention of a moved file now names its copy, so a reference stays one that resolves.
     # Not in tests: a path there is as often fixture text — a recorded traceback, a log line — as a
@@ -652,21 +768,49 @@ def build_plan(root: Path, *, converting: bool = False) -> Plan | str:
         if pointed != text:
             edited[name] = pointed
 
-    for path in SAMPLE_SHA256:
-        plan.writes[f"{SCAFFOLD}/{path}"] = _read(root, path)
-    plan.writes[f"{SCAFFOLD}/README.md"] = _readme(removed)
-    plan.writes[DROP_MIGRATION] = _drop_migration()
+    created = {f"{SCAFFOLD}/{path}": _read(root, path) for path in SAMPLE_SHA256}
+    created[f"{SCAFFOLD}/README.md"] = _readme(removed)
+    created[DROP_MIGRATION] = _drop_migration()
+    blocked = [
+        problem
+        for relative, text in created.items()
+        if (problem := _destination_problem(root, relative, text))
+    ]
+    if blocked:
+        return (
+            "the paths the extraction creates hold something else, and it overwrites nothing: "
+            + ", ".join(blocked)
+            + ". Move what is there elsewhere, then run again"
+        )
+    plan.writes.update(created)
     plan.writes.update(edited)
     plan.deletes = sorted(deleted)
     plan.generated = generated
+    plan.expect = {path: _state(root / path) for path in (*plan.writes, *plan.deletes)}
     return plan
 
 
 # Deletes only what the plan names, then the directories that leaves empty: a file that appeared
 # after the plan was made keeps its directory and is reported, never removed unseen.
+# A path that changed since the plan was made — a file that appeared where one is created, an edit
+# to one about to be rewritten or deleted — stops it before the first write: ValueError naming it.
 def apply_plan(root: Path, plan: Plan, *, stage: bool = True) -> list[str]:
+    moved = [path for path, held in plan.expect.items() if _state(root / path) != held]
+    moved += [
+        problem
+        for path, text in plan.writes.items()
+        if plan.expect.get(path) is None and (problem := _destination_problem(root, path, text))
+    ]
+    if moved:
+        raise ValueError(
+            "these paths changed after the plan was made, so nothing was written: "
+            + ", ".join(sorted(set(moved)))
+            + ". Run again"
+        )
     for relative, text in plan.writes.items():
         target = root / relative
+        if _state(target) == hashlib.sha256(text.encode("utf-8")).hexdigest():
+            continue
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
     for relative in (*plan.deletes, *plan.generated):
@@ -733,6 +877,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("CUT_SHA256:")
         for key, digest in cut_digests(root).items():
             print(f"    {json.dumps(key, ensure_ascii=False)}: {json.dumps(digest)},")
+        print("TEMPLATE_ONLY_SHA256:")
+        for path, digest in template_only_digests(root).items():
+            print(f'    "{path}": "{digest}",')
         return 0
 
     plan = build_plan(root)
@@ -747,7 +894,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"  delete {path}")
         print(f"  and {len(plan.generated)} tool leftovers git ignores there (bytecode, caches)")
         return 0
-    failures = apply_plan(root, plan, stage=not args.no_stage)
+    try:
+        failures = apply_plan(root, plan, stage=not args.no_stage)
+    except ValueError as moved:
+        print(f"reference vertical kept: {moved}")
+        return 1
     review = (
         "Review with `git diff`."
         if args.no_stage
