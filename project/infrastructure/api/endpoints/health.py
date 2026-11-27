@@ -28,6 +28,10 @@ _DATABASE_BEHIND_MESSAGE = "Database schema is behind this code's migrations —
 _DATABASE_TIMEOUT_MESSAGE = "Database check timed out"
 _MIGRATIONS_UNREADABLE_MESSAGE = "This code's migrations could not be read"
 _DATABASE_REVISION_MALFORMED_MESSAGE = "Database records a malformed migration revision"
+_DATABASE_UNKNOWN_REVISION_MESSAGE = (
+    "Database connection successful; recorded schema revision is unknown to this code "
+    "(allowed for rolling deploys; schema compatibility is not verified)"
+)
 
 # Only named safe DB failures are exposed; raw errors may contain credentials.
 _SAFE_DATABASE_MESSAGES = frozenset(
@@ -171,9 +175,12 @@ async def _check_database(pool: AsyncConnectionPool[Any]) -> dict[str, Any]:
             "message": "Database connection successful",
             "response_time_ms": latency,
         }
-        # An old replica stays ready against a newer schema during a rolling deploy.
+        # Keep an N-1 replica in rotation during an expand rolling deploy when alembic_version
+        # advances to a revision ID outside this build's migration tree. An unrelated or
+        # incompatible database also records an unknown revision ID, so /health/ready alone does
+        # not prove schema compatibility.
         if not revisions <= known:
-            result["message"] = "Database connection successful; its schema is newer than this code"
+            result["message"] = _DATABASE_UNKNOWN_REVISION_MESSAGE
             result["schema_revision"] = sorted(revisions)
             result["expected_revision"] = sorted(expected)
         return result
