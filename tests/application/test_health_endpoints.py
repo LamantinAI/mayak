@@ -553,6 +553,23 @@ class TestHealthEndpoints:
         assert "make migrate" in response.json()["checks"]["database"]["message"]
 
     @pytest.mark.unit
+    async def test_check_database_marks_unknown_revision_without_claiming_it_is_newer(
+        self,
+    ) -> None:
+        from project.infrastructure.api.endpoints import health as health_module
+
+        _, mock_pool = _mock_pool_with_schema(frozenset({"9999deadbeef"}))
+
+        result = await health_module._check_database(pool=mock_pool)
+
+        assert result["status"] == "healthy"
+        assert "unknown to this code" in result["message"]
+        assert "compatibility is not verified" in result["message"]
+        assert "newer than this code" not in result["message"]
+        assert result["schema_revision"] == ["9999deadbeef"]
+        assert result["expected_revision"] == sorted(_heads())
+
+    @pytest.mark.unit
     async def test_check_database_reports_a_schema_behind_the_code(self) -> None:
         from project.infrastructure.api.endpoints import health as health_module
 

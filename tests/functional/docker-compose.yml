@@ -13,6 +13,7 @@ services:
       - .env
     environment:
       POSTGRES_ENABLED: ${POSTGRES_ENABLED:-true}
+      APP_STARTUP_MODE: ${APP_STARTUP_MODE-migrate-and-serve}
       SERVER_PORT: 8000
     entrypoint: /app/entrypoint.sh
     stop_grace_period: 45s

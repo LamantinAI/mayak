@@ -198,13 +198,19 @@ connection open and stops answering waits with no limit, and so does the request
 on the product's queries, so the product sets them: `statement_timeout` and `lock_timeout` for the
 application's connections — for example `"options": "-c statement_timeout=5s -c lock_timeout=2s"`
 in the pool's `kwargs` in `project/core/composition_root.py`; an `ALTER ROLE … SET` would bind
-migrations too, because the container runs Alembic with the same role — and a deadline for the
-whole request, since a proxy timeout closes the client's connection but does not stop the work
-behind it. Migrations wait
-for the advisory lock in `alembic/env.py` with no limit either; bound that wait with the deadline
-of whatever runs them. In a rolling deploy old and new code share one schema: add first
-(expand), and remove what old code still reads only after its last replica is gone (contract) —
-readiness already stays healthy on a schema newer than the code.
+migrations too when the container runs Alembic under the same role (the default
+`APP_STARTUP_MODE=migrate-and-serve`; split migration and runtime roles by running a one-shot
+`APP_STARTUP_MODE=migrate` step and starting replicas with `APP_STARTUP_MODE=serve`) — and a
+deadline for the whole request, since a proxy timeout closes the client's connection but does not
+stop the work behind it. Migrations wait for the advisory lock in `alembic/env.py` with no limit
+either; bound that wait with the deadline of whatever runs them. In a rolling deploy old and new
+code share one schema: add first (expand), and remove what old code still reads only after its
+last replica is gone (contract). `/health/ready` stays `200` when `alembic_version` records a
+revision ID unknown to the running image so `N-1` replicas stay in rotation after an expand
+migration — which means `/health/ready` does not prove that a specific database is compatible with
+the application (a misrouted or unrelated database also records an unknown revision and fails on
+the first real query). Gate traffic cutover on an independent domain probe before shifting traffic,
+or enforce strict product-level schema verification when rolling out solely on `/health/ready`.
 
 ---
 
@@ -223,6 +229,7 @@ readiness already stays healthy on a schema newer than the code.
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
+| `APP_STARTUP_MODE` | container entrypoint mode (env only; positional arguments are refused): `migrate-and-serve` validates settings, migrates when `POSTGRES_ENABLED=true`, and starts the server; `migrate` validates settings, migrates (or no-ops when `POSTGRES_ENABLED=false`), and exits `0`; `serve` validates settings and starts without running migrations | `migrate-and-serve` |
 | `AGENT_LLM_MODE` | `mock` for dev, CI and tests; `live` to call a provider | `mock` |
 | `AGENT_DEFAULT_LLM_TEMPERATURE` | LLM temperature (0.0-2.0) | `0.2` |
 | `AGENT_MAX_TOKENS` | maximum output tokens | `4096` |

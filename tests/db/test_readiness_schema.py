@@ -1,5 +1,5 @@
 # FILE: tests/db/test_readiness_schema.py
-# SUMMARY: Readiness against a real PostgreSQL: a schema at head, emptied by a downgrade, one migration behind, newer than the code.
+# SUMMARY: Readiness against a real PostgreSQL: a schema at head, emptied by a downgrade, one migration behind, or at an unknown revision.
 # The probe's SQL runs here for real — ADR-010. Each case rewrites alembic_version's rows and puts
 # the session's own back afterwards: the tier's truncation leaves that table alone on purpose.
 
@@ -72,9 +72,15 @@ async def test_a_schema_one_migration_behind_is_not_ready(db_pool: AsyncConnecti
 
 
 # A rolling deploy's old replicas meet the new schema; unready, they would all leave rotation.
-async def test_a_schema_newer_than_the_code_stays_ready(db_pool: AsyncConnectionPool) -> None:
+# The probe reports that the recorded revision is unknown to this code rather than claiming it is
+# proven newer, because an unrelated database also records an unknown revision ID.
+async def test_a_schema_with_an_unknown_revision_stays_ready(
+    db_pool: AsyncConnectionPool,
+) -> None:
     async with _schema_recorded_at(db_pool, ["a_revision_from_a_newer_deploy"]):
         result = await health._check_database(db_pool)
 
     assert result["status"] == "healthy"
     assert result["schema_revision"] == ["a_revision_from_a_newer_deploy"]
+    assert "unknown to this code" in result["message"]
+    assert "newer than this code" not in result["message"]

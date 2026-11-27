@@ -2,6 +2,29 @@
 
 set -e
 
+# Container startup mode is controlled strictly via APP_STARTUP_MODE (environment only):
+#   migrate-and-serve (default when unset): validate runtime settings -> migrate (when POSTGRES_ENABLED=true) -> start server
+#   migrate:                                validate runtime settings -> migrate (or no-op when POSTGRES_ENABLED=false) -> exit 0
+#   serve:                                  validate runtime settings -> start server without running migrations
+# Positional arguments and unknown or empty mode values are rejected before touching logs, settings
+# or the database, so an operator passing `serve` on the command line or expanding an empty deploy
+# variable never triggers default startup migrations. Images from v1.3.2 and earlier ignore
+# APP_STARTUP_MODE; adopt this entrypoint in release N-1 before shipping expand migrations in N.
+if [ "$#" -gt 0 ]; then
+    echo "ERROR: entrypoint.sh accepts no positional arguments (got $#); set APP_STARTUP_MODE=migrate-and-serve|migrate|serve instead." >&2
+    exit 2
+fi
+
+STARTUP_MODE="${APP_STARTUP_MODE-migrate-and-serve}"
+case "$STARTUP_MODE" in
+    migrate-and-serve|migrate|serve)
+        ;;
+    *)
+        echo "ERROR: invalid APP_STARTUP_MODE '$STARTUP_MODE'. Expected one of: migrate-and-serve, migrate, serve." >&2
+        exit 2
+        ;;
+esac
+
 # Pre-flight: ensure the logs directory exists and is writable.
 # APP_LOG_DIR is the real setting (ProjectSettings.log_dir, prefix APP_). This line used to read
 # LOG_DIR, a name nothing sets, and the bug hid behind matching defaults: APP_LOG_DIR defaults to
@@ -17,15 +40,18 @@ fi
 # come after `alembic upgrade head`, so a container refused for its settings — a wildcard CORS
 # origin, a placeholder password — had already migrated the database it shares (round-4 finding
 # R7). Settings only: no application is built.
-echo "Checking the configuration..."
+echo "Checking the configuration (APP_STARTUP_MODE=$STARTUP_MODE)..."
 if ! postgres_enabled=$(python -c "from project.core.config import get_settings; settings = get_settings(); settings.validate_runtime(); print(str(settings.postgres.enabled).lower())"); then
     echo "ERROR: the configuration was refused (the reason is above); nothing was migrated."
     exit 1
 fi
 
-# A project that declared POSTGRES_ENABLED=false has no relational store, so there is nothing
-# to migrate. Without this branch the container exits 1 before the application is ever reached.
-if [ "$postgres_enabled" = "false" ]; then
+# `serve` skips Alembic so schema DDL can run as a separate step under its own credentials while
+# `/health/ready` still rejects an unmigrated or behind schema. A project that declared
+# POSTGRES_ENABLED=false has no relational store, so `migrate` and `migrate-and-serve` no-op cleanly.
+if [ "$STARTUP_MODE" = "serve" ]; then
+    echo "APP_STARTUP_MODE=serve — skipping startup database migrations."
+elif [ "$postgres_enabled" = "false" ]; then
     echo "POSTGRES_ENABLED=false — skipping database migrations."
 else
     echo "Running database migrations..."
@@ -34,6 +60,11 @@ else
         exit 1
     fi
     echo "Database migrations completed successfully."
+fi
+
+if [ "$STARTUP_MODE" = "migrate" ]; then
+    echo "APP_STARTUP_MODE=migrate — completed; exiting without starting the application."
+    exit 0
 fi
 
 echo "Starting the application..."

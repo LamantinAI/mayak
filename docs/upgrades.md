@@ -19,6 +19,7 @@ and let each row's check tell you whether your copy already has the change. Port
 
 | since | pull requests | what the batch was |
 |---|---|---|
+| 1.3.3 | env-only `APP_STARTUP_MODE` (`migrate-and-serve`, `migrate`, `serve`), honest readiness message on unknown schema revisions, two-step rollout rule before schema expansion | **Porting the 1.3.3 changes** below; ship the `entrypoint.sh` foundation in `N-1` before adding expand migrations in `N` (`v1.3.2` ignores `APP_STARTUP_MODE`). |
 | 1.3.2 | test discovery from `tests/`, bootstrap migrates its own database, extraction overwrites and deletes nothing of the project's | **Porting the 1.3.2 changes** below; `scripts/run_all_tests.py` and `scripts/bootstrap_project.py` are replaced whole when the service never changed them. |
 | 1.3.1 | shared readiness probe, single-parse trace view, migration-lock test checks its own database, extraction keeps local work | **Porting the 1.3.1 changes** below; `health.py`, `trace_formatter.py`, `trace_tree.py` and `test_migration_lock.py` are replaced whole when the service never changed them. |
 | 1.3.0 | `ForbiddenError` answered 403, line classifier fix, three recipe rules | **Porting the 1.3.0 changes** below; `validation_support/line_metrics.py` is replaced whole when the service never changed it. |
@@ -33,6 +34,39 @@ and let each row's check tell you whether your copy already has the change. Port
 
 A pull request to the template that changes what a service inherits adds its row here, and its
 lines below, in the same pull request.
+
+## Porting the 1.3.3 changes
+
+The reference is `git -C <mayak> diff v1.3.2 v1.3.3`. No table, HTTP status code, JSON key or
+default startup behaviour changes: omitting `APP_STARTUP_MODE` keeps `migrate-and-serve`.
+
+| Change | What to port | How to check |
+|---|---|---|
+| Separating migration DDL from replica startup (`APP_STARTUP_MODE=migrate` and `APP_STARTUP_MODE=serve`, env only), and rejecting positional arguments, unknown/empty modes, and invalid runtime settings before touching PostgreSQL | `entrypoint.sh`, `docker-compose.yml`, `.env.sample` and `tests/application/test_entrypoint_checks_the_configuration_first.py` (plus `tests/functional/docker-compose.yml` if kept) | `grep -n 'APP_STARTUP_MODE' entrypoint.sh docker-compose.yml .env.sample`; `uv run pytest -q tests/application/test_entrypoint_checks_the_configuration_first.py`. |
+| `/health/ready` claimed `"its schema is newer than this code"` whenever `alembic_version` held any revision outside the image's `alembic/` tree, including a misrouted or unrelated database | `project/infrastructure/api/endpoints/health.py`, `tests/application/test_health_endpoints.py`, `tests/db/test_readiness_schema.py`, and the rolling-deploy / readiness notes in `README.md` and `docs/agent_rules.md` (then `make refresh-agent-docs`) | `grep -n '_DATABASE_UNKNOWN_REVISION_MESSAGE' project/infrastructure/api/endpoints/health.py`; `/health/ready` still answers `200` on an unknown revision for rolling deploys and states that compatibility is not verified. |
+
+**Two-step adoption is required before relying on `APP_STARTUP_MODE=serve` for rollback:**
+
+1. **Images built on Mayak `v1.3.2` (and earlier) ignore `APP_STARTUP_MODE`** and unconditionally
+   run `alembic upgrade head` when `POSTGRES_ENABLED=true`. If release `N` applies a new migration
+   while the previous image `N-1` still has the `v1.3.2` entrypoint, rolling back to `N-1` — even
+   with `APP_STARTUP_MODE=serve` set — runs `alembic upgrade head` against revision `N`, fails with
+   `Can't locate revision identified by '<rev_N>'`, and exits `1` before the server starts.
+2. **Step 1 — Foundation release (`N-1`):** Port and deploy the `1.3.3` `entrypoint.sh` *before*
+   shipping any new Alembic migration, so the active rollback image already honours
+   `APP_STARTUP_MODE=serve`.
+3. **Step 2 — Expand release (`N`) and split startup:** Ship expand-compatible (additive) schema
+   changes in `N`. Run `APP_STARTUP_MODE=migrate` once under migration credentials, then run `N`
+   replicas (and `N-1` on rollback) with `APP_STARTUP_MODE=serve`, optionally under a database role
+   without DDL privileges. Defer contract/destructive DDL to a subsequent release after `N-1` is
+   retired.
+
+**Readiness boundary and traffic gate:** `/health/ready` returns `200` (`healthy`) when
+`alembic_version` contains a revision unknown to the running image so `N-1` replicas stay in
+rotation during Step 2. Readiness therefore **does not prove** that the connected database belongs
+to or is compatible with this application. Gate traffic cutover on an **independent domain probe**
+against a real product endpoint before shifting traffic, or enforce **strict product-level schema
+verification** when your deployment pipeline gates rollouts solely on `/health/ready`.
 
 ## Porting the 1.3.2 changes
 
