@@ -10,6 +10,7 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any, Sequence
 
 from validation_support.rendering import render_json
@@ -247,7 +248,8 @@ _NOT_VERIFIED_BANNER = "MIGRATIONS NOT VERIFIED"
 
 # Report whether this project uses a relational store at all.
 # Returns: False when POSTGRES_ENABLED is explicitly disabled in the environment or .env.
-def postgres_is_enabled() -> bool:
+def postgres_is_enabled(root_dir: Path | None = None) -> bool:
+    base = ROOT_DIR if root_dir is None else root_dir
     value = os.environ.get("POSTGRES_ENABLED")
     if value is None:
         try:
@@ -255,7 +257,7 @@ def postgres_is_enabled() -> bool:
         except ImportError:
             pass
         else:
-            for path in (ROOT_DIR / ".env", ROOT_DIR / ".env.sample"):
+            for path in (base / ".env", base / ".env.sample"):
                 value = dotenv_values(path).get("POSTGRES_ENABLED")
                 if value is not None:
                     break
@@ -281,19 +283,89 @@ _REQUIRED_REASON = "PostgreSQL is not reachable and this run must verify migrati
 # Name the one move that can make a strict run pass where it runs. Never the skip switch: until
 # 1.2.1 this advised MIGRATIONS_ALLOW_SKIP=1, which `make verify` and --require-database ignore
 # (database_skip_is_allowed), so every agent that followed it failed the same way again.
-def _database_required_action() -> str:
+def _in_ci() -> bool:
+    return os.environ.get("CI", "").strip().lower() in {"1", "true", "yes"}
+
+
+def _has_explicit_postgres_env() -> bool:
+    from project.core.config_settings_core import _POSTGRES_TARGET_FIELDS
+
+    return any(
+        os.environ.get(f"POSTGRES_{field.upper()}") is not None for field in _POSTGRES_TARGET_FIELDS
+    )
+
+
+# Render a settings validation failure without ever echoing raw input values (such as passwords).
+def _format_settings_error(error: ValueError, *, in_ci: bool) -> str:
+    from pydantic import ValidationError
+
+    if isinstance(error, ValidationError):
+        fields = sorted(
+            {".".join(str(part) for part in item.get("loc", ())) for item in error.errors()} - {""}
+        )
+        detail = f" ({', '.join(fields)})" if fields else ""
+        if in_ci or _has_explicit_postgres_env():
+            return (
+                f"Invalid PostgreSQL configuration{detail}. "
+                "The target is set explicitly (POSTGRES_* in the environment or CI): "
+                "fix that configuration for this job. The worktree database is not used here."
+            )
+        return (
+            f"Invalid PostgreSQL configuration{detail}: "
+            "fix .env (or run make init-project), then make db-up-worktree, then rerun."
+        )
+    return str(error)
+
+
+def _load_postgres_settings(root_dir: Path) -> tuple[Any | None, str | None]:
     from project.core.config import PostgresSettings
 
-    settings = PostgresSettings(_env_file=ROOT_DIR / ".env")  # type: ignore[call-arg]
-    in_ci = os.environ.get("CI", "").strip().lower() in {"1", "true", "yes"}
+    try:
+        return PostgresSettings(_env_file=root_dir / ".env"), None  # type: ignore[call-arg]
+    except ValueError as error:
+        return None, _format_settings_error(error, in_ci=_in_ci())
+
+
+# Decide whether the effective PostgresSettings describe a target worth probing. Any explicit
+# POSTGRES_* env/file/worktree target field qualifies (including pure env-only targets that omit
+# POSTGRES_USER and rely on defaults), as does CI=true without .env where an already-listening CI
+# database may use the default connection parameters.
+def _has_probeable_database_target(settings: Any, *, in_ci: bool) -> bool:
+    from project.core.config_settings_core import _POSTGRES_TARGET_FIELDS
+
+    if not settings.enabled:
+        return False
+    return bool(settings.model_fields_set & _POSTGRES_TARGET_FIELDS) or in_ci
+
+
+def _database_required_action_in(root_dir: Path) -> str:
+    from project.core.config_settings_core import (
+        _LOOPBACK_DATABASE_HOSTS,
+        _POSTGRES_TARGET_FIELDS,
+    )
+
+    in_ci = _in_ci()
+    settings, config_error = _load_postgres_settings(root_dir)
+    if config_error is not None or settings is None:
+        return config_error or "Invalid PostgreSQL configuration."
+    has_target = bool(settings.model_fields_set & _POSTGRES_TARGET_FIELDS)
     if in_ci or settings.connection_source == "explicit settings":
         return (
             "The target is set explicitly (POSTGRES_* in the environment or CI): start or fix "
             "that database for this job. The worktree database is not used here."
         )
-    if "user" not in settings.model_fields_set:
+    if has_target and settings.host not in _LOOPBACK_DATABASE_HOSTS:
+        return (
+            "The target is set explicitly (non-loopback POSTGRES_HOST in .env): start or fix "
+            "that database. The worktree database is not used here."
+        )
+    if not has_target or not (root_dir / ".env").is_file():
         return "No connection settings: make init-project, then make db-up-worktree, then rerun."
     return "Start this checkout's own database: make db-up-worktree, then rerun."
+
+
+def _database_required_action() -> str:
+    return _database_required_action_in(ROOT_DIR)
 
 
 # Immutable descriptor for a single Alembic validation step.
@@ -338,14 +410,14 @@ def get_migrations_rule_playbook(rule_id: str) -> dict[str, object] | None:
 
 # Check whether the PostgreSQL database is reachable using psycopg.
 # Returns: True when the database accepts connections, False otherwise.
-def _is_database_reachable() -> bool:
-    from project.core.config import PostgresSettings
-
-    settings = PostgresSettings(_env_file=ROOT_DIR / ".env")  # type: ignore[call-arg]
-    if not settings.enabled or "user" not in settings.model_fields_set:
+def _is_database_reachable_in(root_dir: Path) -> bool:
+    settings, config_error = _load_postgres_settings(root_dir)
+    if config_error is not None or settings is None:
+        return False
+    if not _has_probeable_database_target(settings, in_ci=_in_ci()):
         return False
 
-    # Try a lightweight TCP+auth check via psycopg.
+    # Lightweight read-only TCP+auth check via psycopg; runs no SQL or DDL.
     try:
         import psycopg  # noqa: WPS433
 
@@ -355,12 +427,20 @@ def _is_database_reachable() -> bool:
         return False
 
 
+def _is_database_reachable() -> bool:
+    return _is_database_reachable_in(ROOT_DIR)
+
+
 # Build Alembic's view of a revision directory, or None when there is no such directory.
 # script_location: Directory holding the revision files.
 # Returns: An alembic ScriptDirectory, typed loosely because alembic is imported lazily.
 # One construction shared by every offline reader below, so the heads, the revision ids and
 # any future reader cannot end up walking two differently-configured views of the same directory.
-def _script_directory_at(script_location: Path) -> Any:
+def _script_directory_at(
+    script_location: Path,
+    *,
+    alembic_ini: Path | None = None,
+) -> Any:
     # ScriptDirectory reads alembic/versions/ and nothing else — env.py is not
     # executed, so no connection is attempted and no .env is needed. That is what lets this run
     # ahead of the reachability skip.
@@ -376,7 +456,8 @@ def _script_directory_at(script_location: Path) -> Any:
     # the database_disabled skip below is the answer it should get.
     if not script_location.is_dir():
         return None
-    config = Config(str(ALEMBIC_INI_PATH))
+    ini_path = ALEMBIC_INI_PATH if alembic_ini is None else alembic_ini
+    config = Config(str(ini_path)) if ini_path.is_file() else Config()
     config.set_main_option("script_location", str(script_location))
     return ScriptDirectory.from_config(config)
 
@@ -390,6 +471,15 @@ def _script_directory_at(script_location: Path) -> Any:
 # import as its own error. _revision_graph_issue reports either without narrowing.
 def _revision_heads(script_location: Path = ROOT_DIR / "alembic") -> list[str]:
     script = _script_directory_at(script_location)
+    return [] if script is None else list(script.get_heads())
+
+
+def _revision_heads_in(root_dir: Path) -> list[str]:
+    ini_path = root_dir / "alembic.ini"
+    script = _script_directory_at(
+        root_dir / "alembic",
+        alembic_ini=ini_path if ini_path.is_file() else None,
+    )
     return [] if script is None else list(script.get_heads())
 
 
@@ -413,10 +503,10 @@ def _revision_ids(script_location: Path = ROOT_DIR / "alembic") -> set[str]:
 # connection that dies between the reachability probe and this read must not be reported as a
 # foreign revision. The real failure then surfaces where it always did, in `alembic upgrade`.
 def _stamped_revision_ids() -> set[str]:
-    from project.core.config import PostgresSettings
-
-    settings = PostgresSettings(_env_file=ROOT_DIR / ".env")  # type: ignore[call-arg]
-    if not settings.enabled or "user" not in settings.model_fields_set:
+    settings, config_error = _load_postgres_settings(ROOT_DIR)
+    if config_error is not None or settings is None:
+        return set()
+    if not _has_probeable_database_target(settings, in_ci=_in_ci()):
         return set()
     try:
         import psycopg
@@ -465,9 +555,9 @@ def _foreign_revision_issue() -> MigrationIssue | None:
 
 # Report a fork or an unwalkable revision graph, or None when the files form one chain.
 # Returns: An error-severity issue, or None.
-def _revision_graph_issue() -> MigrationIssue | None:
+def _revision_graph_issue_from_heads(get_heads: Callable[[], list[str]]) -> MigrationIssue | None:
     try:
-        heads = _revision_heads()
+        heads = get_heads()
     except Exception as exc:
         return MigrationIssue(
             rule_id="migrations.broken_revision_graph",
@@ -491,6 +581,14 @@ def _revision_graph_issue() -> MigrationIssue | None:
             returncode=1,
         )
     return None
+
+
+def _revision_graph_issue() -> MigrationIssue | None:
+    return _revision_graph_issue_from_heads(_revision_heads)
+
+
+def _revision_graph_issue_in(root_dir: Path) -> MigrationIssue | None:
+    return _revision_graph_issue_from_heads(lambda: _revision_heads_in(root_dir))
 
 
 # Build the ordered Alembic commands required to validate migration completeness.
@@ -582,15 +680,29 @@ def _run_command(command: MigrationCommand) -> None:
     )
 
 
-# Run the full migration check sequence and return a list of structured issues.
-# Returns: Issues found. Empty list means the gate passed.
-def collect_migration_issues(
-    root_dir: Path,
+# Format a blocking MigrationIssue into the exact diagnostic lines emitted by this gate and by
+# verify_change's early preflight, keeping one wording for both.
+def format_migration_issue_lines(issue: MigrationIssue) -> list[str]:
+    if issue.rule_id == "migrations.database_required":
+        lines = [f"{issue.rule_id}: {_REQUIRED_REASON}"]
+        detail = issue.message.removeprefix(_REQUIRED_REASON).strip()
+        if detail:
+            lines.append(detail)
+    else:
+        lines = [f"{issue.command_name} failed: {issue.message}"]
+    lines.extend(_remediation_messages(issue.command_name))
+    return lines
+
+
+# Read-only preflight shared by verify_change (before expensive stages) and collect_migration_issues.
+# Walks the offline Alembic graph first, honours POSTGRES_ENABLED=false without connecting, and
+# probes the effective PostgreSQL target without running any SQL, DDL, or migrations.
+def collect_migration_precheck_issues(
+    root_dir: Path | None = None,
     require_database: bool | None = None,
 ) -> list[MigrationIssue]:
-    del (
-        root_dir
-    )  # _build_commands uses module-level ROOT_DIR; preserved for symmetry with other validators.
+    target_root = ROOT_DIR if root_dir is None else root_dir
+    use_default_root = target_root.resolve() == ROOT_DIR.resolve()
     # The one part of this gate that needs no database runs first, ahead of both
     # skips below. A second head and a dangling down_revision are defects of the files in
     # alembic/versions/, readable without connecting — running this after the skips would let a
@@ -598,7 +710,9 @@ def collect_migration_issues(
     # names exactly these two as what the CI backstop exists for. Ahead of the
     # POSTGRES_ENABLED=false skip too: a project that uses no database today still ships its
     # revision files, and a fork in them is still a fork.
-    graph_issue = _revision_graph_issue()
+    graph_issue = (
+        _revision_graph_issue() if use_default_root else _revision_graph_issue_in(target_root)
+    )
     if graph_issue is not None:
         return [graph_issue]
     # A project that declared it needs no relational store has nothing for this
@@ -606,7 +720,7 @@ def collect_migration_issues(
     # the emergency hatch for "the database is temporarily unreachable", and letting it also
     # cover "the database is not part of this project" would make one switch hide two very
     # different situations — the second permanently.
-    if not postgres_is_enabled():
+    if not (postgres_is_enabled() if use_default_root else postgres_is_enabled(target_root)):
         return [
             MigrationIssue(
                 rule_id="migrations.database_disabled",
@@ -622,13 +736,21 @@ def collect_migration_issues(
 
     if require_database is None:
         require_database = not database_skip_is_allowed()
-    if not _is_database_reachable():
+    reachable = (
+        _is_database_reachable() if use_default_root else _is_database_reachable_in(target_root)
+    )
+    if not reachable:
         if require_database:
+            action = (
+                _database_required_action()
+                if use_default_root
+                else _database_required_action_in(target_root)
+            )
             return [
                 MigrationIssue(
                     rule_id="migrations.database_required",
                     command_name="precheck",
-                    message=f"{_REQUIRED_REASON} {_database_required_action()}",
+                    message=f"{_REQUIRED_REASON} {action}",
                     returncode=1,
                     severity="error",
                 )
@@ -647,6 +769,18 @@ def collect_migration_issues(
                 severity="info",
             )
         ]
+    return []
+
+
+# Run the full migration check sequence and return a list of structured issues.
+# Returns: Issues found. Empty list means the gate passed.
+def collect_migration_issues(
+    root_dir: Path,
+    require_database: bool | None = None,
+) -> list[MigrationIssue]:
+    precheck_issues = collect_migration_precheck_issues(root_dir, require_database=require_database)
+    if precheck_issues:
+        return precheck_issues
     # Asked before alembic runs, because alembic's own answer to this is
     # `Can't locate revision identified by <id>` — true, useless, and the reason the advice
     # people reached for was to recreate the database. Reported instead of the upgrade failure
@@ -774,13 +908,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return max(issue.returncode for issue in issues) or 1
 
     for issue in issues:
-        if issue.rule_id == "migrations.database_required":
-            _emit(f"{issue.rule_id}: {_REQUIRED_REASON}")
-            _emit(issue.message.removeprefix(_REQUIRED_REASON).strip())
-        else:
-            _emit(f"{issue.command_name} failed: {issue.message}")
-        for message in _remediation_messages(issue.command_name):
-            _emit(message)
+        for line in format_migration_issue_lines(issue):
+            _emit(line)
     return max(issue.returncode for issue in issues) or 1
 
 

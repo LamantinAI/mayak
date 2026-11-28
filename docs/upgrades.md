@@ -19,6 +19,7 @@ and let each row's check tell you whether your copy already has the change. Port
 
 | since | pull requests | what the batch was |
 |---|---|---|
+| 1.3.4 | early read-only Alembic graph and PostgreSQL preflight in `make verify`, env-only and `CI=true` reachability without `.env`, non-loopback `.env` and bad-config diagnostics | **Porting the 1.3.4 changes** below; `scripts/validate_migrations.py` and `scripts/verify_change.py` are replaced whole when the service never changed them. |
 | 1.3.3 | env-only `APP_STARTUP_MODE` (`migrate-and-serve`, `migrate`, `serve`), honest readiness message on unknown schema revisions, two-step rollout rule before schema expansion | **Porting the 1.3.3 changes** below; ship the `entrypoint.sh` foundation in `N-1` before adding expand migrations in `N` (`v1.3.2` ignores `APP_STARTUP_MODE`). |
 | 1.3.2 | test discovery from `tests/`, bootstrap migrates its own database, extraction overwrites and deletes nothing of the project's | **Porting the 1.3.2 changes** below; `scripts/run_all_tests.py` and `scripts/bootstrap_project.py` are replaced whole when the service never changed them. |
 | 1.3.1 | shared readiness probe, single-parse trace view, migration-lock test checks its own database, extraction keeps local work | **Porting the 1.3.1 changes** below; `health.py`, `trace_formatter.py`, `trace_tree.py` and `test_migration_lock.py` are replaced whole when the service never changed them. |
@@ -34,6 +35,16 @@ and let each row's check tell you whether your copy already has the change. Port
 
 A pull request to the template that changes what a service inherits adds its row here, and its
 lines below, in the same pull request.
+
+## Porting the 1.3.4 changes
+
+The reference is `git -C <mayak> diff v1.3.3 v1.3.4`. No table, runtime setting, HTTP route,
+`/health/ready` contract, `entrypoint.sh` mode, bootstrap flow or `make` target changes.
+
+| Change | What to port | How to check |
+|---|---|---|
+| Full `make verify` now runs a read-only offline Alembic graph and PostgreSQL reachability preflight immediately after printing `verify: scope:` and before `make quality-gates`, failing fast with the exact next action (`make init-project` + `make db-up-worktree`, `make db-up-worktree`, or explicit/CI target guidance) without running DDL or a second migration pass | `scripts/verify_change.py` and `scripts/validate_migrations.py`, whole when the service never changed them, plus the verify notes in `README.md` and `docs/agent_rules.md` (then `make refresh-agent-docs`) | On a PostgreSQL checkout without a running database (even on a docs-only diff), `make verify DIFF_COMPARE_BRANCH=HEAD` exits `1` right after `verify: scope:` with `verify: preflight: FAIL (migrations.database_required)` and skips `quality-gates`; `POSTGRES_ENABLED=false` and `--coverage-only` open no database connections. |
+| Pure env-only PostgreSQL targets without `.env` (including partial `POSTGRES_*` overrides without `POSTGRES_USER`) and `CI=true` without `.env` against an already-listening database now probe the effective `PostgresSettings` target instead of falsely reporting unreachable; non-loopback `POSTGRES_HOST` in `.env` and invalid configuration fail cleanly without leaking secrets or advising `make db-up-worktree` | Included in `scripts/validate_migrations.py` above | `uv run python scripts/validate_migrations.py --require-database` succeeds with valid `POSTGRES_*` env vars and no `.env`, and refuses an explicit/CI unreachable target without suggesting `make db-up-worktree`. |
 
 ## Porting the 1.3.3 changes
 

@@ -175,6 +175,25 @@ def _coverage(start: str, paths: set[str], report: Path, uv: str, tool: str) -> 
     return 0
 
 
+def _preflight_database() -> int:
+    """Read-only migration and PostgreSQL preflight before full verify runs expensive stages."""
+    from scripts.validate_migrations import (
+        collect_migration_precheck_issues,
+        format_migration_issue_lines,
+    )
+
+    issues = collect_migration_precheck_issues(Path.cwd(), require_database=True)
+    blocking = [issue for issue in issues if issue.severity == "error"]
+    if not blocking:
+        return 0
+    for issue in blocking:
+        for line in format_migration_issue_lines(issue):
+            print(f"[validate_migrations] {line}", flush=True)
+    print(f"verify: preflight: FAIL ({blocking[0].rule_id})", flush=True)
+    print("verify: FAIL — migration preflight", flush=True)
+    return max(issue.returncode for issue in blocking) or 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default="")
@@ -227,6 +246,9 @@ def main() -> int:
         "MAYAK_REQUIRE_MIGRATION_DB": "1",
     }
     if not args.coverage_only:
+        status = _preflight_database()
+        if status:
+            return status
         status = subprocess.call(("make", "--no-print-directory", "quality-gates"), env=env)
         print(f"verify: quality-gates: {'PASS' if status == 0 else 'FAIL'}", flush=True)
         if status:

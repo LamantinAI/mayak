@@ -762,3 +762,205 @@ class TestAStrictRunWithoutADatabase:
             "uv run python scripts/validate_migrations.py --require-database"
         )
         assert "docker compose" not in " ".join(str(value) for value in playbook.values())
+
+
+class TestEffectivePostgresPreflightAndReachability:
+    @pytest.fixture
+    def clean_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        for name in list(os.environ):
+            if name.startswith("POSTGRES_") or name in {
+                "CI",
+                "MIGRATIONS_ALLOW_SKIP",
+                "MAYAK_REQUIRE_MIGRATION_DB",
+            }:
+                monkeypatch.delenv(name)
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "env_vars",
+        [
+            {
+                "POSTGRES_HOST": "127.0.0.1",
+                "POSTGRES_PORT": "55432",
+                "POSTGRES_USER": "env_user",
+                "POSTGRES_PASSWORD": "env_password",
+                "POSTGRES_DB": "env_db",
+            },
+            {
+                "POSTGRES_HOST": "127.0.0.1",
+                "POSTGRES_PORT": "55432",
+            },
+        ],
+    )
+    def test_env_only_target_without_dotenv_probes_effective_dsn_and_skips_ddl(
+        self,
+        clean_env: None,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        env_vars: dict[str, str],
+    ) -> None:
+        import psycopg
+        from scripts.validate_migrations import collect_migration_precheck_issues
+
+        for key, value in env_vars.items():
+            monkeypatch.setenv(key, value)
+
+        seen_dsns: list[str] = []
+
+        class _DummyConn:
+            def __enter__(self) -> "_DummyConn":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+        def fake_connect(dsn: str, connect_timeout: int = 3) -> _DummyConn:
+            seen_dsns.append(dsn)
+            return _DummyConn()
+
+        def forbid_subprocess(*args: object, **kwargs: object) -> None:
+            raise AssertionError("precheck must stay read-only and never run Alembic")
+
+        monkeypatch.setattr(psycopg, "connect", fake_connect)
+        monkeypatch.setattr(subprocess, "run", forbid_subprocess)
+
+        issues = collect_migration_precheck_issues(tmp_path, require_database=True)
+
+        assert issues == []
+        assert len(seen_dsns) == 1
+        assert "127.0.0.1:55432" in seen_dsns[0]
+
+    @pytest.mark.unit
+    def test_ci_without_dotenv_uses_listening_default_database_and_advises_ci_target_when_down(
+        self,
+        clean_env: None,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import psycopg
+        from scripts.validate_migrations import collect_migration_precheck_issues
+
+        monkeypatch.setenv("CI", "true")
+        seen_dsns: list[str] = []
+
+        class _DummyConn:
+            def __enter__(self) -> "_DummyConn":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+        def connect_ok(dsn: str, connect_timeout: int = 3) -> _DummyConn:
+            seen_dsns.append(dsn)
+            return _DummyConn()
+
+        monkeypatch.setattr(psycopg, "connect", connect_ok)
+        assert collect_migration_precheck_issues(tmp_path, require_database=True) == []
+        assert len(seen_dsns) == 1
+        assert "localhost:5432" in seen_dsns[0]
+
+        def connect_fail(dsn: str, connect_timeout: int = 3) -> _DummyConn:
+            raise OSError("connection refused")
+
+        monkeypatch.setattr(psycopg, "connect", connect_fail)
+        issues = collect_migration_precheck_issues(tmp_path, require_database=True)
+
+        assert len(issues) == 1
+        assert issues[0].rule_id == "migrations.database_required"
+        assert "The target is set explicitly" in issues[0].message
+        assert "make db-up-worktree" not in issues[0].message
+        assert "make init-project" not in issues[0].message
+
+    @pytest.mark.unit
+    def test_non_loopback_dotenv_host_is_reported_as_explicit_target(
+        self,
+        clean_env: None,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import psycopg
+        from scripts.validate_migrations import collect_migration_precheck_issues
+
+        (tmp_path / ".env").write_text(
+            "POSTGRES_HOST=db.invalid\nPOSTGRES_USER=u\nPOSTGRES_PASSWORD=p\n",
+            encoding="utf-8",
+        )
+
+        def connect_fail(dsn: str, connect_timeout: int = 3) -> object:
+            raise OSError("name resolution failed")
+
+        monkeypatch.setattr(psycopg, "connect", connect_fail)
+        issues = collect_migration_precheck_issues(tmp_path, require_database=True)
+
+        assert len(issues) == 1
+        assert issues[0].rule_id == "migrations.database_required"
+        assert "The target is set explicitly" in issues[0].message
+        assert "make db-up-worktree" not in issues[0].message
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("kind", ["bad_marker", "bad_env_port"])
+    def test_invalid_postgres_configuration_fails_cleanly_without_leaking_secrets(
+        self,
+        clean_env: None,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        kind: str,
+    ) -> None:
+        from scripts.validate_migrations import collect_migration_precheck_issues
+
+        monkeypatch.setenv("POSTGRES_ENABLED", "true")
+        if kind == "bad_marker":
+            (tmp_path / ".env").write_text(
+                "POSTGRES_USER=probe_user\nPOSTGRES_PASSWORD=super_secret_pw\n",
+                encoding="utf-8",
+            )
+            (tmp_path / ".mayak-postgres-port").write_text("99999\n", encoding="utf-8")
+        else:
+            monkeypatch.setenv("POSTGRES_PORT", "not-a-port")
+            monkeypatch.setenv("POSTGRES_PASSWORD", "super_secret_pw")
+
+        issues = collect_migration_precheck_issues(tmp_path, require_database=True)
+
+        assert len(issues) == 1
+        assert issues[0].rule_id == "migrations.database_required"
+        assert "super_secret_pw" not in issues[0].message
+        assert "not-a-port" not in issues[0].message
+        if kind == "bad_marker":
+            assert "make db-up-worktree" in issues[0].message
+        else:
+            assert "The target is set explicitly" in issues[0].message
+            assert "make db-up-worktree" not in issues[0].message
+
+    @pytest.mark.unit
+    def test_full_validator_catches_late_db_drop_and_runs_alembic_once_when_up(
+        self,
+        clean_env: None,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        import scripts.validate_migrations as validate_migrations
+        from scripts.validate_migrations import collect_migration_precheck_issues
+
+        monkeypatch.setattr(validate_migrations, "ROOT_DIR", tmp_path)
+        (tmp_path / ".env").write_text("POSTGRES_USER=u\nPOSTGRES_PASSWORD=p\n", encoding="utf-8")
+        monkeypatch.setattr(validate_migrations, "_revision_heads", lambda: ["rev1"])
+
+        states = iter([True, False])
+        monkeypatch.setattr(validate_migrations, "_is_database_reachable", lambda: next(states))
+
+        assert collect_migration_precheck_issues(tmp_path, require_database=True) == []
+        late_issues = collect_migration_issues(tmp_path, require_database=True)
+        assert len(late_issues) == 1
+        assert late_issues[0].rule_id == "migrations.database_required"
+
+        # When reachable throughout, full validator executes upgrade-head and check once each.
+        monkeypatch.setattr(validate_migrations, "_is_database_reachable", lambda: True)
+        monkeypatch.setattr(validate_migrations, "_stamped_revision_ids", lambda: set())
+        ran: list[tuple[str, ...]] = []
+
+        def fake_run(argv: tuple[str, ...], **kwargs: object) -> None:
+            ran.append(tuple(argv))
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert collect_migration_issues(tmp_path, require_database=True) == []
+        assert [cmd[-1] for cmd in ran] == ["head", "check"]
