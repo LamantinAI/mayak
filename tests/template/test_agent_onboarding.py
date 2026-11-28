@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -309,6 +310,7 @@ def test_clean_project_without_integration_base_runs_routes_and_image(
         calls.append(command[-1])
         return 0
 
+    monkeypatch.setattr(verify_change, "_preflight_database", lambda: 0)
     monkeypatch.setattr(verify_change.subprocess, "call", fake_call)
     monkeypatch.setattr(verify_change, "unexercised_handlers", lambda report: (2, []))
 
@@ -407,6 +409,7 @@ def _verify(
         return 0
 
     monkeypatch.setattr("sys.argv", ["verify_change", "--diff-cover", "diff-cover", *arguments])
+    monkeypatch.setattr(verify_change, "_preflight_database", lambda: 0)
     monkeypatch.setattr(verify_change.subprocess, "call", fake_call)
     monkeypatch.setattr(verify_change, "unexercised_handlers", lambda report: (2, []))
     monkeypatch.setattr(verify_change, "_coverage", lambda *args: 0)
@@ -502,3 +505,331 @@ def test_verify_coverage_only_reports_its_scope(
 
     assert calls == []
     assert lines[1] == "verify: scope: uncommitted paths only (no base); commits are not measured"
+
+
+def _write_revision(versions_dir: Path, filename: str, rev: str, down: str | None) -> None:
+    versions_dir.mkdir(parents=True, exist_ok=True)
+    down_repr = "None" if down is None else repr(down)
+    (versions_dir / filename).write_text(
+        f"revision = {rev!r}\ndown_revision = {down_repr}\n"
+        "def upgrade() -> None:\n    pass\n"
+        "def downgrade() -> None:\n    pass\n",
+        encoding="utf-8",
+    )
+
+
+class TestVerifyEarlyDatabasePreflight:
+    @pytest.fixture
+    def repo_cwd(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        for name in list(os.environ):
+            if name.startswith("POSTGRES_") or name in {
+                "CI",
+                "MIGRATIONS_ALLOW_SKIP",
+                "MAYAK_REQUIRE_MIGRATION_DB",
+            }:
+                monkeypatch.delenv(name)
+        monkeypatch.setenv("POSTGRES_ENABLED", "true")
+        _repo(tmp_path)
+        (tmp_path / ".git" / "info" / "exclude").write_text(
+            ".env\n.mayak-postgres-port\n", encoding="utf-8"
+        )
+        monkeypatch.chdir(tmp_path)
+        return tmp_path
+
+    def _run_verify(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        *arguments: str,
+        gate_status: int = 0,
+    ) -> tuple[int, list[str], list[str]]:
+        from scripts import verify_change
+
+        stages: list[str] = []
+
+        def fake_call(command: tuple[str, ...], **kwargs: object) -> int:
+            stages.append(command[-1])
+            return gate_status if command[-1] == "quality-gates" else 0
+
+        def fake_routes(report: Path) -> int:
+            stages.append("routes")
+            return 0
+
+        def fake_coverage(*args: object) -> int:
+            stages.append("diff-coverage")
+            return 0
+
+        monkeypatch.setattr("sys.argv", ["verify_change", "--diff-cover", "diff-cover", *arguments])
+        monkeypatch.setattr(verify_change.subprocess, "call", fake_call)
+        monkeypatch.setattr(verify_change, "_check_routes", fake_routes)
+        monkeypatch.setattr(verify_change, "_coverage", fake_coverage)
+        rc = verify_change.main()
+        return rc, stages, capsys.readouterr().out.splitlines()
+
+    @pytest.mark.unit
+    def test_unconfigured_checkout_fails_before_expensive_stages_without_connecting(
+        self,
+        repo_cwd: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        import psycopg
+
+        def forbid_connect(*args: object, **kwargs: object) -> object:
+            raise AssertionError("unconfigured local checkout should not open a DB socket")
+
+        monkeypatch.setattr(psycopg, "connect", forbid_connect)
+        rc, stages, lines = self._run_verify(monkeypatch, capsys)
+        text = "\n".join(lines)
+
+        assert rc == 1
+        assert stages == []
+        assert any(line.startswith("verify: scope:") for line in lines)
+        assert "migrations.database_required" in text
+        assert 0 <= text.index("make init-project") < text.index("make db-up-worktree")
+        assert lines[-2] == "verify: preflight: FAIL (migrations.database_required)"
+        assert lines[-1] == "verify: FAIL — migration preflight"
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("changed_path", ["README.md", "tests/test_docs_only.py"])
+    def test_local_dotenv_without_running_db_fails_early_even_on_docs_or_test_diff(
+        self,
+        repo_cwd: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        changed_path: str,
+    ) -> None:
+        import psycopg
+
+        (repo_cwd / ".env").write_text(
+            "POSTGRES_USER=probe_user\nPOSTGRES_PASSWORD=probe_secret\n",
+            encoding="utf-8",
+        )
+        target = repo_cwd / changed_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# change\n", encoding="utf-8")
+
+        def fail_connect(*args: object, **kwargs: object) -> object:
+            raise OSError("connection refused")
+
+        monkeypatch.setattr(psycopg, "connect", fail_connect)
+        rc, stages, lines = self._run_verify(monkeypatch, capsys)
+        text = "\n".join(lines)
+
+        assert rc == 1
+        assert stages == []
+        assert "Start this checkout's own database: make db-up-worktree" in text
+        assert "make init-project" not in text
+        assert "probe_secret" not in text
+        assert lines[-1] == "verify: FAIL — migration preflight"
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("env_updates", "dotenv_text"),
+        [
+            ({"POSTGRES_HOST": "db.invalid"}, None),
+            ({"CI": "true"}, None),
+            ({}, "POSTGRES_HOST=db.invalid\nPOSTGRES_USER=u\nPOSTGRES_PASSWORD=s\n"),
+        ],
+    )
+    def test_bad_explicit_or_ci_target_skips_expensive_stages_without_worktree_hint(
+        self,
+        repo_cwd: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        env_updates: dict[str, str],
+        dotenv_text: str | None,
+    ) -> None:
+        import psycopg
+
+        for key, value in env_updates.items():
+            monkeypatch.setenv(key, value)
+        if dotenv_text is not None:
+            (repo_cwd / ".env").write_text(dotenv_text, encoding="utf-8")
+
+        def fail_connect(*args: object, **kwargs: object) -> object:
+            raise OSError("connection refused")
+
+        monkeypatch.setattr(psycopg, "connect", fail_connect)
+        rc, stages, lines = self._run_verify(monkeypatch, capsys)
+        text = "\n".join(lines)
+
+        assert rc == 1
+        assert stages == []
+        assert "The target is set explicitly" in text
+        assert "make db-up-worktree" not in text
+        assert lines[-2] == "verify: preflight: FAIL (migrations.database_required)"
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        ("env_updates", "expected_host_port"),
+        [
+            (
+                {
+                    "POSTGRES_HOST": "127.0.0.1",
+                    "POSTGRES_PORT": "55432",
+                    "POSTGRES_USER": "env_u",
+                    "POSTGRES_PASSWORD": "env_p",
+                    "POSTGRES_DB": "env_db",
+                },
+                "127.0.0.1:55432",
+            ),
+            ({"CI": "true"}, "localhost:5432"),
+        ],
+    )
+    def test_valid_env_only_or_ci_listening_db_without_dotenv_passes_preflight(
+        self,
+        repo_cwd: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        env_updates: dict[str, str],
+        expected_host_port: str,
+    ) -> None:
+        import psycopg
+
+        for key, value in env_updates.items():
+            monkeypatch.setenv(key, value)
+
+        seen_dsns: list[str] = []
+
+        class _DummyConn:
+            def __enter__(self) -> "_DummyConn":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+        def ok_connect(dsn: str, connect_timeout: int = 3) -> _DummyConn:
+            seen_dsns.append(dsn)
+            return _DummyConn()
+
+        monkeypatch.setattr(psycopg, "connect", ok_connect)
+        rc, stages, lines = self._run_verify(monkeypatch, capsys)
+
+        assert rc == 0
+        assert stages == ["quality-gates", "routes", "test-e2e"]
+        assert len(seen_dsns) == 1
+        assert expected_host_port in seen_dsns[0]
+        assert lines[-1] == "verify: PASS — project only; no change was measured"
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("graph_kind", ["multiple_heads", "broken_revision_graph"])
+    @pytest.mark.parametrize("postgres_enabled", ["true", "false"])
+    def test_offline_alembic_graph_errors_win_before_any_db_connection(
+        self,
+        repo_cwd: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        graph_kind: str,
+        postgres_enabled: str,
+    ) -> None:
+        import psycopg
+
+        monkeypatch.setenv("POSTGRES_ENABLED", postgres_enabled)
+        versions = repo_cwd / "alembic" / "versions"
+        if graph_kind == "multiple_heads":
+            _write_revision(versions, "001_a.py", "aaa", None)
+            _write_revision(versions, "002_b.py", "bbb", "aaa")
+            _write_revision(versions, "002_c.py", "ccc", "aaa")
+        else:
+            _write_revision(versions, "001_bad.py", "aaa", "missing_parent")
+
+        def forbid_connect(*args: object, **kwargs: object) -> object:
+            raise AssertionError("offline Alembic graph error must fail before any DB connection")
+
+        monkeypatch.setattr(psycopg, "connect", forbid_connect)
+        if graph_kind == "broken_revision_graph":
+            with pytest.warns(UserWarning, match="is not present"):
+                rc, stages, lines = self._run_verify(monkeypatch, capsys)
+        else:
+            rc, stages, lines = self._run_verify(monkeypatch, capsys)
+
+        assert rc == 1
+        assert stages == []
+        assert lines[-2] == f"verify: preflight: FAIL (migrations.{graph_kind})"
+        assert lines[-1] == "verify: FAIL — migration preflight"
+
+    @pytest.mark.unit
+    def test_late_failure_in_quality_gates_still_fails_after_preflight_passes(
+        self,
+        repo_cwd: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        import psycopg
+
+        (repo_cwd / ".env").write_text("POSTGRES_USER=u\nPOSTGRES_PASSWORD=p\n", encoding="utf-8")
+        (repo_cwd / ".mayak-postgres-port").write_text("35432\n", encoding="utf-8")
+
+        class _DummyConn:
+            def __enter__(self) -> "_DummyConn":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+        monkeypatch.setattr(psycopg, "connect", lambda dsn, connect_timeout=3: _DummyConn())
+        rc, stages, lines = self._run_verify(monkeypatch, capsys, gate_status=1)
+
+        assert rc == 1
+        assert stages == ["quality-gates"]
+        assert "verify: quality-gates: FAIL" in lines
+        assert lines[-1] == "verify: FAIL — quality gates"
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("mode", ["db_none", "coverage_only"])
+    def test_db_none_and_coverage_only_open_zero_db_connections(
+        self,
+        repo_cwd: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        mode: str,
+    ) -> None:
+        import psycopg
+
+        def forbid_connect(*args: object, **kwargs: object) -> object:
+            raise AssertionError(f"{mode} must not open a PostgreSQL connection")
+
+        monkeypatch.setattr(psycopg, "connect", forbid_connect)
+        if mode == "db_none":
+            monkeypatch.setenv("POSTGRES_ENABLED", "false")
+            rc, stages, _ = self._run_verify(monkeypatch, capsys)
+            assert rc == 0
+            assert stages == ["quality-gates", "routes", "test-e2e"]
+        else:
+            rc, stages, _ = self._run_verify(monkeypatch, capsys, "--coverage-only")
+            assert rc == 0
+            assert stages == ["routes"]
+
+    @pytest.mark.unit
+    def test_worktree_profile_probes_marker_port_and_runs_full_verify(
+        self,
+        repo_cwd: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        import psycopg
+
+        (repo_cwd / ".env").write_text("POSTGRES_USER=u\nPOSTGRES_PASSWORD=p\n", encoding="utf-8")
+        (repo_cwd / ".mayak-postgres-port").write_text("35432\n", encoding="utf-8")
+        seen_dsns: list[str] = []
+
+        class _DummyConn:
+            def __enter__(self) -> "_DummyConn":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+        def ok_connect(dsn: str, connect_timeout: int = 3) -> _DummyConn:
+            seen_dsns.append(dsn)
+            return _DummyConn()
+
+        monkeypatch.setattr(psycopg, "connect", ok_connect)
+        rc, stages, lines = self._run_verify(monkeypatch, capsys)
+
+        assert rc == 0
+        assert stages == ["quality-gates", "routes", "test-e2e"]
+        assert len(seen_dsns) == 1
+        assert "127.0.0.1:35432" in seen_dsns[0]
+        assert lines[-1] == "verify: PASS — project only; no change was measured"

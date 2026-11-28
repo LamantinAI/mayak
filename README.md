@@ -130,7 +130,12 @@ make ci-local        # Local equivalent of the CI jobs, including dependency aud
 
 `make quality-gates` runs the full gate by itself. Locally it can format changed Python and
 refresh the generated wrappers. The strict checks in `make verify` and CI report any needed
-fixes. If a step fails, its output supplies the diagnosis. `make doctor` is available on its own.
+fixes. After printing its scope, full `make verify` runs a read-only Alembic revision-graph
+and PostgreSQL reachability preflight before the quality gates so an unconfigured checkout,
+a stopped worktree database, an unreachable explicit/CI target, or a broken offline revision
+graph fails fast with the next command instead of after lint, types and tests (skipped for
+`POSTGRES_ENABLED=false` and `--coverage-only`). If a step fails, its output supplies the
+diagnosis. `make doctor` is available on its own.
 
 The full gate includes the **db tier**. It tests queries and schema changes against disposable
 PostgreSQL. You can set `TEST_DATABASE_URL` to a PostgreSQL test database you control. A stateless
